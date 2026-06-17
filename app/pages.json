@@ -1,0 +1,33 @@
+{
+  "pages": [
+    { "path": "pages/login/index", "style": { "navigationBarTitleText": "登录" } },
+    { "path": "pages/dashboard/index", "style": { "navigationBarTitleText": "工作台" } },
+    { "path": "pages/inventory/query", "style": { "navigationBarTitleText": "库存查询" } },
+    { "path": "pages/sales/quick", "style": { "navigationBarTitleText": "手机开单" } },
+    { "path": "pages/sales/order", "style": { "navigationBarTitleText": "销售订单" } },
+    { "path": "pages/purchase/order", "style": { "navigationBarTitleText": "采购订单" } },
+    { "path": "pages/scan/in", "style": { "navigationBarTitleText": "扫码入库" } },
+    { "path": "pages/scan/out", "style": { "navigationBarTitleText": "扫码出库" } },
+    { "path": "pages/count/index", "style": { "navigationBarTitleText": "外勤盘点" } },
+    { "path": "pages/report/index", "style": { "navigationBarTitleText": "经营简报" } },
+    { "path": "pages/profile/index", "style": { "navigationBarTitleText": "我的" } }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "工业ERP",
+    "navigationBarBackgroundColor": "#1e6091",
+    "backgroundColor": "#f5f5f5"
+  },
+  "tabBar": {
+    "color": "#7a7e83",
+    "selectedColor": "#1e6091",
+    "backgroundColor": "#fff",
+    "list": [
+      { "pagePath": "pages/dashboard/index", "text": "工作台", "iconPath": "static/icons/home.png", "selectedIconPath": "static/icons/home-active.png" },
+      { "pagePath": "pages/inventory/query", "text": "库存", "iconPath": "static/icons/stock.png", "selectedIconPath": "static/icons/stock-active.png" },
+      { "pagePath": "pages/sales/quick", "text": "开单", "iconPath": "static/icons/sale.png", "selectedIconPath": "static/icons/sale-active.png" },
+      { "pagePath": "pages/report/index", "text": "报表", "iconPath": "static/icons/report.png", "selectedIconPath": "static/icons/report-active.png" },
+      { "pagePath": "pages/profile/index", "text": "我的", "iconPath": "static/icons/me.png", "selectedIconPath": "static/icons/me-active.png" }
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.inventory.mapper.InvStockMapper">
+
+    <resultMap id="StockMap" type="com.industrial.erp.modules.inventory.entity.InvStock">
+        <id column="id" property="id"/>
+        <result column="warehouse_id" property="warehouseId"/>
+        <result column="warehouse_name" property="warehouseName"/>
+        <result column="area_id" property="areaId"/>
+        <result column="location_id" property="locationId"/>
+        <result column="location_name" property="locationName"/>
+        <result column="product_id" property="productId"/>
+        <result column="product_code" property="productCode"/>
+        <result column="product_name" property="productName"/>
+        <result column="spec" property="spec"/>
+        <result column="unit_id" property="unitId"/>
+        <result column="unit_name" property="unitName"/>
+        <result column="batch_no" property="batchNo"/>
+        <result column="qty" property="qty"/>
+        <result column="available_qty" property="availableQty"/>
+        <result column="lock_qty" property="lockQty"/>
+        <result column="avg_cost" property="avgCost"/>
+        <result column="total_cost" property="totalCost"/>
+        <result column="version" property="version"/>
+    </resultMap>
+
+    <select id="selectForUpdate" resultMap="StockMap">
+        SELECT * FROM inv_stock
+        WHERE warehouse_id = #{warehouseId}
+          AND IFNULL(#{locationId}, 0) = IFNULL(location_id, 0)
+          AND product_id = #{productId}
+          AND IFNULL(#{batchNo}, '') = IFNULL(batch_no, '')
+          AND deleted = 0
+        FOR UPDATE
+    </select>
+
+    <insert id="incrStock">
+        INSERT INTO inv_stock
+        (warehouse_id, warehouse_name, location_id, location_name,
+         product_id, product_code, product_name, spec, unit_id, unit_name,
+         batch_no, qty, available_qty, avg_cost, total_cost, last_in_date, create_time, update_time, deleted)
+        VALUES
+        (#{warehouseId}, #{warehouseName}, IFNULL(#{locationId},0), IFNULL(#{locationName},''),
+         #{productId}, #{productCode}, #{productName}, IFNULL(#{spec},''), IFNULL(#{unitId},0), IFNULL(#{unitName},''),
+         IFNULL(#{batchNo},''), #{qty}, #{qty}, #{amount}/#{qty}, #{amount}, #{bizDate}, NOW(), NOW(), 0)
+        ON DUPLICATE KEY UPDATE
+            qty = qty + VALUES(qty),
+            available_qty = available_qty + VALUES(qty),
+            total_cost = total_cost + VALUES(total_cost),
+            avg_cost = (qty + VALUES(qty)) > 0
+                       ? (total_cost + VALUES(total_cost)) / (qty + VALUES(qty))
+                       : avg_cost,
+            last_in_date = VALUES(last_in_date),
+            update_time = NOW()
+    </insert>
+
+    <update id="updateQtyAndAvgCost">
+        UPDATE inv_stock
+        SET qty = #{qty},
+            available_qty = #{qty},
+            avg_cost = #{avgCost},
+            total_cost = #{totalCost},
+            last_out_date = #{bizDate},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+</mapper>

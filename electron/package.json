@@ -1,0 +1,51 @@
+{
+  "name": "industrial-erp-desktop",
+  "version": "1.0.0",
+  "description": "工业ERP桌面客户端 (Electron + Vue3)",
+  "main": "src/main.js",
+  "author": "ERP Team",
+  "license": "MIT",
+  "scripts": {
+    "dev": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "node-printer": "^0.6.0"
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.13.0"
+  },
+  "build": {
+    "appId": "com.industrial.erp",
+    "productName": "工业ERP",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "工业ERP"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.icns"
+    }
+  }
+}

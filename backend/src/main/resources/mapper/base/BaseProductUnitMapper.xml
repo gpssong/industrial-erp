@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.base.mapper.BaseProductUnitMapper">
+    <select id="selectByProductId" resultType="com.industrial.erp.modules.base.entity.BaseProductUnit">
+        SELECT * FROM base_product_unit WHERE product_id = #{productId} AND deleted = 0 ORDER BY is_main DESC, sort_no
+    </select>
+    <select id="selectMainUnit" resultType="com.industrial.erp.modules.base.entity.BaseProductUnit">
+        SELECT * FROM base_product_unit WHERE product_id = #{productId} AND is_main = 1 AND deleted = 0 LIMIT 1
+    </select>
+</mapper>

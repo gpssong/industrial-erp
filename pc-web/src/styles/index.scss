@@ -1,0 +1,17 @@
+:root {
+  --primary-color: #1e6091;
+  --primary-light: #2980b9;
+  --bg-color: #f0f2f5;
+  --menu-bg: #001529;
+  --menu-active: #1890ff;
+}
+html, body { margin: 0; padding: 0; height: 100%; }
+body { background: var(--bg-color); font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+.flex { display: flex; } .flex-1 { flex: 1; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+.flex-center { display: flex; justify-content: center; align-items: center; }
+.page-card { background: #fff; padding: 16px; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.search-bar { background: #fff; padding: 16px; border-radius: 4px; margin-bottom: 8px; }
+.table-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+  .left { display: flex; gap: 8px; } .right { display: flex; gap: 8px; } }
+.industrial-title { background: linear-gradient(90deg, var(--primary-color), var(--primary-light)); color: #fff; padding: 8px 16px; font-weight: bold; border-radius: 4px; }

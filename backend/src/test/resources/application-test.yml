@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:erp_test;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+sa-token:
+  jwt-secret-key: industrial-erp-jwt-test
