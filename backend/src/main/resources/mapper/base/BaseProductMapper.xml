@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.base.mapper.BaseProductMapper">
+    <select id="selectByCode" resultType="com.industrial.erp.modules.base.entity.BaseProduct">
+        SELECT * FROM base_product WHERE product_code = #{code} AND deleted = 0 LIMIT 1
+    </select>
+    <select id="selectByBarcode" resultType="com.industrial.erp.modules.base.entity.BaseProduct">
+        SELECT * FROM base_product WHERE barcode = #{barcode} AND deleted = 0 LIMIT 1
+    </select>
+    <select id="selectStockSummary" resultType="java.util.Map">
+        SELECT warehouse_id AS warehouseId,
+               warehouse_name AS warehouseName,
+               SUM(qty) AS qty,
+               SUM(available_qty) AS availableQty,
+               SUM(total_cost) AS totalCost
+        FROM inv_stock
+        WHERE product_id = #{productId} AND deleted = 0
+        GROUP BY warehouse_id, warehouse_name
+    </select>
+</mapper>

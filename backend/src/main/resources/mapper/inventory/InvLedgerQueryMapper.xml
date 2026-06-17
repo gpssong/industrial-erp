@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.inventory.mapper.InvLedgerQueryMapper">
+    <select id="selectStockByProduct" resultType="java.util.Map">
+        SELECT * FROM inv_stock
+        WHERE product_id = #{productId} AND deleted = 0 AND qty > 0
+        ORDER BY last_in_date
+    </select>
+    <select id="selectStockAll" resultType="java.util.Map">
+        SELECT s.*, w.warehouse_name AS wh_name
+        FROM inv_stock s LEFT JOIN base_warehouse w ON w.id = s.warehouse_id
+        WHERE s.deleted = 0
+        ORDER BY s.product_id, s.warehouse_id
+    </select>
+</mapper>

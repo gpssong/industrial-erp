@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.base.mapper.BaseCustomerMapper">
+    <update id="incrCreditUsed">
+        UPDATE base_customer SET credit_used = credit_used + #{delta}, update_time = NOW() WHERE id = #{id}
+    </update>
+</mapper>

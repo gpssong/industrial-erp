@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.report.mapper.ReportMapper">
+
+    <select id="salesSummary" resultType="java.util.Map">
+        SELECT bill_date AS date,
+               COUNT(*) AS billCount,
+               SUM(total_qty) AS totalQty,
+               SUM(total_amount_tax) AS totalAmount,
+               SUM(profit_amount) AS totalProfit
+        FROM sal_delivery
+        WHERE bill_status IN ('CHECKED','FINISHED') AND deleted = 0
+          AND bill_date BETWEEN #{startDate} AND #{endDate}
+        GROUP BY bill_date ORDER BY bill_date
+    </select>
+
+    <select id="salesRanking" resultType="java.util.Map">
+        SELECT customer_id AS customerId,
+               customer_name AS customerName,
+               COUNT(*) AS billCount,
+               SUM(total_amount_tax) AS totalAmount
+        FROM sal_delivery
+        WHERE bill_status IN ('CHECKED','FINISHED') AND deleted = 0
+          AND bill_date BETWEEN #{startDate} AND #{endDate}
+        GROUP BY customer_id, customer_name
+        ORDER BY totalAmount DESC LIMIT #{limit}
+    </select>
+
+    <select id="inventorySummary" resultType="java.util.Map">
+        SELECT product_id AS productId, product_code AS productCode, product_name AS productName,
+               spec, unit_name AS unitName,
+               SUM(qty) AS qty,
+               SUM(available_qty) AS availableQty,
+               AVG(avg_cost) AS avgCost,
+               SUM(total_cost) AS totalCost
+        FROM inv_stock
+        WHERE deleted = 0
+        GROUP BY product_id, product_code, product_name, spec, unit_name
+        ORDER BY totalCost DESC
+    </select>
+
+    <select id="inventoryAging" resultType="java.util.Map">
+        SELECT product_id AS productId, product_name AS productName, batch_no AS batchNo,
+               qty, last_in_date AS lastInDate,
+               DATEDIFF(NOW(), last_in_date) AS days
+        FROM inv_stock
+        WHERE deleted = 0 AND qty > 0
+        ORDER BY last_in_date
+    </select>
+
+    <select id="arapSummary" resultType="java.util.Map">
+        SELECT customer_id AS partnerId, customer_name AS partnerName,
+               SUM(amount) AS totalAmount, SUM(paid_amount) AS paidAmount, SUM(balance) AS balance
+        FROM fin_arap
+        WHERE deleted = 0 AND bill_type = #{billType}
+        GROUP BY customer_id, customer_name
+    </select>
+
+    <select id="profitAnalysis" resultType="java.util.Map">
+        SELECT DATE_FORMAT(bill_date, '%Y-%m') AS month,
+               SUM(total_amount_tax) AS totalAmount,
+               SUM(cost_amount) AS totalCost,
+               SUM(profit_amount) AS totalProfit,
+               CASE WHEN SUM(total_amount_tax) = 0 THEN 0
+                    ELSE SUM(profit_amount)/SUM(total_amount_tax)*100 END AS profitRate
+        FROM sal_delivery
+        WHERE bill_status IN ('CHECKED','FINISHED') AND deleted = 0
+          AND bill_date BETWEEN #{startDate} AND #{endDate}
+        GROUP BY DATE_FORMAT(bill_date, '%Y-%m') ORDER BY month
+    </select>
+
+    <select id="dashboardKpi" resultType="java.util.Map">
+        SELECT
+            (SELECT IFNULL(SUM(total_amount_tax),0) FROM sal_delivery WHERE DATE(bill_date)=CURDATE() AND bill_status IN ('CHECKED','FINISHED') AND deleted=0) AS todaySales,
+            (SELECT IFNULL(SUM(total_amount_tax),0) FROM sal_delivery WHERE bill_status IN ('CHECKED','FINISHED') AND deleted=0) AS totalSales,
+            (SELECT IFNULL(SUM(total_amount_tax),0) FROM pur_receipt WHERE DATE(bill_date)=CURDATE() AND bill_status IN ('CHECKED','FINISHED') AND deleted=0) AS todayPurchase,
+            (SELECT IFNULL(COUNT(*),0) FROM inv_stock WHERE deleted = 0) AS stockSkuCount,
+            (SELECT IFNULL(SUM(balance),0) FROM fin_arap WHERE deleted = 0 AND bill_type = 'AR') AS arBalance,
+            (SELECT IFNULL(SUM(balance),0) FROM fin_arap WHERE deleted = 0 AND bill_type = 'AP') AS apBalance,
+            (SELECT COUNT(*) FROM inv_warning WHERE status = 0) AS warningCount
+    </select>
+</mapper>

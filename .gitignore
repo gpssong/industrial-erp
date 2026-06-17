@@ -1,0 +1,110 @@
+# ============================================
+# 工业 ERP .gitignore
+# ============================================
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+.fleet/
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ===== 后端 =====
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+backend/HELP.md
+backend/!.mvn/wrapper/maven-wrapper.jar
+backend/**/target/
+backend/**/*.class
+backend/**/*.jar
+backend/**/*.war
+backend/**/*.log
+backend/logs/
+backend/*.pid
+
+# ===== 前端 =====
+pc-web/node_modules/
+pc-web/dist/
+pc-web/.vite/
+pc-web/.cache/
+pc-web/.pnpm-store/
+pc-web/npm-debug.log*
+pc-web/yarn-debug.log*
+pc-web/yarn-error.log*
+pc-web/pnpm-debug.log*
+pc-web/.env.local
+pc-web/.env.*.local
+
+# ===== 桌面端 =====
+electron/dist/
+electron/node_modules/
+electron/out/
+electron/.cache/
+
+# ===== 移动端 =====
+app/unpackage/
+app/node_modules/
+app/dist/
+
+# ===== 本地运行配置(密码、缓存、日志) =====
+.local-logs/
+.local-config/
+*.pid
+*.log
+
+# ===== 数据库 / 备份 =====
+*.sql.bak
+*.sql.gz
+*.dump
+db_data/
+mysql_data/
+postgres_data/
+
+# ===== 环境与凭据(绝对不入仓) =====
+.env
+.env.local
+.env.*.local
+application-local.yml
+application-prod.yml
+**/application-local.yml
+**/application-prod.yml
+*.pem
+*.key
+*.p12
+*.jks
+keystore/
+ssl/
+
+# ===== 上传 / 临时文件 =====
+upload/
+uploads/
+tmp/
+temp/
+*.tmp
+*.swp
+*.bak
+*.orig
+*~
+.~lock.*
+
+# ===== 测试产物 =====
+coverage/
+*.lcov
+.nyc_output/
+test-results/
+target/surefire-reports/
+target/jacoco.exec
+
+# ===== 日志(统一放 .local-logs/ 之外) =====
+logs/
+*.log
