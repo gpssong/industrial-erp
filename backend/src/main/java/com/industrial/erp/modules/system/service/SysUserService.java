@@ -56,10 +56,24 @@ public class SysUserService {
 
     public void update(SysUser user) {
         permService.requirePerm("system:user:edit");
-        if (StrUtil.isNotBlank(user.getPassword())) {
-            user.setPassword(ENCODER.encode(user.getPassword()));
-        }
-        userMapper.updateById(user);
+        // 只更新基本信息，密码由 resetPassword 单独处理
+        SysUser u = new SysUser();
+        u.setId(user.getId());
+        if (StrUtil.isNotBlank(user.getNickname())) u.setNickname(user.getNickname());
+        if (user.getPhone() != null) u.setPhone(user.getPhone());
+        if (user.getEmail() != null) u.setEmail(user.getEmail());
+        if (user.getSex() != null) u.setSex(user.getSex());
+        if (user.getDeptId() != null) u.setDeptId(user.getDeptId());
+        if (user.getStatus() != null) u.setStatus(user.getStatus());
+        userMapper.updateById(u);
+    }
+
+    public void updatePassword(Long userId, String password) {
+        permService.requirePerm("system:user:edit");
+        SysUser u = new SysUser();
+        u.setId(userId);
+        u.setPassword(ENCODER.encode(password));
+        userMapper.updateById(u);
     }
 
     public void delete(Long id) {

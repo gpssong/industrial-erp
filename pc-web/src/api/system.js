@@ -8,7 +8,8 @@ export const userApi = {
   delete: (id) => request.delete(`/system/user/${id}`),
   resetPwd: (id, newPwd) => request.post(`/system/user/${id}/resetPwd`, null, { params: { newPwd } }),
   getRoles: (id) => request.get(`/system/user/${id}/roles`),
-  assignRoles: (id, roleIds) => request.put(`/system/user/${id}/roles`, roleIds)
+  assignRoles: (id, roleIds) => request.put(`/system/user/${id}/roles`, roleIds),
+  updatePassword: (id, password) => request.put(`/system/user/${id}/password`, { password })
 }
 
 export const roleApi = {

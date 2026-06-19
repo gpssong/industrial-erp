@@ -179,10 +179,9 @@ async function submitEdit() {
   try {
     const { roleIds, changePwd, password, ...rest } = editForm
     if (changePwd && password) {
-      await userApi.update({ ...rest, password })
-    } else {
-      await userApi.update(rest)
+      await userApi.updatePassword(editForm.id, password)
     }
+    await userApi.update(rest)
     await userApi.assignRoles(editForm.id, roleIds || [])
     ElMessage.success('更新成功')
     editVisible.value = false
