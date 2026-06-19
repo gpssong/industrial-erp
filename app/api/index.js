@@ -1,10 +1,12 @@
-const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080/api'
+function getBase() {
+  return uni.getStorageSync('erp_server') || 'http://localhost:8080/api'
+}
 
 function request({ url, method = 'GET', data = {} }) {
   return new Promise((resolve, reject) => {
     const token = uni.getStorageSync('erp_token')
     uni.request({
-      url: BASE + url,
+      url: getBase() + url,
       method,
       data,
       header: { 'Authorization': token || '' },
