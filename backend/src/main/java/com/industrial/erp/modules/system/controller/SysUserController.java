@@ -40,9 +40,9 @@ public class SysUserController {
 
     @Operation(summary = "新增")
     @PostMapping
-    public R<Void> add(@RequestBody @Valid SysUser user) {
+    public R<Long> add(@RequestBody @Valid SysUser user) {
         userService.add(user);
-        return R.ok();
+        return R.ok(user.getId());
     }
 
     @Operation(summary = "修改")
