@@ -14,7 +14,10 @@
     </view>
     <view class="card">
       <text class="title">商品明细 ({{ details.length }})</text>
-      <view class="btn" @click="addLine" style="margin-top:8px;background:var(--success)">➕ 添加商品</view>
+      <view style="display:flex;gap:8px;margin-top:8px">
+        <view class="btn" @click="scanAddLine" style="flex:1;background:var(--success)">📷 扫码添加</view>
+        <view class="btn" @click="addLine" style="flex:1;background:var(--primary)">⌨️ 手动输入</view>
+      </view>
       <view v-for="(d, i) in details" :key="i" style="border-top:1px solid #eee;padding:8px 0">
         <view class="row">
           <text>{{ d.productName }}</text>
@@ -49,7 +52,7 @@ const totalQty = computed(() => details.value.reduce((s, d) => s + (+d.qty || 0)
 const totalAmount = computed(() => details.value.reduce((s, d) => s + (d.amount || 0), 0))
 function pickCustomer(c) { customerId.value = c.id; customerName.value = c.customerName }
 function addLine() {
-  uni.showModal({ title: '添加商品', editable: true, placeholderText: '请输入商品编码',
+  uni.showModal({ title: '添加商品', editable: true, placeholderText: '请输入商品编码/名称',
     success: async (r) => {
       if (!r.confirm || !r.content) return
       const res = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: r.content })
@@ -58,6 +61,22 @@ function addLine() {
         details.value.push({ productId: p.productId, productCode: p.productCode, productName: p.productName, spec: p.spec, unitName: p.unitName, qty: 1, price: p.salesPrice, taxRate: 13, remark: '', amount: 0 })
         recalc(details.value[details.value.length - 1])
       } else { uni.showToast({ title: '商品未找到', icon: 'none' }) }
+    }
+  })
+}
+function scanAddLine() {
+  uni.scanCode({
+    success: async (res) => {
+      const res2 = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: res.result })
+      if (res2.records && res2.records[0]) {
+        const p = res2.records[0]
+        details.value.push({ productId: p.productId, productCode: p.productCode, productName: p.productName, spec: p.spec, unitName: p.unitName, qty: 1, price: p.salesPrice, taxRate: 13, remark: '', amount: 0 })
+        recalc(details.value[details.value.length - 1])
+        uni.showToast({ title: '已添加: ' + p.productName, icon: 'none' })
+      } else { uni.showToast({ title: '商品未找到', icon: 'none' }) }
+    },
+    fail: () => {
+      uni.showToast({ title: '扫码取消', icon: 'none' })
     }
   })
 }
