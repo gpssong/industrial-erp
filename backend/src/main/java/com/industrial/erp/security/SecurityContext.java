@@ -37,6 +37,15 @@ public final class SecurityContext {
 
     public static boolean isSuperAdmin() {
         Long uid = getUserId();
-        return uid != null && Constants.SUPER_ADMIN_ID.equals(uid);
+        if (uid == null) return false;
+        // 同时支持 ID=1 和 is_admin=1 的用户
+        if (Constants.SUPER_ADMIN_ID.equals(uid)) return true;
+        // is_admin 字段从 Session 中获取（登录时已存入）
+        try {
+            Object isAdmin = StpUtil.getSession().get("isAdmin");
+            return isAdmin != null && Integer.valueOf(1).equals(isAdmin);
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
