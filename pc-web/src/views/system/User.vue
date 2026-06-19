@@ -127,7 +127,7 @@ const addRules = reactive({ username: [{ required: true, message: '请输入用�
 async function loadRoles() {
   if (allRoles.value.length === 0) {
     const r = await roleApi.page({ pageNum: 1, pageSize: 999 })
-    allRoles.value = (r.records || [])
+    allRoles.value = (r.data?.records || [])
   }
 }
 
