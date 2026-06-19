@@ -23,7 +23,7 @@
 </template>
 <script setup>
 import { ref, onMounted } from 'vue'
-import api from '../api/index.js'
+import api from '../../api/index.js'
 const kpi = ref({ todaySales: 0, todayPurchase: 0, arBalance: 0, apBalance: 0 })
 const stockList = ref([])
 const today = new Date().toISOString().substring(0, 10)

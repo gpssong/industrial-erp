@@ -24,7 +24,7 @@
 </template>
 <script setup>
 import { ref, onMounted } from 'vue'
-import api from '../api/index.js'
+import api from '../../api/index.js'
 const keyword = ref('')
 const list = ref([])
 async function loadData() { list.value = (await api.stockPage({ pageNum: 1, pageSize: 50, keyword: keyword.value })).records || [] }

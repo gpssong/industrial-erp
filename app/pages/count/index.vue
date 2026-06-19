@@ -28,7 +28,7 @@
 </template>
 <script setup>
 import { ref } from 'vue'
-import api from '../api/index.js'
+import api from '../../api/index.js'
 const list = ref([])
 function onScan() {
   uni.scanCode({ success: (res) => {
