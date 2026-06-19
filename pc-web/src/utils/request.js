@@ -8,7 +8,8 @@ import 'nprogress/nprogress.css'
 NProgress.configure({ showSpinner: false })
 
 const service = axios.create({
-  baseURL: '/api',
+  // 开发模式(Vite proxy)用 /api；Electron 打包后从 localStorage 读取配置的服务器地址
+  baseURL: import.meta.env.DEV ? '/api' : (localStorage.getItem('erp_api_base') || '/api'),
   timeout: 30000
 })
 
