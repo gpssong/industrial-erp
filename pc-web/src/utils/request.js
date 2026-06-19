@@ -17,7 +17,7 @@ const service = axios.create({
 service.interceptors.request.use(config => {
   NProgress.start()
   const user = useUserStore()
-  if (user.token) config.headers['Authorization'] = user.token
+  if (user.token) config.headers['Authorization'] = user.token  // Sa-Token 直接取值，不加 Bearer 前缀
   return config
 }, err => Promise.reject(err))
 
