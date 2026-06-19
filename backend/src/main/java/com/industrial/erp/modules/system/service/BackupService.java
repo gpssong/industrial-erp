@@ -186,4 +186,64 @@ public class BackupService {
         }
         log.info("[FactoryReset] 恢复出厂设置完成");
     }
+
+    /** 选择性清空指定表数据（保留系统表） */
+    public void clearData(java.util.List<String> tables) {
+        if (tables == null || tables.isEmpty()) return;
+        // 安全白名单：只允许清空以下业务表
+        java.util.Set<String> allowed = java.util.Set.of(
+            // 基础数据
+            "base_product", "base_product_category", "base_product_unit", "base_price_level",
+            "base_customer", "base_supplier", "base_unit",
+            "base_warehouse", "base_warehouse_area", "base_warehouse_location",
+            // 采购
+            "pur_inquiry", "pur_inquiry_detail",
+            "pur_order", "pur_order_detail",
+            "pur_receipt", "pur_receipt_detail",
+            "pur_return", "pur_return_detail",
+            "pur_payment",
+            // 销售
+            "sal_quotation", "sal_quotation_detail",
+            "sal_order", "sal_order_detail",
+            "sal_delivery", "sal_delivery_detail",
+            "sal_return", "sal_return_detail",
+            "sal_receipt",
+            // 库存
+            "inv_stock", "inv_ledger", "inv_warning", "inv_transfer", "inv_transfer_detail",
+            "inv_cut_process", "inv_cut_process_detail",
+            "inv_check", "inv_check_detail",
+            "inv_profit_loss", "inv_profit_loss_detail",
+            "inv_serial_no",
+            // 生产
+            "prd_bom", "prd_bom_detail",
+            "prd_order", "prd_finished_in",
+            "prd_requisition", "prd_requisition_detail",
+            "prd_process",
+            // 外协
+            "out_issue", "out_issue_detail",
+            "out_processing_in", "out_processing_in_detail",
+            "out_process_fee",
+            // 财务
+            "fin_arap", "fin_cash_flow", "fin_cash_writeoff",
+            "fin_partner_balance", "fin_reconciliation",
+            // 报表
+            "rpt_daily_snapshot",
+            // 单据附件
+            "sys_bill_attachment"
+        );
+        for (String table : tables) {
+            if (!allowed.contains(table)) {
+                throw new com.industrial.erp.exception.BizException("不允许清空系统表: " + table);
+            }
+        }
+        for (String table : tables) {
+            try {
+                jdbcTemplate.execute("TRUNCATE TABLE `" + table + "`");
+                log.info("[ClearData] 已清空表: {}", table);
+            } catch (Exception e) {
+                log.error("[ClearData] 清空表失败: {}", table, e);
+                throw new com.industrial.erp.exception.BizException("清空表 " + table + " 失败: " + e.getMessage());
+            }
+        }
+    }
 }

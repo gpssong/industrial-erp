@@ -13,9 +13,6 @@
         </el-form-item>
       </el-form>
       <div class="muted-tip" style="margin-top:6px">当前地址：{{ currentBase }}</div>
-      <div style="margin-top:12px">
-        <el-button type="danger" plain @click="resetDialogVisible = true">恢复出厂设置</el-button>
-      </div>
     </div>
 
     <!-- 原有配置列表 -->
@@ -69,24 +66,6 @@
         :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
     </div>
 
-    <!-- 恢复出厂设置对话框 -->
-    <el-dialog v-model="resetDialogVisible" title="恢复出厂设置" width="460px" destroy-on-close>
-      <el-alert type="warning" :closable="false" style="margin-bottom:16px">
-        选择要清除的本地数据，选中的项目将被重置
-      </el-alert>
-      <el-checkbox-group v-model="resetChoices">
-        <el-checkbox label="server">服务器地址</el-checkbox>
-        <el-checkbox label="tax">价税分离设置</el-checkbox>
-        <el-checkbox label="user">登录信息（退出当前账号）</el-checkbox>
-        <el-checkbox label="all">清除所有本地数据</el-checkbox>
-      </el-checkbox-group>
-      <template #footer>
-        <el-button @click="resetDialogVisible=false">取消</el-button>
-        <el-button type="danger" @click="doReset">确认恢复</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 新增/编辑配置对话框 -->
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑配置' : '新增配置'" width="500px" destroy-on-close>
       <el-form :model="form" label-width="100px">
         <el-form-item label="配置名称" required>
@@ -121,7 +100,6 @@ import { reactive, ref, onMounted, computed } from 'vue'
 import { configApi } from '@/api/system'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import router from '@/router'
 const query = reactive({ pageNum: 1, pageSize: 20, configName: '', configType: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
@@ -133,36 +111,6 @@ const { taxSeparation, loadTaxSeparation, saveTaxSeparation } = useTaxSeparation
 // 服务器地址配置
 const serverBase = ref(localStorage.getItem('erp_api_base') || '')
 const currentBase = ref(localStorage.getItem('erp_api_base') || (import.meta.env.DEV ? 'http://localhost:8080/api（开发模式，使用Vite代理）' : '未设置'))
-
-// 恢复出厂设置
-const resetDialogVisible = ref(false)
-const resetChoices = ref(['server'])
-function doReset() {
-  const choices = resetChoices.value
-  if (choices.includes('all')) {
-    localStorage.clear()
-    ElMessage.success('已清除所有本地数据，即将跳转登录页')
-    setTimeout(() => router.push('/login'), 1000)
-    return
-  }
-  if (choices.includes('server')) {
-    localStorage.removeItem('erp_api_base')
-    serverBase.value = ''
-    currentBase.value = import.meta.env.DEV ? 'http://localhost:8080/api（开发模式，使用Vite代理）' : '未设置'
-  }
-  if (choices.includes('tax')) {
-    localStorage.removeItem('PRICE_TAX_SEPARATION')
-  }
-  if (choices.includes('user')) {
-    localStorage.removeItem('erp_token')
-    localStorage.removeItem('erp_user')
-    ElMessage.success('已清除登录信息，即将跳转登录页')
-    setTimeout(() => router.push('/login'), 1000)
-    return
-  }
-  resetDialogVisible.value = false
-  ElMessage.success('已按选择恢复出厂设置')
-}
 
 function saveServerBase() {
   const val = serverBase.value.trim()
