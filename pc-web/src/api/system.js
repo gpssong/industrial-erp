@@ -62,5 +62,6 @@ export const backupApi = {
   manual: () => request.post('/system/backup/manual'),
   restore: (id) => request.post(`/system/backup/restore/${id}`),
   delete: (id) => request.delete(`/system/backup/${id}`),
-  factoryReset: () => request.post('/system/backup/factory-reset')
+  factoryReset: () => request.post('/system/backup/factory-reset'),
+  clearData: (tables) => request.post('/system/backup/clear', tables)
 }
