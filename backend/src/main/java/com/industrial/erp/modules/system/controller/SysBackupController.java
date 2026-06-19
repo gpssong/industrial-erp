@@ -65,11 +65,9 @@ public class SysBackupController {
     }
 
     @PostMapping("/clear")
-    public R<Void> clearData(@RequestBody ClearRequest req) {
+    public R<Void> clearData(@RequestBody java.util.List<String> tables) {
         permService.requireSuperAdmin();
-        backupService.clearData(req.getTables());
+        backupService.clearData(tables);
         return R.ok();
     }
-
-    public record ClearRequest(java.util.List<String> tables) {}
 }
