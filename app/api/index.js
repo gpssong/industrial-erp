@@ -1,5 +1,5 @@
 function getBase() {
-  return uni.getStorageSync('erp_server') || 'http://localhost:8080/api'
+  return uni.getStorageSync('erp_api_base') || 'http://localhost:8080/api'
 }
 
 function request({ url, method = 'GET', data = {} }) {

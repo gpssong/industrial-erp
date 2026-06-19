@@ -10,7 +10,8 @@
     { "path": "pages/scan/out", "style": { "navigationBarTitleText": "扫码出库" } },
     { "path": "pages/count/index", "style": { "navigationBarTitleText": "外勤盘点" } },
     { "path": "pages/report/index", "style": { "navigationBarTitleText": "经营简报" } },
-    { "path": "pages/profile/index", "style": { "navigationBarTitleText": "我的" } }
+    { "path": "pages/profile/index", "style": { "navigationBarTitleText": "我的" } },
+    { "path": "pages/profile/settings", "style": { "navigationBarTitleText": "服务器设置" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",
