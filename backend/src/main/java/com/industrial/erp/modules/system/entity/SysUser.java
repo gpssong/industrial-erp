@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.time.LocalDateTime;
 
@@ -13,7 +12,6 @@ public class SysUser {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private String username;
-    @JsonIgnore
     private String password;
     private String nickname;
     private String realName;
