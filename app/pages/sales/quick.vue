@@ -76,7 +76,8 @@ function scanAddLine() {
       } else { uni.showToast({ title: '商品未找到', icon: 'none' }) }
     },
     fail: () => {
-      uni.showToast({ title: '扫码取消', icon: 'none' })
+      // 浏览器/模拟器无相机，自动改为手动输入
+      addLine()
     }
   })
 }
