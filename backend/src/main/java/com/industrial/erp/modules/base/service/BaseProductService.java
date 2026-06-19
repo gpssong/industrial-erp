@@ -62,10 +62,19 @@ public class BaseProductService {
     @Transactional(rollbackFor = Exception.class)
     public void add(BaseProduct p, List<BaseProductUnit> units) {
         permService.requirePerm("base:product:add");
-        if (productMapper.selectByCode(p.getProductCode()) != null) {
+        // 检查是否有同编码的正常记录
+        BaseProduct exist = productMapper.selectByCode(p.getProductCode());
+        if (exist != null) {
             throw BizException.of("商品编码已存在");
         }
+        // 检查是否有软删除的同名记录，物理删除避免唯一索引冲突
+        BaseProduct deleted = productMapper.selectAnyByCode(p.getProductCode());
+        if (deleted != null) {
+            productMapper.physicalDeleteById(deleted.getId()); // 物理删除
+        }
         if (p.getStatus() == null) p.setStatus(1);
+        // 从主单位同步价格到商品
+        syncPriceFromMainUnit(p, units);
         productMapper.insert(p);
         saveUnits(p.getId(), units);
     }
@@ -75,6 +84,8 @@ public class BaseProductService {
         permService.requirePerm("base:product:edit");
         BaseProduct origin = productMapper.selectById(p.getId());
         if (origin == null) throw BizException.of("商品不存在");
+        // 从主单位同步价格到商品
+        syncPriceFromMainUnit(p, units);
         productMapper.updateById(p);
         // 删除原单位
         unitMapper.delete(new LambdaQueryWrapper<BaseProductUnit>().eq(BaseProductUnit::getProductId, p.getId()));
@@ -83,7 +94,10 @@ public class BaseProductService {
 
     public void delete(Long id) {
         permService.requirePerm("base:product:delete");
-        productMapper.deleteById(id);
+        BaseProduct p = productMapper.selectById(id);
+        if (p == null) throw BizException.of("商品不存在");
+        // 直接使用物理删除，避免唯一索引冲突
+        productMapper.physicalDeleteById(id);
     }
 
     private void saveUnits(Long productId, List<BaseProductUnit> units) {
@@ -91,8 +105,23 @@ public class BaseProductService {
         for (BaseProductUnit u : units) {
             u.setId(null);
             u.setProductId(productId);
+            if (u.getUnitId() == null) u.setUnitId(0L);
             if (u.getConversionRate() == null) u.setConversionRate(BigDecimal.ONE);
             unitMapper.insert(u);
+        }
+    }
+
+    private void syncPriceFromMainUnit(BaseProduct p, List<BaseProductUnit> units) {
+        if (units == null || units.isEmpty()) return;
+        for (BaseProductUnit u : units) {
+            if (u.getIsMain() != null && u.getIsMain() == 1) {
+                p.setSalesPrice(u.getSalesPrice());
+                p.setWholesalePrice(u.getWholesalePrice());
+                p.setVipPrice(u.getVipPrice());
+                p.setPurchasePrice(u.getPurchasePrice());
+                p.setMainUnitId(u.getUnitId());
+                break;
+            }
         }
     }
 

@@ -27,11 +27,10 @@
         <el-table-column prop="billNo" label="单号" width="180" />
         <el-table-column prop="billDate" label="日期" width="110" />
         <el-table-column prop="customerName" label="客户" />
+        <el-table-column prop="firstProductName" label="商品名称" show-overflow-tooltip />
         <el-table-column prop="warehouseId" label="仓库ID" width="80" />
         <el-table-column prop="totalQty" label="数量" width="100" align="right" />
-        <el-table-column prop="totalAmount" label="不含税金额" width="120" align="right" />
-        <el-table-column prop="taxAmount" label="税额" width="100" align="right" />
-        <el-table-column prop="totalAmountTax" label="价税合计" width="120" align="right" />
+        <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
         <el-table-column prop="costAmount" label="成本" width="100" align="right" />
         <el-table-column prop="profitAmount" label="毛利" width="100" align="right" />
         <el-table-column label="状态" width="90">
@@ -42,13 +41,13 @@
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onCheck(row)">审核</el-button>
-            <el-button link type="primary" @click="onPrint(row)">打印</el-button>
+            <el-button link type="primary" @click="openPrint(row)">打印</el-button>
             <el-button link type="primary" @click="onView(row)">详情</el-button>
           </template>
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
-        :total="data.total" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
         :page-sizes="[10,20,50,100]" @current-change="loadData" @size-change="loadData" />
     </div>
 
@@ -91,26 +90,26 @@
                 </el-select>
               </template>
             </el-table-column>
-            <el-table-column label="规格" width="120"><span>{{ row.spec }}</span></el-table-column>
-            <el-table-column label="单位" width="70"><span>{{ row.unitName }}</span></el-table-column>
+            <el-table-column label="规格" width="120"><template #default="{ row }"><span>{{ row.spec }}</span></template></el-table-column>
+            <el-table-column label="单位" width="70"><template #default="{ row }"><span>{{ row.unitName }}</span></template></el-table-column>
             <el-table-column label="数量" width="120">
-              <el-input-number v-model="row.qty" :min="0" :precision="4" size="small" @change="recalc(row)" />
+              <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="4" size="small" /></template>
             </el-table-column>
-            <el-table-column label="单价" width="120">
-              <el-input-number v-model="row.price" :min="0" :precision="4" size="small" @change="recalc(row)" />
+            <el-table-column label="单价(含税)" width="120">
+              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :precision="4" size="small" /></template>
             </el-table-column>
-            <el-table-column label="金额" width="120" align="right"><span>{{ (row.qty*row.price).toFixed(4) }}</span></el-table-column>
-            <el-table-column label="税率" width="80">
-              <el-input-number v-model="row.taxRate" :precision="2" size="small" @change="recalc(row)" />
+            <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ (row.qty*row.price).toFixed(4) }}</span></template></el-table-column>
+            <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80">
+              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" size="small" /></template>
             </el-table-column>
-            <el-table-column label="价税合计" width="120" align="right">
-              <span>{{ ((row.qty*row.price)*(1+(row.taxRate||0)/100)).toFixed(4) }}</span>
+            <el-table-column v-if="taxSeparation === 'true'" label="价税合计" width="120" align="right">
+              <template #default="{ row }"><span>{{ ((row.qty*row.price)*(1+(row.taxRate||0)/100)).toFixed(4) }}</span></template>
             </el-table-column>
-            <el-table-column label="批次" width="100"><el-input v-model="row.batchNo" size="small" /></el-table-column>
+            <el-table-column label="批次" width="100"><template #default="{ row }"><el-input v-model="row.batchNo" size="small" /></template></el-table-column>
             <el-table-column label="库位" width="100">
-              <el-input v-model="row.locationName" size="small" />
+              <template #default="{ row }"><el-input v-model="row.locationName" size="small" /></template>
             </el-table-column>
-            <el-table-column label="操作" width="60"><el-button link type="danger" size="small" @click="form.details.splice($index,1)">删</el-button></el-table-column>
+            <el-table-column label="操作" width="60"><template #default="{ row, $index }"><el-button link type="danger" size="small" @click="form.details.splice($index,1)">删</el-button></template></el-table-column>
           </el-table>
         </el-form-item>
         <el-row>
@@ -120,9 +119,12 @@
           <el-col :span="12">
             <div class="summary">
               <p>合计数量: <b>{{ totalQty.toFixed(4) }}</b></p>
-              <p>不含税金额: <b>¥ {{ totalAmount.toFixed(2) }}</b></p>
-              <p>税额: <b>¥ {{ taxAmount.toFixed(2) }}</b></p>
-              <p class="total">价税合计: <b>¥ {{ totalAmountTax.toFixed(2) }}</b></p>
+              <p v-if="taxSeparation !== 'true'">合计金额: <b>¥ {{ totalAmount.toFixed(2) }}</b></p>
+              <template v-if="taxSeparation === 'true'">
+                <p>不含税金额: <b>¥ {{ totalAmount.toFixed(2) }}</b></p>
+                <p>税额: <b>¥ {{ (totalAmount * 0.13).toFixed(2) }}</b></p>
+                <p class="total">价税合计: <b>¥ {{ (totalAmount * 1.13).toFixed(2) }}</b></p>
+              </template>
             </div>
           </el-col>
         </el-row>
@@ -134,8 +136,12 @@
     </el-dialog>
 
     <!-- 打印预览 -->
-    <el-dialog v-model="printVisible" title="打印预览" width="400px" body-style="padding:0">
-      <iframe v-if="printUrl" :src="printUrl" style="width:100%;height:600px;border:0"></iframe>
+    <el-dialog v-model="printVisible" title="打印预览" width="400px">
+      <p style="text-align:center">正在加载打印预览...</p>
+      <template #footer>
+        <el-button @click="printVisible=false">关闭</el-button>
+        <el-button type="primary" @click="doPrint">打 印</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -143,7 +149,8 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { salDeliveryApi } from '@/api/sales'
-import { customerApi, warehouseApi, productApi } from '@/api/base'
+import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
+import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage } from 'element-plus'
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', customerId: null, billStatus: '' })
@@ -152,10 +159,15 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const printVisible = ref(false)
 const printUrl = ref('')
+function doPrint() {
+  printVisible.value = false
+  window.open(printUrl.value, '_blank')
+}
 const submitting = ref(false)
 const formRef = ref()
 const customers = ref([])
 const warehouses = ref([])
+const units = ref([])
 const productList = ref([])
 
 const form = reactive({
@@ -167,8 +179,7 @@ const form = reactive({
 
 const totalQty = computed(() => form.details.reduce((s, d) => s + (+d.qty || 0), 0))
 const totalAmount = computed(() => form.details.reduce((s, d) => s + ((+d.qty || 0) * (+d.price || 0)), 0))
-const taxAmount = computed(() => totalAmount.value * 0.13)
-const totalAmountTax = computed(() => totalAmount.value - (form.discountAmount || 0) - (form.tailAmount || 0))
+const { taxSeparation, loadTaxSeparation } = useTaxSeparation()
 
 async function loadData() {
   loading.value = true
@@ -177,14 +188,20 @@ async function loadData() {
 }
 
 async function onAdd() {
+  loadTaxSeparation()
   form.id = null; form.billNo = ''; form.details = []
   customers.value = (await customerApi.page({ pageNum: 1, pageSize: 500 })).data.records
   warehouses.value = (await warehouseApi.list()).data
+  units.value = (await unitApi.list()).data
   dialogVisible.value = true
 }
 
 function addLine() {
-  form.details.push({ productId: null, qty: 1, price: 0, taxRate: 13, lineNo: form.details.length + 1 })
+  if (taxSeparation.value === 'true') {
+    form.details.push({ productId: null, qty: null, price: 0, taxRate: 13, lineNo: form.details.length + 1 })
+  } else {
+    form.details.push({ productId: null, qty: null, price: 0, lineNo: form.details.length + 1 })
+  }
 }
 
 async function searchProduct(kw) {
@@ -196,7 +213,16 @@ async function onProductChange(row, v) {
   const p = productList.value.find(x => x.id === v) || (await productApi.detail(v)).data.product
   if (!p) return
   row.productId = p.id; row.productCode = p.productCode; row.productName = p.productName
-  row.spec = p.spec; row.unitName = '主单位'
+  row.spec = p.spec
+  row.unitId = p.mainUnitId
+  row.unitName = units.value.find(u => u.id == p.mainUnitId)?.unitName || '主单位'
+  // 优先取该客户对此商品的上次订单单价
+  if (form.customerId && row.productId) {
+    try {
+      const res = await salDeliveryApi.getLastPrice(form.customerId, row.productId)
+      if (res.data > 0) { row.price = res.data; return }
+    } catch (e) { /* ignore */ }
+  }
   // 根据客户价格等级自动选价
   if (form.customerId) {
     const c = customers.value.find(x => x.id === form.customerId)
@@ -208,10 +234,7 @@ async function onProductChange(row, v) {
   } else {
     row.price = +p.salesPrice
   }
-  recalc(row)
 }
-
-function recalc(row) { /* 数值自动响应 */ }
 
 function onCustomerChange() { form.details.forEach(d => d.productId && onProductChange(d, d.productId)) }
 
@@ -221,7 +244,19 @@ async function onSave() {
   if (!form.details.length) return ElMessage.warning('请添加商品明细')
   submitting.value = true
   try {
-    await salDeliveryApi.add(form)
+    const payload = { ...form }
+    if (taxSeparation.value === 'true') {
+      let totalAmount = 0, taxAmount = 0
+      payload.details.forEach(d => {
+        const amt = (+d.qty || 0) * (+d.price || 0)
+        totalAmount += amt
+        taxAmount += amt * ((d.taxRate || 13) / 100)
+      })
+      payload.totalAmount = totalAmount
+      payload.taxAmount = taxAmount
+      payload.totalAmountTax = totalAmount + taxAmount
+    }
+    await salDeliveryApi.add(payload)
     ElMessage.success('保存成功')
     dialogVisible.value = false
     loadData()
@@ -235,14 +270,15 @@ async function onCheck(row) {
 }
 
 async function onView(row) {
+  loadTaxSeparation()
   const r = await salDeliveryApi.detail(row.id)
   Object.assign(form, r.data)
   form.billDate = form.billDate
   dialogVisible.value = true
 }
 
-function onPrint(row) {
-  printUrl.value = `/api/print/sales-delivery/${row.id}.html?token=${localStorage.getItem('erp_token')}`
+function openPrint(row) {
+  printUrl.value = `http://localhost:8080/api/print/sales-delivery/${row.id}.html?token=${localStorage.getItem('erp_token')}`
   printVisible.value = true
 }
 

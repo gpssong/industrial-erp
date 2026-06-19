@@ -78,6 +78,7 @@ CREATE TABLE `prd_order` (
   `loss_rate`     DECIMAL(8,4)  DEFAULT 0,
   `workshop`      VARCHAR(64)   DEFAULT NULL,
   `workshop_id`   BIGINT        DEFAULT NULL,
+  `warehouse_id`  BIGINT        DEFAULT NULL COMMENT '仓库ID',
   `leader`        VARCHAR(64)   DEFAULT NULL,
   `start_date`    DATE          DEFAULT NULL,
   `end_date`      DATE          DEFAULT NULL,

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.purchase.mapper.PurOrderDetailMapper">
+    <select id="selectByOrderId" resultType="com.industrial.erp.modules.purchase.entity.PurOrderDetail">
+        SELECT * FROM pur_order_detail WHERE order_id = #{orderId} AND deleted = 0 ORDER BY line_no
+    </select>
+    <select id="selectLastPriceBySupplierAndProduct" resultType="java.math.BigDecimal">
+        SELECT d.price FROM pur_order_detail d
+        JOIN pur_order b ON b.id = d.order_id
+        WHERE b.supplier_id = #{supplierId} AND d.product_id = #{productId} AND b.deleted = 0 AND d.deleted = 0
+        ORDER BY b.bill_date DESC LIMIT 1
+    </select>
+</mapper>

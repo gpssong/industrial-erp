@@ -12,6 +12,7 @@ import com.industrial.erp.modules.sales.entity.SalOrder;
 import com.industrial.erp.modules.sales.entity.SalOrderDetail;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalOrderMapper;
+import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
@@ -24,17 +25,19 @@ import java.time.LocalDate;
 @Service
 public class SalOrderService {
 
-    public SalOrderService(SalOrderMapper orderMapper, SalOrderDetailMapper detailMapper, BaseCustomerMapper customerMapper, BillNoGenerator billNoGenerator, PermissionService permService) {
+    public SalOrderService(SalOrderMapper orderMapper, SalOrderDetailMapper detailMapper, BaseCustomerMapper customerMapper, BillNoGenerator billNoGenerator, PermissionService permService, SalDeliveryDetailMapper deliveryDetailMapper) {
         this.orderMapper = orderMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
         this.billNoGenerator = billNoGenerator;
         this.permService = permService;
+        this.deliveryDetailMapper = deliveryDetailMapper;
     }
 
     private final SalOrderMapper orderMapper;
     private final SalOrderDetailMapper detailMapper;
     private final BaseCustomerMapper customerMapper;
+    private final SalDeliveryDetailMapper deliveryDetailMapper;
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
 
@@ -53,6 +56,11 @@ public class SalOrderService {
         SalOrder o = orderMapper.selectById(id);
         if (o != null) o.setDetails(detailMapper.selectByOrderId(id));
         return o;
+    }
+
+    public BigDecimal getLastPrice(Long customerId, Long productId) {
+        BigDecimal price = deliveryDetailMapper.selectLastPriceByCustomerAndProduct(customerId, productId);
+        return price != null ? price : BigDecimal.ZERO;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -98,5 +106,42 @@ public class SalOrderService {
     public void delete(Long id) {
         permService.requirePerm("sales:order:delete");
         orderMapper.deleteById(id);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void update(SalOrder order) {
+        permService.requirePerm("sales:order:edit");
+        BaseCustomer c = customerMapper.selectById(order.getCustomerId());
+        if (c == null) throw BizException.of("客户不存在");
+        order.setCustomerName(c.getCustomerName());
+
+        BigDecimal totalQty = BigDecimal.ZERO;
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal taxAmount = BigDecimal.ZERO;
+        BigDecimal totalAmountTax = BigDecimal.ZERO;
+        int line = 0;
+        for (SalOrderDetail d : order.getDetails()) {
+            d.setLineNo(++line);
+            if (d.getTaxRate() == null) d.setTaxRate(new BigDecimal("13.00"));
+            d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
+            d.setTaxAmount(d.getAmount().multiply(d.getTaxRate()).divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
+            d.setAmountTax(d.getAmount().add(d.getTaxAmount()));
+            totalQty = totalQty.add(d.getQty());
+            totalAmount = totalAmount.add(d.getAmount());
+            taxAmount = taxAmount.add(d.getTaxAmount());
+            totalAmountTax = totalAmountTax.add(d.getAmountTax());
+        }
+        order.setTotalQty(totalQty);
+        order.setTotalAmount(totalAmount);
+        order.setTaxAmount(taxAmount);
+        order.setTotalAmountTax(totalAmountTax);
+        orderMapper.updateById(order);
+        // 删除原明细，重新插入
+        detailMapper.delete(new LambdaQueryWrapper<SalOrderDetail>().eq(SalOrderDetail::getOrderId, order.getId()));
+        for (SalOrderDetail d : order.getDetails()) {
+            d.setId(null);
+            d.setOrderId(order.getId());
+            detailMapper.insert(d);
+        }
     }
 }

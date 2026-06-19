@@ -7,6 +7,8 @@ import com.industrial.erp.modules.purchase.service.PurReceiptService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+
 @Tag(name = "采购入库")
 @RestController
 @RequestMapping("/purchase/receipt")
@@ -40,5 +42,11 @@ public class PurReceiptController {
     public R<Void> check(@PathVariable Long id) {
         service.check(id);
         return R.ok();
+    }
+
+    /** 查询指定供应商+商品的上次订单单价 */
+    @GetMapping("/last-price")
+    public R<BigDecimal> lastPrice(@RequestParam Long supplierId, @RequestParam Long productId) {
+        return R.ok(service.getLastPrice(supplierId, productId));
     }
 }

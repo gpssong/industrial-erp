@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper">
+
+    <select id="selectByOrderId" resultType="com.industrial.erp.modules.sales.entity.SalOrderDetail">
+        SELECT * FROM sal_order_detail WHERE order_id = #{orderId} AND deleted = 0 ORDER BY line_no
+    </select>
+    <select id="selectLastPriceByCustomerAndProduct" resultType="java.math.BigDecimal">
+        SELECT d.price FROM sal_order_detail d
+        JOIN sal_order b ON b.id = d.order_id
+        WHERE b.customer_id = #{customerId} AND d.product_id = #{productId} AND b.deleted = 0 AND d.deleted = 0
+        ORDER BY b.bill_date DESC LIMIT 1
+    </select>
+
+</mapper>

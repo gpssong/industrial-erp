@@ -2,6 +2,7 @@ package com.industrial.erp.modules.sales.entity;
 import com.industrial.erp.modules.sales.entity.SalOrderDetail;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -46,8 +47,9 @@ public class SalOrder {
     private Long updateBy;
     private LocalDateTime updateTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
+    @TableField(exist = false)
     private List<SalOrderDetail> details;
 
     public Long getId() { return id; }

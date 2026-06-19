@@ -67,7 +67,6 @@ public class FinArapService {
         if (origin == null) throw new com.industrial.erp.exception.BizException("应收/应付单不存在");
         BigDecimal newPaid = (origin.getPaidAmount() == null ? BigDecimal.ZERO : origin.getPaidAmount()).add(amount);
         BigDecimal newBalance = (origin.getAmount() == null ? BigDecimal.ZERO : origin.getAmount()).subtract(newPaid);
-        arapMapper.updatePaidAmount(arapId, amount);
         FinArap upd = new FinArap();
         upd.setId(arapId);
         upd.setPaidAmount(newPaid);

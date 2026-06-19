@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.production.mapper.PrdBomDetailMapper">
+    <select id="selectByBomId" resultType="com.industrial.erp.modules.production.entity.PrdBomDetail">
+        SELECT * FROM prd_bom_detail WHERE bom_id = #{bomId} AND deleted = 0 ORDER BY line_no
+    </select>
+</mapper>

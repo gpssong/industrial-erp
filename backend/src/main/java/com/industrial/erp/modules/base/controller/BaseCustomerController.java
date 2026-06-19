@@ -27,6 +27,11 @@ public class BaseCustomerController {
     @GetMapping("/{id}")
     public R<BaseCustomer> detail(@PathVariable Long id) { return R.ok(service.detail(id)); }
 
+    @GetMapping("/list")
+    public R<java.util.List<BaseCustomer>> list() {
+        return R.ok(service.list());
+    }
+
     @PostMapping
     public R<Void> add(@RequestBody BaseCustomer c) { service.add(c); return R.ok(); }
 

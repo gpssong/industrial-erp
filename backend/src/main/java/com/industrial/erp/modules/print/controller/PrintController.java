@@ -28,4 +28,10 @@ public class PrintController {
     public String purchaseReceipt(@PathVariable Long id) {
         return printService.renderPurchaseReceipt(id);
     }
+
+    @GetMapping(value = "/prd-order/{id}.html", produces = "text/html;charset=UTF-8")
+    public String prdOrder(@PathVariable Long id) {
+        return printService.renderPrdOrder(id);
+    }
+
 }

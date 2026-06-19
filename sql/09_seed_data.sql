@@ -8,13 +8,53 @@ INSERT INTO `sys_user`(`id`,`username`,`password`,`nickname`,`real_name`,`is_adm
 (1,'admin','$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2','超级管理员','系统管理员',1,1);
 
 -- 10.2  部门
-INSERT INTO `sys_dept`(`id`,`parent_id`,`dept_code`,`dept_name`,`sort_no`) VALUES
-(1,0,'ROOT','总公司',0),
-(2,1,'BM_PURCHASE','采购部',1),
-(3,1,'BM_SALES','销售部',2),
-(4,1,'BM_WAREHOUSE','仓储部',3),
-(5,1,'BM_PRODUCTION','生产部',4),
-(6,1,'BM_FINANCE','财务部',5);
+INSERT INTO `sys_dept`(`id`,`parent_id`,`dept_code`,`dept_name`,`leader`,`phone`,`email`,`sort_no`,`status`) VALUES
+(1,0,'HQ','总公司','管理员','13800000000','admin@company.com',1,1),
+(2,1,'DEV','研发部','张三','13800000001','dev@company.com',1,1),
+(3,1,'SALE','销售部','李四','13800000002','sale@company.com',2,1),
+(4,1,'PUR','采购部','王五','13800000003','pur@company.com',3,1);
+
+-- 10.2b 菜单
+INSERT INTO `sys_menu`(`id`,`parent_id`,`menu_name`,`menu_type`,`path`,`component`,`perms`,`icon`,`sort_no`,`is_visible`,`status`) VALUES
+-- 一级菜单
+(1,0,'工作台','M','/dashboard','dashboard/Index.vue','','Odometer',1,1,1),
+(2,0,'系统管理','M','/system','','','Setting',2,1,1),
+(3,0,'基础资料','M','/base','','','Goods',3,1,1),
+(4,0,'采购管理','M','/purchase','','','List',4,1,1),
+(5,0,'销售管理','M','/sales','','','Sell',5,1,1),
+(6,0,'库存管理','M','/inventory','','','Grid',6,1,1),
+(7,0,'生产管理','M','/production','','','SetUp',7,1,1),
+(8,0,'财务','M','/finance','','','Money',8,1,1),
+(9,0,'报表中心','M','/report','','','DataAnalysis',9,1,1),
+-- 系统管理子菜单
+(201,2,'用户管理','M','/system/user','system/User.vue','system:user:list','User',1,1,1),
+(202,2,'角色管理','M','/system/role','system/Role.vue','system:role:list','UserFilled',2,1,1),
+(203,2,'菜单管理','M','/system/menu','system/Menu.vue','system:menu:list','Menu',3,1,1),
+(204,2,'部门管理','M','/system/dept','system/Dept.vue','system:dept:list','OfficeBuilding',4,1,1),
+(205,2,'系统设置','M','/system/settings','system/System.vue','system:config:list','Setting',5,1,1),
+-- 基础资料子菜单
+(301,3,'商品管理','M','/base/product','base/Product.vue','base:product:list','Goods',1,1,1),
+(302,3,'客户管理','M','/base/customer','base/Customer.vue','base:customer:list','Avatar',2,1,1),
+(303,3,'供应商管理','M','/base/supplier','base/Supplier.vue','base:supplier:list','Connection',3,1,1),
+(304,3,'仓库管理','M','/base/warehouse','base/Warehouse.vue','base:warehouse:list','House',4,1,1),
+(305,3,'计量单位','M','/base/unit','base/Unit.vue','base:unit:list','DataLine',5,1,1),
+-- 采购管理子菜单
+(401,4,'采购订单','M','/purchase/order','purchase/Order.vue','purchase:order:list','List',1,1,1),
+(402,4,'采购入库','M','/purchase/receipt','purchase/Receipt.vue','purchase:receipt:list','Box',2,1,1),
+-- 销售管理子菜单
+(501,5,'销售订单','M','/sales/order','sales/Order.vue','sales:order:list','Tickets',1,1,1),
+(502,5,'销售出库','M','/sales/delivery','sales/Delivery.vue','sales:delivery:list','TakeawayBox',2,1,1),
+-- 库存管理子菜单
+(601,6,'库存查询','M','/inventory/stock','inventory/Stock.vue','inventory:stock:list','Grid',1,1,1),
+(602,6,'库存台账','M','/inventory/ledger','inventory/Ledger.vue','inventory:ledger:list','Notebook',2,1,1),
+-- 生产管理子菜单
+(701,7,'BOM清单','M','/production/bom','production/Bom.vue','production:bom:list','Files',1,1,1),
+(702,7,'生产加工单','M','/production/order','production/Order.vue','production:order:list','SetUp',2,1,1),
+-- 财务子菜单
+(801,8,'应收应付','M','/finance/arap','finance/Arap.vue','finance:arap:list','Money',1,1,1),
+-- 报表中心子菜单
+(901,9,'销售报表','M','/report/sales','report/Sales.vue','','TrendCharts',1,1,1),
+(902,9,'库存报表','M','/report/inventory','report/Inventory.vue','','PieChart',2,1,1);
 
 -- 10.3  角色
 INSERT INTO `sys_role`(`id`,`role_code`,`role_name`,`data_scope`) VALUES
@@ -131,33 +171,8 @@ INSERT INTO `base_product_unit`(`product_id`,`unit_id`,`unit_name`,`is_main`,`co
 SELECT id, 3, '公斤', 0, 0.0027, sales_price*0.27, wholesale_price*0.27, vip_price*0.27 FROM `base_product` WHERE product_code='P-FM-BOPP-001';
 
 -- 10.17 打印模板 (Freemarker)
-INSERT INTO `sys_print_template`(`template_code`,`template_name`,`template_type`,`paper_width`,`paper_height`,`content`,`is_default`) VALUES
-('SAL_DELIVERY','销售出库单(80mm)','paper_80',80,200,
-'<!DOCTYPE html><html><head><meta charset="utf-8"><title>销售出库单</title><style>body{font-family:SimHei;font-size:11px;width:76mm;margin:0 auto;}h1{text-align:center;font-size:14px;margin:4px 0;}table{width:100%;border-collapse:collapse;}th,td{border-bottom:1px dashed #000;padding:2px 4px;font-size:10px;}.total{text-align:right;font-weight:bold;}</style></head><body>
-<h1>销售出库单</h1>
-<div>单号: ${bill.bill_no}</div>
-<div>日期: ${bill.bill_date}</div>
-<div>客户: ${bill.customer_name}</div>
-<table><tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>金额</th></tr>
-<#list details as d><tr><td>${d.product_name}</td><td>${d.spec!}</td><td>${d.qty}</td><td>${d.price}</td><td>${d.amount}</td></tr></#list>
-</table>
-<div class="total">合计金额: ${bill.total_amount}</div>
-<div class="total">税额: ${bill.tax_amount}</div>
-<div class="total">价税合计: ${bill.total_amount_tax}</div>
-<div>地址: ${bill.address!}</div>
-<div>电话: ${bill.phone!}</div>
-<div style="text-align:right;margin-top:8px;">客户签名:____________</div>
-</body></html>',1),
-
-('PUR_RECEIPT','采购入库单(80mm)','paper_80',80,200,
-'<!DOCTYPE html><html><head><meta charset="utf-8"><title>采购入库单</title><style>body{font-family:SimHei;font-size:11px;width:76mm;margin:0 auto;}h1{text-align:center;font-size:14px;margin:4px 0;}table{width:100%;border-collapse:collapse;}th,td{border-bottom:1px dashed #000;padding:2px 4px;font-size:10px;}.total{text-align:right;font-weight:bold;}</style></head><body>
-<h1>采购入库单</h1>
-<div>单号: ${bill.bill_no}</div>
-<div>日期: ${bill.bill_date}</div>
-<div>供应商: ${bill.supplier_name}</div>
-<table><tr><th>商品</th><th>数量</th><th>单价</th><th>金额</th></tr>
-<#list details as d><tr><td>${d.product_name}</td><td>${d.qty}</td><td>${d.price}</td><td>${d.amount}</td></tr></#list>
-</table>
-<div class="total">合计: ${bill.total_amount_tax}</div>
-</body></html>',1);
+INSERT INTO `sys_print_template`(`id`,`template_code`,`template_name`,`template_type`,`paper_width`,`paper_height`,`content`,`is_default`,`status`) VALUES
+(1,'SAL_DELIVERY','销售出库单(80mm)','SAL_DELIVERY',80,200,NULL,1,1),
+(2,'PUR_RECEIPT','采购入库单(80mm)','PUR_RECEIPT',80,200,NULL,1,1),
+(3,'PRD_ORDER','生产加工单','PRD_ORDER',210,297,NULL,1,1);
 

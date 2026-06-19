@@ -7,6 +7,8 @@ import com.industrial.erp.modules.sales.service.SalDeliveryService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+
 @Tag(name = "销售出库")
 @RestController
 @RequestMapping("/sales/delivery")
@@ -40,5 +42,11 @@ public class SalDeliveryController {
     public R<Void> check(@PathVariable Long id) {
         service.check(id);
         return R.ok();
+    }
+
+    /** 查询指定客户+商品的上次订单单价 */
+    @GetMapping("/last-price")
+    public R<BigDecimal> lastPrice(@RequestParam Long customerId, @RequestParam Long productId) {
+        return R.ok(service.getLastPrice(customerId, productId));
     }
 }

@@ -43,7 +43,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
-        :total="data.total" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
         :page-sizes="[10,20,50,100]" @current-change="loadData" @size-change="loadData" />
     </div>
 
@@ -80,19 +80,15 @@
         </el-row>
         <div class="units-section">
           <el-button @click="addUnit" type="primary" plain size="small"><el-icon><Plus /></el-icon>添加单位</el-button>
-          <el-table :data="form.units" size="small" border style="margin-top:8px">
-            <el-table-column label="主单位" width="80">
-              <template #default="{ row, $index }">
-                <el-tag :type="row.isMain === 1 ? 'success' : 'info'" @click="setMainUnit($index)" style="cursor:pointer">主</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="单位名称"><el-input v-model="row.unitName" size="small" /></el-table-column>
-            <el-table-column label="换算率"><el-input-number v-model="row.conversionRate" :precision="6" :step="0.01" size="small" /></el-table-column>
-            <el-table-column label="零售价"><el-input-number v-model="row.salesPrice" :precision="4" size="small" /></el-table-column>
-            <el-table-column label="批发价"><el-input-number v-model="row.wholesalePrice" :precision="4" size="small" /></el-table-column>
-            <el-table-column label="大客户价"><el-input-number v-model="row.vipPrice" :precision="4" size="small" /></el-table-column>
-            <el-table-column label="操作" width="80"><el-button link type="danger" @click="form.units.splice($index, 1)">删除</el-button></el-table-column>
-          </el-table>
+          <div v-for="(unit, idx) in form.units" :key="idx" class="unit-row">
+            <el-tag :type="unit.isMain === 1 ? 'success' : 'info'" @click="setMainUnit(idx)" style="cursor:pointer; margin-right:8px">主</el-tag>
+            <el-input v-model="unit.unitName" placeholder="单位名称" size="small" style="width:100px;margin-right:8px" />
+            <el-input-number v-model="unit.conversionRate" :precision="6" :step="0.01" size="small" style="width:120px;margin-right:8px" placeholder="换算率" />
+            <el-input-number v-model="unit.salesPrice" :precision="4" size="small" style="width:100px;margin-right:8px" placeholder="零售价" />
+            <el-input-number v-model="unit.wholesalePrice" :precision="4" size="small" style="width:100px;margin-right:8px" placeholder="批发价" />
+            <el-input-number v-model="unit.vipPrice" :precision="4" size="small" style="width:100px;margin-right:8px" placeholder="大客户价" />
+            <el-button link type="danger" @click="form.units.splice(idx, 1)">删除</el-button>
+          </div>
         </div>
       </el-form>
       <template #footer>
@@ -223,4 +219,5 @@ onMounted(loadData)
 <style scoped>
 .pager { margin-top: 12px; text-align: right; }
 .units-section { margin-bottom: 18px; }
+.unit-row { display: flex; align-items: center; margin-top: 8px; gap: 4px; }
 </style>

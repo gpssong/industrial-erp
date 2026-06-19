@@ -43,10 +43,12 @@ public class BackupService {
     @Value("${spring.datasource.password:}")
     private String dbPwd;
 
-    @Value("${erp.backup.path:/opt/industrial-erp/backup}")
+    @Value("${erp.backup.path:/Users/tongban/industrial-erp-backup}")
     private String backupPath;
     @Value("${erp.backup.retention:30}")
     private int retentionDays;
+    @Value("${erp.backup.sql-path:/Users/tongban/Documents/根据前端开发erp 2/erp-system/sql}")
+    private String sqlPath;
 
     /**
      * 每天凌晨 3 点执行自动备份
@@ -68,9 +70,8 @@ public class BackupService {
             String name = "erp_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + "_" + IdUtil.fastSimpleUUID().substring(0, 4) + ".sql";
             File file = new File(dir, name);
             // 实际: 通过 ProcessBuilder 调用 mysqldump
-            // 这里简化为只记录元数据
             ProcessBuilder pb = new ProcessBuilder(
-                    "mysqldump", "-u" + dbUser, "-p" + dbPwd,
+                    "/opt/homebrew/bin/mysqldump", "-u" + dbUser, "-p" + dbPwd,
                     "--default-character-set=utf8mb4",
                     "--single-transaction",
                     "--routines", "--triggers",
@@ -105,5 +106,84 @@ public class BackupService {
         for (File f : files) {
             if (f.lastModified() < threshold) f.delete();
         }
+    }
+
+    /** 恢复数据库（从指定SQL文件） */
+    public void restore(String filePath) {
+        File sqlFile = new File(filePath);
+        if (!sqlFile.exists()) {
+            throw new com.industrial.erp.exception.BizException("备份文件不存在: " + filePath);
+        }
+        // 从 jdbcUrl 提取数据库名
+        String dbName = "industrial_erp";
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "/opt/homebrew/bin/mysql",
+                    "-u" + dbUser,
+                    "-p" + dbPwd,
+                    dbName
+            );
+            pb.redirectInput(sqlFile);
+            pb.redirectError(new File(backupPath, "restore_error.log"));
+            Process p = pb.start();
+            int exit = p.waitFor();
+            if (exit != 0) {
+                throw new com.industrial.erp.exception.BizException("恢复失败，exit=" + exit);
+            }
+            log.info("[Backup] 数据库恢复成功: {}", filePath);
+        } catch (IOException | InterruptedException e) {
+            log.error("恢复失败", e);
+            throw new com.industrial.erp.exception.BizException("恢复失败: " + e.getMessage());
+        }
+    }
+
+    /** 删除物理备份文件 */
+    public void deleteFile(String filePath) {
+        if (filePath == null) return;
+        File f = new File(filePath);
+        if (f.exists()) f.delete();
+    }
+
+    /** 恢复出厂设置：清空数据+重跑SQL脚本 */
+    public void factoryReset() {
+        String[] scripts = {
+            "01_schema_system.sql",
+            "02_schema_base.sql",
+            "03_schema_purchase.sql",
+            "04_schema_sales.sql",
+            "05_schema_inventory.sql",
+            "06_schema_production.sql",
+            "07_schema_outsource_finance.sql",
+            "08_schema_misc.sql",
+            "09_seed_data.sql"
+        };
+        String dbName = "industrial_erp";
+        for (String script : scripts) {
+            File f = new File(sqlPath, script);
+            if (!f.exists()) {
+                log.warn("[FactoryReset] SQL脚本不存在: {}", f.getAbsolutePath());
+                continue;
+            }
+            try {
+                ProcessBuilder pb = new ProcessBuilder(
+                        "/opt/homebrew/bin/mysql",
+                        "-u" + dbUser,
+                        "-p" + dbPwd,
+                        dbName
+                );
+                pb.redirectInput(f);
+                pb.redirectError(new File(backupPath, "factory_reset_error.log"));
+                Process p = pb.start();
+                int exit = p.waitFor();
+                log.info("[FactoryReset] 执行 {} -> exit={}", script, exit);
+                if (exit != 0) {
+                    throw new com.industrial.erp.exception.BizException("执行 " + script + " 失败，exit=" + exit);
+                }
+            } catch (IOException | InterruptedException e) {
+                log.error("恢复出厂设置失败: {}", script, e);
+                throw new com.industrial.erp.exception.BizException("恢复出厂设置失败: " + e.getMessage());
+            }
+        }
+        log.info("[FactoryReset] 恢复出厂设置完成");
     }
 }

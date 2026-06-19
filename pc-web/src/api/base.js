@@ -11,6 +11,7 @@ export const productApi = {
 
 export const customerApi = {
   page: (params) => request.get('/base/customer/page', { params }),
+  list: () => request.get('/base/customer/list'),
   add: (data) => request.post('/base/customer', data),
   update: (data) => request.put('/base/customer', data),
   delete: (id) => request.delete(`/base/customer/${id}`)
@@ -18,6 +19,7 @@ export const customerApi = {
 
 export const supplierApi = {
   page: (params) => request.get('/base/supplier/page', { params }),
+  list: () => request.get('/base/supplier/list'),
   add: (data) => request.post('/base/supplier', data),
   update: (data) => request.put('/base/supplier', data),
   delete: (id) => request.delete(`/base/supplier/${id}`)

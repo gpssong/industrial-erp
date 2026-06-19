@@ -7,6 +7,9 @@
     <select id="selectByBarcode" resultType="com.industrial.erp.modules.base.entity.BaseProduct">
         SELECT * FROM base_product WHERE barcode = #{barcode} AND deleted = 0 LIMIT 1
     </select>
+    <select id="selectAnyByCode" resultType="com.industrial.erp.modules.base.entity.BaseProduct">
+        SELECT * FROM base_product WHERE product_code = #{code} LIMIT 1
+    </select>
     <select id="selectStockSummary" resultType="java.util.Map">
         SELECT warehouse_id AS warehouseId,
                warehouse_name AS warehouseName,
@@ -17,4 +20,7 @@
         WHERE product_id = #{productId} AND deleted = 0
         GROUP BY warehouse_id, warehouse_name
     </select>
+    <delete id="physicalDeleteById">
+        DELETE FROM base_product WHERE id = #{id}
+    </delete>
 </mapper>

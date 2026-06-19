@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.base.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.base.entity.BaseProduct;
@@ -17,11 +18,13 @@ import java.util.Map;
 @RequestMapping("/base/product")
 public class BaseProductController {
 
-    public BaseProductController(BaseProductService service) {
+    public BaseProductController(BaseProductService service, ObjectMapper objectMapper) {
         this.service = service;
+        this.objectMapper = objectMapper;
     }
 
     private final BaseProductService service;
+    private final ObjectMapper objectMapper;
 
     @GetMapping("/page")
     public R<PageResult<BaseProduct>> page(@RequestParam(defaultValue = "1") Integer pageNum,
@@ -36,8 +39,8 @@ public class BaseProductController {
 
     @PostMapping
     public R<Void> add(@RequestBody Map<String, Object> body) {
-        BaseProduct p = new com.fasterxml.jackson.databind.ObjectMapper().convertValue(body.get("product"), BaseProduct.class);
-        List<BaseProductUnit> units = new com.fasterxml.jackson.databind.ObjectMapper().convertValue(body.get("units"),
+        BaseProduct p = objectMapper.convertValue(body.get("product"), BaseProduct.class);
+        List<BaseProductUnit> units = objectMapper.convertValue(body.get("units"),
                 new com.fasterxml.jackson.core.type.TypeReference<List<BaseProductUnit>>() {});
         service.add(p, units);
         return R.ok();
@@ -45,8 +48,8 @@ public class BaseProductController {
 
     @PutMapping
     public R<Void> update(@RequestBody Map<String, Object> body) {
-        BaseProduct p = new com.fasterxml.jackson.databind.ObjectMapper().convertValue(body.get("product"), BaseProduct.class);
-        List<BaseProductUnit> units = new com.fasterxml.jackson.databind.ObjectMapper().convertValue(body.get("units"),
+        BaseProduct p = objectMapper.convertValue(body.get("product"), BaseProduct.class);
+        List<BaseProductUnit> units = objectMapper.convertValue(body.get("units"),
                 new com.fasterxml.jackson.core.type.TypeReference<List<BaseProductUnit>>() {});
         service.update(p, units);
         return R.ok();

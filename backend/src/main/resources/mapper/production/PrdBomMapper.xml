@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.production.mapper.PrdBomMapper">
+
+    <insert id="insert" parameterType="com.industrial.erp.modules.production.entity.PrdBom">
+        INSERT INTO prd_bom (id, bom_code, bom_name, product_id, product_code, product_name, spec, unit_id, unit_name, version, base_qty, output_qty, loss_rate, is_default, status, remark, create_by, create_time, update_by, update_time, deleted)
+        VALUES (#{id}, #{bomCode}, #{bomName}, #{productId}, #{productCode}, #{productName}, #{spec}, #{unitId}, #{unitName}, #{version}, #{baseQty}, #{outputQty}, #{lossRate}, #{isDefault}, #{status}, #{remark}, #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{deleted})
+    </insert>
+
+</mapper>

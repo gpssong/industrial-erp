@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.production.mapper.PrdRequisitionMapper">
+
+    <insert id="insert" parameterType="com.industrial.erp.modules.production.entity.PrdRequisition">
+        INSERT INTO prd_requisition (id, bill_no, bill_date, prd_order_id, prd_order_no, warehouse_id, workshop_id, workshop, bill_type, bill_status, remark, create_by, create_time, update_by, update_time, deleted)
+        VALUES (#{id}, #{billNo}, #{billDate}, #{prdOrderId}, #{prdOrderNo}, #{warehouseId}, #{workshopId}, #{workshop}, #{billType}, #{billStatus}, #{remark}, #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{deleted})
+    </insert>
+
+</mapper>

@@ -25,10 +25,41 @@ export const roleApi = {
 
 export const menuApi = {
   list: () => request.get('/system/menu/list'),
-  mine: () => request.get('/system/menu/mine')
+  mine: () => request.get('/system/menu/mine'),
+  add: (data) => request.post('/system/menu', data),
+  update: (data) => request.put('/system/menu', data),
+  delete: (id) => request.delete(`/system/menu/${id}`)
 }
 
 export const deptApi = {
   list: () => request.get('/system/dept/list'),
-  tree: () => request.get('/system/dept/tree')
+  tree: () => request.get('/system/dept/tree'),
+  add: (data) => request.post('/system/dept', data),
+  update: (data) => request.put('/system/dept', data),
+  delete: (id) => request.delete(`/system/dept/${id}`)
+}
+
+export const configApi = {
+  page: (params) => request.get('/system/config/page', { params }),
+  detail: (id) => request.get(`/system/config/${id}`),
+  add: (data) => request.post('/system/config', data),
+  update: (data) => request.put('/system/config', data),
+  delete: (id) => request.delete(`/system/config/${id}`),
+  getByKey: (key) => request.get(`/system/config/key/${key}`)
+}
+
+export const printApi = {
+  page: (params) => request.get('/system/print/page', { params }),
+  detail: (id) => request.get(`/system/print/${id}`),
+  add: (data) => request.post('/system/print', data),
+  update: (data) => request.put('/system/print', data),
+  delete: (id) => request.delete(`/system/print/${id}`)
+}
+
+export const backupApi = {
+  page: (params) => request.get('/system/backup/page', { params }),
+  manual: () => request.post('/system/backup/manual'),
+  restore: (id) => request.post(`/system/backup/restore/${id}`),
+  delete: (id) => request.delete(`/system/backup/${id}`),
+  factoryReset: () => request.post('/system/backup/factory-reset')
 }

@@ -19,13 +19,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-/**
- * 库存核心服务
- * 关键能力:
- *   1. 入库: 移动加权平均成本计算
- *   2. 出库: 悲观锁 + 严格禁止负库存
- *   3. 库存台账写入
- */
 @Slf4j
 @Service
 public class StockService {
@@ -42,10 +35,6 @@ public class StockService {
     private final BaseProductMapper productMapper;
     private final RedisLock redisLock;
 
-    /**
-     * 入库处理 (采购入库 / 成品入库 / 调拨入库 / 盘盈 / 初始化)
-     * @param direction 1=入库
-     */
     @Transactional(rollbackFor = Exception.class)
     public InvStock inStock(String billType, Long billId, String billNo, Long billDetailId,
                             Long warehouseId, String warehouseName, Long locationId, String locationName,
@@ -55,23 +44,52 @@ public class StockService {
         if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0) {
             throw BizException.of("入库数量必须大于 0");
         }
-        // 商品存在性
         BaseProduct product = productMapper.selectById(productId);
         if (product == null) throw BizException.of("商品不存在: " + productId);
-        // 金额
         BigDecimal amount = price == null ? BigDecimal.ZERO : price.multiply(qty).setScale(4, RoundingMode.HALF_UP);
 
-        // 分布式锁
         String key = Constants.REDIS_STOCK_LOCK + warehouseId + ":" + productId + ":" + (batchNo == null ? "" : batchNo);
         return redisLock.executeWithLock(key, 5, 30, () -> {
-            // 直接 insert on duplicate update, 触发移动加权平均成本
-            stockMapper.incrStock(warehouseId, warehouseName, locationId, locationName,
-                    productId, product.getProductCode(), product.getProductName(),
-                    product.getSpec(), unitId, unitName, batchNo,
-                    qty, amount, LocalDate.now().toString());
+            InvStock cur = stockMapper.selectForUpdate(warehouseId, productId, batchNo);
+            if (cur == null) {
+                // 新增库存
+                InvStock s = new InvStock();
+                s.setWarehouseId(warehouseId);
+                s.setWarehouseName(warehouseName);
+                s.setLocationId(locationId);
+                s.setLocationName(locationName);
+                s.setProductId(productId);
+                s.setProductCode(product.getProductCode());
+                s.setProductName(product.getProductName());
+                s.setSpec(product.getSpec());
+                s.setUnitId(unitId);
+                s.setUnitName(unitName);
+                s.setBatchNo(batchNo);
+                s.setQty(qty);
+                s.setAvailableQty(qty);
+                s.setAvgCost(price != null ? price : BigDecimal.ZERO);
+                s.setTotalCost(amount);
+                s.setLastInDate(LocalDate.now());
+                s.setCreateTime(LocalDateTime.now());
+                s.setUpdateTime(LocalDateTime.now());
+                s.setDeleted(0);
+                stockMapper.insert(s);
+                cur = s;
+            } else {
+                // 更新现有库存: 移动加权平均
+                BigDecimal newTotalCost = (cur.getTotalCost() == null ? BigDecimal.ZERO : cur.getTotalCost()).add(amount);
+                BigDecimal newQty = (cur.getQty() == null ? BigDecimal.ZERO : cur.getQty()).add(qty);
+                BigDecimal newAvgCost = newQty.compareTo(BigDecimal.ZERO) > 0 ? newTotalCost.divide(newQty, 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+                cur.setQty(newQty);
+                cur.setAvailableQty(newQty);
+                cur.setTotalCost(newTotalCost);
+                cur.setAvgCost(newAvgCost);
+                cur.setLastInDate(LocalDate.now());
+                cur.setUpdateTime(LocalDateTime.now());
+                stockMapper.updateById(cur);
+            }
 
             // 写台账
-            InvStock cur = stockMapper.selectForUpdate(warehouseId, locationId, productId, batchNo);
             InvLedger ledger = new InvLedger();
             ledger.setBillType(billType);
             ledger.setBillId(billId);
@@ -80,7 +98,7 @@ public class StockService {
             ledger.setBizDirection(Constants.DIRECTION_IN);
             ledger.setBizDate(LocalDate.now());
             ledger.setWarehouseId(warehouseId);
-            ledger.setAreaId(cur == null ? null : cur.getAreaId());
+            ledger.setAreaId(cur.getAreaId());
             ledger.setLocationId(locationId);
             ledger.setProductId(productId);
             ledger.setProductCode(product.getProductCode());
@@ -91,19 +109,20 @@ public class StockService {
             ledger.setQty(qty);
             ledger.setPrice(price);
             ledger.setAmount(amount);
-            ledger.setBeforeQty(cur == null ? BigDecimal.ZERO : cur.getQty().subtract(qty));
-            ledger.setAfterQty(cur == null ? qty : cur.getQty());
-            ledger.setBeforeAvgCost(cur == null ? BigDecimal.ZERO : cur.getAvgCost());
-            ledger.setAfterAvgCost(cur == null ? price : cur.getAvgCost());
+            ledger.setBeforeQty(cur.getQty().subtract(qty));
+            ledger.setAfterQty(cur.getQty());
+            ledger.setBeforeAvgCost(cur.getAvgCost());
+            ledger.setAfterAvgCost(cur.getAvgCost());
             ledger.setSourceNo(sourceNo);
             ledger.setSupplierId(supplierId);
             ledger.setCustomerId(customerId);
             ledger.setRemark(remark);
             ledger.setCreateBy(SecurityContext.getUserId());
+            ledger.setDeleted(0);
             ledgerMapper.insert(ledger);
 
             // 更新商品移动加权平均成本
-            if (cur != null && cur.getAvgCost() != null && cur.getAvgCost().compareTo(BigDecimal.ZERO) > 0) {
+            if (cur.getAvgCost() != null && cur.getAvgCost().compareTo(BigDecimal.ZERO) > 0) {
                 BaseProduct p = new BaseProduct();
                 p.setId(productId);
                 p.setCostPrice(cur.getAvgCost());
@@ -117,14 +136,10 @@ public class StockService {
                 productMapper.updateById(p);
             }
 
-            return cur == null ? stockMapper.selectForUpdate(warehouseId, locationId, productId, batchNo) : cur;
+            return cur;
         });
     }
 
-    /**
-     * 出库处理 (销售出库 / 领料 / 调拨出库 / 盘亏)
-     * @return 实际成本金额 (用于计算毛利)
-     */
     @Transactional(rollbackFor = Exception.class)
     public BigDecimal outStock(String billType, Long billId, String billNo, Long billDetailId,
                                Long warehouseId, String warehouseName, Long locationId, String locationName,
@@ -139,27 +154,27 @@ public class StockService {
 
         String key = Constants.REDIS_STOCK_LOCK + warehouseId + ":" + productId + ":" + (batchNo == null ? "" : batchNo);
         return redisLock.executeWithLock(key, 5, 30, () -> {
-            // 1. 行锁
-            InvStock stock = stockMapper.selectForUpdate(warehouseId, locationId, productId, batchNo);
+            InvStock stock = stockMapper.selectForUpdate(warehouseId, productId, batchNo);
             if (stock == null) {
                 throw BizException.of("库存不存在, 商品=" + product.getProductName() + ", 仓库=" + warehouseName);
             }
-            // 2. 严格禁止负库存
             if (stock.getQty().compareTo(qty) < 0) {
                 throw BizException.of("库存不足, 商品=" + product.getProductName() + ", 当前库存=" + stock.getQty() + ", 需要=" + qty);
             }
             BigDecimal beforeQty = stock.getQty();
+            BigDecimal beforeAvgCost = stock.getAvgCost() == null ? BigDecimal.ZERO : stock.getAvgCost();
+            BigDecimal outCost = beforeAvgCost.multiply(qty).setScale(4, RoundingMode.HALF_UP);
             BigDecimal afterQty = beforeQty.subtract(qty);
-            BigDecimal beforeCost = stock.getTotalCost();
-            BigDecimal outCost = stock.getAvgCost().multiply(qty).setScale(4, RoundingMode.HALF_UP);
-            BigDecimal afterCost = beforeCost.subtract(outCost);
-            // 防成本负数
-            if (afterCost.compareTo(BigDecimal.ZERO) < 0) afterCost = BigDecimal.ZERO;
+            BigDecimal afterTotalCost = beforeAvgCost.multiply(afterQty).setScale(4, RoundingMode.HALF_UP);
 
-            // 3. 更新库存
-            stockMapper.updateQtyAndAvgCost(stock.getId(), afterQty, stock.getAvgCost(), afterCost, LocalDate.now().toString());
+            stock.setQty(afterQty);
+            stock.setAvailableQty(afterQty);
+            stock.setTotalCost(afterTotalCost);
+            stock.setLastOutDate(LocalDate.now());
+            stock.setUpdateTime(LocalDateTime.now());
+            stockMapper.updateById(stock);
 
-            // 4. 写台账
+            // 写台账
             InvLedger ledger = new InvLedger();
             ledger.setBillType(billType);
             ledger.setBillId(billId);
@@ -168,6 +183,7 @@ public class StockService {
             ledger.setBizDirection(Constants.DIRECTION_OUT);
             ledger.setBizDate(LocalDate.now());
             ledger.setWarehouseId(warehouseId);
+            ledger.setWarehouseName(warehouseName);
             ledger.setLocationId(locationId);
             ledger.setProductId(productId);
             ledger.setProductCode(product.getProductCode());
@@ -176,17 +192,18 @@ public class StockService {
             ledger.setUnitName(unitName);
             ledger.setBatchNo(batchNo);
             ledger.setQty(qty);
-            ledger.setPrice(stock.getAvgCost());
+            ledger.setPrice(beforeAvgCost);
             ledger.setAmount(outCost);
             ledger.setBeforeQty(beforeQty);
             ledger.setAfterQty(afterQty);
-            ledger.setBeforeAvgCost(stock.getAvgCost());
-            ledger.setAfterAvgCost(stock.getAvgCost());
+            ledger.setBeforeAvgCost(beforeAvgCost);
+            ledger.setAfterAvgCost(beforeAvgCost);
             ledger.setSourceNo(sourceNo);
             ledger.setSupplierId(supplierId);
             ledger.setCustomerId(customerId);
             ledger.setRemark(remark);
             ledger.setCreateBy(SecurityContext.getUserId());
+            ledger.setDeleted(0);
             ledgerMapper.insert(ledger);
 
             return outCost;

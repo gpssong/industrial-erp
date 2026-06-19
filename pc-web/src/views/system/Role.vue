@@ -32,7 +32,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
-        :total="data.total" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
         :page-sizes="[10,20,50,100]" @current-change="loadData" @size-change="loadData" />
     </div>
 

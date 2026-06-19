@@ -7,6 +7,8 @@ import com.industrial.erp.modules.purchase.service.PurOrderService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+
 @Tag(name = "采购订单")
 @RestController
 @RequestMapping("/purchase/order")
@@ -32,6 +34,15 @@ public class PurOrderController {
     @PostMapping
     public R<Void> add(@RequestBody PurOrder o) { service.add(o); return R.ok(); }
 
+    @PutMapping
+    public R<Void> update(@RequestBody PurOrder o) { service.update(o); return R.ok(); }
+
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
+
+    /** 查询指定供应商+商品的上次入库单价 */
+    @GetMapping("/last-price")
+    public R<BigDecimal> lastPrice(@RequestParam Long supplierId, @RequestParam Long productId) {
+        return R.ok(service.getLastPrice(supplierId, productId));
+    }
 }

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.sales.mapper.SalOrderMapper">
+
+    <insert id="insert" parameterType="com.industrial.erp.modules.sales.entity.SalOrder">
+        INSERT INTO sal_order (
+            id, bill_no, bill_date, customer_id, customer_name, price_level,
+            warehouse_id, salesman_id, salesman_name, order_type, pay_type,
+            currency, exchange_rate, total_qty, total_amount, discount_rate,
+            discount_amount, tail_amount, tax_amount, total_amount_tax,
+            received_amount, delivery_date, address, phone, bill_status,
+            source_bill_id, remark, create_by, create_time, update_by, update_time, deleted
+        ) VALUES (
+            #{id}, #{billNo}, #{billDate}, #{customerId}, #{customerName}, #{priceLevel},
+            #{warehouseId}, #{salesmanId}, #{salesmanName}, #{orderType}, #{payType},
+            #{currency}, #{exchangeRate}, #{totalQty}, #{totalAmount}, #{discountRate},
+            #{discountAmount}, #{tailAmount}, #{taxAmount}, #{totalAmountTax},
+            #{receivedAmount}, #{deliveryDate}, #{address}, #{phone}, #{billStatus},
+            #{sourceBillId}, #{remark}, #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{deleted}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.industrial.erp.modules.sales.entity.SalOrder">
+        UPDATE sal_order SET
+            bill_no = #{et.billNo}, bill_date = #{et.billDate}, customer_id = #{et.customerId},
+            customer_name = #{et.customerName}, price_level = #{et.priceLevel}, warehouse_id = #{et.warehouseId},
+            salesman_id = #{et.salesmanId}, salesman_name = #{et.salesmanName}, order_type = #{et.orderType},
+            pay_type = #{et.payType}, currency = #{et.currency}, exchange_rate = #{et.exchangeRate},
+            total_qty = #{et.totalQty}, total_amount = #{et.totalAmount}, discount_rate = #{et.discountRate},
+            discount_amount = #{et.discountAmount}, tail_amount = #{et.tailAmount}, tax_amount = #{et.taxAmount},
+            total_amount_tax = #{et.totalAmountTax}, received_amount = #{et.receivedAmount},
+            delivery_date = #{et.deliveryDate}, address = #{et.address}, phone = #{et.phone},
+            bill_status = #{et.billStatus}, source_bill_id = #{et.sourceBillId}, remark = #{et.remark},
+            update_by = #{et.updateBy}, update_time = #{et.updateTime}
+        WHERE id = #{et.id}
+    </update>
+
+</mapper>

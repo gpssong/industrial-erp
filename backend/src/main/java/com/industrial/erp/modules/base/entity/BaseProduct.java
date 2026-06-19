@@ -4,11 +4,13 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @TableName("base_product")
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class BaseProduct {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
@@ -47,7 +49,7 @@ public class BaseProduct {
     private Long updateBy;
     private LocalDateTime updateTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

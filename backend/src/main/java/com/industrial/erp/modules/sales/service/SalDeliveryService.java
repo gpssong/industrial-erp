@@ -2,6 +2,7 @@ package com.industrial.erp.modules.sales.service;
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.Constants;
@@ -16,6 +17,7 @@ import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
+import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
 import org.slf4j.Logger;
@@ -35,7 +37,7 @@ import java.util.List;
 @Service
 public class SalDeliveryService {
 
-    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService) {
+    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper) {
         this.deliveryMapper = deliveryMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
@@ -44,6 +46,7 @@ public class SalDeliveryService {
         this.stockService = stockService;
         this.arapService = arapService;
         this.permService = permService;
+        this.orderDetailMapper = orderDetailMapper;
     }
 
     private static final Logger log = LoggerFactory.getLogger(SalDeliveryService.class);
@@ -52,6 +55,7 @@ public class SalDeliveryService {
     private final SalDeliveryDetailMapper detailMapper;
     private final BaseCustomerMapper customerMapper;
     private final BaseWarehouseMapper warehouseMapper;
+    private final SalOrderDetailMapper orderDetailMapper;
     private final BillNoGenerator billNoGenerator;
     private final StockService stockService;
     private final FinArapService arapService;
@@ -60,18 +64,24 @@ public class SalDeliveryService {
     public IPage<SalDelivery> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus) {
         permService.requirePerm("sales:delivery:list");
         Page<SalDelivery> p = new Page<>(pageNum, pageSize);
-        LambdaQueryWrapper<SalDelivery> w = new LambdaQueryWrapper<>();
-        if (StrUtil.isNotBlank(billNo)) w.like(SalDelivery::getBillNo, billNo);
-        if (customerId != null) w.eq(SalDelivery::getCustomerId, customerId);
-        if (StrUtil.isNotBlank(billStatus)) w.eq(SalDelivery::getBillStatus, billStatus);
-        w.orderByDesc(SalDelivery::getId);
-        return deliveryMapper.selectPage(p, w);
+        QueryWrapper<SalDelivery> w = new QueryWrapper<>();
+        if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
+        if (customerId != null) w.eq("customer_id", customerId);
+        if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);
+        w.orderByDesc("id");
+        return deliveryMapper.selectPageWithProduct(p, w);
     }
 
     public SalDelivery detail(Long id) {
         SalDelivery d = deliveryMapper.selectById(id);
         if (d != null) d.setDetails(detailMapper.selectByDeliveryId(id));
         return d;
+    }
+
+    /** 查询指定客户+商品的上次订单单价 */
+    public BigDecimal getLastPrice(Long customerId, Long productId) {
+        BigDecimal price = orderDetailMapper.selectLastPriceByCustomerAndProduct(customerId, productId);
+        return price != null ? price : BigDecimal.ZERO;
     }
 
     @Transactional(rollbackFor = Exception.class)

@@ -59,6 +59,8 @@ public class InvStockController {
     public R<PageResult<Map<String, Object>>> ledgerPage(@RequestParam(defaultValue = "1") Integer pageNum,
                                                         @RequestParam(defaultValue = "20") Integer pageSize,
                                                         @RequestParam(required = false) String billType,
+                                                        @RequestParam(required = false) String billNo,
+                                                        @RequestParam(required = false) String productName,
                                                         @RequestParam(required = false) Long productId,
                                                         @RequestParam(required = false) String startDate,
                                                         @RequestParam(required = false) String endDate) {
@@ -66,6 +68,8 @@ public class InvStockController {
         Page<Map<String, Object>> p = new Page<>(pageNum, pageSize);
         QueryWrapper<InvLedger> w = new QueryWrapper<>();
         if (StrUtil.isNotBlank(billType)) w.eq("bill_type", billType);
+        if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
+        if (StrUtil.isNotBlank(productName)) w.like("product_name", productName);
         if (productId != null) w.eq("product_id", productId);
         if (StrUtil.isNotBlank(startDate)) w.ge("biz_date", startDate);
         if (StrUtil.isNotBlank(endDate)) w.le("biz_date", endDate);

@@ -22,7 +22,7 @@
         <el-table-column prop="lastInDate" label="最后入库" width="110" />
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="data.total" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
     </div>
   </div>
 </template>

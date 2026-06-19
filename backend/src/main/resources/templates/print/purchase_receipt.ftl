@@ -18,26 +18,45 @@
 </head>
 <body>
 <h1>采购入库单</h1>
-<div class="row"><span>单号: ${bill.billNo}</span></div>
-<div class="row"><span>日期: ${bill.billDate}</span></div>
-<div class="row"><span>供应商: ${bill.supplierName!}</span></div>
+<div class="row"><span>单号: ${(bill.billNo)!"无"}</span></div>
+<div class="row"><span>日期: ${(bill.billDate)!"-"}</span></div>
+<div class="row"><span>供应商: ${(bill.supplierName)!"-"}</span></div>
 <table>
-  <thead><tr><th>商品</th><th class="right">数量</th><th class="right">单价</th><th class="right">金额</th></tr></thead>
-  <tbody>
-  <#list details as d>
+  <thead>
     <tr>
-      <td>${d.productName!}</td>
-      <td class="right">${d.qty?string["0.####"]}</td>
-      <td class="right">${d.price?string["0.####"]}</td>
-      <td class="right">${d.amount?string["0.####"]}</td>
+      <th>商品</th>
+      <th class="right">数量</th>
+      <th class="right">单价</th>
+      <th class="right">金额</th>
+      <#if taxSeparation>
+        <th class="right">税率</th>
+        <th class="right">税额</th>
+      </#if>
+    </tr>
+  </thead>
+  <tbody>
+  <#list (details)![] as d>
+    <tr>
+      <td>${(d.productName)!"-"}</td>
+      <td class="right">${((d.qty)!0)?string["0.####"]}</td>
+      <td class="right">${((d.price)!0)?string["0.####"]}</td>
+      <td class="right">${((d.amount)!0)?string["0.####"]}</td>
+      <#if taxSeparation>
+        <td class="right">${((d.taxRate)!0)?string["0.##"]}%</td>
+        <td class="right">${((d.taxAmount)!0)?string["0.####"]}</td>
+      </#if>
     </tr>
   </#list>
   </tbody>
 </table>
 <div class="hr"></div>
-<div class="row"><span>不含税:</span><span>${bill.totalAmount?string["0.####"]}</span></div>
-<div class="row"><span>税额:</span><span>${bill.taxAmount?string["0.####"]}</span></div>
-<div class="total">价税合计: ¥${bill.totalAmountTax?string["0.####"]}</div>
+<#if taxSeparation>
+  <div class="row"><span>不含税:</span><span>${((bill.totalAmount)!0)?string["0.####"]}</span></div>
+  <div class="row"><span>税额:</span><span>${((bill.taxAmount)!0)?string["0.####"]}</span></div>
+  <div class="total">价税合计: ¥${((bill.totalAmountTax)!0)?string["0.####"]}</div>
+<#else>
+  <div class="total">合计金额: ¥${((bill.totalAmount)!0)?string["0.####"]}</div>
+</#if>
 <div class="sign">仓管签字:_______________</div>
 </body>
 </html>

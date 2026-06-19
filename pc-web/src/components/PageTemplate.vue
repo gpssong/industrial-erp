@@ -17,7 +17,7 @@
         <slot />
       </el-table>
       <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
-        :total="data.total" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
         :page-sizes="[10,20,50,100]" @current-change="loadData" @size-change="loadData" />
     </div>
 
@@ -63,21 +63,19 @@ const props = defineProps({
 })
 
 const query = reactive({ pageNum: 1, pageSize: 20, keyword: '' })
+
+function loadData() {
+  loading.value = true
+  props.api.page({ pageNum: Number(query.pageNum), pageSize: Number(query.pageSize), keyword: query.keyword }).then(res => {
+    data.value = res.data || res
+  }).finally(() => { loading.value = false })
+}
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const addVisible = ref(false)
 const addFormRef = ref()
 const submitting = ref(false)
 const addForm = reactive({ username: '', password: '123456', nickname: '', phone: '', email: '', status: 1 })
-
-function loadData() {
-  loading.value = true
-  props.api.page(query).then(res => {
-    data.value = res.data || res
-  }).finally(() => {
-    loading.value = false
-  })
-}
 
 function handleAdd() {
   Object.assign(addForm, { username: '', password: '123456', nickname: '', phone: '', email: '', status: 1 })

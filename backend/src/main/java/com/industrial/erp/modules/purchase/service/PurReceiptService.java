@@ -2,6 +2,7 @@ package com.industrial.erp.modules.purchase.service;
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.Constants;
@@ -65,18 +66,24 @@ public class PurReceiptService {
     public IPage<PurReceipt> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus) {
         permService.requirePerm("purchase:receipt:list");
         Page<PurReceipt> p = new Page<>(pageNum, pageSize);
-        LambdaQueryWrapper<PurReceipt> w = new LambdaQueryWrapper<>();
-        if (StrUtil.isNotBlank(billNo)) w.like(PurReceipt::getBillNo, billNo);
-        if (supplierId != null) w.eq(PurReceipt::getSupplierId, supplierId);
-        if (StrUtil.isNotBlank(billStatus)) w.eq(PurReceipt::getBillStatus, billStatus);
-        w.orderByDesc(PurReceipt::getId);
-        return receiptMapper.selectPage(p, w);
+        QueryWrapper<PurReceipt> w = new QueryWrapper<>();
+        if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
+        if (supplierId != null) w.eq("supplier_id", supplierId);
+        if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);
+        w.orderByDesc("id");
+        return receiptMapper.selectPageWithProduct(p, w);
     }
 
     public PurReceipt detail(Long id) {
         PurReceipt r = receiptMapper.selectById(id);
         if (r != null) r.setDetails(receiptDetailMapper.selectByReceiptId(id));
         return r;
+    }
+
+    /** 查询指定供应商+商品的上次订单单价 */
+    public BigDecimal getLastPrice(Long supplierId, Long productId) {
+        BigDecimal price = orderDetailMapper.selectLastPriceBySupplierAndProduct(supplierId, productId);
+        return price != null ? price : BigDecimal.ZERO;
     }
 
     @Transactional(rollbackFor = Exception.class)
