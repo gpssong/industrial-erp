@@ -6,7 +6,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --port 5000"
+    "preview": "vite preview --port 5000",
+    "electron": "electron .",
+    "electron:dev": "NODE_ENV=development electron .",
+    "electron:build": "vite build && electron-builder --mac",
+    "electron:build:dir": "vite build && electron-builder --mac --dir"
+  },
+  "build": {
+    "appId": "com.industrial.erp",
+    "productName": "工业ERP",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*"],
+    "mac": { "category": "public.app-category.business", "target": ["dir", "zip"] }
   },
   "dependencies": {
     "vue": "^3.4.0",

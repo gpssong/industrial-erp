@@ -1,5 +1,21 @@
 <template>
   <div>
+    <!-- 服务器地址配置 -->
+    <div class="page-card" style="margin-bottom:16px">
+      <div class="section-title">⚙️ 服务器连接设置</div>
+      <el-form label-width="140px" style="max-width:600px">
+        <el-form-item label="API 服务器地址">
+          <el-input v-model="serverBase" placeholder="如 http://192.168.1.100:8080/api" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="saveServerBase">保存地址</el-button>
+          <span class="muted-tip">仅影响本客户端，打包成桌面应用后填写实际服务器地址</span>
+        </el-form-item>
+      </el-form>
+      <div class="muted-tip" style="margin-top:6px">当前地址：{{ currentBase }}</div>
+    </div>
+
+    <!-- 原有配置列表 -->
     <div class="search-bar">
       <el-form :model="query" inline>
         <el-form-item label="配置名称"><el-input v-model="query.configName" clearable /></el-form-item>
@@ -92,6 +108,23 @@ const submitting = ref(false)
 const form = ref({ id: null, configName: '', configKey: '', configValue: '', configType: 1, remark: '' })
 const { taxSeparation, loadTaxSeparation, saveTaxSeparation } = useTaxSeparation()
 
+// 服务器地址配置
+const serverBase = ref(localStorage.getItem('erp_api_base') || '')
+const currentBase = ref(localStorage.getItem('erp_api_base') || (import.meta.env.DEV ? 'http://localhost:8080/api（开发模式，使用Vite代理）' : '未设置'))
+
+function saveServerBase() {
+  const val = serverBase.value.trim()
+  if (val) {
+    localStorage.setItem('erp_api_base', val)
+    currentBase.value = val
+    ElMessage.success('服务器地址已保存，刷新页面后生效')
+  } else {
+    localStorage.removeItem('erp_api_base')
+    currentBase.value = import.meta.env.DEV ? 'http://localhost:8080/api（开发模式，使用Vite代理）' : '未设置'
+    ElMessage.info('已恢复默认地址')
+  }
+}
+
 // 列表中排除价税分离配置（由顶部开关独占）
 const filteredRecords = computed(() => data.value.records.filter(r => r.configKey !== 'PRICE_TAX_SEPARATION'))
 
@@ -153,4 +186,6 @@ onMounted(() => { loadData(); loadTaxSeparation() })
   font-size: 14px;
 }
 .tax-tip { color: #909399; font-size: 12px; }
+.section-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: #333; }
+.muted-tip { color: #909399; font-size: 12px; margin-left: 8px; }
 </style>
