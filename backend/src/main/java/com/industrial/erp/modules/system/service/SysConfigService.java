@@ -52,4 +52,20 @@ public class SysConfigService {
         SysConfig c = configMapper.selectOne(w);
         return c != null ? c.getConfigValue() : null;
     }
+
+    public void updateValue(String key, String value) {
+        LambdaQueryWrapper<SysConfig> w = new LambdaQueryWrapper<SysConfig>().eq(SysConfig::getConfigKey, key);
+        SysConfig c = configMapper.selectOne(w);
+        if (c != null) {
+            c.setConfigValue(value);
+            configMapper.updateById(c);
+        } else {
+            SysConfig n = new SysConfig();
+            n.setConfigKey(key);
+            n.setConfigValue(value);
+            n.setConfigName(key);
+            n.setConfigType(1);
+            configMapper.insert(n);
+        }
+    }
 }
