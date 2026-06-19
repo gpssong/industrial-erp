@@ -97,6 +97,10 @@
             <el-radio :label="0">停用</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="修改密码">
+          <el-checkbox v-model="editForm.changePwd">勾选后输入新密码</el-checkbox>
+          <el-input v-if="editForm.changePwd" v-model="editForm.password" type="password" placeholder="请输入新密码" show-password style="margin-top:8px" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editVisible=false">取消</el-button>
@@ -121,7 +125,7 @@ const editFormRef = ref()
 const submitting = ref(false)
 
 const addForm = reactive({ username: '', password: '123456', nickname: '', phone: '', email: '', roleIds: [], status: 1 })
-const editForm = reactive({ id: null, username: '', nickname: '', phone: '', email: '', roleIds: [], status: 1 })
+const editForm = reactive({ id: null, username: '', nickname: '', phone: '', email: '', roleIds: [], status: 1, changePwd: false, password: '' })
 const addRules = reactive({ username: [{ required: true, message: '请输入用户名', trigger: 'blur' }] })
 
 async function loadRoles() {
@@ -164,7 +168,7 @@ async function submitAdd() {
 }
 
 function handleEdit(row) {
-  Object.assign(editForm, { id: row.id, username: row.username, nickname: row.nickname || '', phone: row.phone || '', email: row.email || '', roleIds: [], status: row.status })
+  Object.assign(editForm, { id: row.id, username: row.username, nickname: row.nickname || '', phone: row.phone || '', email: row.email || '', roleIds: [], status: row.status, changePwd: false, password: '' })
   editVisible.value = true
   loadRoles()
   userApi.getRoles(row.id).then(r => { editForm.roleIds = r.data || [] }).catch(() => {})
@@ -173,8 +177,12 @@ function handleEdit(row) {
 async function submitEdit() {
   submitting.value = true
   try {
-    const { roleIds, ...rest } = editForm
-    await userApi.update(rest)
+    const { roleIds, changePwd, password, ...rest } = editForm
+    if (changePwd && password) {
+      await userApi.update({ ...rest, password })
+    } else {
+      await userApi.update(rest)
+    }
     await userApi.assignRoles(editForm.id, roleIds || [])
     ElMessage.success('更新成功')
     editVisible.value = false
