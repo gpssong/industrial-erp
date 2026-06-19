@@ -108,3 +108,6 @@ target/jacoco.exec
 # ===== 日志(统一放 .local-logs/ 之外) =====
 logs/
 *.log
+pc-web/auto-imports.d.ts
+pc-web/components.d.ts
+pc-web/release-build/

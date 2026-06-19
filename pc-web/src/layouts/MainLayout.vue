@@ -2,7 +2,7 @@
   <el-container class="layout-container">
     <el-aside :width="collapse ? '64px' : '220px'" class="sidebar">
       <div class="logo" :class="{ collapsed: collapse }">
-        <span v-if="!collapse">🏭 工业ERP</span>
+        <span v-if="!collapse">🏭 {{ systemName }}</span>
         <span v-else>ERP</span>
       </div>
       <el-menu :default-active="route.path" :router="true" :collapse="collapse"
@@ -68,11 +68,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
+import { useSystemName } from '@/composables/useSystemName'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const collapse = ref(false)
+const { systemName, loadSystemName } = useSystemName()
 
 const userInfo = computed(() => userStore.userInfo)
 
@@ -153,6 +155,7 @@ onMounted(async () => {
   if (!userStore.userInfo) {
     try { await userStore.fetchMe() } catch (e) {}
   }
+  loadSystemName()
 })
 </script>
 
