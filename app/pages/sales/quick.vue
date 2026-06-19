@@ -14,9 +14,9 @@
     </view>
     <view class="card">
       <text class="title">商品明细 ({{ details.length }})</text>
-      <view style="display:flex;gap:8px;margin-top:8px">
-        <view class="btn" @click="scanAddLine" style="flex:1;background:var(--success)">📷 扫码添加</view>
-        <view class="btn" @click="addLine" style="flex:1;background:var(--primary)">⌨️ 手动输入</view>
+      <view class="row" style="margin-top:8px;gap:8px">
+        <view class="btn" @click="scanAdd" style="flex:1;background:var(--success)">📷 扫码添加</view>
+        <view class="btn" @click="addLine" style="flex:1;background:var(--primary)">✏️ 手动输入</view>
       </view>
       <view v-for="(d, i) in details" :key="i" style="border-top:1px solid #eee;padding:8px 0">
         <view class="row">
@@ -52,34 +52,31 @@ const totalQty = computed(() => details.value.reduce((s, d) => s + (+d.qty || 0)
 const totalAmount = computed(() => details.value.reduce((s, d) => s + (d.amount || 0), 0))
 function pickCustomer(c) { customerId.value = c.id; customerName.value = c.customerName }
 function addLine() {
-  uni.showModal({ title: '添加商品', editable: true, placeholderText: '请输入商品编码/名称',
+  uni.showModal({ title: '添加商品', editable: true, placeholderText: '请输入商品编码',
     success: async (r) => {
       if (!r.confirm || !r.content) return
       const res = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: r.content })
       if (res.records && res.records[0]) {
         const p = res.records[0]
-        details.value.push({ productId: p.productId, productCode: p.productCode, productName: p.productName, spec: p.spec, unitName: p.unitName, qty: 1, price: p.salesPrice, taxRate: 13, remark: '', amount: 0 })
-        recalc(details.value[details.value.length - 1])
+        addProduct(p)
       } else { uni.showToast({ title: '商品未找到', icon: 'none' }) }
     }
   })
 }
-function scanAddLine() {
+function scanAdd() {
   uni.scanCode({
     success: async (res) => {
-      const res2 = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: res.result })
-      if (res2.records && res2.records[0]) {
-        const p = res2.records[0]
-        details.value.push({ productId: p.productId, productCode: p.productCode, productName: p.productName, spec: p.spec, unitName: p.unitName, qty: 1, price: p.salesPrice, taxRate: 13, remark: '', amount: 0 })
-        recalc(details.value[details.value.length - 1])
-        uni.showToast({ title: '已添加: ' + p.productName, icon: 'none' })
-      } else { uni.showToast({ title: '商品未找到', icon: 'none' }) }
+      const result = res.result
+      const r = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: result })
+      if (r.records && r.records[0]) addProduct(r.records[0])
+      else uni.showToast({ title: '商品未找到', icon: 'none' })
     },
-    fail: () => {
-      // 浏览器/模拟器无相机，自动改为手动输入
-      addLine()
-    }
+    fail: () => { uni.showToast({ title: '扫码取消', icon: 'none' }) }
   })
+}
+function addProduct(p) {
+  details.value.push({ productId: p.productId, productCode: p.productCode, productName: p.productName, spec: p.spec, unitName: p.unitName, qty: 1, price: p.salesPrice, taxRate: 13, remark: '', amount: 0 })
+  recalc(details.value[details.value.length - 1])
 }
 function recalc(d) { d.amount = (+d.qty || 0) * (+d.price || 0); d.taxAmount = d.amount * 0.13; d.amountTax = d.amount + d.taxAmount }
 async function onSave() {
