@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  erp-backend:
+    image: openjdk:17-jre-slim
+    container_name: industrial-erp
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    working_dir: /app
+    command: ["java", "-jar", "-Xms256m", "-Xmx512m", "industrial-erp-1.0.0.jar"]
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SERVER_PORT=8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/auth/me"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
