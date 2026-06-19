@@ -47,8 +47,7 @@ export const configApi = {
   update: (data) => request.put('/system/config', data),
   delete: (id) => request.delete(`/system/config/${id}`),
   getByKey: (key) => request.get(`/system/config/key/${key}`),
-  updateValue: (key, value) => request.put('/system/config/value', null, { params: { key, value } }),
-  getByKey: (key) => request.get(`/system/config/key/${key}`)
+  updateValue: (key, value) => request.put('/system/config/value', { key, value })
 }
 
 export const printApi = {

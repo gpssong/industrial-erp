@@ -88,6 +88,7 @@ public class AuthService {
         // 登录 Sa-Token
         StpUtil.login(user.getId());
         StpUtil.getSession().set("username", user.getUsername());
+        StpUtil.getSession().set("isAdmin", user.getIsAdmin());
         StpUtil.getSession().set(Constants.CURRENT_TENANT, user.getIsAdmin() == 1 ? 1L : 1L);
 
         // 更新最后登录信息
