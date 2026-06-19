@@ -2,6 +2,7 @@ package com.industrial.erp.modules.sales.entity;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -45,9 +46,13 @@ public class SalDelivery {
     private Long updateBy;
     private LocalDateTime updateTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
+    @TableField(exist = false)
     private List<SalDeliveryDetail> details;
+
+    @TableField(exist = false)
+    private String firstProductName;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -113,4 +118,6 @@ public class SalDelivery {
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
     public List<SalDeliveryDetail> getDetails() { return details; }
     public void setDetails(List<SalDeliveryDetail> details) { this.details = details; }
+    public String getFirstProductName() { return firstProductName; }
+    public void setFirstProductName(String firstProductName) { this.firstProductName = firstProductName; }
 }

@@ -14,6 +14,7 @@ public class PrdRequisitionDetail {
     private Long id;
     private Long requisitionId;
     private Integer lineNo;
+    private String materialType;
     private Long productId;
     private String productCode;
     private String productName;
@@ -30,7 +31,7 @@ public class PrdRequisitionDetail {
     private Long updateBy;
     private LocalDateTime updateTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -38,6 +39,8 @@ public class PrdRequisitionDetail {
     public void setRequisitionId(Long requisitionId) { this.requisitionId = requisitionId; }
     public Integer getLineNo() { return lineNo; }
     public void setLineNo(Integer lineNo) { this.lineNo = lineNo; }
+    public String getMaterialType() { return materialType; }
+    public void setMaterialType(String materialType) { this.materialType = materialType; }
     public Long getProductId() { return productId; }
     public void setProductId(Long productId) { this.productId = productId; }
     public String getProductCode() { return productCode; }

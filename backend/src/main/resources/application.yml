@@ -57,7 +57,6 @@ mybatis-plus:
       logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
-      insert-strategy: not_null
       update-strategy: not_null
 
 sa-token:
@@ -67,6 +66,8 @@ sa-token:
   is-share: true
   token-style: uuid
   is-read-header: true
+  is-read-cookie: false
+  is-read-query: true
   jwt-secret-key: industrial-erp-jwt-secret-key-2026-must-be-long-enough
 
 erp:

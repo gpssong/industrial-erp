@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.finance.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -32,7 +33,7 @@ public class FinCashFlow {
     private Long updateBy;
     private LocalDateTime updateTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

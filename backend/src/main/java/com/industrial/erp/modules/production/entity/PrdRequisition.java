@@ -2,6 +2,7 @@ package com.industrial.erp.modules.production.entity;
 import com.industrial.erp.modules.production.entity.PrdRequisitionDetail;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -29,8 +30,9 @@ public class PrdRequisition {
     private Long updateBy;
     private LocalDateTime updateTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
+    @TableField(exist = false)
     private List<PrdRequisitionDetail> details;
 
     public Long getId() { return id; }

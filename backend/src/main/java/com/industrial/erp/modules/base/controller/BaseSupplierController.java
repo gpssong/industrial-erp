@@ -24,6 +24,11 @@ public class BaseSupplierController {
         return R.ok(PageResult.of(service.page(pageNum, pageSize, keyword)));
     }
 
+    @GetMapping("/list")
+    public R<java.util.List<BaseSupplier>> list() {
+        return R.ok(service.list());
+    }
+
     @GetMapping("/{id}")
     public R<BaseSupplier> detail(@PathVariable Long id) { return R.ok(service.detail(id)); }
 

@@ -55,6 +55,7 @@ CREATE TABLE `inv_ledger` (
   `biz_direction` TINYINT       NOT NULL COMMENT '1=入库 -1=出库',
   `biz_date`      DATE          NOT NULL,
   `warehouse_id`  BIGINT        NOT NULL,
+  `warehouse_name` VARCHAR(64)  DEFAULT NULL,
   `area_id`       BIGINT        DEFAULT NULL,
   `location_id`   BIGINT        DEFAULT NULL,
   `product_id`    BIGINT        NOT NULL,

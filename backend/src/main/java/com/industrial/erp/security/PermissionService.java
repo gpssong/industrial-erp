@@ -31,6 +31,12 @@ public class PermissionService {
         }
     }
 
+    public void requireSuperAdmin() {
+        if (!SecurityContext.isSuperAdmin()) {
+            throw BizException.of(403, "只有超级管理员才能执行此操作");
+        }
+    }
+
     public boolean hasRole(String role) {
         if (SecurityContext.isSuperAdmin()) return true;
         return StpUtil.hasRole(role);

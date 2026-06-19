@@ -31,7 +31,7 @@ public class OutIssue {
     private Long updateBy;
     private LocalDateTime updateTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
     private List<OutIssueDetail> details;
 

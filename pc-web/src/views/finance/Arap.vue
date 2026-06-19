@@ -31,7 +31,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="data.total" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
     </div>
     <el-dialog v-model="payVisible" :title="form.billType==='AR'?'收款单':'付款单'" width="500px">
       <el-form :model="form" label-width="100px">
@@ -71,7 +71,8 @@ function onPay(row) {
   payVisible.value = true
 }
 async function doPay() {
-  await arapApi.cash({ ...form, sourceBillId: form.id })
+  const { id, ...payload } = form
+  await arapApi.cash(payload)
   ElMessage.success('收/付款成功'); payVisible.value = false; loadData()
 }
 onMounted(loadData)

@@ -9,6 +9,8 @@ import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 public class BaseSupplierService {
 
@@ -27,6 +29,10 @@ public class BaseSupplierService {
                 .or().like(BaseSupplier::getSupplierName, keyword).or().like(BaseSupplier::getPhone, keyword));
         w.orderByDesc(BaseSupplier::getId);
         return mapper.selectPage(p, w);
+    }
+
+    public List<BaseSupplier> list() {
+        return mapper.selectList(new LambdaQueryWrapper<BaseSupplier>().eq(BaseSupplier::getStatus, 1).orderByAsc(BaseSupplier::getSupplierName));
     }
 
     public BaseSupplier detail(Long id) { return mapper.selectById(id); }

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.purchase.mapper.PurOrderMapper">
+
+    <insert id="insert" parameterType="com.industrial.erp.modules.purchase.entity.PurOrder">
+        INSERT INTO pur_order (
+            id, bill_no, bill_date, supplier_id, supplier_name,
+            warehouse_id, buyer_id, buyer_name, order_type, pay_type,
+            currency, exchange_rate, total_qty, total_amount, tax_amount,
+            total_amount_tax, paid_amount, bill_status, delivery_date,
+            source_bill_id, remark, create_by, create_time, update_by, update_time, deleted
+        ) VALUES (
+            #{id}, #{billNo}, #{billDate}, #{supplierId}, #{supplierName},
+            #{warehouseId}, #{buyerId}, #{buyerName}, #{orderType}, #{payType},
+            #{currency}, #{exchangeRate}, #{totalQty}, #{totalAmount}, #{taxAmount},
+            #{totalAmountTax}, #{paidAmount}, #{billStatus}, #{deliveryDate},
+            #{sourceBillId}, #{remark}, #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{deleted}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.industrial.erp.modules.purchase.entity.PurOrder">
+        UPDATE pur_order SET
+            bill_no = #{et.billNo},
+            bill_date = #{et.billDate},
+            supplier_id = #{et.supplierId},
+            supplier_name = #{et.supplierName},
+            warehouse_id = #{et.warehouseId},
+            buyer_id = #{et.buyerId},
+            buyer_name = #{et.buyerName},
+            order_type = #{et.orderType},
+            pay_type = #{et.payType},
+            currency = #{et.currency},
+            exchange_rate = #{et.exchangeRate},
+            total_qty = #{et.totalQty},
+            total_amount = #{et.totalAmount},
+            tax_amount = #{et.taxAmount},
+            total_amount_tax = #{et.totalAmountTax},
+            paid_amount = #{et.paidAmount},
+            bill_status = #{et.billStatus},
+            delivery_date = #{et.deliveryDate},
+            source_bill_id = #{et.sourceBillId},
+            remark = #{et.remark},
+            update_by = #{et.updateBy},
+            update_time = #{et.updateTime}
+        WHERE id = #{et.id}
+    </update>
+
+</mapper>

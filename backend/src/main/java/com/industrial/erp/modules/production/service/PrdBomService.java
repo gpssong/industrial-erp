@@ -9,6 +9,7 @@ import com.industrial.erp.modules.production.entity.PrdBomDetail;
 import com.industrial.erp.modules.production.mapper.PrdBomDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdBomMapper;
 import com.industrial.erp.security.PermissionService;
+import com.industrial.erp.utils.BillNoGenerator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,15 +18,17 @@ import java.util.List;
 @Service
 public class PrdBomService {
 
-    public PrdBomService(PrdBomMapper bomMapper, PrdBomDetailMapper detailMapper, PermissionService permService) {
+    public PrdBomService(PrdBomMapper bomMapper, PrdBomDetailMapper detailMapper, PermissionService permService, BillNoGenerator billNoGenerator) {
         this.bomMapper = bomMapper;
         this.detailMapper = detailMapper;
         this.permService = permService;
+        this.billNoGenerator = billNoGenerator;
     }
 
     private final PrdBomMapper bomMapper;
     private final PrdBomDetailMapper detailMapper;
     private final PermissionService permService;
+    private final BillNoGenerator billNoGenerator;
 
     public IPage<PrdBom> page(Integer pageNum, Integer pageSize, String keyword) {
         permService.requirePerm("production:bom:list");
@@ -50,6 +53,7 @@ public class PrdBomService {
         if (bom.getStatus() == null) bom.setStatus(1);
         if (bom.getIsDefault() == null) bom.setIsDefault(0);
         if (bom.getLossRate() == null) bom.setLossRate(java.math.BigDecimal.ZERO);
+        if (bom.getBomCode() == null || bom.getBomCode().isBlank()) bom.setBomCode(billNoGenerator.generate("BOM"));
         bomMapper.insert(bom);
         saveDetails(bom.getId(), bom.getDetails());
     }

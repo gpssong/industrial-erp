@@ -29,7 +29,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="data.total" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
     </div>
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑' : '新增'" width="700px" destroy-on-close>

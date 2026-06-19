@@ -2,6 +2,7 @@ package com.industrial.erp.modules.purchase.entity;
 import com.industrial.erp.modules.purchase.entity.PurReceiptDetail;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -39,9 +40,13 @@ public class PurReceipt {
     private Long updateBy;
     private LocalDateTime updateTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
+    @TableField(exist = false)
     private List<PurReceiptDetail> details;
+
+    @TableField(exist = false)
+    private String firstProductName;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -95,4 +100,6 @@ public class PurReceipt {
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
     public List<PurReceiptDetail> getDetails() { return details; }
     public void setDetails(List<PurReceiptDetail> details) { this.details = details; }
+    public String getFirstProductName() { return firstProductName; }
+    public void setFirstProductName(String firstProductName) { this.firstProductName = firstProductName; }
 }

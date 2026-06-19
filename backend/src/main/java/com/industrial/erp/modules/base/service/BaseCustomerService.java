@@ -11,6 +11,7 @@ import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Service
 public class BaseCustomerService {
@@ -30,6 +31,10 @@ public class BaseCustomerService {
                 .or().like(BaseCustomer::getCustomerName, keyword).or().like(BaseCustomer::getPhone, keyword));
         w.orderByDesc(BaseCustomer::getId);
         return mapper.selectPage(p, w);
+    }
+
+    public List<BaseCustomer> list() {
+        return mapper.selectList(new LambdaQueryWrapper<BaseCustomer>().eq(BaseCustomer::getStatus, 1).orderByAsc(BaseCustomer::getCustomerName));
     }
 
     public BaseCustomer detail(Long id) { return mapper.selectById(id); }

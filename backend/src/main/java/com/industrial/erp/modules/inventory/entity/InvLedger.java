@@ -20,6 +20,7 @@ public class InvLedger {
     private Integer bizDirection;
     private LocalDate bizDate;
     private Long warehouseId;
+    private String warehouseName;
     private Long areaId;
     private Long locationId;
     private Long productId;
@@ -42,7 +43,7 @@ public class InvLedger {
     private Long createBy;
     private LocalDateTime createTime;
     @TableLogic
-    private Integer deleted;
+    private Integer deleted = 0;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -60,6 +61,8 @@ public class InvLedger {
     public void setBizDate(LocalDate bizDate) { this.bizDate = bizDate; }
     public Long getWarehouseId() { return warehouseId; }
     public void setWarehouseId(Long warehouseId) { this.warehouseId = warehouseId; }
+    public String getWarehouseName() { return warehouseName; }
+    public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
     public Long getAreaId() { return areaId; }
     public void setAreaId(Long areaId) { this.areaId = areaId; }
     public Long getLocationId() { return locationId; }

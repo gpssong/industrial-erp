@@ -85,7 +85,8 @@ const menuTree = [
       { path: '/system/user', title: '用户管理', icon: 'User' },
       { path: '/system/role', title: '角色管理', icon: 'UserFilled' },
       { path: '/system/menu', title: '菜单管理', icon: 'Menu' },
-      { path: '/system/dept', title: '部门管理', icon: 'OfficeBuilding' }
+      { path: '/system/dept', title: '部门管理', icon: 'OfficeBuilding' },
+      { path: '/system/settings', title: '系统设置', icon: 'Setting' }
     ]
   },
   {
