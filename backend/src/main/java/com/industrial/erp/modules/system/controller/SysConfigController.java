@@ -5,6 +5,7 @@ import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.system.entity.SysConfig;
 import com.industrial.erp.modules.system.service.SysConfigService;
+import com.industrial.erp.security.PermissionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,8 +14,12 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/system/config")
 public class SysConfigController {
 
-    public SysConfigController(SysConfigService service) { this.service = service; }
+    public SysConfigController(SysConfigService service, PermissionService permService) {
+        this.service = service;
+        this.permService = permService;
+    }
     private final SysConfigService service;
+    private final PermissionService permService;
 
     @GetMapping("/page")
     public R<PageResult<SysConfig>> page(@RequestParam(defaultValue = "1") Integer pageNum,
@@ -38,4 +43,11 @@ public class SysConfigController {
 
     @GetMapping("/key/{key}")
     public R<String> getByKey(@PathVariable String key) { return R.ok(service.getByKey(key)); }
+
+    @PutMapping("/value")
+    public R<Void> updateValue(@RequestParam String key, @RequestParam String value) {
+        permService.requirePerm("system:config:edit");
+        service.updateValue(key, value);
+        return R.ok();
+    }
 }
