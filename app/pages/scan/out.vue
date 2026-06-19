@@ -23,7 +23,7 @@
 </template>
 <script setup>
 import { ref } from 'vue'
-import api from '../api/index.js'
+import api from '../../api/index.js'
 const code = ref(''); const product = ref(null)
 const qty = ref(1); const price = ref(0); const customerId = ref(1)
 function onScan() { uni.scanCode({ success: (res) => { code.value = res.result; search() } }) }

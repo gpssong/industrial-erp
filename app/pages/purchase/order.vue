@@ -16,7 +16,7 @@
 </template>
 <script setup>
 import { ref, onMounted } from 'vue'
-import api from '../api/index.js'
+import api from '../../api/index.js'
 const list = ref([])
 async function loadData() { list.value = (await api.purchaseOrderPage({ pageNum: 1, pageSize: 30 })).records || [] }
 onMounted(loadData)
