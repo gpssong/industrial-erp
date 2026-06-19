@@ -8,7 +8,7 @@
           <el-input v-model="systemName" placeholder="请输入系统名称" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="saveSystemName">保存</el-button>
+          <el-button type="primary" @click="saveSystemName()">保存</el-button>
           <span class="muted-tip">修改后刷新页面生效，将显示在左上角</span>
         </el-form-item>
       </el-form>
