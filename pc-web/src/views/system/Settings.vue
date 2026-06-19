@@ -1,5 +1,19 @@
 <template>
   <div>
+    <!-- 系统名称配置 -->
+    <div class="page-card" style="margin-bottom:16px">
+      <div class="section-title">🏭 系统名称设置</div>
+      <el-form label-width="140px" style="max-width:600px">
+        <el-form-item label="系统名称">
+          <el-input v-model="systemName" placeholder="请输入系统名称" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="saveSystemName">保存</el-button>
+          <span class="muted-tip">修改后刷新页面生效，将显示在左上角</span>
+        </el-form-item>
+      </el-form>
+    </div>
+
     <!-- 服务器地址配置 -->
     <div class="page-card" style="margin-bottom:16px">
       <div class="section-title">⚙️ 服务器连接设置</div>
@@ -99,6 +113,7 @@
 import { reactive, ref, onMounted, computed } from 'vue'
 import { configApi } from '@/api/system'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
+import { useSystemName } from '@/composables/useSystemName'
 import { ElMessage, ElMessageBox } from 'element-plus'
 const query = reactive({ pageNum: 1, pageSize: 20, configName: '', configType: '' })
 const data = ref({ records: [], total: 0 })
@@ -107,6 +122,7 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const form = ref({ id: null, configName: '', configKey: '', configValue: '', configType: 1, remark: '' })
 const { taxSeparation, loadTaxSeparation, saveTaxSeparation } = useTaxSeparation()
+const { systemName, loadSystemName, saveSystemName } = useSystemName()
 
 // 服务器地址配置
 const serverBase = ref(localStorage.getItem('erp_api_base') || '')
@@ -170,7 +186,7 @@ async function onDelete(row) {
   ElMessage.success('删除成功')
   loadData()
 }
-onMounted(() => { loadData(); loadTaxSeparation() })
+onMounted(() => { loadData(); loadTaxSeparation(); loadSystemName() })
 </script>
 <style scoped>
 .toolbar { margin-bottom: 12px; }
