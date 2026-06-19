@@ -41,7 +41,11 @@ const user = ref({})
 const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, warningCount: 0 })
 const today = new Date().toISOString().substring(0, 10)
 const greeting = ref('您好')
-function go(url) { uni.navigateTo({ url }) }
+function go(url) {
+  const tabbarPages = ['/pages/dashboard/index', '/pages/inventory/query', '/pages/sales/quick', '/pages/report/index', '/pages/profile/index']
+  if (tabbarPages.includes(url)) uni.switchTab({ url })
+  else uni.navigateTo({ url })
+}
 onMounted(async () => {
   user.value = JSON.parse(uni.getStorageSync('erp_user') || '{}')
   const h = new Date().getHours()

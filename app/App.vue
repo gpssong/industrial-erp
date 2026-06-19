@@ -7,8 +7,6 @@
 import { onLaunch } from '@dcloudio/uni-app'
 onLaunch(() => {
   console.log('App Launch')
-  const token = uni.getStorageSync('erp_token')
-  if (!token) uni.reLaunch({ url: '/pages/login/index' })
 })
 </script>
 <style>
