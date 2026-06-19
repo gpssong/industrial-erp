@@ -23,11 +23,11 @@
     "selectedColor": "#1e6091",
     "backgroundColor": "#fff",
     "list": [
-      { "pagePath": "pages/dashboard/index", "text": "工作台", "iconPath": "static/icons/home.png", "selectedIconPath": "static/icons/home-active.png" },
-      { "pagePath": "pages/inventory/query", "text": "库存", "iconPath": "static/icons/stock.png", "selectedIconPath": "static/icons/stock-active.png" },
-      { "pagePath": "pages/sales/quick", "text": "开单", "iconPath": "static/icons/sale.png", "selectedIconPath": "static/icons/sale-active.png" },
-      { "pagePath": "pages/report/index", "text": "报表", "iconPath": "static/icons/report.png", "selectedIconPath": "static/icons/report-active.png" },
-      { "pagePath": "pages/profile/index", "text": "我的", "iconPath": "static/icons/me.png", "selectedIconPath": "static/icons/me-active.png" }
+      { "pagePath": "pages/dashboard/index", "text": "工作台" },
+      { "pagePath": "pages/inventory/query", "text": "库存" },
+      { "pagePath": "pages/sales/quick", "text": "开单" },
+      { "pagePath": "pages/report/index", "text": "报表" },
+      { "pagePath": "pages/profile/index", "text": "我的" }
     ]
   }
 }

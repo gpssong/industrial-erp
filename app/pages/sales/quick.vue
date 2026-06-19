@@ -40,7 +40,7 @@
 </template>
 <script setup>
 import { ref, computed } from 'vue'
-import api from '@/api/index.js'
+import api from '../../api/index.js'
 const customers = ref([])
 const customerId = ref(null); const customerName = ref('')
 const details = ref([])

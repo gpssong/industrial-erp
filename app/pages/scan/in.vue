@@ -20,7 +20,7 @@
 </template>
 <script setup>
 import { ref, onMounted } from 'vue'
-import api from '@/api/index.js'
+import api from '../api/index.js'
 const code = ref(''); const product = ref(null)
 const qty = ref(1); const price = ref(0); const batchNo = ref('')
 function onScan() {

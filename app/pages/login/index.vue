@@ -21,7 +21,7 @@
 </template>
 <script setup>
 import { reactive } from 'vue'
-import api from '@/api/index.js'
+import api from '../api/index.js'
 const form = reactive({ username: 'admin', password: 'admin123' })
 async function onLogin() {
   try {
