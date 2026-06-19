@@ -13,7 +13,7 @@
 
     <groupId>com.industrial</groupId>
     <artifactId>industrial-erp</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <name>industrial-erp</name>
     <description>企业级工业进销存 ERP 系统</description>
 
