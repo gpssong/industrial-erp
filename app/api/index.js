@@ -30,6 +30,8 @@ export const api = {
   me: () => request({ url: '/auth/me' }),
   // 库存
   stockPage: (params) => request({ url: '/inventory/stock/page', data: params }),
+  // 客户
+  customerList: () => request({ url: '/base/customer/list' }),
   // 销售
   salesOrderPage: (params) => request({ url: '/sales/order/page', data: params }),
   salesOrderAdd: (data) => request({ url: '/sales/order', method: 'POST', data }),

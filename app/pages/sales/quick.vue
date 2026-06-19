@@ -39,9 +39,10 @@
   </view>
 </template>
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '../../api/index.js'
 const customers = ref([])
+onMounted(async () => { customers.value = await api.customerList() })
 const customerId = ref(null); const customerName = ref('')
 const details = ref([])
 const totalQty = computed(() => details.value.reduce((s, d) => s + (+d.qty || 0), 0))
