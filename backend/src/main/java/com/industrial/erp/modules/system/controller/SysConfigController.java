@@ -45,9 +45,9 @@ public class SysConfigController {
     public R<String> getByKey(@PathVariable String key) { return R.ok(service.getByKey(key)); }
 
     @PutMapping("/value")
-    public R<Void> updateValue(@RequestParam String key, @RequestParam String value) {
+    public R<Void> updateValue(@RequestBody java.util.Map<String, String> body) {
         permService.requirePerm("system:config:edit");
-        service.updateValue(key, value);
+        service.updateValue(body.get("key"), body.get("value"));
         return R.ok();
     }
 }
