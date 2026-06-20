@@ -40,4 +40,11 @@
     <delete id="deleteUserRoles">
         DELETE FROM sys_user_role WHERE role_id = #{roleId}
     </delete>
+
+    <select id="selectDataScopesByUserId" resultType="java.lang.Integer">
+        SELECT r.data_scope
+        FROM sys_user_role ur
+        INNER JOIN sys_role r ON r.id = ur.role_id AND r.deleted = 0
+        WHERE ur.user_id = #{userId} AND r.status = 1 AND r.data_scope IS NOT NULL
+    </select>
 </mapper>

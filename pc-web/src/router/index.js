@@ -25,9 +25,11 @@ const routes = [
       // 采购
       { path: 'purchase/order', name: 'PurOrder', component: () => import('@/views/purchase/Order.vue'), meta: { title: '采购订单', icon: 'List', perm: 'purchase:order:list' } },
       { path: 'purchase/receipt', name: 'PurReceipt', component: () => import('@/views/purchase/Receipt.vue'), meta: { title: '采购入库', icon: 'Box', perm: 'purchase:receipt:list' } },
+      { path: 'purchase/return', name: 'PurReturn', component: () => import('@/views/purchase/Return.vue'), meta: { title: '采购退货', icon: 'Back', perm: 'purchase:return:list' } },
       // 销售
       { path: 'sales/order', name: 'SalOrder', component: () => import('@/views/sales/Order.vue'), meta: { title: '销售订单', icon: 'Tickets', perm: 'sales:order:list' } },
       { path: 'sales/delivery', name: 'SalDelivery', component: () => import('@/views/sales/Delivery.vue'), meta: { title: '销售出库', icon: 'TakeawayBox', perm: 'sales:delivery:list' } },
+      { path: 'sales/return', name: 'SalReturn', component: () => import('@/views/sales/Return.vue'), meta: { title: '销售退货', icon: 'Refresh', perm: 'sales:return:list' } },
       // 库存
       { path: 'inventory/stock', name: 'InvStock', component: () => import('@/views/inventory/Stock.vue'), meta: { title: '库存查询', icon: 'Grid', perm: 'inventory:stock:list' } },
       { path: 'inventory/ledger', name: 'InvLedger', component: () => import('@/views/inventory/Ledger.vue'), meta: { title: '库存台账', icon: 'Notebook', perm: 'inventory:ledger:list' } },
@@ -54,6 +56,7 @@ router.beforeEach((to, from, next) => {
   if (!user.token) return next('/login')
   // 简易权限
   if (to.meta.perm && !user.hasPerm(to.meta.perm)) {
+    console.warn('[router] 权限不足:', to.meta.perm, 'user.isAdmin=', user.userInfo?.isAdmin, 'userId=', user.userInfo?.userId)
     ElMessage.warning('无访问权限: ' + to.meta.perm)
     return next(false)
   }

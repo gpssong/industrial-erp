@@ -54,6 +54,14 @@ public class SalDelivery {
     @TableField(exist = false)
     private String firstProductName;
 
+    /** 仓库名称 (PrintService 通过 JOIN 填充, 模板 {{warehouseName}} 可用) */
+    @TableField(exist = false)
+    private String warehouseName;
+
+    /** 库区名称 (PrintService 通过 JOIN 填充, 模板 {{areaName}} 可用) */
+    @TableField(exist = false)
+    private String areaName;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getBillNo() { return billNo; }
@@ -120,4 +128,8 @@ public class SalDelivery {
     public void setDetails(List<SalDeliveryDetail> details) { this.details = details; }
     public String getFirstProductName() { return firstProductName; }
     public void setFirstProductName(String firstProductName) { this.firstProductName = firstProductName; }
+    public String getWarehouseName() { return warehouseName; }
+    public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
+    public String getAreaName() { return areaName; }
+    public void setAreaName(String areaName) { this.areaName = areaName; }
 }

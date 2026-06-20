@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.purchase.mapper.PurReturnDetailMapper">
+    <select id="selectByReturnId" resultType="com.industrial.erp.modules.purchase.entity.PurReturnDetail">
+        SELECT * FROM pur_return_detail WHERE return_id = #{returnId} AND deleted = 0 ORDER BY line_no
+    </select>
+</mapper>

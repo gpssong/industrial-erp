@@ -105,14 +105,16 @@ const menuTree = [
     path: '/purchase', title: '采购管理', icon: 'List',
     children: [
       { path: '/purchase/order', title: '采购订单', icon: 'List' },
-      { path: '/purchase/receipt', title: '采购入库', icon: 'Box' }
+      { path: '/purchase/receipt', title: '采购入库', icon: 'Box' },
+      { path: '/purchase/return', title: '采购退货', icon: 'Back' }
     ]
   },
   {
     path: '/sales', title: '销售管理', icon: 'Sell',
     children: [
       { path: '/sales/order', title: '销售订单', icon: 'Tickets' },
-      { path: '/sales/delivery', title: '销售出库', icon: 'TakeawayBox' }
+      { path: '/sales/delivery', title: '销售出库', icon: 'TakeawayBox' },
+      { path: '/sales/return', title: '销售退货', icon: 'Refresh' }
     ]
   },
   {

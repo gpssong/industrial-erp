@@ -179,6 +179,7 @@ DROP TABLE IF EXISTS `pur_return_detail`;
 CREATE TABLE `pur_return_detail` (
   `id`            BIGINT        NOT NULL AUTO_INCREMENT,
   `return_id`     BIGINT        NOT NULL,
+  `line_no`       INT           DEFAULT NULL,
   `product_id`    BIGINT        NOT NULL,
   `product_code`  VARCHAR(64)   DEFAULT NULL,
   `product_name`  VARCHAR(128)  DEFAULT NULL,

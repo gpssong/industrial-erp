@@ -11,11 +11,14 @@ import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.system.dto.LoginDTO;
 import com.industrial.erp.modules.system.entity.SysDept;
 import com.industrial.erp.modules.system.entity.SysMenu;
+import com.industrial.erp.modules.system.entity.SysRole;
 import com.industrial.erp.modules.system.entity.SysUser;
 import com.industrial.erp.modules.system.mapper.SysDeptMapper;
 import com.industrial.erp.modules.system.mapper.SysMenuMapper;
+import com.industrial.erp.modules.system.mapper.SysRoleMapper;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.modules.system.vo.LoginVO;
+import com.industrial.erp.security.PermissionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -32,12 +35,15 @@ public class AuthService {
     private final SysUserMapper userMapper;
     private final SysMenuMapper menuMapper;
     private final SysDeptMapper deptMapper;
+    private final SysRoleMapper roleMapper;
     private final StringRedisTemplate redis;
 
-    public AuthService(SysUserMapper userMapper, SysMenuMapper menuMapper, SysDeptMapper deptMapper, StringRedisTemplate redis) {
+    public AuthService(SysUserMapper userMapper, SysMenuMapper menuMapper, SysDeptMapper deptMapper,
+                       SysRoleMapper roleMapper, StringRedisTemplate redis) {
         this.userMapper = userMapper;
         this.menuMapper = menuMapper;
         this.deptMapper = deptMapper;
+        this.roleMapper = roleMapper;
         this.redis = redis;
     }
 
@@ -89,7 +95,15 @@ public class AuthService {
         StpUtil.login(user.getId());
         StpUtil.getSession().set("username", user.getUsername());
         StpUtil.getSession().set("isAdmin", user.getIsAdmin());
-        StpUtil.getSession().set(Constants.CURRENT_TENANT, user.getIsAdmin() == 1 ? 1L : 1L);
+        // 修复: 原代码 user.getIsAdmin() == 1 ? 1L : 1L 两个分支相同, 现统一写 DEFAULT_TENANT
+        // 后续接入多租户时, 此处改为读取 user.getTenantId()
+        StpUtil.getSession().set(Constants.CURRENT_TENANT, Constants.DEFAULT_TENANT);
+
+        // 预计算并缓存 data_scope (取多角色中权限最大, 即数字最小)
+        Integer dataScope = computeDataScope(user.getId());
+        if (dataScope != null) {
+            StpUtil.getSession().set(PermissionService.SESSION_DATA_SCOPE, dataScope);
+        }
 
         // 更新最后登录信息
         user.setLastLoginTime(LocalDateTime.now());
@@ -142,6 +156,19 @@ public class AuthService {
         if (n != null && n == 1L) {
             redis.expire(key, 5, TimeUnit.MINUTES);
         }
+    }
+
+    /**
+     * 计算用户的数据范围: 取多角色中权限最大的 (即 data_scope 数字最小的)
+     * 超级管理员固定为 SCOPE_ALL
+     */
+    private Integer computeDataScope(Long userId) {
+        if (userId == null) return PermissionService.SCOPE_SELF;
+        // 超级管理员判断与 SecurityContext 一致
+        if (Constants.SUPER_ADMIN_ID.equals(userId)) return PermissionService.SCOPE_ALL;
+        List<Integer> scopes = roleMapper.selectDataScopesByUserId(userId);
+        if (scopes == null || scopes.isEmpty()) return PermissionService.SCOPE_SELF;
+        return scopes.stream().filter(s -> s != null).min(Integer::compareTo).orElse(PermissionService.SCOPE_SELF);
     }
 
     public void setPassword(String username, String password) {

@@ -8,11 +8,11 @@
 - 🏭 **工业特性**: 商品含厚度/幅宽/密度/色号/批次, 支持米重换算 / 分切 / 复卷 / 裁切
 - 🔒 **强一致**: 库存双重锁 (Redis 分布式锁 + MySQL 行锁), **严格禁止负库存**
 - 📊 **成本精准**: 移动加权平均成本, 实时计算毛利
-- 💰 **往来闭环**: 自动生成应收/应付, 收/付款自动核销，余额实时重算
+- 💰 **往来闭环**: 自动生成应收/应付, 收/付款自动核销，余额实时重算；退货自动生成负向冲销
 - 📱 **多端统一**: PC管理后台 + Windows桌面 + Android/iOS App
 - 🔐 **精细权限**: 菜单 / 按钮 / 数据范围 三级权限 (基于 Sa-Token)
-- 🖨️ **本地打印**: 支持针式 / 激光 / 小票打印机, 76mm/80mm/241mm三等分模板，自定义打印内容（`{{field}}` 文本插值 + `{{#details}}` 明细循环）
-- 🗄️ **系统设置**: 打印模板自定义（销售出库/采购入库/生产单）、价税分离开关、数据备份（自动+手动）
+- 🖨️ **本地打印**: 支持针式 / 激光 / 小票打印机, 76mm/80mm/241mm三等分模板，自定义打印内容（`{{field}}` 文本插值 + `{{#details}}` 明细循环），支持 **HTML 模式** 可视化编辑（CodeMirror）
+- 🗄️ **系统设置**: 打印模板自定义（销售出库/采购入库/生产单/采购退货/销售退货）、价税分离开关、数据备份（自动+手动）
 - 🐳 **一键部署**: Docker Compose 一键拉起 MySQL + Redis + 后端 + 前端
 - 🧪 **单元测试**: 库存核心场景测试覆盖 (移动加权平均 / 禁止负库存)
 
@@ -48,16 +48,16 @@ erp-system/
 │   │   │   │   ├── mapper/        # SysPrintTemplateMapper
 │   │   │   │   └── entity/         # SysPrintTemplate, SysBackupRecord
 │   │   │   ├── base/              # 基础资料 (商品/客户/供应商/仓库/单位)
-│   │   │   ├── purchase/          # 采购
-│   │   │   ├── sales/             # 销售
+│   │   │   ├── purchase/          # 采购 (含退货 PurReturn)
+│   │   │   ├── sales/             # 销售 (含退货 SalReturn)
 │   │   │   ├── inventory/         # 库存 (核心)
 │   │   │   │   └── service/       # StockService (台账写入/成本计算)
 │   │   │   ├── production/        # 生产 (BOM/加工单/领料/成品入库)
 │   │   │   ├── finance/           # 财务 (应收应付/收款付款核销)
 │   │   │   ├── report/            # 报表 (工作台KPI/销售汇总/库存台账)
-│   │   │   └── print/             # 打印 (PrintService)
+│   │   │   └── print/             # 打印 (PrintService + PrintDataLoader + PrintTemplateEngine + PrintRenderer)
 │   │   ├── config/                # 配置 (MP/Sa-Token/Redis/Jackson)
-│   │   ├── security/              # 安全 (Sa-Token/Permission)
+│   │   ├── security/              # 安全 (Sa-Token/Permission/DataScope)
 │   │   ├── common/                # 通用 (R/PageResult/Constants)
 │   │   ├── exception/             # 异常 (BizException/GlobalExceptionHandler)
 │   │   └── utils/                 # 工具 (RedisLock/BillNoGenerator)
@@ -67,13 +67,16 @@ erp-system/
 │   │   └── templates/print/       # Freemarker 打印模板 (fallback)
 │   │       ├── sales_delivery.ftl
 │   │       ├── purchase_receipt.ftl
-│   │       └── prd_order.ftl
+│   │       ├── prd_order.ftl
+│   │       ├── purchase_return.ftl
+│   │       └── sales_return.ftl
 │   ├── src/test/                  # 单元测试
 │   └── Dockerfile
 │
 ├── pc-web/                        # PC 管理后台 (Vue3)
 │   ├── src/
-│   │   ├── api/                   # 接口封装 (system.js 含 printApi/backupApi)
+│   │   ├── api/                   # 接口封装 (system.js 含 printApi/backupApi, purchase.js 含 purReturnApi, sales.js 含 salReturnApi)
+│   │   ├── components/            # 通用组件 (含 CodeEditor 基于 CodeMirror)
 │   │   ├── router/                # 路由 (含权限控制)
 │   │   ├── store/                 # Pinia (用户态)
 │   │   ├── views/
@@ -83,7 +86,9 @@ erp-system/
 │   │   │   │   ├── PrintTemplate.vue # 打印模板 (含代码参考面板)
 │   │   │   │   └── Backup.vue    # 数据备份
 │   │   │   ├── purchase/Receipt.vue # 采购入库 (含打印)
+│   │   │   ├── purchase/Return.vue  # 采购退货 (含打印)
 │   │   │   ├── sales/Delivery.vue  # 销售出库 (含打印)
+│   │   │   ├── sales/Return.vue    # 销售退货 (含打印)
 │   │   │   ├── production/Order.vue # 生产加工单 (含打印)
 │   │   │   ├── inventory/
 │   │   │   │   ├── Stock.vue      # 库存查询
@@ -150,11 +155,13 @@ cd ../electron && npm install && npm run dev
 
 ### 采购管理 ✅
 - 采购订单/入库/自动生成应付台账
-- 采购入库打印 ✅
+- **采购退货** ✅ — 审核后自动出库 + 生成负向应付冲销
+- 采购入库/退货打印 ✅
 
 ### 销售管理 ✅
 - 销售订单/出库/自动生成应收台账
-- 销售出库打印 ✅
+- **销售退货** ✅ — 审核后自动入库 + 生成负向应收冲销
+- 销售出库/退货打印 ✅
 
 ### 库存管理 ✅
 - 严格禁止负库存 (Redis锁+MySQL行锁)
@@ -194,9 +201,20 @@ mvn test -Dtest=StockServiceTest   # 库存核心
 mvn test                          # 全量
 ```
 
+## 📝 更新日志
+
+### v1.0.2 (2026-06-20)
+- **采购退货模块** — 创建/审核/自动出库/应付冲销/打印
+- **销售退货模块** — 创建/审核/自动入库/应收冲销/打印
+- **打印系统重构** — 拆分为 PrintDataLoader / PrintTemplateEngine / PrintRenderer，职责清晰
+- **打印模板 HTML 模式** — 支持自由编写 HTML + `{{field}}` 插值，CodeMirror 代码编辑器
+- **退货打印模板** — 新增 purchase_return.ftl / sales_return.ftl
+- **数据权限** — 新增 DataScope 四级数据范围 (全部/本部门及下级/本部门/仅本人)
+- **前端路由** — 新增采购退货/销售退货菜单及权限控制
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
-- 菜单/按钮/数据范围三级权限
+- 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)
 - 全部操作写 `sys_oper_log` (AOP自动)
 
 ## 📈 性能
