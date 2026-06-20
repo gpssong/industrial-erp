@@ -1,6 +1,6 @@
 {
   "name": "industrial-erp-desktop",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "工业ERP桌面客户端 (Electron + Vue3)",
   "main": "src/main.js",
   "author": "ERP Team",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "electron-store": "^8.2.0",
-    "node-printer": "^0.6.0"
+    "node-printer": "^1.0.4"
   },
   "devDependencies": {
     "electron": "^29.0.0",
