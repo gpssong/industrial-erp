@@ -458,7 +458,7 @@ public class PrintTemplateEngine {
      *   <li>管道格式: 第一行 (含 |) = 表头, 之后每行 = 数据行模板</li>
      * </ul>
      *
-     * @param head 模板中 {{#details}} 之前的部分 (用于判断是否已在 &lt;tbody&gt; 内)
+     * @param head 模板中 {{#details}} 之前的部分 (用于判断是否已在 &lt;table&gt;/&lt;tbody&gt; 内)
      */
     private String buildTableFromTplHtml(String tpl, List<?> details, boolean taxSep, String head) {
         boolean hasHtmlRows = tpl.contains("<tr") || tpl.contains("<td");
@@ -471,20 +471,38 @@ public class PrintTemplateEngine {
     }
 
     /**
+     * 检测 head 中是否有未关闭的 &lt;table&gt; 标签.
+     * 用户模板常见写法: &lt;table&gt;...&lt;tr&gt;&lt;th&gt;...&lt;/th&gt;&lt;/tr&gt;{{#details}}&lt;tr&gt;...&lt;/tr&gt;{{/details}}&lt;/table&gt;
+     */
+    private boolean headHasOpenTable(String head) {
+        if (head == null) return false;
+        int open = head.lastIndexOf("<table");
+        int close = head.lastIndexOf("</table>");
+        return open >= 0 && open > close;
+    }
+
+    /**
      * HTML 行格式明细: 模板中直接写 HTML &lt;tr&gt; 行, 对每条 detail 数据重复输出并替换 {{field}}.
-     * <p>如果外层 head 已含 &lt;tbody&gt; (用户把 {{#details}} 放在 &lt;tbody&gt; 内), 则只输出 &lt;tr&gt; 行;
-     * 否则包裹 &lt;table&gt; (独立明细表场景).
+     * <p>三种场景:
+     * <ul>
+     *   <li>head 中已有未关闭的 &lt;table&gt; 且 foot 负责闭合 → 不再包 &lt;table&gt;</li>
+     *   <li>head 中已有 &lt;tbody&gt; → 不再包任何容器</li>
+     *   <li>独立明细表 → 自动包裹 &lt;table&gt;</li>
+     * </ul>
      *
-     * @param head 模板中 {{#details}} 之前的部分 (用于检测是否已在 &lt;tbody&gt; 内)
+     * @param head 模板中 {{#details}} 之前的部分
      */
     private String buildHtmlDetailRows(String tpl, List<?> details, boolean taxSep, String head) {
+        boolean insideTable = headHasOpenTable(head);
         boolean insideTbody = head != null && head.contains("<tbody");
+        boolean needWrapTable = !insideTable && !insideTbody;
+
         if (details == null || details.isEmpty()) {
             String empty = tpl.replaceAll("\\{\\{[^}]+\\}\\}", "&nbsp;");
-            return insideTbody ? empty : "<table style=\"width:100%;border-collapse:collapse;\">" + empty + "</table>";
+            return needWrapTable ? "<table style=\"width:100%;border-collapse:collapse;\">" + empty + "</table>" : empty;
         }
         StringBuilder sb = new StringBuilder();
-        if (!insideTbody) sb.append("<table style=\"width:100%;border-collapse:collapse;\">");
+        if (needWrapTable) sb.append("<table style=\"width:100%;border-collapse:collapse;\">");
         for (Object row : details) {
             String[] lines = tpl.split("\n");
             for (String raw : lines) {
@@ -493,7 +511,7 @@ public class PrintTemplateEngine {
                 sb.append(renderHtmlLine(line, row, taxSep)).append("\n");
             }
         }
-        if (!insideTbody) sb.append("</table>");
+        if (needWrapTable) sb.append("</table>");
         return sb.toString();
     }
 
