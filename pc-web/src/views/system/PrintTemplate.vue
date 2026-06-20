@@ -66,6 +66,12 @@
               <el-form-item label="标题文字" style="margin-bottom:0">
                 <el-input v-model="cfg.title" style="width:110px" />
               </el-form-item>
+              <el-form-item label="模板模式" style="margin-bottom:0">
+                <el-radio-group v-model="cfg.mode" size="small">
+                  <el-radio-button value="text">纯文本</el-radio-button>
+                  <el-radio-button value="html">HTML</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
               <el-form-item style="margin-bottom:0">
                 <el-checkbox v-model="cfg.showSignature">签字栏</el-checkbox>
               </el-form-item>
@@ -77,27 +83,33 @@
 
           <!-- 模板文本区 -->
           <div class="template-editor">
-            <div class="editor-label">📝 模板内容（用 {{}} 包裹字段名）</div>
+            <div class="editor-label">
+              <span v-if="cfg.mode === 'html'">📝 模板内容（HTML 模式 - 可直接写 &lt;table&gt;/&lt;div&gt;/&lt;style&gt; 等标签, {{}} 仍可用)</span>
+              <span v-else>📝 模板内容（用 {{}} 包裹字段名）</span>
+            </div>
+            <!-- HTML 模式工具栏 -->
+            <div v-if="cfg.mode === 'html'" class="html-snippets">
+              <el-button size="small" @click="insertSnippet('table')">插入表格</el-button>
+              <el-button size="small" @click="insertSnippet('info')">信息行</el-button>
+              <el-button size="small" @click="insertSnippet('details')">明细表</el-button>
+              <el-button size="small" @click="insertSnippet('style')">样式</el-button>
+              <el-button size="small" @click="insertSnippet('header')">表头模板</el-button>
+            </div>
+            <!-- HTML 模式: 使用 CodeMirror 代码编辑器 -->
+            <CodeEditor
+              v-if="cfg.mode === 'html'"
+              v-model="cfg.template"
+              :placeholder="htmlPlaceholder"
+              height="100%"
+              @change="updatePreview"
+            />
+            <!-- 纯文本模式: 使用普通文本框 -->
             <el-input
+              v-else
               v-model="cfg.template"
               type="textarea"
               :rows="14"
-              placeholder="示例:
-=== 表头 ===
-单号: {{billNo}}
-日期: {{billDate}}
-供应商: {{supplierName}}
-
-=== 明细表头 ===
-商品名 | 规格 | 数量 | 单价 | 金额
-
-=== 明细循环 ===
-{{#details}}
-{{productName}} | {{spec}} | {{qty}} | {{price}} | {{amount}}
-{{/details}}
-
-=== 表尾 ===
-合计: {{totalAmount}}"
+              :placeholder="textPlaceholder"
               style="font-family:Consolas,monospace;font-size:13px"
               @input="updatePreview"
             />
@@ -158,8 +170,9 @@ import { purReceiptApi } from '@/api/purchase'
 import { salDeliveryApi } from '@/api/sales'
 import { prdOrderApi } from '@/api/production'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import CodeEditor from '@/components/CodeEditor.vue'
 
-const typeMap = { SAL_DELIVERY: '销售出库', PUR_RECEIPT: '采购入库', PRD_ORDER: '生产单' }
+const typeMap = { SAL_DELIVERY: '销售出库', PUR_RECEIPT: '采购入库', PRD_ORDER: '生产单', PUR_RETURN: '采购退货', SAL_RETURN: '销售退货' }
 const paperSizes = [
   { value: 'P76', label: '76mm小票' },
   { value: 'P80', label: '80mm小票' },
@@ -268,28 +281,120 @@ const previewStyle = computed(() => {
 
 function updatePreview() {
   const tpl = cfg.value.template || ''
-  let html = escHtml(cfg.value.title || '单据')
-  // 简单解析：{{#details}}...{{/details}} 循环
-  const detailMatch = tpl.match(/\{\{#details\}\}([\s\S]*?)\{\{\/details\}\}/)
-  let detailRows = ''
-  if (detailMatch) {
-    const rowTpl = detailMatch[1]
-    const demoDetail = [
-      { lineNo: 1, productName: '商品A', spec: '规格A', qty: '10.0000', price: '128.0000', amount: '1280.0000' },
-      { lineNo: 2, productName: '商品B', spec: '规格B', qty: '5.0000', price: '88.0000', amount: '440.0000' },
-    ]
-    demoDetail.forEach(d => {
-      let row = rowTpl
+  const isHtml = cfg.value.mode === 'html'
+  // 演示数据 (用于字段替换预览)
+  const demoDetail = [
+    { lineNo: 1, productName: '商品A', spec: '规格A', qty: '10.0000', price: '128.0000', amount: '1280.0000' },
+    { lineNo: 2, productName: '商品B', spec: '规格B', qty: '5.0000', price: '88.0000', amount: '440.0000' },
+  ]
+  // 替换 {{#details}} 块为所有数据行 (支持 {{#details}} 在 <tbody> 内或独立使用)
+  let content = tpl.replace(/\{\{#details\}\}([\s\S]*?)\{\{\/details\}\}/, (_, block) => {
+    return demoDetail.map(d => {
+      let row = block
       Object.keys(d).forEach(k => { row = row.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), d[k]) })
-      detailRows += row
-    })
+      return row
+    }).join('\n')
+  })
+  // 替换 {{field}}
+  content = content.replace(/\{\{([^}]+)\}\}/g, (_, k) => demoVal(k.trim()))
+  // 移除 === 注释行
+  content = content.replace(/^===.*?===\s*$/gm, '')
+
+  if (isHtml) {
+    // HTML 模式: 如果有 <th> 但没有数据行, 自动填充演示数据
+    content = autoFillHtmlTables(content, demoDetail)
+    previewHtml.value = content
+  } else {
+    // 文本模式: 按行转义为 div, 安全预览
+    previewHtml.value = content.split('\n').map(l => `<div>${escHtml(l) || '&nbsp;'}</div>`).join('')
   }
-  let content = tpl
-    .replace(/\{\{#details\}\}[\s\S]*?\{\{\/details\}\}/g, detailRows)
-    .replace(/\{\{([^}]+)\}\}/g, (_, k) => demoVal(k.trim()))
-    .replace(/===.*?===/g, '')
-  previewHtml.value = content.split('\n').map(l => `<div>${escHtml(l) || '&nbsp;'}</div>`).join('')
 }
+
+/** 检测 HTML 中有 <th> 表头但无 <td> 数据行的表格, 自动填充演示数据 */
+function autoFillHtmlTables(html, demoData) {
+  return html.replace(/<table[^>]*>([\s\S]*?)<\/table>/gi, (tableFull, inner) => {
+    // 已有 <td> 数据行, 不处理
+    if (/<td[\s>]/i.test(inner)) return tableFull
+    // 提取 <th> 列名
+    const ths = [...inner.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi)]
+    if (!ths.length) return tableFull
+    const colNames = ths.map(m => m[1].replace(/<[^>]+>/g, '').trim())
+    // 根据列名猜测字段
+    const fieldMap = { '商品': 'productName', '商品名': 'productName', '商品编码': 'productCode', '编码': 'productCode',
+      '规格': 'spec', '单位': 'unitName', '数量': 'qty', '单价': 'price', '单价(含税)': 'price',
+      '金额': 'amount', '含税金额': 'amountTax', '不含税单价': 'priceEx', '税率': 'taxRate',
+      '税额': 'taxAmount', '备注': 'remark', '批次': 'batchNo', '库位': 'locationName', '行号': 'lineNo',
+      '序号': 'lineNo', '商品名称': 'productName' }
+    const fields = colNames.map(n => fieldMap[n] || null)
+    // 生成 <tbody> 数据行
+    const rows = demoData.map(d => {
+      const tds = fields.map((f, i) => {
+        const val = f ? (d[f] || '—') : '—'
+        const isNum = f && /^(qty|price|amount|priceEx|amountTax|taxRate|taxAmount|lineNo)$/.test(f)
+        const align = isNum ? 'text-align:right;' : ''
+        return `<td style="border:1px solid #333;padding:4px;${align}">${val}</td>`
+      }).join('')
+      return `<tr>${tds}</tr>`
+    }).join('')
+    // 插入到 </thead> 之后, 或 </tr>(最后一个表头行) 之后
+    const headEnd = inner.search(/<\/thead>/i)
+    if (headEnd >= 0) {
+      const pos = headEnd + inner.slice(headEnd).indexOf('>') + 1
+      return tableFull.replace(inner, inner.slice(0, pos) + rows + inner.slice(pos))
+    }
+    // 没有 <thead>, 在最后一个 </tr> 后插入
+    const lastTr = inner.lastIndexOf('</tr>')
+    if (lastTr >= 0) {
+      const pos = lastTr + 5
+      return tableFull.replace(inner, inner.slice(0, pos) + rows + inner.slice(pos))
+    }
+    return tableFull
+  })
+}
+
+// HTML 模式占位符示例
+const htmlPlaceholder = `<style>
+  .my-table { border-collapse: collapse; width: 100%; }
+  .my-table th { background: #333; color: #fff; padding: 6px; }
+  .my-table td { border: 1px solid #ccc; padding: 4px; }
+</style>
+
+<h2 style="text-align:center;color:#1e6091">销售出库单</h2>
+
+<table class="my-table">
+  <tr><th>单号</th><td>{{billNo}}</td><th>日期</th><td>{{billDate}}</td></tr>
+  <tr><th>客户</th><td>{{customerName}}</td><th>仓库</th><td>{{warehouseName}}</td></tr>
+</table>
+
+<h3 style="margin-top:10px">商品明细</h3>
+<table class="my-table">
+  <thead><tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>金额</th></tr></thead>
+  <tbody>
+  {{#details}}
+  <tr><td>{{productName}}</td><td>{{spec}}</td><td style="text-align:right">{{qty}}</td><td style="text-align:right">{{price}}</td><td style="text-align:right">{{amount}}</td></tr>
+  {{/details}}
+  </tbody>
+</table>
+
+<div style="text-align:right;font-size:14px;font-weight:bold;margin-top:10px">
+  价税合计: ¥{{totalAmountTax}}
+</div>`
+
+const textPlaceholder = `=== 表头 ===
+单号: {{billNo}}
+日期: {{billDate}}
+供应商: {{supplierName}}
+
+=== 明细表头 ===
+商品名 | 规格 | 数量 | 单价 | 金额
+
+=== 明细循环 ===
+{{#details}}
+{{productName}} | {{spec}} | {{qty}} | {{price}} | {{amount}}
+{{/details}}
+
+=== 表尾 ===
+合计: {{totalAmount}}`
 
 function demoVal(k) {
   const m = {
@@ -316,6 +421,13 @@ const refTab = ref('common')
 let textareaEl = null
 
 function insertField(fieldName) {
+  // HTML 模式: 追加到模板末尾 (CodeEditor 不支持光标定位 API)
+  if (cfg.value.mode === 'html') {
+    cfg.value.template += '{{' + fieldName + '}}'
+    updatePreview()
+    return
+  }
+  // 纯文本模式: 插入到光标位置
   const ta = document.querySelector('.template-editor .el-textarea__inner')
   if (!ta) return
   const start = ta.selectionStart
@@ -324,6 +436,65 @@ function insertField(fieldName) {
   const after = cfg.value.template.slice(end)
   cfg.value.template = before + '{{' + fieldName + '}}' + after
   updatePreview()
+}
+
+// ========== HTML 代码片段插入 ==========
+const snippets = {
+  table: `
+<table style="width:100%;border-collapse:collapse;">
+  <tr><th style="border:1px solid #333;padding:4px;background:#f0f0f0;">标题</th><td style="border:1px solid #333;padding:4px;">{{billNo}}</td></tr>
+  <tr><th style="border:1px solid #333;padding:4px;background:#f0f0f0;">日期</th><td style="border:1px solid #333;padding:4px;">{{billDate}}</td></tr>
+</table>`,
+  info: `<div style="display:flex;justify-content:space-between;padding:2px 0;">
+  <span>单号: {{billNo}}</span>
+  <span>日期: {{billDate}}</span>
+</div>`,
+  details: `
+<table style="width:100%;border-collapse:collapse;">
+  <thead>
+    <tr>
+      <th style="border:1px solid #333;padding:4px;background:#f0f0f0;">商品</th>
+      <th style="border:1px solid #333;padding:4px;background:#f0f0f0;">规格</th>
+      <th style="border:1px solid #333;padding:4px;background:#f0f0f0;">数量</th>
+      <th style="border:1px solid #333;padding:4px;background:#f0f0f0;">单价</th>
+      <th style="border:1px solid #333;padding:4px;background:#f0f0f0;">金额</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{#details}}
+    <tr>
+      <td style="border:1px solid #333;padding:4px;">{{productName}}</td>
+      <td style="border:1px solid #333;padding:4px;">{{spec}}</td>
+      <td style="border:1px solid #333;padding:4px;text-align:right;">{{qty}}</td>
+      <td style="border:1px solid #333;padding:4px;text-align:right;">{{price}}</td>
+      <td style="border:1px solid #333;padding:4px;text-align:right;">{{amount}}</td>
+    </tr>
+    {{/details}}
+  </tbody>
+</table>`,
+  style: `<style>
+  .print-page { font-family: SimHei, Microsoft YaHei; font-size: 11px; }
+  .print-table { width: 100%; border-collapse: collapse; }
+  .print-table th { background: #333; color: #fff; padding: 6px; }
+  .print-table td { border: 1px solid #ccc; padding: 4px; }
+  .print-title { text-align: center; font-size: 14px; margin: 4px 0; }
+  .print-total { text-align: right; font-weight: bold; margin-top: 8px; }
+</style>`,
+  header: `<div style="text-align:center;margin-bottom:10px;">
+  <h2 style="margin:0;font-size:16px;">销售出库单</h2>
+  <div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px;">
+    <span>单号: {{billNo}}</span>
+    <span>日期: {{billDate}}</span>
+  </div>
+</div>`,
+}
+
+function insertSnippet(type) {
+  const snippet = snippets[type]
+  if (snippet) {
+    cfg.value.template += snippet
+    updatePreview()
+  }
 }
 
 // ========== 数据 ==========
@@ -348,15 +519,17 @@ function getPaperLabel(row) {
 function loadCfgFromContent(content) {
   if (!content || !content.trim().startsWith('{')) {
     cfg.value = {
-      paperSize: 'P76', title: '单据', showSignature: true,
+      paperSize: 'P76', title: '单据', showSignature: true, mode: 'text',
       template: getDefaultTemplate(form.value.templateType),
     }
     return
   }
   try {
-    cfg.value = JSON.parse(content)
+    const parsed = JSON.parse(content)
+    if (!parsed.mode) parsed.mode = 'text'
+    cfg.value = parsed
   } catch {
-    cfg.value = { paperSize: 'P76', title: '单据', showSignature: true, template: getDefaultTemplate(form.value.templateType) }
+    cfg.value = { paperSize: 'P76', title: '单据', showSignature: true, mode: 'text', template: getDefaultTemplate(form.value.templateType) }
   }
 }
 
@@ -403,7 +576,7 @@ BOM: {{bomNo}}
 }
 
 function contentFromCfg() {
-  return JSON.stringify({ paperSize: cfg.value.paperSize, title: cfg.value.title, showSignature: cfg.value.showSignature, template: cfg.value.template })
+  return JSON.stringify({ paperSize: cfg.value.paperSize, title: cfg.value.title, showSignature: cfg.value.showSignature, mode: cfg.value.mode, template: cfg.value.template })
 }
 
 async function loadData() {
@@ -491,6 +664,8 @@ onMounted(loadData)
 .template-editor { flex: 1; display: flex; flex-direction: column; }
 .editor-label { font-size: 12px; color: #606266; margin-bottom: 4px; font-weight: 600; }
 :deep(.template-editor .el-textarea__inner) { resize: none; }
+.html-snippets { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.html-snippets .el-button { font-size: 12px; }
 
 .editor-preview { height: 200px; display: flex; flex-direction: column; }
 :deep(.editor-preview .el-textarea__inner) { height: 100% !important; }
@@ -508,6 +683,10 @@ onMounted(loadData)
 }
 .prev-title { text-align: center; font-size: 13px; font-weight: bold; border-bottom: 1px solid #000; padding-bottom: 3px; margin-bottom: 4px; }
 .prev-content div { white-space: pre-wrap; }
+.prev-content table { width: 100%; border-collapse: collapse; margin: 4px 0; }
+.prev-content th, .prev-content td { border: 1px solid #333; padding: 3px 6px; font-size: 10px; }
+.prev-content th { background: #f0f0f0; text-align: center; font-weight: bold; }
+.prev-content p { margin: 4px 0; }
 
 /* 右侧字段参考 */
 .field-ref {

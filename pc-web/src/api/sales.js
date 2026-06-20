@@ -16,3 +16,10 @@ export const salDeliveryApi = {
   check: (id) => request.post(`/sales/delivery/${id}/check`),
   getLastPrice: (customerId, productId) => request.get('/sales/delivery/last-price', { params: { customerId, productId } })
 }
+
+export const salReturnApi = {
+  page: (params) => request.get('/sales/return/page', { params }),
+  detail: (id) => request.get(`/sales/return/${id}`),
+  add: (data) => request.post('/sales/return', data),
+  check: (id) => request.post(`/sales/return/${id}/check`)
+}

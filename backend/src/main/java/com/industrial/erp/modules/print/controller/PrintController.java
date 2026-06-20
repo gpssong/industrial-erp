@@ -34,4 +34,14 @@ public class PrintController {
         return printService.renderPrdOrder(id);
     }
 
+    @GetMapping(value = "/purchase-return/{id}.html", produces = "text/html;charset=UTF-8")
+    public String purchaseReturn(@PathVariable Long id) {
+        return printService.renderPurReturn(id);
+    }
+
+    @GetMapping(value = "/sales-return/{id}.html", produces = "text/html;charset=UTF-8")
+    public String salesReturn(@PathVariable Long id) {
+        return printService.renderSalReturn(id);
+    }
+
 }

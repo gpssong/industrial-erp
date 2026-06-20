@@ -5,8 +5,12 @@ import com.industrial.erp.modules.finance.entity.FinArap;
 import com.industrial.erp.modules.finance.mapper.FinArapMapper;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.entity.PurReceiptDetail;
+import com.industrial.erp.modules.purchase.entity.PurReturn;
+import com.industrial.erp.modules.purchase.entity.PurReturnDetail;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
+import com.industrial.erp.modules.sales.entity.SalReturn;
+import com.industrial.erp.modules.sales.entity.SalReturnDetail;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -58,6 +62,43 @@ public class FinArapService {
         ar.setBalance(delivery.getTotalAmountTax());
         ar.setBillStatus(Constants.STATUS_UNPAID);
         ar.setRemark("销售出库自动生成");
+        arapMapper.insert(ar);
+    }
+
+    /** 采购退货 -> 反向 AP (负数, 冲减对供应商的应付) */
+    public void reverseApForReturn(PurReturn ret) {
+        FinArap ap = new FinArap();
+        ap.setBillType("AP");
+        ap.setSourceBillType(Constants.LEDGER_PUR_RETURN);
+        ap.setSourceBillId(ret.getId());
+        ap.setSourceBillNo(ret.getBillNo());
+        ap.setSupplierId(ret.getSupplierId());
+        ap.setSupplierName(ret.getSupplierName());
+        ap.setBizDate(ret.getBillDate());
+        // 退货金额取负 (冲减应付)
+        ap.setAmount(ret.getTotalAmountTax() == null ? BigDecimal.ZERO : ret.getTotalAmountTax().negate());
+        ap.setPaidAmount(BigDecimal.ZERO);
+        ap.setBalance(ap.getAmount());
+        ap.setBillStatus(ap.getAmount().compareTo(BigDecimal.ZERO) >= 0 ? Constants.STATUS_UNPAID : Constants.STATUS_PAID);
+        ap.setRemark("采购退货自动冲账 " + ret.getBillNo());
+        arapMapper.insert(ap);
+    }
+
+    /** 销售退货 -> 反向 AR (负数, 冲减对客户的应收) */
+    public void reverseArForReturn(SalReturn ret) {
+        FinArap ar = new FinArap();
+        ar.setBillType("AR");
+        ar.setSourceBillType(Constants.LEDGER_SAL_RETURN);
+        ar.setSourceBillId(ret.getId());
+        ar.setSourceBillNo(ret.getBillNo());
+        ar.setCustomerId(ret.getCustomerId());
+        ar.setCustomerName(ret.getCustomerName());
+        ar.setBizDate(ret.getBillDate());
+        ar.setAmount(ret.getTotalAmountTax() == null ? BigDecimal.ZERO : ret.getTotalAmountTax().negate());
+        ar.setPaidAmount(BigDecimal.ZERO);
+        ar.setBalance(ar.getAmount());
+        ar.setBillStatus(ar.getAmount().compareTo(BigDecimal.ZERO) >= 0 ? Constants.STATUS_UNPAID : Constants.STATUS_PAID);
+        ar.setRemark("销售退货自动冲账 " + ret.getBillNo());
         arapMapper.insert(ar);
     }
 

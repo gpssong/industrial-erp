@@ -16,3 +16,10 @@ export const purReceiptApi = {
   check: (id) => request.post(`/purchase/receipt/${id}/check`),
   getLastPrice: (supplierId, productId) => request.get('/purchase/receipt/last-price', { params: { supplierId, productId } })
 }
+
+export const purReturnApi = {
+  page: (params) => request.get('/purchase/return/page', { params }),
+  detail: (id) => request.get(`/purchase/return/${id}`),
+  add: (data) => request.post('/purchase/return', data),
+  check: (id) => request.post(`/purchase/return/${id}/check`)
+}

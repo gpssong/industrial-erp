@@ -1,5 +1,4 @@
 package com.industrial.erp.modules.purchase.entity;
-import com.industrial.erp.modules.purchase.entity.PurReceiptDetail;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -12,28 +11,25 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-@TableName("pur_receipt")
-public class PurReceipt {
+/**
+ * 采购退货单主表
+ */
+@TableName("pur_return")
+public class PurReturn {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private String billNo;
     private LocalDate billDate;
-    private Long orderId;
-    private String orderNo;
+    /** 来源入库单 id (可空, 也可手填无源单) */
+    private Long sourceReceiptId;
     private Long supplierId;
     private String supplierName;
     private Long warehouseId;
-    private Long areaId;
-    private Long buyerId;
-    private String billType;
     private BigDecimal totalQty;
     private BigDecimal totalAmount;
     private BigDecimal taxAmount;
     private BigDecimal totalAmountTax;
-    private BigDecimal paidAmount;
-    private String payType;
     private String billStatus;
-    private String deliveryNo;
     private String remark;
     private Long createBy;
     private LocalDateTime createTime;
@@ -43,18 +39,13 @@ public class PurReceipt {
     private Integer deleted = 0;
 
     @TableField(exist = false)
-    private List<PurReceiptDetail> details;
+    private List<PurReturnDetail> details;
 
     @TableField(exist = false)
     private String firstProductName;
 
-    /** 仓库名称 (PrintService 通过 JOIN 填充, 模板 {{warehouseName}} 可用) */
     @TableField(exist = false)
     private String warehouseName;
-
-    /** 库区名称 (PrintService 通过 JOIN 填充, 模板 {{areaName}} 可用) */
-    @TableField(exist = false)
-    private String areaName;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -62,22 +53,14 @@ public class PurReceipt {
     public void setBillNo(String billNo) { this.billNo = billNo; }
     public LocalDate getBillDate() { return billDate; }
     public void setBillDate(LocalDate billDate) { this.billDate = billDate; }
-    public Long getOrderId() { return orderId; }
-    public void setOrderId(Long orderId) { this.orderId = orderId; }
-    public String getOrderNo() { return orderNo; }
-    public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
+    public Long getSourceReceiptId() { return sourceReceiptId; }
+    public void setSourceReceiptId(Long sourceReceiptId) { this.sourceReceiptId = sourceReceiptId; }
     public Long getSupplierId() { return supplierId; }
     public void setSupplierId(Long supplierId) { this.supplierId = supplierId; }
     public String getSupplierName() { return supplierName; }
     public void setSupplierName(String supplierName) { this.supplierName = supplierName; }
     public Long getWarehouseId() { return warehouseId; }
     public void setWarehouseId(Long warehouseId) { this.warehouseId = warehouseId; }
-    public Long getAreaId() { return areaId; }
-    public void setAreaId(Long areaId) { this.areaId = areaId; }
-    public Long getBuyerId() { return buyerId; }
-    public void setBuyerId(Long buyerId) { this.buyerId = buyerId; }
-    public String getBillType() { return billType; }
-    public void setBillType(String billType) { this.billType = billType; }
     public BigDecimal getTotalQty() { return totalQty; }
     public void setTotalQty(BigDecimal totalQty) { this.totalQty = totalQty; }
     public BigDecimal getTotalAmount() { return totalAmount; }
@@ -86,14 +69,8 @@ public class PurReceipt {
     public void setTaxAmount(BigDecimal taxAmount) { this.taxAmount = taxAmount; }
     public BigDecimal getTotalAmountTax() { return totalAmountTax; }
     public void setTotalAmountTax(BigDecimal totalAmountTax) { this.totalAmountTax = totalAmountTax; }
-    public BigDecimal getPaidAmount() { return paidAmount; }
-    public void setPaidAmount(BigDecimal paidAmount) { this.paidAmount = paidAmount; }
-    public String getPayType() { return payType; }
-    public void setPayType(String payType) { this.payType = payType; }
     public String getBillStatus() { return billStatus; }
     public void setBillStatus(String billStatus) { this.billStatus = billStatus; }
-    public String getDeliveryNo() { return deliveryNo; }
-    public void setDeliveryNo(String deliveryNo) { this.deliveryNo = deliveryNo; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
     public Long getCreateBy() { return createBy; }
@@ -106,12 +83,10 @@ public class PurReceipt {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
-    public List<PurReceiptDetail> getDetails() { return details; }
-    public void setDetails(List<PurReceiptDetail> details) { this.details = details; }
+    public List<PurReturnDetail> getDetails() { return details; }
+    public void setDetails(List<PurReturnDetail> details) { this.details = details; }
     public String getFirstProductName() { return firstProductName; }
     public void setFirstProductName(String firstProductName) { this.firstProductName = firstProductName; }
     public String getWarehouseName() { return warehouseName; }
     public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
-    public String getAreaName() { return areaName; }
-    public void setAreaName(String areaName) { this.areaName = areaName; }
 }

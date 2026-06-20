@@ -9,7 +9,22 @@ import com.industrial.erp.common.Constants;
 public final class SecurityContext {
     private SecurityContext() {}
 
+    /** 仅供单元测试使用的 ThreadLocal: 在没有 Sa-Token 上下文时返回指定 userId */
+    private static final ThreadLocal<Long> TEST_USER_ID = new ThreadLocal<>();
+
+    /** 测试用: 设置当前线程的 userId (绕过 Sa-Token) */
+    public static void setCurrentUserIdForTest(Long userId) {
+        TEST_USER_ID.set(userId);
+    }
+
+    /** 测试用: 清除 ThreadLocal, 避免污染其他用例 */
+    public static void clearForTest() {
+        TEST_USER_ID.remove();
+    }
+
     public static boolean isLogin() {
+        Long testUid = TEST_USER_ID.get();
+        if (testUid != null) return true;
         try {
             return StpUtil.isLogin();
         } catch (Exception e) {
@@ -18,6 +33,8 @@ public final class SecurityContext {
     }
 
     public static Long getUserId() {
+        Long testUid = TEST_USER_ID.get();
+        if (testUid != null) return testUid;
         if (!isLogin()) return null;
         Object id = StpUtil.getLoginIdDefaultNull();
         return id == null ? null : Long.valueOf(id.toString());

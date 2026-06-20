@@ -43,12 +43,16 @@ public class BackupService {
     @Value("${spring.datasource.password:}")
     private String dbPwd;
 
-    @Value("${erp.backup.path:/Users/tongban/industrial-erp-backup}")
+    @Value("${erp.backup.path:#{'${user.home}'}/erp-backup}")
     private String backupPath;
-    @Value("${erp.backup.retention:30}")
+    @Value("${erp.backup.retention-days:30}")
     private int retentionDays;
-    @Value("${erp.backup.sql-path:/Users/tongban/Documents/根据前端开发erp 2/erp-system/sql}")
+    @Value("${erp.backup.sql-path:./sql}")
     private String sqlPath;
+    @Value("${erp.backup.mysqldump-path:mysqldump}")
+    private String mysqldumpPath;
+    @Value("${erp.backup.mysql-path:mysql}")
+    private String mysqlPath;
 
     /**
      * 每天凌晨 3 点执行自动备份
@@ -69,9 +73,9 @@ public class BackupService {
             if (!dir.exists()) dir.mkdirs();
             String name = "erp_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + "_" + IdUtil.fastSimpleUUID().substring(0, 4) + ".sql";
             File file = new File(dir, name);
-            // 实际: 通过 ProcessBuilder 调用 mysqldump
+            // 实际: 通过 ProcessBuilder 调用 mysqldump (路径可通过 erp.backup.mysqldump-path 覆盖)
             ProcessBuilder pb = new ProcessBuilder(
-                    "/opt/homebrew/bin/mysqldump", "-u" + dbUser, "-p" + dbPwd,
+                    mysqldumpPath, "-u" + dbUser, "-p" + dbPwd,
                     "--default-character-set=utf8mb4",
                     "--single-transaction",
                     "--routines", "--triggers",
@@ -118,7 +122,7 @@ public class BackupService {
         String dbName = "industrial_erp";
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                    "/opt/homebrew/bin/mysql",
+                    mysqlPath,
                     "-u" + dbUser,
                     "-p" + dbPwd,
                     dbName
@@ -166,7 +170,7 @@ public class BackupService {
             }
             try {
                 ProcessBuilder pb = new ProcessBuilder(
-                        "/opt/homebrew/bin/mysql",
+                        mysqlPath,
                         "-u" + dbUser,
                         "-p" + dbPwd,
                         dbName

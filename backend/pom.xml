@@ -155,6 +155,26 @@
 
     <build>
         <plugins>
+            <!-- 强制锁定 Java 17，避免在 JDK 21+/JDK 26 等运行时编译失败 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+                    <execution>
+                        <id>enforce-java</id>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[17,18)</version>
+                                    <message>本项目要求 JDK 17, 当前 JDK 不受支持 (Lombok 1.18.30 与 JDK 21+ 兼容性差; JDK 26 Mockito inline mock 受限)</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

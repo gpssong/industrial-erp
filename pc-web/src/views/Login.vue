@@ -23,7 +23,7 @@
         <el-button type="primary" @click="onLogin" :loading="loading" style="width:100%">登 录</el-button>
       </el-form>
       <div class="login-tips">
-        <span>默认账号: <b>admin</b> / 密码: <b>admin123</b></span>
+        <span v-if="isDev">默认账号: <b>admin</b> / 密码: <b>admin123</b></span>
       </div>
     </div>
     <div class="login-bg"></div>
@@ -41,9 +41,12 @@ const user = useUserStore()
 const formRef = ref()
 const loading = ref(false)
 
+// 仅在开发模式下默认填入账号, 生产环境要求用户手动输入
+const isDev = import.meta.env.DEV
+
 const form = reactive({
-  username: 'admin',
-  password: 'admin123',
+  username: isDev ? 'admin' : '',
+  password: isDev ? 'admin123' : '',
   remember: true
 })
 
