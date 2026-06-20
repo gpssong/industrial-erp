@@ -410,11 +410,36 @@ public class PrintTemplateEngine {
             String head = template.substring(0, ds);
             String foot = template.substring(de + "{{/details}}".length());
             String detailTpl = template.substring(ds + "{{#details}}".length(), de);
-            // head/foot 部分: HTML 模式原样输出, 文本模式走 renderBlock
-            html.append(htmlMode ? renderHtmlBlock(head, bill, taxSep) : renderBlock(head, bill, taxSep, false));
-            // 明细部分: HTML 模式保持简单表格生成, 但允许用户在 detailTpl 中写 HTML 单元格
-            html.append(htmlMode ? buildTableFromTplHtml(detailTpl, details, taxSep, head) : buildTableFromTpl(detailTpl, details, taxSep));
-            html.append(htmlMode ? renderHtmlBlock(foot, bill, taxSep) : renderBlock(foot, bill, taxSep, false));
+
+            if (!htmlMode) {
+                // 文本模式: 检测 head 中是否有管道分隔的表头行,
+                // 如果有则合并到 detailTpl 中由 buildTableFromTpl 统一渲染为 <table>,
+                // 避免表头被 renderBlock 渲染为 flex div 导致与数据列不对齐.
+                String[] headLines = head.split("\n");
+                StringBuilder headBefore = new StringBuilder();
+                String headerLine = null;
+                for (String hl : headLines) {
+                    String trimmed = hl.trim();
+                    if (headerLine == null && trimmed.contains("|") && !trimmed.contains("{{")) {
+                        headerLine = trimmed;
+                    } else {
+                        headBefore.append(hl).append("\n");
+                    }
+                }
+                html.append(renderBlock(headBefore.toString(), bill, taxSep, false));
+                if (headerLine != null) {
+                    html.append(buildTableFromTpl(headerLine + "\n" + detailTpl, details, taxSep));
+                } else {
+                    html.append(buildTableFromTpl(detailTpl, details, taxSep));
+                }
+                html.append(renderBlock(foot, bill, taxSep, false));
+            } else {
+                // head/foot 部分: HTML 模式原样输出
+                html.append(renderHtmlBlock(head, bill, taxSep));
+                // 明细部分: HTML 模式保持简单表格生成, 但允许用户在 detailTpl 中写 HTML 单元格
+                html.append(buildTableFromTplHtml(detailTpl, details, taxSep, head));
+                html.append(renderHtmlBlock(foot, bill, taxSep));
+            }
         } else {
             html.append(htmlMode ? renderHtmlBlock(template, bill, taxSep) : renderBlock(template, bill, taxSep, false));
         }
