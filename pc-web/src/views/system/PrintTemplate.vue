@@ -8,6 +8,8 @@
             <el-option label="销售出库" value="SAL_DELIVERY" />
             <el-option label="采购入库" value="PUR_RECEIPT" />
             <el-option label="生产单" value="PRD_ORDER" />
+            <el-option label="采购退货" value="PUR_RETURN" />
+            <el-option label="销售退货" value="SAL_RETURN" />
           </el-select>
         </el-form-item>
         <el-form-item><el-button type="primary" @click="loadData">查询</el-button></el-form-item>
@@ -56,6 +58,8 @@
                   <el-option label="销售出库" value="SAL_DELIVERY" />
                   <el-option label="采购入库" value="PUR_RECEIPT" />
                   <el-option label="生产单" value="PRD_ORDER" />
+                  <el-option label="采购退货" value="PUR_RETURN" />
+                  <el-option label="销售退货" value="SAL_RETURN" />
                 </el-select>
               </el-form-item>
               <el-form-item label="纸张" style="margin-bottom:0">
@@ -166,8 +170,8 @@
 <script setup>
 import { reactive, ref, onMounted, computed } from 'vue'
 import { printApi } from '@/api/system'
-import { purReceiptApi } from '@/api/purchase'
-import { salDeliveryApi } from '@/api/sales'
+import { purReceiptApi, purReturnApi } from '@/api/purchase'
+import { salDeliveryApi, salReturnApi } from '@/api/sales'
 import { prdOrderApi } from '@/api/production'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CodeEditor from '@/components/CodeEditor.vue'
@@ -195,12 +199,14 @@ const allFields = {
     { value: 'address', label: '收货地址' }, { value: 'phone', label: '收货电话' },
     { value: 'deliveryDate', label: '交货日期' }, { value: 'payType', label: '付款方式' },
     { value: 'discountAmount', label: '整单折扣' }, { value: 'tailAmount', label: '抹零' },
+    { value: 'sourceDeliveryId', label: '原出库单号' },
   ],
   // 采购入库
   pur: [
     { value: 'supplierName', label: '供应商名称' }, { value: 'supplierCode', label: '供应商编码' },
     { value: 'warehouseName', label: '仓库' }, { value: 'buyerName', label: '采购员' },
     { value: 'orderNo', label: '采购订单号' }, { value: 'payType', label: '付款方式' },
+    { value: 'sourceReceiptId', label: '原入库单号' },
   ],
   // 生产单
   prd: [
@@ -234,9 +240,10 @@ const allFields = {
 }
 
 function getFieldGroups(type) {
-  const g = (fields) => ({ name: fields, label: fields === 'common' ? '通用' : fields === 'detail' ? '明细' : fields === 'footer' ? '表尾' : type === 'SAL_DELIVERY' ? '销售' : type === 'PUR_RECEIPT' ? '采购' : '生产', fields: allFields[fields] })
+  const g = (fields) => ({ name: fields, label: fields === 'common' ? '通用' : fields === 'detail' ? '明细' : fields === 'footer' ? '表尾' : (type === 'SAL_DELIVERY' || type === 'SAL_RETURN') ? '销售' : '采购', fields: allFields[fields] })
   if (type === 'SAL_DELIVERY') return [g('common'), g('sal'), g('detail'), g('footer')]
-  if (type === 'PUR_RECEIPT') return [g('common'), g('pur'), g('detail'), g('footer')]
+  if (type === 'PUR_RECEIPT' || type === 'PUR_RETURN') return [g('common'), g('pur'), g('detail'), g('footer')]
+  if (type === 'SAL_RETURN') return [g('common'), g('sal'), g('detail'), g('footer')]
   return [g('common'), g('prd')]
 }
 
@@ -402,7 +409,8 @@ function demoVal(k) {
     customerName: '示例客户', warehouseName: '中心仓库', address: '北京市朝阳区',
     phone: '13800138000', remark: '备注', salesmanName: '张三', buyerName: '李四',
     deliveryDate: '2024-06-25', payType: '月结', discountAmount: '0.00', tailAmount: '0.00',
-    orderNo: 'CG-20240601-001', bomNo: 'BOM-001', productName: '产品A',
+    orderNo: 'CG-20240601-001', sourceReceiptId: 'RK-20240610-001', sourceDeliveryId: 'CK-20240610-001',
+    bomNo: 'BOM-001', productName: '产品A',
     productCode: 'P001', spec: '规格A', unitName: '台', planQty: '100.0000',
     actualQty: '98.0000', goodQty: '96.0000', lossQty: '2.0000', lossRate: '2.00',
     workshop: '一车间', leader: '王五', startDate: '2024-06-18', endDate: '2024-06-28',
@@ -565,6 +573,34 @@ function getDefaultTemplate(type) {
 不含税金额: {{totalAmount}}
 税额: {{taxAmount}}
 价税合计: {{totalAmountTax}}`
+  if (type === 'PUR_RETURN') return `单号: {{billNo}}
+日期: {{billDate}}
+供应商: {{supplierName}}
+仓库: {{warehouseName}}
+
+=== 商品明细 ===
+商品名 | 规格 | 数量 | 单价 | 金额
+{{#details}}
+{{productName}} | {{spec}} | {{qty}} | {{price}} | {{amount}}
+{{/details}}
+
+不含税金额: {{totalAmount}}
+税额: {{taxAmount}}
+价税合计: {{totalAmountTax}}`
+  if (type === 'SAL_RETURN') return `单号: {{billNo}}
+日期: {{billDate}}
+客户: {{customerName}}
+仓库: {{warehouseName}}
+
+=== 商品明细 ===
+商品名 | 规格 | 数量 | 单价 | 金额
+{{#details}}
+{{productName}} | {{spec}} | {{qty}} | {{price}} | {{amount}}
+{{/details}}
+
+不含税金额: {{totalAmount}}
+税额: {{taxAmount}}
+价税合计: {{totalAmountTax}}`
   return `单号: {{billNo}}
 日期: {{billDate}}
 产品: {{productName}}
@@ -617,11 +653,17 @@ async function onPreview(row) {
     } else if (row.templateType === 'PRD_ORDER') {
       const res = await prdOrderApi.page({ pageNum: 1, pageSize: 1 })
       realId = res.data?.records?.[0]?.id
+    } else if (row.templateType === 'PUR_RETURN') {
+      const res = await purReturnApi.page({ pageNum: 1, pageSize: 1 })
+      realId = res.data?.records?.[0]?.id
+    } else if (row.templateType === 'SAL_RETURN') {
+      const res = await salReturnApi.page({ pageNum: 1, pageSize: 1 })
+      realId = res.data?.records?.[0]?.id
     }
   } catch (e) { /* ignore */ }
 
   if (!realId) { ElMessage.warning('暂无单据数据，请先创建后再预览'); return }
-  const typeToPath = { SAL_DELIVERY: 'sales-delivery', PUR_RECEIPT: 'purchase-receipt', PRD_ORDER: 'prd-order' }
+  const typeToPath = { SAL_DELIVERY: 'sales-delivery', PUR_RECEIPT: 'purchase-receipt', PRD_ORDER: 'prd-order', PUR_RETURN: 'purchase-return', SAL_RETURN: 'sales-return' }
   const path = typeToPath[row.templateType] || row.templateType.toLowerCase().replaceAll('_', '-')
   previewUrl.value = `http://localhost:8080/api/print/${path}/${realId}.html?token=${localStorage.getItem('erp_token')}&_t=${Date.now()}`
   previewVisible.value = true
