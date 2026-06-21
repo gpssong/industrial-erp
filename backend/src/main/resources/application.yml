@@ -99,7 +99,7 @@ erp:
   cors:
     # 注意: Spring 的 allowedOrigins (因 allowCredentials=true) 不支持通配符, 必须列全具体 origin.
     # 新加子域时同步修改这里, 或在部署 .env 用 ERP_CORS_ALLOWED_ORIGINS 覆盖.
-    allowed-origins: ${ERP_CORS_ALLOWED_ORIGINS:https://93gushi.com,https://www.93gushi.com,https://home.93gushi.com,http://home.93gushi.com,http://localhost:5173,http://localhost:8080}
+    allowed-origins: ${ERP_CORS_ALLOWED_ORIGINS:https://93gushi.com,https://www.93gushi.com,https://home.93gushi.com,http://home.93gushi.com,http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:8080}
   backup:
     path: ${ERP_BACKUP_PATH:${user.home}/erp-backup}
     sql-path: ${ERP_BACKUP_SQL_PATH:./sql}
