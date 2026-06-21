@@ -111,3 +111,11 @@ logs/
 pc-web/auto-imports.d.ts
 pc-web/components.d.ts
 pc-web/release-build/
+
+# ===== 部署产物 (Docker / NAS 部署) =====
+# data/ 是 docker-compose.yml 挂载的运行时数据 (上传文件/备份), 不入版本库
+data/
+# mysql-data / redis-data 是 Docker 命名卷, 不应提交
+# 但在 NAS 上要保留, 由 docker volume 管理
+.env
+!.env.example

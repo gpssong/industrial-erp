@@ -51,6 +51,9 @@ public class StockService {
         String key = Constants.REDIS_STOCK_LOCK + warehouseId + ":" + productId + ":" + (batchNo == null ? "" : batchNo);
         return redisLock.executeWithLock(key, 5, 30, () -> {
             InvStock cur = stockMapper.selectForUpdate(warehouseId, productId, batchNo);
+            // 操作前的快照, 用于台账. 新建库存场景默认 0.
+            BigDecimal beforeQtyIn = cur == null || cur.getQty() == null ? BigDecimal.ZERO : cur.getQty();
+            BigDecimal beforeAvgCostIn = cur == null || cur.getAvgCost() == null ? BigDecimal.ZERO : cur.getAvgCost();
             if (cur == null) {
                 // 新增库存
                 InvStock s = new InvStock();
@@ -109,9 +112,12 @@ public class StockService {
             ledger.setQty(qty);
             ledger.setPrice(price);
             ledger.setAmount(amount);
-            ledger.setBeforeQty(cur.getQty().subtract(qty));
+            // 修复: 这里曾直接读 cur.getQty()/getAvgCost(), 但上方已 setQty/setAvgCost 把 cur 改成新值,
+            // 导致台账的 before_qty/before_avg_cost 显示的是"操作后"的值 (与 after 相同), 库存台账失真.
+            // 改用 lambda 入口处缓存的 beforeQtyIn / beforeAvgCostIn.
+            ledger.setBeforeQty(beforeQtyIn);
             ledger.setAfterQty(cur.getQty());
-            ledger.setBeforeAvgCost(cur.getAvgCost());
+            ledger.setBeforeAvgCost(beforeAvgCostIn);
             ledger.setAfterAvgCost(cur.getAvgCost());
             ledger.setSourceNo(sourceNo);
             ledger.setSupplierId(supplierId);

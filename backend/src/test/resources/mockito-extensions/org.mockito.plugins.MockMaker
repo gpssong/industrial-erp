@@ -1,0 +1,4 @@
+# 使用 subclass mock maker (而非 inline) 以避免 JDK 17 + macOS 上 byte-buddy self-attach 受限.
+# StockServiceTest 仅 mock 普通接口 (Mapper) 和组件 (RedisLock), 无 final 类/方法, 不受 subclass 限制影响.
+# 若以后测试需要 mock final, 改回 mock-maker-inline 并解决 attach 问题 (升级 byte-buddy 到 1.15+ 或 JDK 21).
+mock-maker-subclass

@@ -63,11 +63,11 @@ public class PrintDataLoader {
                    + "LEFT JOIN base_warehouse w ON w.id = r.warehouse_id AND w.deleted = 0 "
                    + "LEFT JOIN base_warehouse_area a ON a.id = r.area_id AND a.deleted = 0 "
                    + "WHERE r.id = ?";
-        // 注意: Connection 也必须 try-with-resources 关闭, 否则每打印一次泄漏 1 个连接
+        // 修复: 把 ResultSet 也加入 try-with-resources, 避免泄漏 (HikariCP 代理层下 ResultSet 不会随 Connection 立即关闭)
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
             ps.setObject(1, id);
-            ResultSet rs = ps.executeQuery();
             if (!rs.next()) return null;
             return mapRowReceipt(rs);
         } catch (SQLException e) {
@@ -83,9 +83,9 @@ public class PrintDataLoader {
                    + "LEFT JOIN base_warehouse_area a ON a.id = d.area_id AND a.deleted = 0 "
                    + "WHERE d.id = ?";
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
             ps.setObject(1, id);
-            ResultSet rs = ps.executeQuery();
             if (!rs.next()) return null;
             return mapRowDelivery(rs);
         } catch (SQLException e) {
@@ -119,9 +119,9 @@ public class PrintDataLoader {
         if (r.getWarehouseId() == null) return;
         String sql = "SELECT warehouse_name FROM base_warehouse WHERE id = ? AND deleted = 0";
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
             ps.setObject(1, r.getWarehouseId());
-            ResultSet rs = ps.executeQuery();
             if (rs.next()) r.setWarehouseName(rs.getString(1));
         } catch (SQLException ignore) {}
     }
@@ -130,9 +130,9 @@ public class PrintDataLoader {
         if (r.getWarehouseId() == null) return;
         String sql = "SELECT warehouse_name FROM base_warehouse WHERE id = ? AND deleted = 0";
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
             ps.setObject(1, r.getWarehouseId());
-            ResultSet rs = ps.executeQuery();
             if (rs.next()) r.setWarehouseName(rs.getString(1));
         } catch (SQLException ignore) {}
     }
@@ -141,9 +141,9 @@ public class PrintDataLoader {
         String sql = "SELECT * FROM pur_receipt_detail WHERE receipt_id = ? AND deleted = 0 ORDER BY line_no";
         List<PurReceiptDetail> list = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
             ps.setObject(1, receiptId);
-            ResultSet rs = ps.executeQuery();
             while (rs.next()) list.add(mapRowReceiptDetail(rs));
             return list;
         } catch (SQLException e) {
@@ -155,9 +155,9 @@ public class PrintDataLoader {
         String sql = "SELECT * FROM sal_delivery_detail WHERE delivery_id = ? AND deleted = 0 ORDER BY line_no";
         List<SalDeliveryDetail> list = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
             ps.setObject(1, deliveryId);
-            ResultSet rs = ps.executeQuery();
             while (rs.next()) list.add(mapRowDeliveryDetail(rs));
             return list;
         } catch (SQLException e) {

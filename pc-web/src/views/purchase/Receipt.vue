@@ -188,7 +188,7 @@ async function onCheck(row) {
 }
 
 function onPrint(row) {
-  printUrl.value = `http://localhost:8080/api/print/purchase-receipt/${row.id}.html?token=${localStorage.getItem('erp_token')}`
+  printUrl.value = `/api/print/purchase-receipt/${row.id}.html?token=${localStorage.getItem('erp_token')}`
   printVisible.value = true
 }
 

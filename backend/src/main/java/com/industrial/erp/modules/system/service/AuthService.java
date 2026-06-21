@@ -19,6 +19,7 @@ import com.industrial.erp.modules.system.mapper.SysRoleMapper;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.modules.system.vo.LoginVO;
 import com.industrial.erp.security.PermissionService;
+import com.industrial.erp.security.SecurityContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -171,12 +172,22 @@ public class AuthService {
         return scopes.stream().filter(s -> s != null).min(Integer::compareTo).orElse(PermissionService.SCOPE_SELF);
     }
 
+    /**
+     * 重置指定用户的密码。
+     *
+     * <p>安全: 历史上此接口未做鉴权 + 在 Sa-Token 白名单中, 等同于任意人可重置 admin 密码.
+     * 现在已移除白名单 + 在此强制要求超管. 调用方应该用
+     * {@code SysUserService.resetPassword(id, pwd)} 走正常的权限校验路径.
+     */
     public void setPassword(String username, String password) {
-        SysUser user = userMapper.selectByUsername(username);
-        if (user != null) {
-            user.setPassword(ENCODER.encode(password));
-            userMapper.updateById(user);
+        if (!SecurityContext.isSuperAdmin()) {
+            throw BizException.of(403, "只有超级管理员才能重置用户密码");
         }
+        SysUser user = userMapper.selectByUsername(username);
+        if (user == null) throw BizException.of("用户不存在: " + username);
+        user.setPassword(ENCODER.encode(password));
+        userMapper.updateById(user);
+        log.warn("超管重置用户密码: targetUser={}, operator={}", username, SecurityContext.getUsername());
     }
 
 }

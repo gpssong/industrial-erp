@@ -301,7 +301,7 @@ async function onView(row) {
 }
 
 function openPrint(row) {
-  printUrl.value = `http://localhost:8080/api/print/sales-delivery/${row.id}.html?token=${localStorage.getItem('erp_token')}`
+  printUrl.value = `/api/print/sales-delivery/${row.id}.html?token=${localStorage.getItem('erp_token')}`
   printVisible.value = true
 }
 
