@@ -72,8 +72,8 @@ public class PurReceiptService {
         if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);
         // 按商品名称查询: 命中任一明细行即返回, 用 EXISTS 子查询避免 GROUP BY 性能问题
         if (StrUtil.isNotBlank(productName)) {
-            w.and(wq -> wq.exists("SELECT 1 FROM pur_receipt_detail d LEFT JOIN base_product p ON p.id = d.product_id " +
-                    "WHERE d.receipt_id = r.id AND p.product_name LIKE {0}", "%" + productName + "%"));
+            w.and(wq -> wq.apply("EXISTS (SELECT 1 FROM pur_receipt_detail d LEFT JOIN base_product p ON p.id = d.product_id " +
+                    "WHERE d.receipt_id = r.id AND p.product_name LIKE CONCAT('%', {0}, '%'))", productName));
         }
         w.orderByDesc("id");
         return receiptMapper.selectPageWithProduct(p, w);
