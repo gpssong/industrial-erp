@@ -213,7 +213,7 @@ async function doFinish() {
   ElMessage.success('完工, 成品已入库'); finishVisible.value = false; loadData()
 }
 function onPrint(row) {
-  printUrl.value = `http://localhost:8080/api/print/prd-order/${row.id}.html`
+  printUrl.value = `/api/print/prd-order/${row.id}.html?token=${localStorage.getItem('erp_token')}`
   printVisible.value = true
 }
 onMounted(loadData)

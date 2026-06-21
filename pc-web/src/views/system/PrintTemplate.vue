@@ -665,7 +665,7 @@ async function onPreview(row) {
   if (!realId) { ElMessage.warning('暂无单据数据，请先创建后再预览'); return }
   const typeToPath = { SAL_DELIVERY: 'sales-delivery', PUR_RECEIPT: 'purchase-receipt', PRD_ORDER: 'prd-order', PUR_RETURN: 'purchase-return', SAL_RETURN: 'sales-return' }
   const path = typeToPath[row.templateType] || row.templateType.toLowerCase().replaceAll('_', '-')
-  previewUrl.value = `http://localhost:8080/api/print/${path}/${realId}.html?token=${localStorage.getItem('erp_token')}&_t=${Date.now()}`
+  previewUrl.value = `/api/print/${path}/${realId}.html?token=${localStorage.getItem('erp_token')}&_t=${Date.now()}`
   previewVisible.value = true
 }
 

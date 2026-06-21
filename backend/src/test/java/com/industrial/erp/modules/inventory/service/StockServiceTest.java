@@ -148,6 +148,37 @@ class StockServiceTest {
         assertThat(updated.getQty()).isEqualByComparingTo("150");
         assertThat(updated.getTotalCost()).isEqualByComparingTo("1700.0000");
         assertThat(updated.getAvgCost()).isEqualByComparingTo("11.3333");
+
+        // 验证台账的 before/after 字段. 修复前因为直接读 cur.getQty() 而读到新值, 此断言会失败.
+        ArgumentCaptor<InvLedger> ledgerCaptor = ArgumentCaptor.forClass(InvLedger.class);
+        verify(ledgerMapper).insert(ledgerCaptor.capture());
+        InvLedger ledger = ledgerCaptor.getValue();
+        assertThat(ledger.getBeforeQty()).isEqualByComparingTo("100");   // 操作前 = 100
+        assertThat(ledger.getAfterQty()).isEqualByComparingTo("150");    // 操作后 = 150
+        assertThat(ledger.getBeforeAvgCost()).isEqualByComparingTo("10");  // 操作前单价
+        assertThat(ledger.getAfterAvgCost()).isEqualByComparingTo("11.3333"); // 操作后单价
+    }
+
+    @Test
+    @DisplayName("入库 - 新建库存: 台账 before 全为 0")
+    void inStock_ledgerBeforeZeros_whenNewStock() {
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(mockProduct());
+        when(stockMapper.selectForUpdate(WAREHOUSE_ID, PRODUCT_ID, BATCH_NO)).thenReturn(null);
+
+        stockService.inStock(
+                "PUR_RECEIPT", 3L, "RKP003", 12L,
+                WAREHOUSE_ID, "主仓", null, null,
+                PRODUCT_ID, 1L, "KG", BATCH_NO,
+                new BigDecimal("20"), new BigDecimal("8"), "PO003",
+                1L, null, "首次入库");
+
+        ArgumentCaptor<InvLedger> ledgerCaptor = ArgumentCaptor.forClass(InvLedger.class);
+        verify(ledgerMapper).insert(ledgerCaptor.capture());
+        InvLedger ledger = ledgerCaptor.getValue();
+        assertThat(ledger.getBeforeQty()).isEqualByComparingTo("0");
+        assertThat(ledger.getAfterQty()).isEqualByComparingTo("20");
+        assertThat(ledger.getBeforeAvgCost()).isEqualByComparingTo("0");
+        assertThat(ledger.getAfterAvgCost()).isEqualByComparingTo("8");
     }
 
     @Test

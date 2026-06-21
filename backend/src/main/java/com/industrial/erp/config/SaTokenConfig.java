@@ -3,10 +3,14 @@ package com.industrial.erp.config;
 import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Sa-Token 路由拦截器配置。
@@ -29,9 +33,9 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 // 2. 白名单 (匿名访问): 注意无 /api 前缀 (context-path)
                 .notMatch(
                         // 认证 (登录、登出由前端 store 处理，me 要求登录故不放行)
+                        // 注意: /auth/setpwd 已从白名单移除, 必须登录并是超管才能调用
                         "/auth/login",
                         "/auth/captcha",
-                        "/auth/setpwd",
                         // 打印 (Electron 通过浏览器直接拉取 HTML 渲染)
                         "/print/**",
                         // 文档/监控 (Knife4j / Actuator)
@@ -49,12 +53,29 @@ public class SaTokenConfig implements WebMvcConfigurer {
         )).addPathPatterns("/**");
     }
 
+    /**
+     * 跨域白名单 (来自 application.yml 的 erp.cors.allowed-origins).
+     * <p>原写法用 {@code allowedOriginPatterns("*")} 是通配, 任何域都能调 API, 存在 CSRF 风险.
+     * 现限定到白名单, 默认包含生产域名 + 本地开发地址, 通过环境变量 ERP_CORS_ALLOWED_ORIGINS 覆盖.
+     */
+    @Value("${erp.cors.allowed-origins}")
+    private String allowedOriginsRaw;
+
+    private List<String> allowedOrigins() {
+        return Arrays.stream(allowedOriginsRaw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
+
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        List<String> origins = allowedOrigins();
         registry.addMapping("/**")
-                .allowedOriginPatterns("*")
-                .allowedMethods("*")
+                .allowedOrigins(origins.toArray(new String[0]))
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                 .allowedHeaders("*")
+                .exposedHeaders("Authorization", "Content-Disposition")
                 .allowCredentials(true)
                 .maxAge(3600);
     }
