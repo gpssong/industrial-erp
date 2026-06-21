@@ -223,6 +223,7 @@ mvn test                          # 全量
 - **API 地址可配置** — 支持 `VITE_API_BASE` 环境变量 / `localStorage` / 默认 `/api` 三级优先级
 - **打印接口修复** — 修复 `PreparedStatement` 参数顺序错误导致打印 500 的问题
 - **查询 SQL 修复** — 修复 `EXISTS` 子查询参数绑定失败 (`apply` 替代 `exists`)
+- **CORS 127.0.0.1 修复** — 开发环境用 `127.0.0.1` 访问时 PUT/DELETE 请求 403, 白名单增加 `127.0.0.1` 地址
 
 ### v1.0.3 (2026-06-21) — 部署包
 - **群晖 Web Station 网页端部署包** — 基于 DSM 内置 Web Station + Docker Compose, 零 SSH 全程网页操作 (150 MB)
