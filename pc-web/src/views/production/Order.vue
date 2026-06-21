@@ -12,9 +12,6 @@
       </el-form>
     </div>
     <div class="page-card">
-      <div class="toolbar"></div>
-    <div class="page-card">
-      <div class="toolbar"></div>
       <el-table :data="data.records" border stripe v-loading="loading">
         <el-table-column type="index" width="50" />
         <el-table-column prop="billNo" label="单号" width="180" />
