@@ -2,9 +2,16 @@
   <div>
     <div class="search-bar">
       <el-form :model="query" inline>
-        <el-form-item label="单号"><el-input v-model="query.billNo" clearable /></el-form-item>
+        <el-form-item label="单号"><el-input v-model="query.billNo" clearable @keyup.enter="loadData" /></el-form-item>
+        <el-form-item label="供应商">
+          <el-select v-model="query.supplierId" filterable clearable style="width:160px" placeholder="全部">
+            <el-option v-for="s in suppliers" :key="s.id" :label="s.supplierName" :value="s.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="商品名称"><el-input v-model="query.productName" clearable @keyup.enter="loadData" /></el-form-item>
         <el-form-item>
           <el-button type="primary" @click="loadData"><el-icon><Search /></el-icon>查询</el-button>
+          <el-button @click="onReset">重置</el-button>
           <el-button @click="onAdd" type="success"><el-icon><Plus /></el-icon>新增入库</el-button>
         </el-form-item>
       </el-form>
@@ -82,7 +89,7 @@ import { supplierApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage } from 'element-plus'
 
-const query = reactive({ pageNum: 1, pageSize: 20, billNo: '' })
+const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', supplierId: null, productName: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -100,15 +107,35 @@ const productLoading = ref(false)
 const form = reactive({ billDate: new Date().toISOString().substring(0,10), supplierId: null, warehouseId: null, remark: '', details: [] })
 const { taxSeparation, loadTaxSeparation } = useTaxSeparation()
 
+async function loadSuppliers() {
+  if (suppliers.value.length === 0) {
+    suppliers.value = (await supplierApi.page({ pageNum: 1, pageSize: 500 })).data.records
+  }
+}
+
 async function loadData() {
   loading.value = true
-  try { data.value = (await purReceiptApi.page(query)).data } finally { loading.value = false }
+  try {
+    const params = { ...query }
+    // 空字符串转为 undefined, 后端会忽略
+    if (!params.billNo) delete params.billNo
+    if (!params.productName) delete params.productName
+    data.value = (await purReceiptApi.page(params)).data
+  } finally { loading.value = false }
+}
+
+function onReset() {
+  query.billNo = ''
+  query.supplierId = null
+  query.productName = ''
+  query.pageNum = 1
+  loadData()
 }
 
 async function onAdd() {
   loadTaxSeparation()
   form.id = null; form.details = []
-  suppliers.value = (await supplierApi.page({ pageNum: 1, pageSize: 500 })).data.records
+  await loadSuppliers()
   warehouses.value = (await warehouseApi.list()).data
   products.value = (await productApi.page({ pageNum: 1, pageSize: 100 })).data.records
   dialogVisible.value = true
@@ -165,6 +192,6 @@ function onPrint(row) {
   printVisible.value = true
 }
 
-onMounted(loadData)
+onMounted(async () => { await loadSuppliers(); loadData() })
 </script>
 <style scoped>.pager { margin-top: 12px; text-align: right; }</style>
