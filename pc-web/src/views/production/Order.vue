@@ -2,14 +2,19 @@
   <div>
     <div class="search-bar">
       <el-form :model="query" inline>
-        <el-form-item label="单号"><el-input v-model="query.billNo" clearable /></el-form-item>
-        <el-form-item><el-button type="primary" @click="loadData">查询</el-button></el-form-item>
+        <el-form-item label="单号"><el-input v-model="query.billNo" clearable @keyup.enter="loadData" /></el-form-item>
+        <el-form-item label="产品名称"><el-input v-model="query.productName" clearable @keyup.enter="loadData" /></el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="loadData">查询</el-button>
+          <el-button @click="onReset">重置</el-button>
+          <el-button type="primary" @click="onAdd">新增生产单</el-button>
+        </el-form-item>
       </el-form>
     </div>
     <div class="page-card">
-      <div class="toolbar">
-        <el-button type="primary" @click="onAdd">新增生产单</el-button>
-      </div>
+      <div class="toolbar"></div>
+    <div class="page-card">
+      <div class="toolbar"></div>
       <el-table :data="data.records" border stripe v-loading="loading">
         <el-table-column type="index" width="50" />
         <el-table-column prop="billNo" label="单号" width="180" />
@@ -127,7 +132,7 @@ import { reactive, ref, onMounted } from 'vue'
 import { prdOrderApi, bomApi } from '@/api/production'
 import { warehouseApi } from '@/api/base'
 import { ElMessage } from 'element-plus'
-const query = reactive({ pageNum: 1, pageSize: 20, billNo: '' })
+const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', productName: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -147,7 +152,22 @@ function doPrint() {
 }
 const rules = { bomId: [{ required: true, message: '请选择BOM', trigger: 'change' }], planQty: [{ required: true, message: '请填写计划数量', trigger: 'blur' }] }
 
-async function loadData() { loading.value = true; try { data.value = (await prdOrderApi.page(query)).data } finally { loading.value = false } }
+async function loadData() {
+  loading.value = true
+  try {
+    const params = { ...query }
+    if (!params.billNo) delete params.billNo
+    if (!params.productName) delete params.productName
+    data.value = (await prdOrderApi.page(params)).data
+  } finally { loading.value = false }
+}
+
+function onReset() {
+  query.billNo = ''
+  query.productName = ''
+  query.pageNum = 1
+  loadData()
+}
 async function loadBomList() { if (bomList.value.length === 0) bomList.value = (await bomApi.page({ pageNum: 1, pageSize: 999 })).data?.records || [] }
 async function loadWarehouses() { if (warehouses.value.length === 0) warehouses.value = (await warehouseApi.list()).data || [] }
 

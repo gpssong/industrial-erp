@@ -24,8 +24,9 @@ public class PrdOrderController {
     public R<PageResult<PrdOrder>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                         @RequestParam(defaultValue = "20") Integer pageSize,
                                         @RequestParam(required = false) String billNo,
-                                        @RequestParam(required = false) String billStatus) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, billStatus)));
+                                        @RequestParam(required = false) String billStatus,
+                                        @RequestParam(required = false) String productName) {
+        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, billStatus, productName)));
     }
 
     @GetMapping("/{id}")
