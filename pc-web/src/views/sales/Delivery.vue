@@ -2,20 +2,22 @@
   <div>
     <div class="search-bar">
       <el-form :model="query" inline>
-        <el-form-item label="单号"><el-input v-model="query.billNo" clearable /></el-form-item>
+        <el-form-item label="单号"><el-input v-model="query.billNo" clearable @keyup.enter="loadData" /></el-form-item>
         <el-form-item label="客户">
-          <el-select v-model="query.customerId" clearable filterable style="width:200px">
+          <el-select v-model="query.customerId" clearable filterable style="width:160px">
             <el-option v-for="c in customers" :key="c.id" :label="c.customerName" :value="c.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="商品名称"><el-input v-model="query.productName" clearable @keyup.enter="loadData" /></el-form-item>
         <el-form-item label="状态">
-          <el-select v-model="query.billStatus" clearable style="width:140px">
+          <el-select v-model="query.billStatus" clearable style="width:120px">
             <el-option label="草稿" value="DRAFT" />
             <el-option label="已审核" value="CHECKED" />
           </el-select>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="loadData"><el-icon><Search /></el-icon>查询</el-button>
+          <el-button @click="onReset">重置</el-button>
           <el-button @click="onAdd" type="success"><el-icon><Plus /></el-icon>新增出库单</el-button>
         </el-form-item>
       </el-form>
@@ -154,7 +156,7 @@ import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage } from 'element-plus'
 
-const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', customerId: null, billStatus: '' })
+const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', customerId: null, billStatus: '', productName: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -182,16 +184,36 @@ const totalQty = computed(() => form.details.reduce((s, d) => s + (+d.qty || 0),
 const totalAmount = computed(() => form.details.reduce((s, d) => s + ((+d.qty || 0) * (+d.price || 0)), 0))
 const { taxSeparation, loadTaxSeparation } = useTaxSeparation()
 
+async function loadCustomers() {
+  if (customers.value.length === 0) {
+    customers.value = (await customerApi.page({ pageNum: 1, pageSize: 500 })).data.records
+  }
+}
+
 async function loadData() {
   loading.value = true
-  try { const r = await salDeliveryApi.page(query); data.value = r.data }
-  finally { loading.value = false }
+  try {
+    const params = { ...query }
+    if (!params.billNo) delete params.billNo
+    if (!params.productName) delete params.productName
+    if (!params.billStatus) delete params.billStatus
+    const r = await salDeliveryApi.page(params); data.value = r.data
+  } finally { loading.value = false }
+}
+
+function onReset() {
+  query.billNo = ''
+  query.customerId = null
+  query.productName = ''
+  query.billStatus = ''
+  query.pageNum = 1
+  loadData()
 }
 
 async function onAdd() {
   loadTaxSeparation()
   form.id = null; form.billNo = ''; form.details = []
-  customers.value = (await customerApi.page({ pageNum: 1, pageSize: 500 })).data.records
+  await loadCustomers()
   warehouses.value = (await warehouseApi.list()).data
   units.value = (await unitApi.list()).data
   dialogVisible.value = true
@@ -287,7 +309,7 @@ function onScan() {
   ElMessage.info('请配置扫码枪或App扫码 (H5/微信小程序可用 getCameraProfile)')
 }
 
-onMounted(loadData)
+onMounted(async () => { await loadCustomers(); loadData() })
 </script>
 
 <style scoped>

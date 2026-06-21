@@ -61,13 +61,19 @@ public class SalDeliveryService {
     private final FinArapService arapService;
     private final PermissionService permService;
 
-    public IPage<SalDelivery> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus) {
+    public IPage<SalDelivery> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus, String productName) {
         permService.requirePerm("sales:delivery:list");
         Page<SalDelivery> p = new Page<>(pageNum, pageSize);
         QueryWrapper<SalDelivery> w = new QueryWrapper<>();
         if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
         if (customerId != null) w.eq("customer_id", customerId);
         if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);
+        // 按商品名称查询: 命中任一明细行即返回, 用 EXISTS 子查询避免 GROUP BY 性能问题
+        // 注: 主表别名是 d (SalDeliveryMapper), 故明细表必须用不同别名
+        if (StrUtil.isNotBlank(productName)) {
+            w.and(wq -> wq.exists("SELECT 1 FROM sal_delivery_detail dt LEFT JOIN base_product p ON p.id = dt.product_id " +
+                    "WHERE dt.delivery_id = d.id AND p.product_name LIKE {0}", "%" + productName + "%"));
+        }
         w.orderByDesc("id");
         return deliveryMapper.selectPageWithProduct(p, w);
     }
