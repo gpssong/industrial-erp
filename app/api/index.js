@@ -1,5 +1,8 @@
 function getBase() {
-  return uni.getStorageSync('erp_api_base') || 'http://localhost:8080/api'
+  // 优先级: 本地缓存 > manifest 中配置的 BASE_URL > 默认
+  return uni.getStorageSync('erp_api_base')
+    || (typeof __GLOBAL__.API_BASE !== 'undefined' ? __GLOBAL__.API_BASE : null)
+    || 'http://home.93gushi.com/api'
 }
 
 function request({ url, method = 'GET', data = {} }) {

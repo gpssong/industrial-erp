@@ -1,6 +1,6 @@
 {
   "name": "industrial-erp-app",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "工业ERP移动端 (uni-app Vue3 - 兼容Android/iOS/微信)",
   "main": "main.js",
   "dependencies": {

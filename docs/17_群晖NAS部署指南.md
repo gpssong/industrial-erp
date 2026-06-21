@@ -34,21 +34,40 @@
 
 ## 三、配置 .env
 
-```bash
-ssh admin@NAS_IP
-sudo -i
-cd /volume1/docker/erp-system
-cp .env.example .env
-vi .env
-```
+### 3.1 复制 + 重命名
 
-**必改**:
+File Station → `docker/erp-system/`:
+- 设置 → 勾选 **显示隐藏文件** (`.` 开头的文件默认看不到)
+- 选中 `.env.example` → 操作 → 重命名为 `.env`
+- 双击 `.env` → 用 **Text Editor** 套件打开 (首次打开会提示安装)
+
+### 3.2 必改项
+
 ```ini
 MYSQL_ROOT_PASSWORD=你的强密码
-SPRING_DATASOURCE_PASSWORD=你的强密码    # 与上同
+SPRING_DATASOURCE_PASSWORD=你的强密码    # 必须与上同
 ```
 
-> 如果暂时只局域网访问, 改不改都行; 暴露公网前必须改.
+> 暂时只局域网访问, 改不改都行; 暴露公网前必须改.
+
+### 3.3 域白名单 (CORS, 公网访问时改)
+
+> Spring CORS 因 `allowCredentials=true` **不支持通配符**, 必须逐个列出前端域名. 项目的 application.yml 默认值已含 93gushi.com/www.93gushi.com/home.93gushi.com + localhost, 公网部署时建议**用 .env 显式覆盖**, 把 localhost 条目删掉, 只留生产域名.
+
+`.env` 里追加或取消注释:
+
+```ini
+ERP_CORS_ALLOWED_ORIGINS=https://93gushi.com,https://www.93gushi.com,https://home.93gushi.com
+```
+
+> 注意: 完整 Origin, 含协议, 不带路径/尾斜杠; 非默认端口必须写, 如 https://erp.93gushi.com:8443
+> 多子域时多写几行, 用英文逗号分隔, 别加空格.
+
+### 3.4 局域网开发 / 仅内网访问
+
+如果不上公网、只局域网用 (例如 http://NAS_IP), 可以**不配** ERP_CORS_ALLOWED_ORIGINS, 让 application.yml 的默认值生效 (里面含 localhost:5173/8080 便于开发).
+
+Vite 的 `server.allowedHosts` 已在 vite.config.js 里写好, 包含 `.93gushi.com` (一行通配所有子域) + `.local` (macOS 主机名) + 任意 IPv4 (Vite 内置放行), 局域网开发无需修改.
 
 ## 四、启动 (二选一)
 
