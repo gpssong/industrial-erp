@@ -220,6 +220,13 @@ mvn test                          # 全量
 - **生产加工单查询增强** — 新增「产品名称/编码」模糊查询
 - **打印模板默认互斥** — 同一单据类型仅允许一个默认模板, 设置新默认自动取消同类型原默认
 
+### v1.0.3 (2026-06-21) — 部署包
+- **群晖 Web Station 网页端部署包** — 基于 DSM 内置 Web Station + Docker Compose, 零 SSH 全程网页操作 (150 MB)
+- **群晖 DS918+ Docker 部署包** — 离线 amd64 镜像 + 一键脚本 (427 MB)
+- **官方无架构后缀镜像** — `mysql:8.0` / `redis:7-alpine` / `eclipse-temurin:17-jre`, Docker daemon 自动选架构
+- **Windows 桌面客户端** — NSIS 安装包 (74 MB)
+- **macOS 桌面客户端** — DMG arm64 + x64 (187 MB)
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
 - 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)
