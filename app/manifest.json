@@ -1,44 +1,46 @@
 {
-  "name": "工业ERP",
-  "appid": "__UNI__ERP01",
-  "description": "企业级工业ERP移动端",
-  "versionName": "1.0.0",
-  "versionCode": 100,
-  "transformPx": false,
-  "app-plus": {
-    "usingComponents": true,
-    "nvueStyleCompiler": "uni-app",
-    "compilerVersion": 3,
-    "splashscreen": {
-      "alwaysShowBeforeRender": true,
-      "waiting": true,
-      "autoclose": true,
-      "delay": 0
-    },
-    "modules": {
-      "Push": { "lazyCodeLoading": true },
-      "Camera": {},
-      "OAuth": {}
-    },
-    "distribute": {
-      "android": {
-        "permissions": [
-          "<uses-permission android:name=\"android.permission.CAMERA\"/>",
-          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
-          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
-          "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
-          "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
-          "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>"
-        ],
-        "abiFilters": ["armeabi-v7a", "arm64-v8a"]
-      },
-      "ios": {
-        "privacyDescription": {
-          "NSCameraUsageDescription": "扫码出入库需要使用相机"
+    "name" : "鹏程erp",
+    "appid" : "__UNI__ERP01",
+    "description" : "企业级鹏程ERP移动端",
+    "versionName" : "1.0.3",
+    "versionCode" : 103,
+    "transformPx" : false,
+    "app-plus" : {
+        "usingComponents" : true,
+        "nvueStyleCompiler" : "uni-app",
+        "compilerVersion" : 3,
+        "splashscreen" : {
+            "alwaysShowBeforeRender" : true,
+            "waiting" : true,
+            "autoclose" : true,
+            "delay" : 0
+        },
+        "modules" : {
+            "Push" : {
+                "lazyCodeLoading" : true
+            },
+            "Camera" : {},
+            "OAuth" : {}
+        },
+        "distribute" : {
+            "android" : {
+                "permissions" : [
+                    "<uses-permission android:name=\"android.permission.CAMERA\"/>",
+                    "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>"
+                ],
+                "abiFilters" : [ "armeabi-v7a", "arm64-v8a" ]
+            },
+            "ios" : {
+                "privacyDescription" : {
+                    "NSCameraUsageDescription" : "扫码出入库需要使用相机"
+                }
+            }
         }
-      }
-    }
-  },
-  "quickapp": {},
-  "vueVersion": "3"
+    },
+    "quickapp" : {},
+    "vueVersion" : "3"
 }

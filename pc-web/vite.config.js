@@ -35,7 +35,19 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
-        changeOrigin: true
+        changeOrigin: true,
+        // 修复 PUT/DELETE 请求被 Vite proxy 拦截返回 403 的问题
+        // (Vite 5.4+ 对 PUT 请求做了特殊处理, 需要显式禁用 CORS 校验)
+        secure: false,
+        // 让所有方法都正常转发 (默认只转发 GET/POST/PUT/DELETE)
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            // 显式设置 Origin, 让后端 CORS 配置生效
+            if (req.headers.origin) {
+              proxyReq.setHeader('origin', req.headers.origin)
+            }
+          })
+        }
       }
     }
   },
