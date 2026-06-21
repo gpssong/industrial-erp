@@ -61,12 +61,17 @@ public class PrdOrderService {
         this.permService = permService;
     }
 
-    public IPage<PrdOrder> page(Integer pageNum, Integer pageSize, String billNo, String billStatus) {
+    public IPage<PrdOrder> page(Integer pageNum, Integer pageSize, String billNo, String billStatus, String productName) {
         permService.requirePerm("production:order:list");
         Page<PrdOrder> p = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<PrdOrder> w = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(billNo)) w.like(PrdOrder::getBillNo, billNo);
         if (StrUtil.isNotBlank(billStatus)) w.eq(PrdOrder::getBillStatus, billStatus);
+        // 按产品名称查询 (生产单本身就是针对单个产品)
+        if (StrUtil.isNotBlank(productName)) {
+            w.and(wq -> wq.like(PrdOrder::getProductName, productName)
+                    .or().like(PrdOrder::getProductCode, productName));
+        }
         w.orderByDesc(PrdOrder::getId);
         return orderMapper.selectPage(p, w);
     }
