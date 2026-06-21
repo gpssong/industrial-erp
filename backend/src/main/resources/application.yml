@@ -20,7 +20,7 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${SPRING_DATASOURCE_HOST:127.0.0.1}:${SPRING_DATASOURCE_PORT:3306}/${SPRING_DATASOURCE_DB:industrial_erp}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:}
+    password: ${SPRING_DATASOURCE_PASSWORD:850225sonG}
     hikari:
       maximum-pool-size: 30
       minimum-idle: 3
