@@ -1,6 +1,6 @@
 {
     "name" : "鹏程erp",
-    "appid" : "__UNI__ERP01",
+    "appid" : "__UNI__FB66806",
     "description" : "企业级鹏程ERP移动端",
     "versionName" : "1.0.3",
     "versionCode" : 103,
@@ -37,7 +37,8 @@
             "ios" : {
                 "privacyDescription" : {
                     "NSCameraUsageDescription" : "扫码出入库需要使用相机"
-                }
+                },
+                "dSYMs" : false
             }
         }
     },
