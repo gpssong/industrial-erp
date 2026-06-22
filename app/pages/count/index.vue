@@ -30,20 +30,33 @@
 import { ref } from 'vue'
 import api from '../../api/index.js'
 const list = ref([])
+function toast(msg) {
+  if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: msg, icon: 'none' })
+  else alert(msg)
+}
 function onScan() {
-  uni.scanCode({ success: (res) => {
-    api.stockPage({ pageNum: 1, pageSize: 1, keyword: res.result }).then(r => {
-      if (r.records && r.records[0]) {
-        const p = r.records[0]
-        list.value.push({ ...p, bookQty: p.qty, actualQty: p.qty, remark: '' })
-      }
-    })
-  }})
+  const doSearch = async (kw) => {
+    const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: kw })
+    if (r && r.records && r.records[0]) {
+      const p = r.records[0]
+      list.value.push({ ...p, bookQty: p.qty, actualQty: p.qty, remark: '' })
+    } else {
+      toast('商品未找到: ' + kw)
+    }
+  }
+  // H5 环境: prompt 输入
+  if (typeof uni === 'undefined' || typeof uni.scanCode !== 'function') {
+    const c = prompt('请输入商品编码或名称 (H5 模拟扫码)')
+    if (c) doSearch(c)
+    return
+  }
+  uni.scanCode({ success: (res) => { doSearch(res.result) } })
 }
 function onSubmit() {
-  uni.showModal({ title: '提交盘点', content: '将在服务器端生成盘点单', success: (r) => {
-    if (r.confirm) { uni.showToast({ title: '已提交' }); list.value = [] }
-  }})
+  const confirm = (typeof uni !== 'undefined' && uni.showModal)
+    ? new Promise(resolve => uni.showModal({ title: '提交盘点', content: '将在服务器端生成盘点单', success: r => resolve(r.confirm) }))
+    : Promise.resolve(window.confirm('确定提交盘点?'))
+  confirm.then(ok => { if (ok) { toast('已提交'); list.value = [] } })
 }
 </script>
 <style scoped>.form-item { margin: 4px 0; } .label { display: block; font-size: 11px; color: #999; } .empty { text-align: center; color: #999; padding: 40px; }</style>

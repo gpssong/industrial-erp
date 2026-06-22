@@ -6,10 +6,19 @@ function getBase() {
 }
 
 function request({ url, method = 'GET', data = {} }) {
+  const token = uni.getStorageSync('erp_token')
+  const base = getBase()
+
+  // H5 环境 (浏览器预览): uni.request 不可用, 退化为原生 fetch
+  // 检测方式: typeof uni.request !== 'function'
+  if (typeof uni === 'undefined' || typeof uni.request !== 'function') {
+    return fetchRequest(base + url, method, data, token)
+  }
+
+  // 真机/小程序环境: 用 uni.request
   return new Promise((resolve, reject) => {
-    const token = uni.getStorageSync('erp_token')
     uni.request({
-      url: getBase() + url,
+      url: base + url,
       method,
       data,
       header: { 'Authorization': token || '' },
@@ -27,6 +36,37 @@ function request({ url, method = 'GET', data = {} }) {
       },
       fail: reject
     })
+  })
+}
+
+// H5 (浏览器) 环境的 fetch 实现, 与 uni.request 行为一致
+function fetchRequest(url, method, data, token) {
+  return fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': token || ''
+    },
+    body: data && method !== 'GET' ? JSON.stringify(data) : undefined
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.code === 200) return d.data
+    if (d.code === 401) {
+      try { localStorage.removeItem('erp_token') } catch (e) {}
+      if (typeof uni !== 'undefined' && uni.reLaunch) {
+        uni.reLaunch({ url: '/pages/login/index' })
+      } else if (typeof window !== 'undefined') {
+        window.location.hash = '#/pages/login/index'
+      }
+      throw d
+    }
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: d.msg || '请求失败', icon: 'none' })
+    } else {
+      alert(d.msg || '请求失败')
+    }
+    throw d
   })
 }
 

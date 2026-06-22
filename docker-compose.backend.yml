@@ -1,0 +1,112 @@
+# ============================================================
+#  工业 ERP - 仅后端部署 (飞牛 OS / 通用 Linux)
+#
+#  用途: 只跑后端 Spring Boot + MySQL + Redis, 不含前端
+#  前端由你本地开发或单独部署 (Vite 开发服务器 / Nginx 静态托管)
+#
+#  与原 docker-compose.yml 的区别:
+#    - 移除 pc-web 服务
+#    - 暴露 8080 供前端跨域调用
+#    - CORS 由后端 application.yml 控制 (默认已含 localhost:5173)
+#
+#  启动: docker compose -f docker-compose.backend.yml up -d --build
+#  停止: docker compose -f docker-compose.backend.yml down
+# ============================================================
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: erp-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-***REMOVED_CREDENTIAL***}
+      MYSQL_DATABASE: industrial_erp
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      # 8G 内存调优: 限制 InnoDB 缓冲池避免 OOM
+      - --innodb-buffer-pool-size=512M
+      - --innodb-log-file-size=128M
+      - --max-connections=200
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+    networks: [erp-net]
+    deploy:
+      resources:
+        limits:
+          memory: 1.2G
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-***REMOVED_CREDENTIAL***}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    container_name: erp-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    networks: [erp-net]
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  backend:
+    build: ./backend
+    container_name: erp-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/industrial_erp?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-***REMOVED_CREDENTIAL***}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      # 8G 内存调优: 后端堆 768M, metaspace 192M
+      JAVA_OPTS: "-Xms256m -Xmx768m -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -Dfile.encoding=UTF-8 -Duser.timezone=GMT+8"
+      # 上传/备份目录 (走容器卷, 见 volumes)
+      ERP_UPLOAD_PATH: /opt/industrial-erp/upload
+      ERP_BACKUP_PATH: /opt/industrial-erp/backup
+      ERP_BACKUP_SQL_PATH: /opt/industrial-erp/sql
+      ERP_BACKUP_RETENTION_DAYS: "30"
+      ERP_MYSQLDUMP: mysqldump
+      ERP_MYSQL: mysql
+      TZ: Asia/Shanghai
+    # 关键: 暴露 8080 给前端 (本机或局域网浏览器) 跨域调用
+    ports:
+      - "8080:8080"
+    volumes:
+      # 上传文件持久化 (商品图片/打印模板附件等)
+      - ./data/upload:/opt/industrial-erp/upload
+      # 系统"数据备份"功能生成的 mysqldump 文件
+      - ./data/backup:/opt/industrial-erp/backup
+    networks: [erp-net]
+    deploy:
+      resources:
+        limits:
+          memory: 1.2G
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/auth/captcha"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  mysql-data:
+  redis-data:
+
+networks:
+  erp-net:
+    driver: bridge
