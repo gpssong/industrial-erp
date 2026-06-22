@@ -52,27 +52,45 @@ const totalQty = computed(() => details.value.reduce((s, d) => s + (+d.qty || 0)
 const totalAmount = computed(() => details.value.reduce((s, d) => s + (d.amount || 0), 0))
 function pickCustomer(c) { customerId.value = c.id; customerName.value = c.customerName }
 function addLine() {
+  // H5 环境: 用 prompt 输入代替 uni.showModal
+  if (typeof uni === 'undefined' || typeof uni.showModal !== 'function') {
+    const code = prompt('请输入商品编码或名称')
+    if (!code) return
+    searchAndAdd(code)
+    return
+  }
   uni.showModal({ title: '添加商品', editable: true, placeholderText: '请输入商品编码',
     success: async (r) => {
       if (!r.confirm || !r.content) return
-      const res = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: r.content })
-      if (res.records && res.records[0]) {
-        const p = res.records[0]
-        addProduct(p)
-      } else { uni.showToast({ title: '商品未找到', icon: 'none' }) }
+      await searchAndAdd(r.content)
     }
   })
 }
+async function searchAndAdd(keyword) {
+  const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: keyword })
+  if (r.records && r.records[0]) {
+    addProduct(r.records[0])
+    toast('已添加: ' + r.records[0].productName)
+  } else {
+    toast('商品未找到: ' + keyword)
+  }
+}
 function scanAdd() {
+  // H5 环境: 扫码用 prompt 模拟
+  if (typeof uni === 'undefined' || typeof uni.scanCode !== 'function') {
+    addLine()
+    return
+  }
   uni.scanCode({
     success: async (res) => {
-      const result = res.result
-      const r = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: result })
-      if (r.records && r.records[0]) addProduct(r.records[0])
-      else uni.showToast({ title: '商品未找到', icon: 'none' })
+      await searchAndAdd(res.result)
     },
-    fail: () => { uni.showToast({ title: '扫码取消', icon: 'none' }) }
+    fail: () => { toast('扫码取消') }
   })
+}
+function toast(msg) {
+  if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: msg, icon: 'none' })
+  else alert(msg)
 }
 function addProduct(p) {
   details.value.push({ productId: p.productId, productCode: p.productCode, productName: p.productName, spec: p.spec, unitName: p.unitName, qty: 1, price: p.salesPrice, taxRate: 13, remark: '', amount: 0 })

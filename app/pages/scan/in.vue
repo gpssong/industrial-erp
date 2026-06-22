@@ -24,14 +24,25 @@ import api from '../../api/index.js'
 const code = ref(''); const product = ref(null)
 const qty = ref(1); const price = ref(0); const batchNo = ref('')
 function onScan() {
+  // H5 环境: 用 prompt 模拟扫码
+  if (typeof uni === 'undefined' || typeof uni.scanCode !== 'function') {
+    const c = prompt('请输入商品编码或名称 (H5 模拟扫码)')
+    if (!c) return
+    code.value = c; onSearch()
+    return
+  }
   uni.scanCode({ success: (res) => { code.value = res.result; onSearch() }, fail: () => {
     uni.showModal({ title: '手动输入条码', editable: true, success: (r) => { if (r.confirm) { code.value = r.content; onSearch() } } })
   }})
 }
 async function onSearch() {
-  const r = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: code.value })
-  if (r.records && r.records[0]) { product.value = r.records[0]; price.value = r.records[0].purchasePrice }
-  else uni.showToast({ title: '商品未找到', icon: 'none' })
+  const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: code.value })
+  if (r && r.records && r.records[0]) { product.value = r.records[0]; price.value = r.records[0].purchasePrice || 0 }
+  else toast('商品未找到: ' + code.value)
+}
+function toast(msg) {
+  if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: msg, icon: 'none' })
+  else alert(msg)
 }
 async function onSubmit() {
   if (!product.value) return
@@ -39,10 +50,10 @@ async function onSubmit() {
   detail.amount = detail.qty * detail.price
   detail.taxAmount = detail.amount * 0.13
   detail.amountTax = detail.amount + detail.taxAmount
-  const bill = { billDate: new Date().toISOString().substring(0,10), supplierId: 1, warehouseId: product.value.warehouseId, billType: 'NORMAL', billStatus: 'DRAFT', details: [detail] }
+  const bill = { billDate: new Date().toISOString().substring(0,10), supplierId: 1, warehouseId: product.value.warehouseId || 1, billType: 'NORMAL', billStatus: 'DRAFT', details: [detail] }
   await api.purchaseReceiptAdd(bill)
-  uni.showToast({ title: '入库成功' })
-  setTimeout(() => uni.navigateBack(), 800)
+  toast('入库成功')
+  setTimeout(() => { if (typeof uni !== 'undefined' && uni.navigateBack) uni.navigateBack(); else if (typeof window !== 'undefined') window.history.back() }, 800)
 }
 </script>
 <style scoped>.form-item { margin: 8px 0; } .label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }</style>

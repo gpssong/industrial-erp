@@ -26,10 +26,22 @@ import { ref } from 'vue'
 import api from '../../api/index.js'
 const code = ref(''); const product = ref(null)
 const qty = ref(1); const price = ref(0); const customerId = ref(1)
-function onScan() { uni.scanCode({ success: (res) => { code.value = res.result; search() } }) }
+function onScan() {
+  if (typeof uni === 'undefined' || typeof uni.scanCode !== 'function') {
+    const c = prompt('请输入商品编码或名称 (H5 模拟扫码)')
+    if (!c) return
+    code.value = c; search()
+    return
+  }
+  uni.scanCode({ success: (res) => { code.value = res.result; search() } })
+}
 async function search() {
-  const r = await api.stockPage({ pageNum: 1, pageSize: 1, keyword: code.value })
-  if (r.records && r.records[0]) { product.value = r.records[0]; price.value = r.records[0].salesPrice }
+  const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: code.value })
+  if (r && r.records && r.records[0]) { product.value = r.records[0]; price.value = r.records[0].salesPrice || 0 }
+}
+function toast(msg) {
+  if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: msg, icon: 'none' })
+  else alert(msg)
 }
 async function onSubmit() {
   if (!product.value) return
@@ -37,10 +49,10 @@ async function onSubmit() {
   detail.amount = detail.qty * detail.price
   detail.taxAmount = detail.amount * 0.13
   detail.amountTax = detail.amount + detail.taxAmount
-  const bill = { billDate: new Date().toISOString().substring(0,10), customerId: customerId.value, warehouseId: product.value.warehouseId, billType: 'NORMAL', billStatus: 'DRAFT', details: [detail] }
+  const bill = { billDate: new Date().toISOString().substring(0,10), customerId: customerId.value, warehouseId: product.value.warehouseId || 1, billType: 'NORMAL', billStatus: 'DRAFT', details: [detail] }
   await api.salesDeliveryAdd(bill)
-  uni.showToast({ title: '出库成功' })
-  setTimeout(() => uni.navigateBack(), 800)
+  toast('出库成功')
+  setTimeout(() => { if (typeof uni !== 'undefined' && uni.navigateBack) uni.navigateBack(); else if (typeof window !== 'undefined') window.history.back() }, 800)
 }
 </script>
 <style scoped>.form-item { margin: 8px 0; } .label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }</style>

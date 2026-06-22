@@ -1,10 +1,22 @@
+# ============================================================
+#  工业 ERP - 仅后端部署 (飞牛 OS / 通用 Linux)
+#
+#  用途: 只跑后端 Spring Boot + MySQL + Redis, 不含前端
+#  前端由你本地开发或单独部署 (Vite 开发服务器 / Nginx 静态托管)
+#
+#  与原 docker-compose.yml 的区别:
+#    - 移除 pc-web 服务
+#    - 暴露 8080 供前端跨域调用
+#    - CORS 由后端 application.yml 控制 (默认已含 localhost:5173)
+#
+#  启动: docker compose -f docker-compose.backend.yml up -d --build
+#  停止: docker compose -f docker-compose.backend.yml down
+# ============================================================
 services:
   mysql:
-    image: mirror.ccs.tencentyun.com/library/mysql:8.0
+    image: mysql:8.0
     container_name: erp-mysql
     restart: unless-stopped
-    # NAS 部署: 不暴露 3306 到主机, 仅容器网络 erp-net 内可见.
-    # 如需客户端工具连库, 用 docker exec (见 NAS 部署说明).
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-erp_root_pwd}
       MYSQL_DATABASE: industrial_erp
@@ -13,17 +25,14 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-time-zone=+08:00
-      # NAS 8G 内存调优: 限制 InnoDB 缓冲池避免 OOM; 并发收紧
+      # 8G 内存调优: 限制 InnoDB 缓冲池避免 OOM
       - --innodb-buffer-pool-size=512M
       - --innodb-log-file-size=128M
       - --max-connections=200
-      - --join-buffer-size=2M
-      - --sort-buffer-size=2M
     volumes:
       - mysql-data:/var/lib/mysql
       - ./sql:/docker-entrypoint-initdb.d
     networks: [erp-net]
-    # 限制容器资源 (NAS 8G 内存机型推荐)
     deploy:
       resources:
         limits:
@@ -36,10 +45,9 @@ services:
       start_period: 60s
 
   redis:
-    image: mirror.ccs.tencentyun.com/library/redis:7-alpine
+    image: redis:7-alpine
     container_name: erp-redis
     restart: unless-stopped
-    # NAS 部署: 不暴露 6379 到主机, 仅容器网络 erp-net 内可见.
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis-data:/data
@@ -65,10 +73,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-erp_root_pwd}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
-      # NAS 8G 内存调优: MySQL(~1G) + Redis(~0.3G) + 后端 + DSM 系统 + Docker 守护,
-      # 后端堆控制在 768M (峰值含 metaspace), metaspace 限 192M.
+      # 8G 内存调优: 后端堆 768M, metaspace 192M
       JAVA_OPTS: "-Xms256m -Xmx768m -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -Dfile.encoding=UTF-8 -Duser.timezone=GMT+8"
-      # 上传/备份目录指向挂载点 (见 volumes)
+      # 上传/备份目录 (走容器卷, 见 volumes)
       ERP_UPLOAD_PATH: /opt/industrial-erp/upload
       ERP_BACKUP_PATH: /opt/industrial-erp/backup
       ERP_BACKUP_SQL_PATH: /opt/industrial-erp/sql
@@ -76,7 +83,7 @@ services:
       ERP_MYSQLDUMP: mysqldump
       ERP_MYSQL: mysql
       TZ: Asia/Shanghai
-    # 后端 8080 仅暴露到主机, 不直接对公网; 公网请走 DSM 反代 + HTTPS
+    # 关键: 暴露 8080 给前端 (本机或局域网浏览器) 跨域调用
     ports:
       - "8080:8080"
     volumes:
@@ -96,28 +103,9 @@ services:
       retries: 3
       start_period: 90s
 
-  pc-web:
-    build: ./pc-web
-    container_name: erp-pc-web
-    restart: unless-stopped
-    depends_on:
-      - backend
-    # 反代后端 8080; pc-web:80 是唯一对外的 HTTP 入口 (HTTPS 走 DSM 反代)
-    ports:
-      - "80:80"
-    networks: [erp-net]
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-
-  # 移动 App 不在服务器端, 客户端独立打包
-
 volumes:
   mysql-data:
   redis-data:
-  # ./data/upload, ./data/backup 走 bind mount, 见 backend.volumes
-  # DSM 部署建议: 把 ./data 放在 /volume1/docker/erp/ 下, Hyper Backup 一起备份
 
 networks:
   erp-net:

@@ -3,29 +3,29 @@
     <view class="header card">
       <view class="row">
         <view>
-          <text style="font-size:16px;font-weight:bold">{{ greeting }}, {{ user?.nickname }}</text>
+          <text style="font-size:16px;font-weight:bold">{{ greeting }}, {{ user?.nickname || user?.username || '用户' }}</text>
           <text class="muted" style="display:block;margin-top:4px">{{ today }}</text>
         </view>
-        <text class="badge">{{ user?.deptName }}</text>
+        <text class="badge">{{ user?.deptName || user?.roles?.[0] || '' }}</text>
       </view>
     </view>
     <view class="grid-4" style="margin-bottom:10px">
-      <view class="kpi"><text class="kpi-value">¥{{ kpi.todaySales }}</text><text class="kpi-label">今日销售</text></view>
-      <view class="kpi"><text class="kpi-value">¥{{ kpi.totalSales }}</text><text class="kpi-label">累计销售</text></view>
-      <view class="kpi"><text class="kpi-value">¥{{ kpi.arBalance }}</text><text class="kpi-label">应收余额</text></view>
-      <view class="kpi"><text class="kpi-value">{{ kpi.stockSkuCount }}</text><text class="kpi-label">SKU数</text></view>
+      <view class="kpi"><text class="kpi-value">¥{{ kpi.todaySales || 0 }}</text><text class="kpi-label">今日销售</text></view>
+      <view class="kpi"><text class="kpi-value">¥{{ kpi.totalSales || 0 }}</text><text class="kpi-label">累计销售</text></view>
+      <view class="kpi"><text class="kpi-value">¥{{ kpi.arBalance || 0 }}</text><text class="kpi-label">应收余额</text></view>
+      <view class="kpi"><text class="kpi-value">{{ kpi.stockSkuCount || 0 }}</text><text class="kpi-label">SKU数</text></view>
     </view>
     <view class="card">
       <text class="title">业务快捷</text>
       <view class="grid-4" style="margin-top:8px">
-        <view class="quick-item" @click="go('/pages/sales/quick')"><text class="quick-icon">📝</text><text>手机开单</text></view>
-        <view class="quick-item" @click="go('/pages/scan/in')"><text class="quick-icon">📥</text><text>扫码入库</text></view>
-        <view class="quick-item" @click="go('/pages/scan/out')"><text class="quick-icon">📤</text><text>扫码出库</text></view>
-        <view class="quick-item" @click="go('/pages/count/index')"><text class="quick-icon">📋</text><text>外勤盘点</text></view>
-        <view class="quick-item" @click="go('/pages/inventory/query')"><text class="quick-icon">📦</text><text>查库存</text></view>
-        <view class="quick-item" @click="go('/pages/sales/order')"><text class="quick-icon">📃</text><text>销售订单</text></view>
-        <view class="quick-item" @click="go('/pages/purchase/order')"><text class="quick-icon">📋</text><text>采购订单</text></view>
-        <view class="quick-item" @click="go('/pages/report/index')"><text class="quick-icon">📊</text><text>经营简报</text></view>
+        <view class="quick-item" @click="nav('/pages/sales/quick')"><text class="quick-icon">📝</text><text>手机开单</text></view>
+        <view class="quick-item" @click="nav('/pages/scan/in')"><text class="quick-icon">📥</text><text>扫码入库</text></view>
+        <view class="quick-item" @click="nav('/pages/scan/out')"><text class="quick-icon">📤</text><text>扫码出库</text></view>
+        <view class="quick-item" @click="nav('/pages/count/index')"><text class="quick-icon">📋</text><text>外勤盘点</text></view>
+        <view class="quick-item" @click="nav('/pages/inventory/query')"><text class="quick-icon">📦</text><text>查库存</text></view>
+        <view class="quick-item" @click="nav('/pages/sales/order')"><text class="quick-icon">📃</text><text>销售订单</text></view>
+        <view class="quick-item" @click="nav('/pages/purchase/order')"><text class="quick-icon">📋</text><text>采购订单</text></view>
+        <view class="quick-item" @click="nav('/pages/report/index')"><text class="quick-icon">📊</text><text>经营简报</text></view>
       </view>
     </view>
     <view class="card" v-if="kpi.warningCount">
@@ -41,13 +41,26 @@ const user = ref({})
 const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, warningCount: 0 })
 const today = new Date().toISOString().substring(0, 10)
 const greeting = ref('您好')
-function go(url) {
+function nav(url) {
+  // H5 环境走 hash 路由; 真机走 uni API
+  if (typeof uni === 'undefined' || typeof uni.switchTab !== 'function') {
+    window.location.hash = '#' + url
+    return
+  }
   const tabbarPages = ['/pages/dashboard/index', '/pages/inventory/query', '/pages/sales/quick', '/pages/report/index', '/pages/profile/index']
   if (tabbarPages.includes(url)) uni.switchTab({ url })
   else uni.navigateTo({ url })
 }
+function loadUser() {
+  const raw = uni.getStorageSync('erp_user')
+  if (typeof raw === 'object' && raw) {
+    user.value = raw
+  } else if (typeof raw === 'string') {
+    try { user.value = JSON.parse(raw) } catch (e) { user.value = {} }
+  }
+}
 onMounted(async () => {
-  user.value = JSON.parse(uni.getStorageSync('erp_user') || '{}')
+  loadUser()
   const h = new Date().getHours()
   greeting.value = h < 6 ? '凌晨好' : h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好'
   try { kpi.value = await api.dashboard() } catch (e) {}

@@ -1,12 +1,13 @@
 # Multi-stage build for Spring Boot ERP backend
-FROM maven:3.9-eclipse-temurin-17-amd64 AS builder
+# 使用腾讯云镜像源, 绕开飞牛 docker.fnnas.com 的 401 问题
+FROM mirror.ccs.tencentyun.com/library/maven:3.9-eclipse-temurin-17 AS builder
 WORKDIR /app
 COPY pom.xml .
 RUN mvn -B -q dependency:go-offline
 COPY src ./src
 RUN mvn -B -q -DskipTests clean package
 
-FROM eclipse-temurin:17-jre-amd64
+FROM mirror.ccs.tencentyun.com/library/eclipse-temurin:17-jre
 WORKDIR /opt/app
 COPY --from=builder /app/target/industrial-erp.jar app.jar
 EXPOSE 8080
