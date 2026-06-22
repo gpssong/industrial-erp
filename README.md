@@ -224,6 +224,9 @@ mvn test                          # 全量
 - **打印接口修复** — 修复 `PreparedStatement` 参数顺序错误导致打印 500 的问题
 - **查询 SQL 修复** — 修复 `EXISTS` 子查询参数绑定失败 (`apply` 替代 `exists`)
 - **CORS 127.0.0.1 修复** — 开发环境用 `127.0.0.1` 访问时 PUT/DELETE 请求 403, 白名单增加 `127.0.0.1` 地址
+- **移动端 App 兼容性修复** — `api/index.js` 增加 H5 浏览器 `fetch` fallback; 扫码/弹窗等 uni-app API 兼容浏览器环境
+- **移动端预览补全** — 新增扫码入库/出库、销售订单、采购订单、盘点、报表共 6 个页面, 全部接入真实后端 API
+- **底部菜单栏修复** — tabbar 位置错乱/登录页误显示/层级问题
 
 ### v1.0.3 (2026-06-21) — 部署包
 - **群晖 Web Station 网页端部署包** — 基于 DSM 内置 Web Station + Docker Compose, 零 SSH 全程网页操作 (150 MB)
