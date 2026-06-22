@@ -1,12 +1,12 @@
 # Multi-stage build for Spring Boot ERP backend
-FROM maven:3.9-eclipse-temurin-17 AS builder
+FROM maven:3.9-eclipse-temurin-17-amd64 AS builder
 WORKDIR /app
 COPY pom.xml .
 RUN mvn -B -q dependency:go-offline
 COPY src ./src
 RUN mvn -B -q -DskipTests clean package
 
-FROM eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jre-amd64
 WORKDIR /opt/app
 COPY --from=builder /app/target/industrial-erp.jar app.jar
 EXPOSE 8080
