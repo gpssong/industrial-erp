@@ -35,7 +35,11 @@ export const useUserStore = defineStore('user', {
     },
     hasPerm(p) {
       if (!p) return true
-      if (this.userInfo?.userId === 1 || this.userInfo?.isAdmin === 1) return true
+      // 管理员直接放行 (userId 兼容字符串/数字; isAdmin 兼容数字/布尔; 角色兜底)
+      const uid = this.userInfo?.userId
+      if (uid === 1 || uid === '1' || uid === 0 || uid === '0') return true
+      if (this.userInfo?.isAdmin === 1 || this.userInfo?.isAdmin === true) return true
+      if ((this.userInfo?.roles || []).includes('SUPER_ADMIN')) return true
       return (this.permissions || []).includes(p)
     }
   }
