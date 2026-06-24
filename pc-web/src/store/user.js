@@ -2,12 +2,17 @@ import { defineStore } from 'pinia'
 import { login, logout, me } from '@/api/auth'
 
 export const useUserStore = defineStore('user', {
-  state: () => ({
-    token: localStorage.getItem('erp_token') || '',
-    userInfo: null,
-    permissions: [],
-    menus: []
-  }),
+  state: () => {
+    // 从 localStorage 恢复 userInfo (页面刷新后 Pinia state 会丢失, 但 token 已持久化)
+    let savedInfo = null
+    try { savedInfo = JSON.parse(localStorage.getItem('erp_user_info') || 'null') } catch (e) {}
+    return {
+      token: localStorage.getItem('erp_token') || '',
+      userInfo: savedInfo,
+      permissions: JSON.parse(localStorage.getItem('erp_permissions') || '[]'),
+      menus: JSON.parse(localStorage.getItem('erp_menus') || '[]')
+    }
+  },
   actions: {
     async loginAction(data) {
       const r = await login(data)
@@ -16,6 +21,9 @@ export const useUserStore = defineStore('user', {
       this.permissions = r.data.permissions || []
       this.menus = r.data.menus || []
       localStorage.setItem('erp_token', this.token)
+      localStorage.setItem('erp_user_info', JSON.stringify(r.data))
+      localStorage.setItem('erp_permissions', JSON.stringify(this.permissions))
+      localStorage.setItem('erp_menus', JSON.stringify(this.menus))
       return r.data
     },
     async fetchMe() {
@@ -23,6 +31,9 @@ export const useUserStore = defineStore('user', {
       this.userInfo = r.data
       this.permissions = r.data.permissions || []
       this.menus = r.data.menus || []
+      localStorage.setItem('erp_user_info', JSON.stringify(r.data))
+      localStorage.setItem('erp_permissions', JSON.stringify(this.permissions))
+      localStorage.setItem('erp_menus', JSON.stringify(this.menus))
       return r.data
     },
     async logoutAction() {
@@ -32,6 +43,9 @@ export const useUserStore = defineStore('user', {
       this.permissions = []
       this.menus = []
       localStorage.removeItem('erp_token')
+      localStorage.removeItem('erp_user_info')
+      localStorage.removeItem('erp_permissions')
+      localStorage.removeItem('erp_menus')
     },
     hasPerm(p) {
       if (!p) return true

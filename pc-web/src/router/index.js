@@ -50,13 +50,17 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const user = useUserStore()
   if (to.meta.public) return next()
   if (!user.token) return next('/login')
+  // 如果 userInfo 丢失 (页面刷新), 尝试从 localStorage 恢复或重新拉取
+  if (!user.userInfo) {
+    try { await user.fetchMe() } catch (e) { /* token 过期会走 401 拦截 */ }
+  }
   // 简易权限
   if (to.meta.perm && !user.hasPerm(to.meta.perm)) {
-    console.warn('[router] 权限不足:', to.meta.perm, 'user.isAdmin=', user.userInfo?.isAdmin, 'userId=', user.userInfo?.userId)
+    console.warn('[router] 权限不足:', to.meta.perm, 'user=', user.userInfo)
     ElMessage.warning('无访问权限: ' + to.meta.perm)
     return next(false)
   }
