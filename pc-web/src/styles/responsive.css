@@ -1,0 +1,160 @@
+/* =========================================================================
+ * 响应式补丁 - 手机浏览器访问 pc-web 时的样式调整
+ * 断点: <= 768px 视为手机
+ * ========================================================================= */
+
+@media (max-width: 768px) {
+  /* 1. 侧边栏: 默认收起为图标条, 通过汉堡按钮展开成抽屉 */
+  .layout-container > .el-aside.sidebar {
+    position: fixed !important;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 1001;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    width: 220px !important;
+    height: 100vh;
+  }
+  .layout-container > .el-aside.sidebar.is-mobile-open {
+    transform: translateX(0);
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+  }
+  /* 抽屉打开时的遮罩 */
+  .mobile-mask {
+    position: fixed;
+    left: 0; right: 0; top: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+  }
+
+  /* 2. 主内容区不留侧边栏空间 */
+  .layout-container > .el-container {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
+  /* 3. header 紧凑 */
+  .el-header.header {
+    height: 48px !important;
+    padding: 0 8px !important;
+  }
+  .header-left .el-breadcrumb {
+    font-size: 12px;
+  }
+  .header-right .company {
+    display: none;
+  }
+  .header-right .user-trigger span:not(.el-avatar) {
+    display: none;
+  }
+  .collapse-btn {
+    font-size: 20px;
+  }
+
+  /* 4. 主内容区减少 padding */
+  .el-main.main-content {
+    padding: 8px !important;
+  }
+
+  /* 5. 页面卡片紧凑 */
+  .page-card,
+  .search-bar,
+  .table-toolbar {
+    padding: 8px !important;
+    margin-bottom: 4px !important;
+  }
+
+  /* 6. 表格: 横向滚动 + 字号缩小 */
+  .el-table {
+    font-size: 12px !important;
+    overflow-x: auto;
+  }
+  .el-table th, .el-table td {
+    padding: 4px 6px !important;
+  }
+  .el-table .cell {
+    white-space: nowrap;
+  }
+
+  /* 7. 表单行/搜索栏: 多元素换行 */
+  .el-form--inline .el-form-item,
+  .search-bar .el-form-item {
+    margin-right: 0 !important;
+    margin-bottom: 8px !important;
+    width: 100%;
+  }
+  .search-bar .el-input,
+  .search-bar .el-select,
+  .search-bar .el-date-editor {
+    width: 100% !important;
+  }
+  .table-toolbar {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 8px;
+  }
+  .table-toolbar .left,
+  .table-toolbar .right {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  /* 8. 分页: 简化 */
+  .el-pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 12px;
+  }
+  .el-pagination .el-pagination__sizes,
+  .el-pagination .el-pagination__jump {
+    display: none !important;
+  }
+
+  /* 9. 弹窗: 占满屏幕 */
+  .el-dialog {
+    width: 95% !important;
+    margin: 5vh auto !important;
+  }
+  .el-dialog__body {
+    padding: 12px !important;
+    max-height: 65vh;
+    overflow-y: auto;
+  }
+
+  /* 10. 登录页: 占满 */
+  .login-container .login-box {
+    width: 92% !important;
+    max-width: none !important;
+    padding: 24px 20px !important;
+  }
+  .login-container .login-bg {
+    display: none;
+  }
+  .login-container .industrial-title {
+    font-size: 18px !important;
+  }
+
+  /* 11. 卡片网格改单列 */
+  .el-row {
+    flex-wrap: wrap;
+  }
+  .el-col {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: 0 0 100% !important;
+  }
+}
+
+/* 超小屏幕 (< 480px) 进一步压缩 */
+@media (max-width: 480px) {
+  .el-header.header {
+    height: 44px !important;
+  }
+  .header-left .el-breadcrumb-item:last-child {
+    display: none;
+  }
+  .page-card h2, .page-card h3 {
+    font-size: 14px !important;
+  }
+}

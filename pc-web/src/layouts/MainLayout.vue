@@ -1,13 +1,15 @@
 <template>
   <el-container class="layout-container">
-    <el-aside :width="collapse ? '64px' : '220px'" class="sidebar">
+    <div v-if="isMobile && mobileOpen" class="mobile-mask" @click="mobileOpen = false"></div>
+    <el-aside :width="collapse ? '64px' : '220px'" class="sidebar"
+              :class="{ 'is-mobile-open': isMobile && mobileOpen }">
       <div class="logo" :class="{ collapsed: collapse }">
-        <span v-if="!collapse">🏭 {{ systemName }}</span>
+        <span v-if="!collapse || isMobile">🏭 {{ systemName }}</span>
         <span v-else>ERP</span>
       </div>
-      <el-menu :default-active="route.path" :router="true" :collapse="collapse"
+      <el-menu :default-active="route.path" :router="true" :collapse="collapse && !isMobile"
                background-color="#001529" text-color="#dcdcdc"
-               active-text-color="#fff">
+               active-text-color="#fff" @select="onMenuSelect">
         <template v-for="m in menuTree" :key="m.path">
           <el-sub-menu v-if="m.children && m.children.length" :index="m.path">
             <template #title>
@@ -30,7 +32,7 @@
     <el-container>
       <el-header class="header">
         <div class="header-left">
-          <el-icon class="collapse-btn" @click="collapse = !collapse">
+          <el-icon class="collapse-btn" @click="onCollapseClick">
             <component :is="collapse ? 'Expand' : 'Fold'" />
           </el-icon>
           <el-breadcrumb separator="/">
@@ -65,7 +67,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { useSystemName } from '@/composables/useSystemName'
@@ -74,9 +76,32 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const collapse = ref(false)
+const isMobile = ref(false)
+const mobileOpen = ref(false)
 const { systemName, loadSystemName } = useSystemName()
 
 const userInfo = computed(() => userStore.userInfo)
+
+function checkMobile() {
+  isMobile.value = window.innerWidth <= 768
+  if (isMobile.value) {
+    collapse.value = false  // 手机上不用 collapse 模式,改用抽屉
+    mobileOpen.value = false
+  }
+}
+
+function onCollapseClick() {
+  if (isMobile.value) {
+    mobileOpen.value = !mobileOpen.value
+  } else {
+    collapse.value = !collapse.value
+  }
+}
+
+function onMenuSelect() {
+  // 手机上选中菜单后自动关闭抽屉
+  if (isMobile.value) mobileOpen.value = false
+}
 
 // 菜单结构 (与 router meta 对应)
 const menuTree = [
@@ -158,6 +183,12 @@ onMounted(async () => {
     try { await userStore.fetchMe() } catch (e) {}
   }
   loadSystemName()
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
 })
 </script>
 

@@ -93,7 +93,13 @@
               </template>
             </el-table-column>
             <el-table-column label="规格" width="120"><template #default="{ row }"><span>{{ row.spec }}</span></template></el-table-column>
-            <el-table-column label="单位" width="70"><template #default="{ row }"><span>{{ row.unitName }}</span></template></el-table-column>
+            <el-table-column label="单位" width="100">
+              <template #default="{ row }">
+                <el-select v-model="row.unitId" size="small" style="width:100%" @change="v=>onUnitChange(row, v)">
+                  <el-option v-for="u in (row._units || [])" :key="u.unitId" :label="u.unitName" :value="u.unitId" />
+                </el-select>
+              </template>
+            </el-table-column>
             <el-table-column label="数量" width="120">
               <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="4" size="small" /></template>
             </el-table-column>
@@ -221,9 +227,9 @@ async function onAdd() {
 
 function addLine() {
   if (taxSeparation.value === 'true') {
-    form.details.push({ productId: null, qty: null, price: 0, taxRate: 13, lineNo: form.details.length + 1 })
+    form.details.push({ productId: null, qty: null, price: 0, taxRate: 13, lineNo: form.details.length + 1, _units: [] })
   } else {
-    form.details.push({ productId: null, qty: null, price: 0, lineNo: form.details.length + 1 })
+    form.details.push({ productId: null, qty: null, price: 0, lineNo: form.details.length + 1, _units: [] })
   }
 }
 
@@ -233,12 +239,16 @@ async function searchProduct(kw) {
 }
 
 async function onProductChange(row, v) {
-  const p = productList.value.find(x => x.id === v) || (await productApi.detail(v)).data.product
+  const detail = (await productApi.detail(v)).data
+  const p = detail.product
   if (!p) return
   row.productId = p.id; row.productCode = p.productCode; row.productName = p.productName
   row.spec = p.spec
-  row.unitId = p.mainUnitId
-  row.unitName = units.value.find(u => u.id == p.mainUnitId)?.unitName || '主单位'
+  // 加载该商品的所有单位, 默认选主单位
+  row._units = (detail.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain }))
+  const mainUnit = row._units.find(u => u.isMain) || row._units[0]
+  row.unitId = mainUnit ? mainUnit.unitId : p.mainUnitId
+  row.unitName = mainUnit ? mainUnit.unitName : '主单位'
   // 优先取该客户对此商品的上次订单单价
   if (form.customerId && row.productId) {
     try {
@@ -257,6 +267,11 @@ async function onProductChange(row, v) {
   } else {
     row.price = +p.salesPrice
   }
+}
+
+function onUnitChange(row, unitId) {
+  const u = (row._units || []).find(x => x.unitId === unitId)
+  if (u) row.unitName = u.unitName
 }
 
 function onCustomerChange() { form.details.forEach(d => d.productId && onProductChange(d, d.productId)) }
@@ -297,6 +312,15 @@ async function onView(row) {
   const r = await salDeliveryApi.detail(row.id)
   Object.assign(form, r.data)
   form.billDate = form.billDate
+  // 为每个明细行加载商品单位列表
+  await Promise.all((form.details || []).map(async d => {
+    if (d.productId) {
+      const detail = (await productApi.detail(d.productId)).data
+      d._units = (detail.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain }))
+      const u = d._units.find(x => x.unitId === d.unitId)
+      if (u) d.unitName = u.unitName
+    }
+  }))
   dialogVisible.value = true
 }
 
