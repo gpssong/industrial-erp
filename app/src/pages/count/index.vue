@@ -29,6 +29,7 @@
 <script setup>
 import { ref } from 'vue'
 import api from '../../api/index.js'
+import { doScan } from '../../utils/scan.js'
 const list = ref([])
 function toast(msg) {
   if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: msg, icon: 'none' })
@@ -44,13 +45,7 @@ function onScan() {
       toast('商品未找到: ' + kw)
     }
   }
-  // H5 环境: prompt 输入
-  if (typeof uni === 'undefined' || typeof uni.scanCode !== 'function') {
-    const c = prompt('请输入商品编码或名称 (H5 模拟扫码)')
-    if (c) doSearch(c)
-    return
-  }
-  uni.scanCode({ success: (res) => { doSearch(res.result) } })
+  doScan({ onResult: doSearch, onCancel: () => toast('已取消扫码') })
 }
 function onSubmit() {
   const confirm = (typeof uni !== 'undefined' && uni.showModal)

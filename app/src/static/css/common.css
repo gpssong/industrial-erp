@@ -23,3 +23,33 @@ page { background: var(--bg); }
 .kpi-value { font-size: 18px; font-weight: bold; color: var(--primary); }
 .kpi-label { font-size: 12px; color: var(--muted); }
 .input { width: 100%; padding: 10px; border: 1px solid #eee; border-radius: 4px; box-sizing: border-box; }
+
+/* uni-app 3.x alpha H5 输入框修复 */
+uni-input {
+  display: block;
+  width: 100%;
+  height: 40px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
+
+uni-input .uni-input-input {
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  font-size: 14px;
+}
+
+uni-input:focus {
+  border-color: #1e6091;
+}
+
+/* 确保输入框可点击 */
+uni-input, uni-input * {
+  pointer-events: auto !important;
+  user-select: auto !important;
+  -webkit-user-select: auto !important;
+}

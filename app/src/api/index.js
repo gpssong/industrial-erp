@@ -1,12 +1,23 @@
 function getBase() {
   // 优先级: 本地缓存 > manifest 中配置的 BASE_URL > 默认
-  return uni.getStorageSync('erp_api_base')
-    || (typeof __GLOBAL__.API_BASE !== 'undefined' ? __GLOBAL__.API_BASE : null)
-    || 'http://home.93gushi.com/api'
+  try {
+    return (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base'))
+      || (typeof __GLOBAL__ !== 'undefined' && typeof __GLOBAL__.API_BASE !== 'undefined' ? __GLOBAL__.API_BASE : null)
+      || '/api'
+  } catch (e) {
+    return '/api'
+  }
+}
+
+function getToken() {
+  try {
+    if (typeof uni !== 'undefined' && uni.getStorageSync) return uni.getStorageSync('erp_token')
+    return localStorage.getItem('erp_token')
+  } catch (e) { return null }
 }
 
 function request({ url, method = 'GET', data = {} }) {
-  const token = uni.getStorageSync('erp_token')
+  const token = getToken()
   const base = getBase()
 
   // H5 环境 (浏览器预览): uni.request 不可用, 退化为原生 fetch
@@ -68,6 +79,31 @@ function fetchRequest(url, method, data, token) {
     }
     throw d
   })
+}
+
+// H5 环境判断
+export function isH5() {
+  return typeof uni === 'undefined' || typeof uni.scanCode !== 'function' || typeof window !== 'undefined'
+}
+
+// 扫码: 优先用 uni.scanCode(真机/小程序), 否则用 html5-qrcode
+export async function doScan({ onResult, onCancel }) {
+  if (isH5() && typeof window !== 'undefined') {
+    // H5 环境: 由调用方自己处理(用 html5-qrcode), 这里只给降级
+    const c = prompt('请输入条码:')
+    if (c) onResult && onResult(c)
+    else onCancel && onCancel()
+    return
+  }
+  // 原生环境
+  try {
+    const res = await new Promise((resolve, reject) => {
+      uni.scanCode({ success: resolve, fail: reject })
+    })
+    onResult && onResult(res.result)
+  } catch (e) {
+    onCancel && onCancel()
+  }
 }
 
 export const api = {
