@@ -2,6 +2,11 @@ server:
   port: 8080
   servlet:
     context-path: /api
+    # 强制所有响应 / 请求 Content-Type 带 charset=UTF-8, 防止 application/json 缺 charset 时浏览器按 GBK 解码中文
+    encoding:
+      charset: UTF-8
+      force: true
+      enabled: true
 
 spring:
   application:
@@ -12,10 +17,20 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: GMT+8
     default-property-inclusion: non_null
+    # 显式声明 JSON media type 带 charset, 避免某些容器/proxy 模式下不传递
+    serialization:
+      encoding: UTF-8
   servlet:
     multipart:
       max-file-size: 100MB
       max-request-size: 100MB
+  # Spring MVC 的请求/响应编码 (Tomcat, Spring 3.2+)
+  mvc:
+    servlet:
+      encoding:
+        charset: UTF-8
+        force: true
+        enabled: true
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${SPRING_DATASOURCE_HOST:127.0.0.1}:${SPRING_DATASOURCE_PORT:3306}/${SPRING_DATASOURCE_DB:industrial_erp}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true

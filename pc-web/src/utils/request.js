@@ -7,11 +7,16 @@ import 'nprogress/nprogress.css'
 
 NProgress.configure({ showSpinner: false })
 
+// 调试: 启动时打印最终使用的 baseURL, 帮助定位 404
+const _resolvedBase =
+  localStorage.getItem('erp_api_base')
+  || import.meta.env.VITE_API_BASE
+  || '/api'
+console.log('[request] baseURL =', _resolvedBase, '| localStorage erp_api_base =', localStorage.getItem('erp_api_base'))
+
 const service = axios.create({
   // 优先级: localStorage(用户手动配置) > 环境变量(VITE_API_BASE) > 默认 /api
-  baseURL: localStorage.getItem('erp_api_base')
-    || import.meta.env.VITE_API_BASE
-    || '/api',
+  baseURL: _resolvedBase,
   timeout: 30000
 })
 
@@ -20,6 +25,8 @@ service.interceptors.request.use(config => {
   NProgress.start()
   const user = useUserStore()
   if (user.token) config.headers['Authorization'] = user.token  // Sa-Token 直接取值，不加 Bearer 前缀
+  // 调试: 打印每次请求的完整 URL (首次 404 时排查)
+  console.log('[request] ->', (config.baseURL || '') + config.url)
   return config
 }, err => Promise.reject(err))
 

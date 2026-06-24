@@ -235,6 +235,15 @@ mvn test                          # 全量
 - **Windows 桌面客户端** — NSIS 安装包 (74 MB)
 - **macOS 桌面客户端** — DMG arm64 + x64 (187 MB)
 
+### v1.0.4 (2026-06-24)
+- **销售出库单位选择** — 新增出库单时, 单位列从纯文本改为下拉选择器, 显示商品配置的所有可用单位 (主单位/辅助单位), 默认选主单位
+- **中文编码全面修复** — JDBC 连接编码从 `utf8` 改为 `UTF-8`, 解决 MySQL 8.0 下中文双重编码乱码问题
+- **数据库 schema 漂移修复** — `sys_print_template` 新增 `template_config` 列 (HTML 模式打印配置); `sys_config` 新增 `PRICE_TAX_SEPARATION` 价税分离开关
+- **响应编码强制 UTF-8** — `application.yml` 新增 `server.servlet.encoding.charset=UTF-8 force=true`, 确保所有 API 响应 `Content-Type` 带 `charset=utf-8`
+- **CORS 白名单扩展** — 新增 `http://home.93gushi.com:8088` / `http://192.168.0.150:8088` 等群晖反代端口
+- **main.js 布局优化** — MainLayout 重构, 支持更灵活的菜单/面包屑/标签页布局
+- **request.js 调试增强** — 请求拦截器新增 baseURL / 完整 URL 日志输出, 便于排查 404/403 问题
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
 - 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)
