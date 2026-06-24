@@ -1,59 +1,153 @@
 <template>
-  <view class="container">
-    <view class="card">
-      <text class="title">📥 扫码入库</text>
-      <view class="row" style="margin: 12px 0">
-        <text>扫到的条码</text>
-        <text style="font-weight:bold">{{ code || '(等待扫码)' }}</text>
-      </view>
-      <view class="btn btn-block" @click="onScan">📷 扫一扫</view>
-    </view>
-    <view class="card" v-if="product">
-      <text style="font-size:18px;font-weight:bold">{{ product.productName }}</text>
-      <text class="muted" style="display:block;margin:4px 0">{{ product.spec }}</text>
-      <view class="form-item"><text class="label">数量</text><input class="input" type="number" v-model="qty" /></view>
-      <view class="form-item"><text class="label">单价</text><input class="input" type="digit" v-model="price" /></view>
-      <view class="form-item"><text class="label">批次</text><input class="input" v-model="batchNo" placeholder="可选" /></view>
-      <view class="btn btn-block" @click="onSubmit">确认入库</view>
-    </view>
-  </view>
+  <div class="container">
+    <div class="card">
+      <div class="title">📥 扫码入库</div>
+      <div class="row" style="margin: 12px 0">
+        <span>扫到的条码</span>
+        <span style="font-weight:bold">{{ code || '(等待扫码)' }}</span>
+      </div>
+      <button class="btn btn-block" @click="onScan">📷 扫一扫</button>
+      <button class="btn btn-block btn-outline" style="margin-top:8px" @click="onManualInput">✏️ 手动输入</button>
+    </div>
+    <!-- H5 扫码弹窗 -->
+    <div v-if="showScanner" class="scanner-mask">
+      <div class="scanner-box">
+        <div class="scanner-header">
+          <span>扫描条码/二维码</span>
+          <button class="btn-close" @click="closeScanner">✕</button>
+        </div>
+        <div id="qr-reader" style="width:100%"></div>
+        <div class="scanner-tip">将条码对准摄像头</div>
+      </div>
+    </div>
+    <div class="card" v-if="product">
+      <div style="font-size:18px;font-weight:bold">{{ product.productName }}</div>
+      <div class="muted" style="margin:4px 0">{{ product.spec }}</div>
+      <div class="form-item"><label class="label">数量</label><input class="input" type="number" v-model="qty" /></div>
+      <div class="form-item"><label class="label">单价</label><input class="input" type="number" step="0.01" v-model="price" /></div>
+      <div class="form-item"><label class="label">批次</label><input class="input" v-model="batchNo" placeholder="可选" /></div>
+      <button class="btn btn-block" @click="onSubmit">确认入库</button>
+    </div>
+  </div>
 </template>
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, nextTick, onUnmounted } from 'vue'
 import api from '../../api/index.js'
-const code = ref(''); const product = ref(null)
-const qty = ref(1); const price = ref(0); const batchNo = ref('')
+import { doScan, isH5 } from '../../utils/scan.js'
+
+const code = ref('')
+const product = ref(null)
+const qty = ref(1)
+const price = ref(0)
+const batchNo = ref('')
+const showScanner = ref(false)
+let html5QrCode = null
+
+function toast(msg) { alert(msg) }
+
 function onScan() {
-  // H5 环境: 用 prompt 模拟扫码
-  if (typeof uni === 'undefined' || typeof uni.scanCode !== 'function') {
-    const c = prompt('请输入商品编码或名称 (H5 模拟扫码)')
-    if (!c) return
-    code.value = c; onSearch()
+  if (isH5()) {
+    openH5Scanner()
     return
   }
-  uni.scanCode({ success: (res) => { code.value = res.result; onSearch() }, fail: () => {
-    uni.showModal({ title: '手动输入条码', editable: true, success: (r) => { if (r.confirm) { code.value = r.content; onSearch() } } })
-  }})
+  doScan({ onResult: (text) => { code.value = text; onSearch() }, onCancel: () => {} })
 }
+
+async function openH5Scanner() {
+  showScanner.value = true
+  await nextTick()
+  try {
+    const { Html5Qrcode } = await import('html5-qrcode')
+    html5QrCode = new Html5Qrcode('qr-reader')
+    await html5QrCode.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+      (decodedText) => {
+        code.value = decodedText
+        closeScanner()
+        onSearch()
+      },
+      () => {}
+    )
+  } catch (err) {
+    console.error('摄像头启动失败:', err)
+    closeScanner()
+    const c = prompt('摄像头不可用,请输入条码:')
+    if (c) { code.value = c; onSearch() }
+  }
+}
+
+async function closeScanner() {
+  showScanner.value = false
+  if (html5QrCode) {
+    try { await html5QrCode.stop() } catch (e) {}
+    html5QrCode = null
+  }
+}
+
+function onManualInput() {
+  const c = prompt('请输入商品编码或条码:')
+  if (c) { code.value = c; onSearch() }
+}
+
 async function onSearch() {
-  const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: code.value })
-  if (r && r.records && r.records[0]) { product.value = r.records[0]; price.value = r.records[0].purchasePrice || 0 }
-  else toast('商品未找到: ' + code.value)
+  if (!code.value) return
+  try {
+    const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: code.value })
+    if (r && r.records && r.records[0]) {
+      product.value = r.records[0]
+      price.value = r.records[0].purchasePrice || 0
+    } else {
+      toast('商品未找到: ' + code.value)
+    }
+  } catch (e) {
+    toast('查询失败: ' + (e.msg || e.message || '网络错误'))
+  }
 }
-function toast(msg) {
-  if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: msg, icon: 'none' })
-  else alert(msg)
-}
+
 async function onSubmit() {
   if (!product.value) return
-  const detail = { productId: product.value.productId, productCode: product.value.productCode, productName: product.value.productName, spec: product.value.spec, unitName: product.value.unitName, qty: +qty.value, price: +price.value, taxRate: 13, batchNo: batchNo.value }
+  const detail = {
+    productId: product.value.productId, productCode: product.value.productCode,
+    productName: product.value.productName, spec: product.value.spec,
+    unitName: product.value.unitName, qty: +qty.value, price: +price.value,
+    taxRate: 13, batchNo: batchNo.value
+  }
   detail.amount = detail.qty * detail.price
   detail.taxAmount = detail.amount * 0.13
   detail.amountTax = detail.amount + detail.taxAmount
-  const bill = { billDate: new Date().toISOString().substring(0,10), supplierId: 1, warehouseId: product.value.warehouseId || 1, billType: 'NORMAL', billStatus: 'DRAFT', details: [detail] }
-  await api.purchaseReceiptAdd(bill)
-  toast('入库成功')
-  setTimeout(() => { if (typeof uni !== 'undefined' && uni.navigateBack) uni.navigateBack(); else if (typeof window !== 'undefined') window.history.back() }, 800)
+  const bill = {
+    billDate: new Date().toISOString().substring(0, 10),
+    supplierId: 1, warehouseId: product.value.warehouseId || 1,
+    billType: 'NORMAL', billStatus: 'DRAFT', details: [detail]
+  }
+  try {
+    await api.purchaseReceiptAdd(bill)
+    toast('入库成功!')
+    setTimeout(() => window.history.back(), 800)
+  } catch (e) {
+    toast('入库失败: ' + (e.msg || e.message || '网络错误'))
+  }
 }
+
+onUnmounted(() => { closeScanner() })
 </script>
-<style scoped>.form-item { margin: 8px 0; } .label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }</style>
+<style scoped>
+.container { padding: 12px; }
+.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.title { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 8px; }
+.row { display: flex; justify-content: space-between; align-items: center; }
+.form-item { margin: 8px 0; }
+.label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+.input { width: 100%; height: 36px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 14px; }
+.input:focus { border-color: #1e6091; outline: none; }
+.btn { background: #1e6091; color: #fff; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 15px; width: 100%; }
+.btn:hover { background: #2980b9; }
+.btn-outline { background: transparent; color: #1e6091; border: 1px solid #1e6091; }
+.muted { color: #999; font-size: 12px; }
+.scanner-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; }
+.scanner-box { background: #fff; border-radius: 12px; padding: 16px; width: 90%; max-width: 360px; }
+.scanner-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 16px; font-weight: bold; }
+.btn-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #999; }
+.scanner-tip { text-align: center; color: #666; font-size: 13px; margin-top: 10px; }
+</style>

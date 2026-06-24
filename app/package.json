@@ -11,6 +11,7 @@
     "build:app": "uni build -p app"
   },
   "dependencies": {
+    "html5-qrcode": "^2.3.8",
     "vue": "^3.4.0",
     "vue-i18n": "^9.9.0"
   },
