@@ -40,9 +40,11 @@
             <el-tag :type="row.billStatus==='CHECKED'?'success':'info'">{{ row.billStatus === 'CHECKED' ? '已审核' : '草稿' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onEdit(row)">编辑</el-button>
+            <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="row.billStatus==='DRAFT'" link type="success" @click="onCheck(row)">审核</el-button>
             <el-button link type="primary" @click="openPrint(row)">打印</el-button>
             <el-button link type="primary" @click="onView(row)">详情</el-button>
           </template>
@@ -160,7 +162,7 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { salDeliveryApi } from '@/api/sales'
 import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', customerId: null, billStatus: '', productName: '' })
 const data = ref({ records: [], total: 0 })
@@ -218,10 +220,23 @@ function onReset() {
 
 async function onAdd() {
   loadTaxSeparation()
-  form.id = null; form.billNo = ''; form.details = []
+  // 完全重置 form (避免上次操作的残留, 比如编辑后再点新增 customerId/warehouseId 还残留)
+  form.id = null
+  form.billNo = ''
+  form.billDate = new Date().toISOString().substring(0, 10)
+  form.customerId = null
+  form.customerName = ''
+  form.warehouseId = null
+  form.address = ''
+  form.phone = ''
+  form.discountAmount = 0
+  form.tailAmount = 0
+  form.remark = ''
+  form.details = []
   await loadCustomers()
-  warehouses.value = (await warehouseApi.list()).data
-  units.value = (await unitApi.list()).data
+  if (!warehouses.value.length) warehouses.value = (await warehouseApi.list()).data
+  if (!units.value.length) units.value = (await unitApi.list()).data
+  productList.value = []
   dialogVisible.value = true
 }
 
@@ -294,11 +309,81 @@ async function onSave() {
       payload.taxAmount = taxAmount
       payload.totalAmountTax = totalAmount + taxAmount
     }
-    await salDeliveryApi.add(payload)
-    ElMessage.success('保存成功')
+    if (form.id) {
+      await salDeliveryApi.update(payload)
+      ElMessage.success('修改成功')
+    } else {
+      await salDeliveryApi.add(payload)
+      ElMessage.success('保存成功')
+    }
     dialogVisible.value = false
     loadData()
   } finally { submitting.value = false }
+}
+
+async function onEdit(row) {
+  // 编辑: 复用新增对话框, 先清空再赋新值 (避免 Object.assign 引用问题)
+  loadTaxSeparation()
+  // 先把 form 字段重置成新增状态, 再覆盖
+  form.id = null; form.billNo = ''; form.billDate = new Date().toISOString().substring(0, 10)
+  form.customerId = null; form.customerName = ''; form.warehouseId = null
+  form.address = ''; form.phone = ''; form.discountAmount = 0; form.tailAmount = 0; form.remark = ''
+  form.details = []
+
+  await loadCustomers()
+  if (!warehouses.value.length) warehouses.value = (await warehouseApi.list()).data
+
+  const detail = await salDeliveryApi.detail(row.id)
+  const d = detail.data
+  // 字段逐一赋值, 保证响应式
+  // 注意: 不用 Number() 转 ID! JS 安全整数只到 2^53=9007199254740992 (16位),
+  // 我们的 ID 是 19 位 (snowflake), Number() 会丢精度. 后端 Jackson 已返回字符串, 直接用即可
+  form.id = d.id
+  form.billNo = d.billNo
+  form.billDate = d.billDate
+  form.customerId = d.customerId
+  form.customerName = d.customerName
+  form.warehouseId = d.warehouseId
+  form.address = d.address || ''
+  form.phone = d.phone || ''
+  form.discountAmount = d.discountAmount || 0
+  form.tailAmount = d.tailAmount || 0
+  form.remark = d.remark || ''
+  form.details = (d.details || []).map(x => ({
+    id: x.id, deliveryId: x.deliveryId, lineNo: x.lineNo,
+    productId: x.productId,
+    productCode: x.productCode, productName: x.productName,
+    spec: x.spec, unitId: x.unitId, unitName: x.unitName,
+    qty: x.qty, price: x.price, taxRate: x.taxRate,
+    amount: x.amount, taxAmount: x.taxAmount, amountTax: x.amountTax,
+    batchNo: x.batchNo, locationName: x.locationName,
+    remark: x.remark, _units: []
+  }))
+  // 预加载每个商品到 productList (避免 el-select 显示空 label)
+  productList.value = []
+  for (const det of form.details) {
+    if (det.productId) {
+      try {
+        const pd = (await productApi.detail(det.productId)).data
+        if (pd.product) {
+          if (!productList.value.find(p => p.id === pd.product.id)) {
+            productList.value.push(pd.product)
+          }
+          // 加载单位
+          det._units = (pd.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain }))
+        }
+      } catch (e) { /* ignore */ }
+    }
+  }
+  dialogVisible.value = true
+}
+
+async function onDelete(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除出库单 ${row.billNo}? 删除后不可恢复`, '删除确认', { type: 'warning' })
+  } catch { return }
+  await salDeliveryApi.delete(row.id)
+  ElMessage.success('删除成功'); loadData()
 }
 
 async function onCheck(row) {

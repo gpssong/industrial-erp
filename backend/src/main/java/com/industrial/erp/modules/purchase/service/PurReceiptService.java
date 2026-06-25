@@ -67,6 +67,8 @@ public class PurReceiptService {
         permService.requirePerm("purchase:receipt:list");
         Page<PurReceipt> p = new Page<>(pageNum, pageSize);
         QueryWrapper<PurReceipt> w = new QueryWrapper<>();
+        // 自定义 SQL 绕过 @TableLogic 自动过滤, 必须手动加 deleted=0
+        w.eq("r.deleted", 0);
         if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
         if (supplierId != null) w.eq("supplier_id", supplierId);
         if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);
@@ -136,6 +138,79 @@ public class PurReceiptService {
             d.setReceiptId(receipt.getId());
             receiptDetailMapper.insert(d);
         }
+    }
+
+    /**
+     * 修改入库单 (仅 DRAFT 状态可改)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void update(PurReceipt receipt) {
+        permService.requirePerm("purchase:receipt:edit");
+        PurReceipt origin = receiptMapper.selectById(receipt.getId());
+        if (origin == null) throw BizException.of("入库单不存在");
+        if (!Constants.STATUS_DRAFT.equals(origin.getBillStatus())) {
+            throw BizException.of("只有草稿状态可修改");
+        }
+        // 校验供应商
+        BaseSupplier s = supplierMapper.selectById(receipt.getSupplierId());
+        if (s == null) throw BizException.of("供应商不存在");
+        receipt.setSupplierName(s.getSupplierName());
+        // 校验仓库
+        BaseWarehouse w = warehouseMapper.selectById(receipt.getWarehouseId());
+        if (w == null) throw BizException.of("仓库不存在");
+
+        // 重算汇总
+        BigDecimal totalQty = BigDecimal.ZERO;
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal taxAmount = BigDecimal.ZERO;
+        BigDecimal totalAmountTax = BigDecimal.ZERO;
+        int line = 0;
+        for (PurReceiptDetail d : receipt.getDetails()) {
+            d.setLineNo(++line);
+            if (d.getTaxRate() == null) d.setTaxRate(s.getTaxRate() == null ? new BigDecimal("13.00") : s.getTaxRate());
+            d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
+            d.setTaxAmount(d.getAmount().multiply(d.getTaxRate()).divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
+            d.setAmountTax(d.getAmount().add(d.getTaxAmount()));
+            totalQty = totalQty.add(d.getQty());
+            totalAmount = totalAmount.add(d.getAmount());
+            taxAmount = taxAmount.add(d.getTaxAmount());
+            totalAmountTax = totalAmountTax.add(d.getAmountTax());
+        }
+        receipt.setTotalQty(totalQty);
+        receipt.setTotalAmount(totalAmount);
+        receipt.setTaxAmount(taxAmount);
+        receipt.setTotalAmountTax(totalAmountTax);
+        // 主表ID固定, 防止前端误传 bill_no/bill_date 覆盖
+        receipt.setBillNo(origin.getBillNo());
+        receipt.setBillDate(origin.getBillDate());
+        receipt.setBillStatus(origin.getBillStatus());
+        receipt.setBillType(origin.getBillType());
+
+        receiptMapper.updateById(receipt);
+        // 删旧明细, 重新插入
+        receiptDetailMapper.delete(new LambdaQueryWrapper<PurReceiptDetail>().eq(PurReceiptDetail::getReceiptId, receipt.getId()));
+        for (PurReceiptDetail d : receipt.getDetails()) {
+            d.setId(null);
+            d.setReceiptId(receipt.getId());
+            receiptDetailMapper.insert(d);
+        }
+    }
+
+    /**
+     * 删除入库单 (仅 DRAFT 状态可删)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long id) {
+        permService.requirePerm("purchase:receipt:delete");
+        PurReceipt r = receiptMapper.selectById(id);
+        if (r == null) throw BizException.of("入库单不存在");
+        if (!Constants.STATUS_DRAFT.equals(r.getBillStatus())) {
+            throw BizException.of("只有草稿状态可删除");
+        }
+        // 删明细
+        receiptDetailMapper.delete(new LambdaQueryWrapper<PurReceiptDetail>().eq(PurReceiptDetail::getReceiptId, id));
+        // 物理删除主表 (避免 bill_no 唯一索引冲突)
+        receiptMapper.deleteById(id);
     }
 
     /**

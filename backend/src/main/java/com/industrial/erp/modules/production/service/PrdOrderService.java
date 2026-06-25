@@ -94,6 +94,23 @@ public class PrdOrderService {
             order.setProductName(p.getProductName());
             order.setSpec(p.getSpec());
         }
+        // 从 BOM 表取 bomNo 填入生产单(打印时需要显示)
+        if (order.getBomId() != null && StrUtil.isBlank(order.getBomNo())) {
+            PrdBom bom = bomService.detail(order.getBomId());
+            if (bom != null) {
+                order.setBomNo(bom.getBomCode());
+                // 如果前端没传 productName, 从 BOM 关联产品取
+                if (p == null && bom.getProductId() != null) {
+                    BaseProduct bp = productMapper.selectById(bom.getProductId());
+                    if (bp != null) {
+                        order.setProductId(bp.getId());
+                        order.setProductCode(bp.getProductCode());
+                        order.setProductName(bp.getProductName());
+                        order.setSpec(bp.getSpec());
+                    }
+                }
+            }
+        }
         orderMapper.insert(order);
     }
 

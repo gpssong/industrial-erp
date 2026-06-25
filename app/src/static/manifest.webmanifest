@@ -1,0 +1,27 @@
+{
+  "name": "鹏程ERP - 工业管理系统",
+  "short_name": "鹏程ERP",
+  "description": "工业 ERP - 库存、销售、采购、报表一体化管理",
+  "start_url": "/#/pages/dashboard/index",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1e6091",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"]
+}

@@ -65,6 +65,8 @@ public class SalDeliveryService {
         permService.requirePerm("sales:delivery:list");
         Page<SalDelivery> p = new Page<>(pageNum, pageSize);
         QueryWrapper<SalDelivery> w = new QueryWrapper<>();
+        // 自定义 SQL 绕过 @TableLogic 自动过滤, 必须手动加 deleted=0
+        w.eq("d.deleted", 0);
         if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
         if (customerId != null) w.eq("customer_id", customerId);
         if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);
@@ -144,6 +146,80 @@ public class SalDeliveryService {
             d.setDeliveryId(delivery.getId());
             detailMapper.insert(d);
         }
+    }
+
+    /**
+     * 修改销售出库单 (仅 DRAFT 状态可改)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void update(SalDelivery delivery) {
+        permService.requirePerm("sales:delivery:edit");
+        SalDelivery origin = deliveryMapper.selectById(delivery.getId());
+        if (origin == null) throw BizException.of("出库单不存在");
+        if (!Constants.STATUS_DRAFT.equals(origin.getBillStatus())) {
+            throw BizException.of("只有草稿状态可修改");
+        }
+        BaseCustomer c = customerMapper.selectById(delivery.getCustomerId());
+        if (c == null) throw BizException.of("客户不存在");
+        delivery.setCustomerName(c.getCustomerName());
+        BaseWarehouse w = warehouseMapper.selectById(delivery.getWarehouseId());
+        if (w == null) throw BizException.of("仓库不存在");
+
+        BigDecimal totalQty = BigDecimal.ZERO;
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal taxAmount = BigDecimal.ZERO;
+        BigDecimal totalAmountTax = BigDecimal.ZERO;
+        int line = 0;
+        for (SalDeliveryDetail d : delivery.getDetails()) {
+            d.setLineNo(++line);
+            if (d.getTaxRate() == null) d.setTaxRate(c.getTaxRate() == null ? new BigDecimal("13.00") : c.getTaxRate());
+            d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
+            d.setTaxAmount(d.getAmount().multiply(d.getTaxRate()).divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
+            d.setAmountTax(d.getAmount().add(d.getTaxAmount()));
+            totalQty = totalQty.add(d.getQty());
+            totalAmount = totalAmount.add(d.getAmount());
+            taxAmount = taxAmount.add(d.getTaxAmount());
+            totalAmountTax = totalAmountTax.add(d.getAmountTax());
+        }
+        // 抹零/折扣
+        BigDecimal tail = delivery.getTailAmount() == null ? BigDecimal.ZERO : delivery.getTailAmount();
+        BigDecimal discount = delivery.getDiscountAmount() == null ? BigDecimal.ZERO : delivery.getDiscountAmount();
+        totalAmount = totalAmount.subtract(discount).subtract(tail);
+        totalAmountTax = totalAmountTax.subtract(discount).subtract(tail);
+
+        delivery.setTotalQty(totalQty);
+        delivery.setTotalAmount(totalAmount);
+        delivery.setTaxAmount(taxAmount);
+        delivery.setTotalAmountTax(totalAmountTax);
+        // 主表不可变字段保持原值
+        delivery.setBillNo(origin.getBillNo());
+        delivery.setBillDate(origin.getBillDate());
+        delivery.setBillStatus(origin.getBillStatus());
+        delivery.setBillType(origin.getBillType());
+        delivery.setReceivedAmount(origin.getReceivedAmount());
+
+        deliveryMapper.updateById(delivery);
+        detailMapper.delete(new LambdaQueryWrapper<SalDeliveryDetail>().eq(SalDeliveryDetail::getDeliveryId, delivery.getId()));
+        for (SalDeliveryDetail d : delivery.getDetails()) {
+            d.setId(null);
+            d.setDeliveryId(delivery.getId());
+            detailMapper.insert(d);
+        }
+    }
+
+    /**
+     * 删除销售出库单 (仅 DRAFT 状态可删)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long id) {
+        permService.requirePerm("sales:delivery:delete");
+        SalDelivery d = deliveryMapper.selectById(id);
+        if (d == null) throw BizException.of("出库单不存在");
+        if (!Constants.STATUS_DRAFT.equals(d.getBillStatus())) {
+            throw BizException.of("只有草稿状态可删除");
+        }
+        detailMapper.delete(new LambdaQueryWrapper<SalDeliveryDetail>().eq(SalDeliveryDetail::getDeliveryId, id));
+        deliveryMapper.deleteById(id);
     }
 
     /**

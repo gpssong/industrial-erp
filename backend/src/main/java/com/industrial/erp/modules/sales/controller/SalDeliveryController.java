@@ -39,6 +39,18 @@ public class SalDeliveryController {
         return R.ok();
     }
 
+    @PutMapping
+    public R<Void> update(@RequestBody SalDelivery d) {
+        service.update(d);
+        return R.ok();
+    }
+
+    @DeleteMapping("/{id}")
+    public R<Void> delete(@PathVariable Long id) {
+        service.delete(id);
+        return R.ok();
+    }
+
     @PostMapping("/{id}/check")
     public R<Void> check(@PathVariable Long id) {
         service.check(id);

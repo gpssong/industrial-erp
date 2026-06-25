@@ -28,9 +28,11 @@
         <el-table-column label="状态" width="80">
           <template #default="{ row }"><el-tag :type="row.billStatus==='CHECKED'?'success':'info'">{{ row.billStatus === 'CHECKED' ? '已审核' : '草稿' }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onEdit(row)">编辑</el-button>
+            <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="row.billStatus==='DRAFT'" link type="success" @click="onCheck(row)">审核</el-button>
             <el-button link type="primary" @click="onPrint(row)">打印</el-button>
           </template>
         </el-table-column>
@@ -38,7 +40,7 @@
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
         :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
     </div>
-    <el-dialog v-model="dialogVisible" title="新增采购入库单" width="1100px" destroy-on-close>
+    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑采购入库单' : '新增采购入库单'" width="1100px" destroy-on-close>
       <el-form :model="form" label-width="100px">
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="入库日期"><el-date-picker v-model="form.billDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
@@ -87,7 +89,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { purReceiptApi } from '@/api/purchase'
 import { supplierApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', supplierId: null, productName: '' })
 const data = ref({ records: [], total: 0 })
@@ -179,8 +181,31 @@ async function onSave() {
       payload.taxAmount = taxAmount
       payload.totalAmountTax = totalAmount + taxAmount
     }
-    await purReceiptApi.add(payload); ElMessage.success('保存成功'); dialogVisible.value = false; loadData()
+    if (form.id) {
+      await purReceiptApi.update(payload); ElMessage.success('修改成功')
+    } else {
+      await purReceiptApi.add(payload); ElMessage.success('保存成功')
+    }
+    dialogVisible.value = false; loadData()
   } finally { submitting.value = false }
+}
+
+async function onEdit(row) {
+  await loadSuppliers()
+  warehouses.value = (await warehouseApi.list()).data
+  products.value = (await productApi.page({ pageNum: 1, pageSize: 100 })).data.records
+  const detail = await purReceiptApi.detail(row.id)
+  // 把后台返回的对象合并进 form, 保留响应式
+  Object.assign(form, detail.data)
+  dialogVisible.value = true
+}
+
+async function onDelete(row) {
+  try {
+    await ElMessageBox.confirm(`确认删除入库单 ${row.billNo}? 删除后不可恢复`, '删除确认', { type: 'warning' })
+  } catch { return }
+  await purReceiptApi.delete(row.id)
+  ElMessage.success('删除成功'); loadData()
 }
 
 async function onCheck(row) {
