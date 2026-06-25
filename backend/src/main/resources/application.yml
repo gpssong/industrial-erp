@@ -17,9 +17,7 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: GMT+8
     default-property-inclusion: non_null
-    # 显式声明 JSON media type 带 charset, 避免某些容器/proxy 模式下不传递
-    serialization:
-      encoding: UTF-8
+    # Jackson 全局强制 UTF-8 (Spring Boot 3.x 直接通过 spring.mvc.servlet.encoding 控制即可)
   servlet:
     multipart:
       max-file-size: 100MB

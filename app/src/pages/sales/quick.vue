@@ -29,9 +29,18 @@
           <span style="color:#1e6091">¥ {{ d.amount.toFixed(2) }}</span>
         </div>
         <div class="row" style="margin-top:4px;gap:6px">
-          <input class="input" style="width:33%" type="number" v-model="d.qty" @change="recalc(d)" />
-          <input class="input" style="width:33%" type="number" step="0.01" v-model="d.price" @change="recalc(d)" />
-          <input class="input" style="width:33%" v-model="d.remark" placeholder="备注" />
+          <div style="width:33%">
+            <div class="input-label">数量</div>
+            <input class="input" type="number" v-model="d.qty" @change="recalc(d)" placeholder="0" />
+          </div>
+          <div style="width:33%">
+            <div class="input-label">单价</div>
+            <input class="input" type="number" step="0.01" v-model="d.price" @change="recalc(d)" placeholder="0.00" />
+          </div>
+          <div style="width:33%">
+            <div class="input-label">备注</div>
+            <input class="input" v-model="d.remark" placeholder="选填" />
+          </div>
         </div>
       </div>
     </div>
@@ -75,7 +84,7 @@ function toast(msg) { alert(msg) }
 
 async function searchAndAdd(keyword) {
   try {
-    const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: keyword })
+    const r = await api.stockPage({ pageNum: 1, pageSize: 1, keyword })
     if (r && r.records && r.records[0]) {
       addProduct(r.records[0])
       toast('已添加: ' + r.records[0].productName)
@@ -174,6 +183,7 @@ onUnmounted(() => { closeScanner() })
 .label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
 .input { width: 100%; height: 36px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 14px; background: #fff; }
 .input:focus { border-color: #1e6091; outline: none; }
+.input-label { font-size: 11px; color: #666; margin-bottom: 2px; }
 .btn { background: #1e6091; color: #fff; padding: 10px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; text-align: center; }
 .btn:hover { background: #2980b9; }
 .btn-block { width: 100%; }
