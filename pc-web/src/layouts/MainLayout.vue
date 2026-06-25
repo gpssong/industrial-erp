@@ -82,6 +82,109 @@ const { systemName, loadSystemName } = useSystemName()
 
 const userInfo = computed(() => userStore.userInfo)
 
+// 用户有权限的菜单路径集合 (从后端 menus 提取)
+const allowedPaths = computed(() => {
+  const paths = new Set()
+  const menus = userStore.menus || []
+  menus.forEach(m => {
+    if (m.path) paths.add(m.path)
+  })
+  return paths
+})
+
+// 是否为管理员 (管理员看到所有菜单)
+const isAdmin = computed(() => {
+  const u = userStore.userInfo
+  if (!u) return false
+  if (u.userId === 1 || u.userId === '1' || u.userId === 0 || u.userId === '0') return true
+  if (u.isAdmin === 1 || u.isAdmin === true) return true
+  return (u.roles || []).includes('SUPER_ADMIN')
+})
+
+// 根据权限过滤菜单树
+const menuTree = computed(() => {
+  const raw = [
+    { path: '/dashboard', title: '工作台', icon: 'Odometer' },
+    {
+      path: '/system', title: '系统管理', icon: 'Setting',
+      children: [
+        { path: '/system/user', title: '用户管理', icon: 'User' },
+        { path: '/system/role', title: '角色管理', icon: 'UserFilled' },
+        { path: '/system/menu', title: '菜单管理', icon: 'Menu' },
+        { path: '/system/dept', title: '部门管理', icon: 'OfficeBuilding' },
+        { path: '/system/settings', title: '系统设置', icon: 'Setting' }
+      ]
+    },
+    {
+      path: '/base', title: '基础资料', icon: 'Goods',
+      children: [
+        { path: '/base/product', title: '商品管理', icon: 'Goods' },
+        { path: '/base/customer', title: '客户管理', icon: 'Avatar' },
+        { path: '/base/supplier', title: '供应商管理', icon: 'Connection' },
+        { path: '/base/warehouse', title: '仓库管理', icon: 'House' },
+        { path: '/base/unit', title: '计量单位', icon: 'DataLine' }
+      ]
+    },
+    {
+      path: '/purchase', title: '采购管理', icon: 'List',
+      children: [
+        { path: '/purchase/order', title: '采购订单', icon: 'List' },
+        { path: '/purchase/receipt', title: '采购入库', icon: 'Box' },
+        { path: '/purchase/return', title: '采购退货', icon: 'Back' }
+      ]
+    },
+    {
+      path: '/sales', title: '销售管理', icon: 'Sell',
+      children: [
+        { path: '/sales/order', title: '销售订单', icon: 'Tickets' },
+        { path: '/sales/delivery', title: '销售出库', icon: 'TakeawayBox' },
+        { path: '/sales/return', title: '销售退货', icon: 'Refresh' }
+      ]
+    },
+    {
+      path: '/inventory', title: '库存管理', icon: 'Grid',
+      children: [
+        { path: '/inventory/stock', title: '库存查询', icon: 'Grid' },
+        { path: '/inventory/ledger', title: '库存台账', icon: 'Notebook' }
+      ]
+    },
+    {
+      path: '/production', title: '生产管理', icon: 'SetUp',
+      children: [
+        { path: '/production/bom', title: 'BOM清单', icon: 'Files' },
+        { path: '/production/order', title: '生产加工单', icon: 'SetUp' }
+      ]
+    },
+    { path: '/finance/arap', title: '应收应付', icon: 'Money' },
+    {
+      path: '/report', title: '报表中心', icon: 'DataAnalysis',
+      children: [
+        { path: '/report/sales', title: '销售报表', icon: 'TrendCharts' },
+        { path: '/report/inventory', title: '库存报表', icon: 'PieChart' }
+      ]
+    }
+  ]
+
+  // 管理员看到所有菜单
+  if (isAdmin.value) return raw
+
+  // 普通用户: 根据后端返回的 menus 过滤
+  return raw
+    .map(m => {
+      if (m.children && m.children.length) {
+        const filteredChildren = m.children.filter(c => allowedPaths.value.has(c.path))
+        // 父菜单: 有子菜单可见则保留
+        if (filteredChildren.length > 0) {
+          return { ...m, children: filteredChildren }
+        }
+        return null
+      }
+      // 无子菜单: 直接检查路径
+      return allowedPaths.value.has(m.path) ? m : null
+    })
+    .filter(Boolean)
+})
+
 function checkMobile() {
   isMobile.value = window.innerWidth <= 768
   if (isMobile.value) {
@@ -102,69 +205,6 @@ function onMenuSelect() {
   // 手机上选中菜单后自动关闭抽屉
   if (isMobile.value) mobileOpen.value = false
 }
-
-// 菜单结构 (与 router meta 对应)
-const menuTree = [
-  { path: '/dashboard', title: '工作台', icon: 'Odometer' },
-  {
-    path: '/system', title: '系统管理', icon: 'Setting',
-    children: [
-      { path: '/system/user', title: '用户管理', icon: 'User' },
-      { path: '/system/role', title: '角色管理', icon: 'UserFilled' },
-      { path: '/system/menu', title: '菜单管理', icon: 'Menu' },
-      { path: '/system/dept', title: '部门管理', icon: 'OfficeBuilding' },
-      { path: '/system/settings', title: '系统设置', icon: 'Setting' }
-    ]
-  },
-  {
-    path: '/base', title: '基础资料', icon: 'Goods',
-    children: [
-      { path: '/base/product', title: '商品管理', icon: 'Goods' },
-      { path: '/base/customer', title: '客户管理', icon: 'Avatar' },
-      { path: '/base/supplier', title: '供应商管理', icon: 'Connection' },
-      { path: '/base/warehouse', title: '仓库管理', icon: 'House' },
-      { path: '/base/unit', title: '计量单位', icon: 'DataLine' }
-    ]
-  },
-  {
-    path: '/purchase', title: '采购管理', icon: 'List',
-    children: [
-      { path: '/purchase/order', title: '采购订单', icon: 'List' },
-      { path: '/purchase/receipt', title: '采购入库', icon: 'Box' },
-      { path: '/purchase/return', title: '采购退货', icon: 'Back' }
-    ]
-  },
-  {
-    path: '/sales', title: '销售管理', icon: 'Sell',
-    children: [
-      { path: '/sales/order', title: '销售订单', icon: 'Tickets' },
-      { path: '/sales/delivery', title: '销售出库', icon: 'TakeawayBox' },
-      { path: '/sales/return', title: '销售退货', icon: 'Refresh' }
-    ]
-  },
-  {
-    path: '/inventory', title: '库存管理', icon: 'Grid',
-    children: [
-      { path: '/inventory/stock', title: '库存查询', icon: 'Grid' },
-      { path: '/inventory/ledger', title: '库存台账', icon: 'Notebook' }
-    ]
-  },
-  {
-    path: '/production', title: '生产管理', icon: 'SetUp',
-    children: [
-      { path: '/production/bom', title: 'BOM清单', icon: 'Files' },
-      { path: '/production/order', title: '生产加工单', icon: 'SetUp' }
-    ]
-  },
-  { path: '/finance/arap', title: '应收应付', icon: 'Money' },
-  {
-    path: '/report', title: '报表中心', icon: 'DataAnalysis',
-    children: [
-      { path: '/report/sales', title: '销售报表', icon: 'TrendCharts' },
-      { path: '/report/inventory', title: '库存报表', icon: 'PieChart' }
-    ]
-  }
-]
 
 const breadcrumbs = computed(() => {
   const m = route.matched.filter(r => r.meta && r.meta.title)

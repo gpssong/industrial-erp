@@ -82,7 +82,7 @@ public class SysUserService {
     }
 
     public void resetPassword(Long id, String password) {
-        permService.requirePerm("system:user:resetPwd");
+        permService.requireSuperAdmin();
         SysUser user = new SysUser();
         user.setId(id);
         user.setPassword(ENCODER.encode(password));

@@ -55,6 +55,7 @@ electron/.cache/
 app/unpackage/
 app/node_modules/
 app/dist/
+app/android/      # Capacitor 自动生成, 重新 cap add android 即可
 
 # ===== 本地运行配置(密码、缓存、日志) =====
 .local-logs/

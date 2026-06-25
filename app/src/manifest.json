@@ -2,13 +2,13 @@
     "name" : "鹏程erp",
     "appid" : "__UNI__76E08BC",
     "description" : "企业级鹏程ERP移动端",
-    "versionName" : "1.0.3",
-    "versionCode" : 103,
+    "versionName" : "1.0.4",
+    "versionCode" : 104,
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,
         "nvueStyleCompiler" : "uni-app",
-        "compilerVersion" : 3,
+        "compilerVersion" : "auto",
         "splashscreen" : {
             "alwaysShowBeforeRender" : true,
             "waiting" : true,

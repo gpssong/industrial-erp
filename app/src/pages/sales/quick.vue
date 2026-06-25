@@ -49,29 +49,18 @@
       <div class="row"><span class="muted">合计金额</span><span style="color:#1e6091;font-weight:bold">¥ {{ totalAmount.toFixed(2) }}</span></div>
       <button class="btn btn-block" @click="onSave" style="margin-top:10px">保存草稿</button>
     </div>
-    <!-- 扫码弹窗 -->
-    <div v-if="showScanner" class="scanner-mask">
-      <div class="scanner-box">
-        <div class="scanner-header">
-          <span>扫描商品条码</span>
-          <button class="btn-close" @click="closeScanner">✕</button>
-        </div>
-        <div id="qr-reader" style="width:100%"></div>
-        <div class="scanner-tip">将条码对准摄像头</div>
-      </div>
-    </div>
+    <!-- 扫码弹窗已移除，使用原生扫码 -->
   </div>
 </template>
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '../../api/index.js'
-import { doScan, isH5 } from '../../utils/scan.js'
+import { doScan } from '../../utils/scan.js'
+import { navigateTo } from '../../utils/nav.js'
 
 const customers = ref([])
 const customerId = ref('')
 const details = ref([])
-const showScanner = ref(false)
-let html5QrCode = null
 
 onMounted(async () => {
   try { customers.value = await api.customerList() || [] } catch (e) { customers.value = [] }
@@ -97,42 +86,11 @@ async function searchAndAdd(keyword) {
 }
 
 async function scanAdd() {
-  if (isH5()) {
-    await openH5Scanner()
-    return
-  }
-  doScan({ onResult: async (text) => { await searchAndAdd(text) }, onCancel: () => toast('扫码取消') })
-}
-
-async function openH5Scanner() {
-  showScanner.value = true
-  await nextTick()
-  try {
-    const { Html5Qrcode } = await import('html5-qrcode')
-    html5QrCode = new Html5Qrcode('qr-reader')
-    await html5QrCode.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-      async (decodedText) => {
-        await closeScanner()
-        await searchAndAdd(decodedText)
-      },
-      () => {}
-    )
-  } catch (err) {
-    console.error('摄像头启动失败:', err)
-    await closeScanner()
-    const c = prompt('摄像头不可用,请输入商品编码:')
-    if (c) await searchAndAdd(c)
-  }
-}
-
-async function closeScanner() {
-  showScanner.value = false
-  if (html5QrCode) {
-    try { await html5QrCode.stop() } catch (e) {}
-    html5QrCode = null
-  }
+  await doScan({
+    onResult: async (text) => { await searchAndAdd(text) },
+    onCancel: () => {},
+    onError: (err) => { toast('扫码失败: ' + (err.message || err)) }
+  })
 }
 
 function addLine() {
@@ -166,13 +124,12 @@ async function onSave() {
   try {
     await api.salesDeliveryAdd(bill)
     toast('已保存草稿')
-    setTimeout(() => { details.value = []; window.location.hash = '#/pages/dashboard/index' }, 800)
+    setTimeout(() => { details.value = []; navigateTo('/pages/dashboard/index') }, 800)
   } catch (e) {
     toast('保存失败: ' + (e.msg || e.message || '网络错误'))
   }
 }
 
-onUnmounted(() => { closeScanner() })
 </script>
 <style scoped>
 .container { padding: 12px; }

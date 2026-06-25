@@ -41,12 +41,15 @@
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
 import api from '../../api/index.js'
+import { navigateTo } from '../../utils/nav.js'
 const form = reactive({ username: 'admin', password: 'admin123' })
 
 // 服务器设置
 const showServer = ref(false)
+const nativeDefault = 'http://home.93gushi.com:8088/api'
+const defaultLabel = typeof plus !== 'undefined' ? nativeDefault + ' (默认)' : '/api (默认)'
 const apiBase = ref(localStorage.getItem('erp_api_base') || '')
-const currentDisplay = ref(localStorage.getItem('erp_api_base') || '/api (默认)')
+const currentDisplay = ref(localStorage.getItem('erp_api_base') || defaultLabel)
 
 function onSaveServer() {
   const val = apiBase.value.trim()
@@ -61,7 +64,7 @@ function onSaveServer() {
 function onResetServer() {
   localStorage.removeItem('erp_api_base')
   apiBase.value = ''
-  currentDisplay.value = '/api (默认)'
+  currentDisplay.value = defaultLabel
   alert('已恢复默认')
 }
 
@@ -76,7 +79,10 @@ async function onLogin() {
     console.log('[LOGIN] 登录成功:', r)
     localStorage.setItem('erp_token', r.token)
     localStorage.setItem('erp_user', JSON.stringify(r))
-    window.location.hash = '#/pages/dashboard/index'
+    // 保存权限和菜单
+    localStorage.setItem('erp_permissions', JSON.stringify(r.permissions || []))
+    localStorage.setItem('erp_menus', JSON.stringify(r.menus || []))
+    navigateTo('/pages/dashboard/index')
   } catch (e) {
     console.error('[LOGIN] 登录失败:', e)
     alert('登录失败: ' + (e.msg || e.message || JSON.stringify(e)))

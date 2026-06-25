@@ -8,11 +8,17 @@
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:h5": "uni build",
     "build:mp-weixin": "uni build -p mp-weixin",
-    "build:app": "uni build -p app"
+    "build:app": "uni build -p app",
+    "postinstall": "node scripts/patch-vue.js"
   },
   "dependencies": {
+    "@capacitor-community/barcode-scanner": "^4.0.1",
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/camera": "^6.1.3",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
     "html5-qrcode": "^2.3.8",
-    "vue": "^3.4.38",
+    "vue": "3.4.38",
     "vue-i18n": "^9.9.0"
   },
   "devDependencies": {
@@ -27,7 +33,7 @@
     "@dcloudio/uni-stat": "^3.0.0-alpha-1000920260615733",
     "@dcloudio/vite-plugin-uni": "3.0.0-alpha-5010320260611001",
     "@vitejs/plugin-vue": "^6.0.7",
-    "@vue/runtime-core": "3.5.38",
+    "@vue/runtime-core": "3.4.38",
     "semver": "^7.8.5",
     "vite": "5.2.8",
     "webpack": "^5.107.2"

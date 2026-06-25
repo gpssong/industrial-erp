@@ -99,10 +99,20 @@ erp-system/
 │   └── Dockerfile
 │
 ├── electron/                      # 桌面客户端
-├── app/                           # 移动 App (uni-app)
-├── sql/                           # MySQL 8.0 数据库 (9 文件, 60+ 表)
+├── app/                           # 移动 App (uni-app + Capacitor)
+│   ├── src/pages/
+│   │   ├── system/users.vue       # 用户管理 (管理员)
+│   │   ├── dashboard/index.vue    # 工作台 (权限过滤)
+│   │   ├── profile/index.vue      # 我的 (管理员入口)
+│   │   ├── scan/in.vue            # 扫码入库 (原生扫码)
+│   │   ├── scan/out.vue           # 扫码出库 (原生扫码)
+│   │   └── count/index.vue        # 外勤盘点 (原生扫码)
+│   ├── capacitor.config.json      # Capacitor 配置
+│   └── android/                   # Android 原生工程
+├── sql/                           # MySQL 8.0 数据库 (10 文件, 60+ 表)
 │   ├── 01_schema_system.sql       # 含 sys_print_template, sys_backup_record
 │   ├── 05_schema_inventory.sql    # 含 inv_ledger (warehouse_name)
+│   ├── 10_add_return_menus.sql    # 采购退货/销售退货菜单
 │   └── README.md
 ├── docs/                          # 开发文档 (16 篇)
 └── docker-compose.yml
@@ -138,6 +148,17 @@ cd pc-web && npm install && npm run dev
 cd pc-web && npm run build
 cd ../electron && npm install && npm run dev
 ```
+
+### 方式 4: Android APK
+```bash
+cd app
+npm install
+npm run build:h5              # 构建 H5 资源
+npx cap sync android          # 同步到 Android 工程
+cd android && ./gradlew assembleDebug  # 构建 debug APK
+# 产物: android/app/build/outputs/apk/debug/app-debug.apk
+```
+前置要求: Java 17+ (推荐 brew install openjdk@17), Android SDK ($ANDROID_HOME)
 
 ## 📊 业务模块
 
@@ -248,9 +269,20 @@ mvn test                          # 全量
 - **销售出库编辑 ID 精度修复** — 移除 `Number()` 转换, 19位雪花ID保持字符串类型, 解决编辑时客户/仓库下拉框显示错误的问题 (JS 安全整数仅 2^53=9007199254740992, 16位以上会丢精度)
 - **移动端开单输入框标签** — 销售开单页面数量/单价/备注输入框添加明确标签, 替代仅 placeholder 提示, 提升移动端操作体验
 
+### v1.0.6 (2026-06-25)
+- **Android APK 独立打包** — 基于 Capacitor 6 + Gradle 本地构建, 不再依赖 HBuilderX 云打包; 支持原生 BarcodeScanner 扫码
+- **移动端用户管理** — 管理员可在 App 端查看/新增/编辑/删除用户, 分配角色, 重置密码
+- **移动端权限控制** — 工作台快捷菜单根据用户权限过滤显示; 登录时保存权限/菜单数据
+- **PC 端菜单权限** — 左侧菜单栏根据用户权限过滤, 管理员看全部, 普通用户只看有权限的菜单
+- **采购退货/销售退货菜单** — 数据库补充 403/503 菜单记录, 修复权限系统缺失
+- **扫码精确匹配** — 扫码入库/出库/盘点改为 keyword 搜索 + productCode/barcode 精确匹配, 避免条码不对误匹配商品
+- **移动端 Capacitor 适配** — API 地址自动识别 Capacitor 环境使用绝对路径; 网络安全配置允许 HTTP 明文; 原生相机权限授权
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
 - 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)
+- PC 端 + App 端菜单权限过滤 (管理员看全部, 普通用户按角色过滤)
+- App 端用户管理 (仅管理员可见, 支持增删改查 + 角色分配 + 密码重置)
 - 全部操作写 `sys_oper_log` (AOP自动)
 
 ## 📈 性能

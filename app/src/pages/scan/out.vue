@@ -9,17 +9,7 @@
       <button class="btn btn-block" @click="onScan">📷 扫一扫</button>
       <button class="btn btn-block btn-outline" style="margin-top:8px" @click="onManualInput">✏️ 手动输入</button>
     </div>
-    <!-- H5 扫码弹窗 -->
-    <div v-if="showScanner" class="scanner-mask">
-      <div class="scanner-box">
-        <div class="scanner-header">
-          <span>扫描条码/二维码</span>
-          <button class="btn-close" @click="closeScanner">✕</button>
-        </div>
-        <div id="qr-reader" style="width:100%"></div>
-        <div class="scanner-tip">将条码对准摄像头</div>
-      </div>
-    </div>
+    <!-- 扫码弹窗已移除，使用原生扫码 -->
     <div class="card" v-if="product">
       <div style="font-size:18px;font-weight:bold">{{ product.productName }}</div>
       <div class="row" style="margin: 6px 0">
@@ -34,58 +24,24 @@
   </div>
 </template>
 <script setup>
-import { ref, nextTick, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import api from '../../api/index.js'
-import { doScan, isH5 } from '../../utils/scan.js'
+import { doScan } from '../../utils/scan.js'
 
 const code = ref('')
 const product = ref(null)
 const qty = ref(1)
 const price = ref(0)
 const customerId = ref(1)
-const showScanner = ref(false)
-let html5QrCode = null
 
 function toast(msg) { alert(msg) }
 
 function onScan() {
-  if (isH5()) {
-    openH5Scanner()
-    return
-  }
-  doScan({ onResult: (text) => { code.value = text; onSearch() }, onCancel: () => {} })
-}
-
-async function openH5Scanner() {
-  showScanner.value = true
-  await nextTick()
-  try {
-    const { Html5Qrcode } = await import('html5-qrcode')
-    html5QrCode = new Html5Qrcode('qr-reader')
-    await html5QrCode.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-      (decodedText) => {
-        code.value = decodedText
-        closeScanner()
-        onSearch()
-      },
-      () => {}
-    )
-  } catch (err) {
-    console.error('摄像头启动失败:', err)
-    closeScanner()
-    const c = prompt('摄像头不可用,请输入条码:')
-    if (c) { code.value = c; onSearch() }
-  }
-}
-
-async function closeScanner() {
-  showScanner.value = false
-  if (html5QrCode) {
-    try { await html5QrCode.stop() } catch (e) {}
-    html5QrCode = null
-  }
+  doScan({
+    onResult: (text) => { code.value = text; onSearch() },
+    onCancel: () => {},
+    onError: (err) => { toast('扫码失败: ' + (err.message || err)) }
+  })
 }
 
 function onManualInput() {
@@ -96,11 +52,17 @@ function onManualInput() {
 async function onSearch() {
   if (!code.value) return
   try {
-    const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: code.value })
-    if (r && r.records && r.records[0]) {
-      product.value = r.records[0]
-      price.value = r.records[0].salesPrice || 0
+    const r = await api.stockPage({ pageNum: 1, pageSize: 10, keyword: code.value })
+    if (r && r.records && r.records.length > 0) {
+      const exact = r.records.find(p => p.productCode === code.value || p.barcode === code.value)
+      const found = exact || r.records[0]
+      product.value = found
+      price.value = found.salesPrice || 0
+      if (!exact && r.records.length > 1) {
+        toast('找到 ' + r.records.length + ' 个商品, 显示第一个: ' + found.productName)
+      }
     } else {
+      product.value = null
       toast('商品未找到: ' + code.value)
     }
   } catch (e) {
@@ -132,7 +94,6 @@ async function onSubmit() {
   }
 }
 
-onUnmounted(() => { closeScanner() })
 </script>
 <style scoped>
 .container { padding: 12px; }
