@@ -155,9 +155,10 @@ async function submitAdd() {
   submitting.value = true
   try {
     const { roleIds, ...rest } = addForm
-    const id = await userApi.add(rest)
+    const res = await userApi.add(rest)
+    const newId = res.data
     if (roleIds && roleIds.length > 0) {
-      await userApi.assignRoles(id, roleIds)
+      await userApi.assignRoles(newId, roleIds)
     }
     ElMessage.success('新增成功')
     addVisible.value = false

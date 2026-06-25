@@ -24,28 +24,15 @@
       </div>
     </div>
     <div v-if="!list.length" class="empty">暂无库存数据</div>
-
-    <!-- 扫码弹窗 -->
-    <div v-if="showScanner" class="scanner-mask">
-      <div class="scanner-box">
-        <div class="scanner-header">
-          <span>扫描商品条码</span>
-          <button class="btn-close" @click="closeScanner">✕</button>
-        </div>
-        <div id="qr-reader" style="width:100%"></div>
-        <div class="scanner-tip">将条码对准摄像头</div>
-      </div>
-    </div>
   </div>
 </template>
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import api, { isH5 } from '../../api/index.js'
+import { ref, onMounted } from 'vue'
+import api from '../../api/index.js'
+import { doScan } from '../../utils/scan.js'
 
 const keyword = ref('')
 const list = ref([])
-const showScanner = ref(false)
-let html5QrCode = null
 
 async function loadData() {
   try {
@@ -61,52 +48,14 @@ function onDetail(item) {
 }
 
 async function onScan() {
-  if (isH5()) {
-    await openH5Scanner()
-    return
-  }
-  if (typeof uni !== 'undefined' && uni.scanCode) {
-    uni.scanCode({
-      success: (res) => { keyword.value = res.result; loadData() },
-      fail: () => {}
-    })
-  }
-}
-
-async function openH5Scanner() {
-  showScanner.value = true
-  await nextTick()
-  try {
-    const { Html5Qrcode } = await import('html5-qrcode')
-    html5QrCode = new Html5Qrcode('qr-reader')
-    await html5QrCode.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-      async (decodedText) => {
-        keyword.value = decodedText
-        await closeScanner()
-        await loadData()
-      },
-      () => {}
-    )
-  } catch (err) {
-    console.error('摄像头启动失败:', err)
-    await closeScanner()
-    const c = prompt('摄像头不可用,请输入条码:')
-    if (c) { keyword.value = c; loadData() }
-  }
-}
-
-async function closeScanner() {
-  showScanner.value = false
-  if (html5QrCode) {
-    try { await html5QrCode.stop() } catch (e) {}
-    html5QrCode = null
-  }
+  await doScan({
+    onResult(text) { keyword.value = text; loadData() },
+    onCancel() {},
+    onError(err) { console.error('扫码失败:', err) }
+  })
 }
 
 onMounted(loadData)
-onUnmounted(() => { closeScanner() })
 </script>
 <style scoped>
 .container { padding: 12px; }
@@ -122,9 +71,4 @@ onUnmounted(() => { closeScanner() })
 .row { display: flex; justify-content: space-between; align-items: center; }
 .muted { color: #999; font-size: 12px; }
 .empty { text-align: center; color: #999; padding: 40px; }
-.scanner-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; }
-.scanner-box { background: #fff; border-radius: 12px; padding: 16px; width: 90%; max-width: 360px; }
-.scanner-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 16px; font-weight: bold; }
-.btn-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #999; }
-.scanner-tip { text-align: center; color: #666; font-size: 13px; margin-top: 10px; }
 </style>

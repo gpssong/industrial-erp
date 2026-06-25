@@ -58,9 +58,10 @@ public final class SecurityContext {
         // 同时支持 ID=1 和 is_admin=1 的用户
         if (Constants.SUPER_ADMIN_ID.equals(uid)) return true;
         // is_admin 字段从 Session 中获取（登录时已存入）
+        // Redis 反序列化可能变成 String/Long，用 "1" 比较更安全
         try {
             Object isAdmin = StpUtil.getSession().get("isAdmin");
-            return isAdmin != null && Integer.valueOf(1).equals(isAdmin);
+            return isAdmin != null && "1".equals(isAdmin.toString());
         } catch (Exception e) {
             return false;
         }

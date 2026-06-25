@@ -1,11 +1,19 @@
+// 原生 App 默认后端地址 (H5 用相对路径 /api, 原生必须用绝对路径)
+const NATIVE_DEFAULT_API = 'http://home.93gushi.com:8088/api'
+
+function isNative() {
+  // 原生 App 环境: HBuilderX (plus对象) 或 Capacitor (Capacitor对象)
+  return typeof plus !== 'undefined' || (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform())
+}
+
 function getBase() {
-  // 优先级: 本地缓存 > manifest 中配置的 BASE_URL > 默认
+  // 优先级: 本地缓存 > 原生默认地址 > H5 相对路径
   try {
-    return (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base'))
-      || (typeof __GLOBAL__ !== 'undefined' && typeof __GLOBAL__.API_BASE !== 'undefined' ? __GLOBAL__.API_BASE : null)
-      || '/api'
+    const cached = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base'))
+    if (cached) return cached
+    return isNative() ? NATIVE_DEFAULT_API : '/api'
   } catch (e) {
-    return '/api'
+    return isNative() ? NATIVE_DEFAULT_API : '/api'
   }
 }
 
@@ -65,7 +73,7 @@ function fetchRequest(url, method, data, token) {
     if (d.code === 200) return d.data
     if (d.code === 401) {
       try { localStorage.removeItem('erp_token') } catch (e) {}
-      if (typeof uni !== 'undefined' && uni.reLaunch) {
+      if (typeof plus !== 'undefined' && typeof uni !== 'undefined') {
         uni.reLaunch({ url: '/pages/login/index' })
       } else if (typeof window !== 'undefined') {
         window.location.hash = '#/pages/login/index'
@@ -79,31 +87,6 @@ function fetchRequest(url, method, data, token) {
     }
     throw d
   })
-}
-
-// H5 环境判断
-export function isH5() {
-  return typeof uni === 'undefined' || typeof uni.scanCode !== 'function' || typeof window !== 'undefined'
-}
-
-// 扫码: 优先用 uni.scanCode(真机/小程序), 否则用 html5-qrcode
-export async function doScan({ onResult, onCancel }) {
-  if (isH5() && typeof window !== 'undefined') {
-    // H5 环境: 由调用方自己处理(用 html5-qrcode), 这里只给降级
-    const c = prompt('请输入条码:')
-    if (c) onResult && onResult(c)
-    else onCancel && onCancel()
-    return
-  }
-  // 原生环境
-  try {
-    const res = await new Promise((resolve, reject) => {
-      uni.scanCode({ success: resolve, fail: reject })
-    })
-    onResult && onResult(res.result)
-  } catch (e) {
-    onCancel && onCancel()
-  }
 }
 
 export const api = {
@@ -122,6 +105,17 @@ export const api = {
   purchaseReceiptAdd: (data) => request({ url: '/purchase/receipt', method: 'POST', data }),
   // 报表
   dashboard: () => request({ url: '/report/dashboard' }),
-  inventorySummary: () => request({ url: '/report/inventory/summary' })
+  inventorySummary: () => request({ url: '/report/inventory/summary' }),
+  // 用户管理
+  userPage: (params) => request({ url: '/system/user/page', data: params }),
+  userDetail: (id) => request({ url: '/system/user/' + id }),
+  userAdd: (data) => request({ url: '/system/user', method: 'POST', data }),
+  userUpdate: (data) => request({ url: '/system/user', method: 'PUT', data }),
+  userDelete: (id) => request({ url: '/system/user/' + id, method: 'DELETE' }),
+  userResetPwd: (id) => request({ url: '/system/user/' + id + '/resetPwd', method: 'POST' }),
+  userGetRoles: (id) => request({ url: '/system/user/' + id + '/roles' }),
+  userAssignRoles: (id, roleIds) => request({ url: '/system/user/' + id + '/roles', method: 'PUT', data: roleIds }),
+  // 角色管理
+  rolePage: (params) => request({ url: '/system/role/page', data: params }),
 }
 export default api

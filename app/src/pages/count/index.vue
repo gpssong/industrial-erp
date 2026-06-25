@@ -37,10 +37,14 @@ function toast(msg) {
 }
 function onScan() {
   const doSearch = async (kw) => {
-    const r = await api.stockPage({ pageNum: 1, pageSize: 1, productName: kw })
-    if (r && r.records && r.records[0]) {
-      const p = r.records[0]
+    const r = await api.stockPage({ pageNum: 1, pageSize: 10, keyword: kw })
+    if (r && r.records && r.records.length > 0) {
+      const exact = r.records.find(p => p.productCode === kw || p.barcode === kw)
+      const p = exact || r.records[0]
       list.value.push({ ...p, bookQty: p.qty, actualQty: p.qty, remark: '' })
+      if (!exact && r.records.length > 1) {
+        toast('找到 ' + r.records.length + ' 个商品, 添加第一个: ' + p.productName)
+      }
     } else {
       toast('商品未找到: ' + kw)
     }

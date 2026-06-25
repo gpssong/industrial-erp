@@ -18,14 +18,10 @@
     <view class="card">
       <text class="title">业务快捷</text>
       <view class="grid-4" style="margin-top:8px">
-        <view class="quick-item" @click="nav('/pages/sales/quick')"><text class="quick-icon">📝</text><text>手机开单</text></view>
-        <view class="quick-item" @click="nav('/pages/scan/in')"><text class="quick-icon">📥</text><text>扫码入库</text></view>
-        <view class="quick-item" @click="nav('/pages/scan/out')"><text class="quick-icon">📤</text><text>扫码出库</text></view>
-        <view class="quick-item" @click="nav('/pages/count/index')"><text class="quick-icon">📋</text><text>外勤盘点</text></view>
-        <view class="quick-item" @click="nav('/pages/inventory/query')"><text class="quick-icon">📦</text><text>查库存</text></view>
-        <view class="quick-item" @click="nav('/pages/sales/order')"><text class="quick-icon">📃</text><text>销售订单</text></view>
-        <view class="quick-item" @click="nav('/pages/purchase/order')"><text class="quick-icon">📋</text><text>采购订单</text></view>
-        <view class="quick-item" @click="nav('/pages/report/index')"><text class="quick-icon">📊</text><text>经营简报</text></view>
+        <view class="quick-item" v-for="item in visibleMenus" :key="item.path" @click="nav(item.path)">
+          <text class="quick-icon">{{ item.icon }}</text>
+          <text>{{ item.title }}</text>
+        </view>
       </view>
     </view>
     <view class="card" v-if="kpi.warningCount">
@@ -35,22 +31,57 @@
   </view>
 </template>
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import api from '../../api/index.js'
+import { navigateTo } from '../../utils/nav.js'
+
 const user = ref({})
 const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, warningCount: 0 })
 const today = new Date().toISOString().substring(0, 10)
 const greeting = ref('您好')
-function nav(url) {
-  // H5 环境走 hash 路由; 真机走 uni API
-  if (typeof uni === 'undefined' || typeof uni.switchTab !== 'function') {
-    window.location.hash = '#' + url
-    return
-  }
-  const tabbarPages = ['/pages/dashboard/index', '/pages/inventory/query', '/pages/sales/quick', '/pages/report/index', '/pages/profile/index']
-  if (tabbarPages.includes(url)) uni.switchTab({ url })
-  else uni.navigateTo({ url })
+
+// 所有快捷菜单
+const allMenus = [
+  { path: '/pages/sales/quick', title: '手机开单', icon: '📝', perm: 'sales:delivery:list' },
+  { path: '/pages/scan/in', title: '扫码入库', icon: '📥', perm: 'purchase:receipt:list' },
+  { path: '/pages/scan/out', title: '扫码出库', icon: '📤', perm: 'sales:delivery:list' },
+  { path: '/pages/count/index', title: '外勤盘点', icon: '📋', perm: 'inventory:stock:list' },
+  { path: '/pages/inventory/query', title: '查库存', icon: '📦', perm: 'inventory:stock:list' },
+  { path: '/pages/sales/order', title: '销售订单', icon: '📃', perm: 'sales:order:list' },
+  { path: '/pages/purchase/order', title: '采购订单', icon: '📋', perm: 'purchase:order:list' },
+  { path: '/pages/report/index', title: '经营简报', icon: '📊', perm: '' }
+]
+
+// 是否为管理员
+const isAdmin = computed(() => {
+  const u = user.value
+  if (!u) return false
+  if (u.userId === 1 || u.userId === '1' || u.userId === 0 || u.userId === '0') return true
+  if (u.isAdmin === 1 || u.isAdmin === true) return true
+  return (u.roles || []).includes('SUPER_ADMIN')
+})
+
+// 获取用户权限列表
+function getPermissions() {
+  try {
+    const raw = uni.getStorageSync('erp_permissions')
+    if (typeof raw === 'string') return JSON.parse(raw)
+    if (Array.isArray(raw)) return raw
+    return []
+  } catch (e) { return [] }
 }
+
+// 根据权限过滤可见菜单
+const visibleMenus = computed(() => {
+  if (isAdmin.value) return allMenus
+  const perms = getPermissions()
+  return allMenus.filter(m => !m.perm || perms.includes(m.perm))
+})
+
+function nav(url) {
+  navigateTo(url)
+}
+
 function loadUser() {
   const raw = uni.getStorageSync('erp_user')
   if (typeof raw === 'object' && raw) {
@@ -59,6 +90,7 @@ function loadUser() {
     try { user.value = JSON.parse(raw) } catch (e) { user.value = {} }
   }
 }
+
 onMounted(async () => {
   loadUser()
   const h = new Date().getHours()

@@ -65,7 +65,7 @@
     <el-dialog v-model="permVisible" title="分配权限" width="600px" :close-on-click-modal="false">
       <el-tabs v-model="permTab">
         <el-tab-pane label="菜单权限" name="menu">
-          <el-tree ref="menuTreeRef" :data="allMenus" node-key="id" show-checkbox check-strictly
+          <el-tree ref="menuTreeRef" :data="allMenus" node-key="id" show-checkbox
             :props="{ label: 'menuName', children: 'children' }" default-expand-all
             style="max-height: 400px; overflow-y: auto;">
           </el-tree>
