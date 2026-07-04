@@ -73,10 +73,38 @@ public class PrdOrderService {
                     .or().like(PrdOrder::getProductCode, productName));
         }
         w.orderByDesc(PrdOrder::getId);
-        return orderMapper.selectPage(p, w);
+        IPage<PrdOrder> res = orderMapper.selectPage(p, w);
+        // 注入商品规格属性 (供前端表格 + 打印使用)
+        res.getRecords().forEach(order -> {
+            if (order.getProductId() != null) {
+                BaseProduct prod = productMapper.selectById(order.getProductId());
+                if (prod != null) {
+                    order.setPThickness(prod.getThickness());
+                    order.setPWidth(prod.getWidth());
+                    order.setPDensity(prod.getDensity());
+                    order.setPGramWeight(prod.getGramWeight());
+                    order.setPMaterial(prod.getMaterial());
+                }
+            }
+        });
+        return res;
     }
 
-    public PrdOrder detail(Long id) { return orderMapper.selectById(id); }
+    public PrdOrder detail(Long id) {
+        PrdOrder order = orderMapper.selectById(id);
+        // JOIN 注入商品规格属性 (打印模板用)
+        if (order != null && order.getProductId() != null) {
+            BaseProduct p = productMapper.selectById(order.getProductId());
+            if (p != null) {
+                order.setPThickness(p.getThickness());
+                order.setPWidth(p.getWidth());
+                order.setPDensity(p.getDensity());
+                order.setPGramWeight(p.getGramWeight());
+                order.setPMaterial(p.getMaterial());
+            }
+        }
+        return order;
+    }
 
     @Transactional(rollbackFor = Exception.class)
     public void add(PrdOrder order) {

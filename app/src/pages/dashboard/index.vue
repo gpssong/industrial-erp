@@ -34,6 +34,7 @@
 import { ref, computed, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { navigateTo } from '../../utils/nav.js'
+import { applyTabBar } from '../../utils/permission.js'
 
 const user = ref({})
 const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, warningCount: 0 })
@@ -96,6 +97,7 @@ onMounted(async () => {
   const h = new Date().getHours()
   greeting.value = h < 6 ? '凌晨好' : h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好'
   try { kpi.value = await api.dashboard() } catch (e) {}
+  applyTabBar()
 })
 </script>
 <style scoped>

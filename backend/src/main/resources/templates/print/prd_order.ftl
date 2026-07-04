@@ -29,6 +29,8 @@
   <div class="info-row"><span class="info-label">状态:</span><span>${(bill.billStatus)!"-"}</span></div>
   <div class="info-row"><span class="info-label">成品:</span><span>${(bill.productName)!"-"} ${(bill.productCode)!"-"}</span></div>
   <div class="info-row"><span class="info-label">规格:</span><span>${(bill.spec)!"-"}</span></div>
+  <div class="info-row"><span class="info-label">长度/宽度/厚度:</span><span>${(bill.thickness)!"-"}/${(bill.width)!"-"}/${(bill.density)!"-"}</span></div>
+  <div class="info-row"><span class="info-label">克重/材质:</span><span>${(bill.gramWeight)!"-"}/${(bill.material)!"-"}</span></div>
   <div class="info-row"><span class="info-label">计划数量:</span><span>${((bill.planQty)!0)?string["0.####"]} ${(bill.unitName)!"-"}</span></div>
   <div class="info-row"><span class="info-label">实际数量:</span><span>${((bill.actualQty)!0)?string["0.####"]}</span></div>
   <div class="info-row"><span class="info-label">良品数量:</span><span>${((bill.goodQty)!0)?string["0.####"]}</span></div>

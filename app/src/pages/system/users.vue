@@ -64,6 +64,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import api from '../../api/index.js'
+import { isAdmin } from '../../utils/permission.js'
 
 const keyword = ref('')
 const list = ref([])
@@ -141,7 +142,14 @@ async function onResetPwd(u) {
   } catch (e) { toast('重置失败: ' + (e.msg || e.message)) }
 }
 
-onMounted(() => { loadData(); loadRoles() })
+onMounted(() => {
+  if (!isAdmin()) {
+    alert('需要管理员权限')
+    window.history.back()
+    return
+  }
+  loadData(); loadRoles()
+})
 </script>
 <style scoped>
 .container { padding: 12px; }

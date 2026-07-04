@@ -11,8 +11,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -44,5 +46,17 @@ public class WebMvcConfig implements WebMvcConfigurer {
         converters.clear();
         converters.add(new StringHttpMessageConverter(StandardCharsets.UTF_8));
         converters.add(mappingJackson2HttpMessageConverter());
+    }
+
+    /**
+     * 上传文件访问映射
+     */
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        String uploadDir = (System.getenv("ERP_UPLOAD_PATH") != null
+                && !System.getenv("ERP_UPLOAD_PATH").isEmpty())
+                ? System.getenv("ERP_UPLOAD_PATH")
+                : System.getProperty("user.dir") + File.separator + "upload";
+        registry.addResourceHandler("/upload/**").addResourceLocations("file:" + uploadDir + File.separator);
     }
 }

@@ -52,6 +52,40 @@
           <el-input v-model="form.productName" readonly placeholder="选择BOM后自动带出" />
         </el-form-item>
         <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="长度">
+              <el-input v-model="form.thickness" readonly placeholder="-" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="宽度">
+              <el-input v-model="form.width" readonly placeholder="-" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="厚度">
+              <el-input v-model="form.density" readonly placeholder="-" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="克重(g/m²)">
+              <el-input v-model="form.gramWeight" readonly placeholder="-" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="材质">
+              <el-input v-model="form.material" readonly placeholder="-" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="规格">
+              <el-input v-model="form.spec" readonly placeholder="-" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="计划数量" prop="planQty">
               <el-input-number v-model="form.planQty" :min="0" :precision="4" style="width:100%" />
@@ -127,7 +161,7 @@
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
 import { prdOrderApi, bomApi } from '@/api/production'
-import { warehouseApi } from '@/api/base'
+import { warehouseApi, productApi } from '@/api/base'
 import { ElMessage } from 'element-plus'
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', productName: '' })
 const data = ref({ records: [], total: 0 })
@@ -138,7 +172,7 @@ const submitting = ref(false)
 const formRef = ref(null)
 const bomList = ref([])
 const warehouses = ref([])
-const form = ref({ bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '' })
+const form = ref({ bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' })
 const finishForm = reactive({ id: null, goodQty: 0, lossQty: 0 })
 const printVisible = ref(false)
 const printUrl = ref('')
@@ -169,7 +203,7 @@ async function loadBomList() { if (bomList.value.length === 0) bomList.value = (
 async function loadWarehouses() { if (warehouses.value.length === 0) warehouses.value = (await warehouseApi.list()).data || [] }
 
 async function onAdd() {
-  form.value = { bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '' }
+  form.value = { bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' }
   await loadBomList()
   await loadWarehouses()
   dialogVisible.value = true
@@ -185,6 +219,18 @@ async function onBomChange(bomId) {
     form.value.unitId = bom.unitId
     form.value.unitName = bom.unitName
     form.value.lossRate = bom.lossRate || 0
+    // 拉取产品规格属性
+    try {
+      const r = await productApi.detail(bom.productId)
+      const p = r.data?.product || r.data
+      if (p) {
+        form.value.thickness = p.thickness || ''
+        form.value.width = p.width || ''
+        form.value.density = p.density || ''
+        form.value.gramWeight = p.gramWeight || ''
+        form.value.material = p.material || ''
+      }
+    } catch (e) { /* ignore */ }
   }
 }
 

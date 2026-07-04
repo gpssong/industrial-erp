@@ -9,32 +9,50 @@
       <button class="btn btn-block" @click="onScan">📷 扫一扫</button>
       <button class="btn btn-block btn-outline" style="margin-top:8px" @click="onManualInput">✏️ 手动输入</button>
     </div>
-    <!-- 扫码弹窗已移除，使用原生扫码 -->
+
     <div class="card" v-if="product">
+      <div class="form-item">
+        <label class="label">客户 <span style="color:#c0392b">*</span></label>
+        <select class="input" v-model="customerId">
+          <option value="">请选择客户</option>
+          <option v-for="c in customers" :key="c.id" :value="c.id">{{ c.customerName }}</option>
+        </select>
+      </div>
       <div style="font-size:18px;font-weight:bold">{{ product.productName }}</div>
       <div class="row" style="margin: 6px 0">
         <span class="muted">当前库存</span>
         <span style="color:#1e6091">{{ product.qty }} {{ product.unitName }}</span>
       </div>
-      <div class="form-item"><label class="label">销售数量</label><input class="input" type="number" v-model="qty" /></div>
-      <div class="form-item"><label class="label">销售单价</label><input class="input" type="number" step="0.01" v-model="price" /></div>
-      <div class="form-item"><label class="label">客户ID</label><input class="input" type="number" v-model="customerId" /></div>
+      <div class="form-item"><label class="label">销售数量</label><input class="input" type="number" v-model.number="qty" /></div>
+      <div class="form-item"><label class="label">销售单价</label><input class="input" type="number" step="0.01" v-model.number="price" /></div>
       <button class="btn btn-block" @click="onSubmit">确认出库</button>
     </div>
   </div>
 </template>
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import api from '../../api/index.js'
-import { doScan } from '../../utils/scan.js'
+import { doScan, stopScan } from '../../utils/scan.js'
+import { checkPagePermission } from '../../utils/permission.js'
 
 const code = ref('')
 const product = ref(null)
 const qty = ref(1)
 const price = ref(0)
-const customerId = ref(1)
+const customers = ref([])
+const customerId = ref('')
 
 function toast(msg) { alert(msg) }
+
+onMounted(async () => {
+  // 权限校验
+  if (!checkPagePermission('/pages/scan/out')) {
+    toast('无访问权限')
+    setTimeout(() => window.history.back(), 500)
+    return
+  }
+  try { customers.value = await api.customerList() || [] } catch (e) { customers.value = [] }
+})
 
 function onScan() {
   doScan({
@@ -72,6 +90,7 @@ async function onSearch() {
 
 async function onSubmit() {
   if (!product.value) return
+  if (!customerId.value) return toast('请选择客户')
   const detail = {
     productId: product.value.productId, productCode: product.value.productCode,
     productName: product.value.productName, spec: product.value.spec,
@@ -82,7 +101,7 @@ async function onSubmit() {
   detail.amountTax = detail.amount + detail.taxAmount
   const bill = {
     billDate: new Date().toISOString().substring(0, 10),
-    customerId: customerId.value, warehouseId: product.value.warehouseId || 1,
+    customerId: +customerId.value, warehouseId: product.value.warehouseId || 1,
     billType: 'NORMAL', billStatus: 'DRAFT', details: [detail]
   }
   try {
@@ -94,6 +113,7 @@ async function onSubmit() {
   }
 }
 
+onUnmounted(() => { stopScan() })
 </script>
 <style scoped>
 .container { padding: 12px; }
@@ -102,15 +122,10 @@ async function onSubmit() {
 .row { display: flex; justify-content: space-between; align-items: center; }
 .form-item { margin: 8px 0; }
 .label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
-.input { width: 100%; height: 36px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 14px; }
+.input { width: 100%; height: 36px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 14px; background: #fff; }
 .input:focus { border-color: #1e6091; outline: none; }
 .btn { background: #1e6091; color: #fff; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 15px; width: 100%; }
 .btn:hover { background: #2980b9; }
 .btn-outline { background: transparent; color: #1e6091; border: 1px solid #1e6091; }
 .muted { color: #999; font-size: 12px; }
-.scanner-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center; }
-.scanner-box { background: #fff; border-radius: 12px; padding: 16px; width: 90%; max-width: 360px; }
-.scanner-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 16px; font-weight: bold; }
-.btn-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #999; }
-.scanner-tip { text-align: center; color: #666; font-size: 13px; margin-top: 10px; }
 </style>

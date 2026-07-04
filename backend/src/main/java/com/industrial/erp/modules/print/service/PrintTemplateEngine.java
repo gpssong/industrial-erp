@@ -83,9 +83,17 @@ public class PrintTemplateEngine {
 
     // ========== 字段格式化 ==========
 
-    /** 通过反射取字段值 */
+    /** 通过反射取字段值 (支持普通 JavaBean 和 Map) */
     public String getFieldValue(Object obj, String field) {
         if (obj == null || field == null) return "";
+        // Map 类型：直接 get
+        if (obj instanceof java.util.Map) {
+            Object val = ((java.util.Map<?, ?>) obj).get(field);
+            if (val == null) return "";
+            if (val instanceof java.time.LocalDate || val instanceof java.time.LocalDateTime) return val.toString();
+            return val.toString();
+        }
+        // JavaBean: 反射 getter
         try {
             String getter = "get" + Character.toUpperCase(field.charAt(0)) + field.substring(1);
             java.lang.reflect.Method m = obj.getClass().getMethod(getter);

@@ -148,6 +148,13 @@
             <div><b v-pre>{{fieldName}}</b> — 插入字段值</div>
             <div><b v-pre>{{#details}}</b> — 开始明细循环</div>
             <div><b v-pre>{{/details}}</b> — 结束明细循环</div>
+            <div style="margin-top:8px;font-weight:600;color:#67c23a">商品字段 (插入到明细循环中)</div>
+            <div><b>{{productName}}</b> 商品名 · <b>{{productCode}}</b> 编码 · <b>{{spec}}</b> 规格</div>
+            <div><b>{{unitName}}</b> 单位 · <b>{{qty}}</b> 数量 · <b>{{price}}</b> 单价</div>
+            <div><b>{{amount}}</b> 金额 · <b>{{batchNo}}</b> 批次 · <b>{{remark}}</b> 备注</div>
+            <div style="margin-top:8px;font-weight:600;color:#67c23a">商品规格属性</div>
+            <div><b>{{thickness}}</b> 长度 · <b>{{width}}</b> 宽度 · <b>{{density}}</b> 厚度</div>
+            <div><b>{{gramWeight}}</b> 克重 · <b>{{material}}</b> 材质</div>
             <div style="margin-top:6px;color:#909399;font-size:11px">点击字段名即可插入到模板中</div>
           </div>
         </div>
@@ -218,6 +225,11 @@ const allFields = {
     { value: 'workshop', label: '车间' }, { value: 'leader', label: '负责人' },
     { value: 'startDate', label: '开工日期' }, { value: 'endDate', label: '完工日期' },
     { value: 'billStatus', label: '单据状态' },
+    // 商品规格属性
+    { value: 'thickness', label: '长度' }, { value: 'width', label: '宽度' }, { value: 'density', label: '厚度' },
+    { value: 'gramWeight', label: '克重' }, { value: 'material', label: '材质' },
+    // 备注
+    { value: 'remark', label: '备注' },
   ],
   // 明细（通用）
   detail: [
@@ -229,6 +241,9 @@ const allFields = {
     { value: 'taxRate', label: '税率%' }, { value: 'taxAmount', label: '税额' },
     { value: 'batchNo', label: '批次' }, { value: 'locationName', label: '库位' },
     { value: 'snNo', label: '序列号' }, { value: 'remark', label: '备注' },
+    // 商品规格属性
+    { value: 'thickness', label: '长度' }, { value: 'width', label: '宽度' }, { value: 'density', label: '厚度' },
+    { value: 'gramWeight', label: '克重' }, { value: 'material', label: '材质' },
   ],
   // 表尾
   footer: [
@@ -240,10 +255,11 @@ const allFields = {
 }
 
 function getFieldGroups(type) {
-  const g = (fields) => ({ name: fields, label: fields === 'common' ? '通用' : fields === 'detail' ? '明细' : fields === 'footer' ? '表尾' : (type === 'SAL_DELIVERY' || type === 'SAL_RETURN') ? '销售' : '采购', fields: allFields[fields] })
+  const g = (fields) => ({ name: fields, label: fields === 'common' ? '通用' : fields === 'detail' ? '明细' : fields === 'footer' ? '表尾' : (type === 'SAL_DELIVERY' || type === 'SAL_RETURN') ? '销售' : (type === 'PUR_RECEIPT' || type === 'PUR_RETURN') ? '采购' : '生产', fields: allFields[fields] })
   if (type === 'SAL_DELIVERY') return [g('common'), g('sal'), g('detail'), g('footer')]
   if (type === 'PUR_RECEIPT' || type === 'PUR_RETURN') return [g('common'), g('pur'), g('detail'), g('footer')]
   if (type === 'SAL_RETURN') return [g('common'), g('sal'), g('detail'), g('footer')]
+  if (type === 'PRD_ORDER') return [g('common'), g('prd'), g('detail'), g('footer')]
   return [g('common'), g('prd')]
 }
 

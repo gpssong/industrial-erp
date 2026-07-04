@@ -24,12 +24,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import api from '../../api/index.js'
+import { applyTabBar } from '../../utils/permission.js'
 const kpi = ref({ todaySales: 0, todayPurchase: 0, arBalance: 0, apBalance: 0 })
 const stockList = ref([])
 const today = new Date().toISOString().substring(0, 10)
 onMounted(async () => {
   kpi.value = await api.dashboard()
   stockList.value = (await api.inventorySummary()) || []
+  applyTabBar()
 })
 </script>
 <style scoped>.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }</style>

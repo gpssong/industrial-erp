@@ -95,7 +95,26 @@ public class PrintDataLoader {
     }
 
     public PrdOrder findPrdOrder(Long id) {
-        return prdOrderMapper.selectById(id);
+        PrdOrder order = prdOrderMapper.selectById(id);
+        // 注入商品规格属性 (打印模板用)
+        if (order != null && order.getProductId() != null) {
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement ps = conn.prepareStatement("SELECT thickness, width, density, gram_weight, material FROM base_product WHERE id = ? AND deleted = 0")) {
+                ps.setObject(1, order.getProductId());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        order.setPThickness(rs.getObject("thickness", BigDecimal.class));
+                        order.setPWidth(rs.getObject("width", BigDecimal.class));
+                        order.setPDensity(rs.getObject("density", BigDecimal.class));
+                        order.setPGramWeight(rs.getObject("gram_weight", BigDecimal.class));
+                        order.setPMaterial(rs.getString("material"));
+                    }
+                }
+            } catch (SQLException e) {
+                // ignore
+            }
+        }
+        return order;
     }
 
     public PurReturn findPurReturn(Long id) {
@@ -141,7 +160,9 @@ public class PrintDataLoader {
     }
 
     public List<PurReceiptDetail> findPurReceiptDetails(Long receiptId) {
-        String sql = "SELECT * FROM pur_receipt_detail WHERE receipt_id = ? AND deleted = 0 ORDER BY line_no";
+        String sql = "SELECT d.*, p.thickness AS p_thickness, p.width AS p_width, p.density AS p_density, p.gram_weight AS p_gram_weight, p.material AS p_material, p.sales_price AS p_sales_price " +
+                     "FROM pur_receipt_detail d LEFT JOIN base_product p ON d.product_id = p.id " +
+                     "WHERE d.deleted = 0 AND d.receipt_id = ? ORDER BY d.line_no";
         List<PurReceiptDetail> list = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -156,7 +177,9 @@ public class PrintDataLoader {
     }
 
     public List<SalDeliveryDetail> findSalDeliveryDetails(Long deliveryId) {
-        String sql = "SELECT * FROM sal_delivery_detail WHERE delivery_id = ? AND deleted = 0 ORDER BY line_no";
+        String sql = "SELECT d.*, p.thickness AS p_thickness, p.width AS p_width, p.density AS p_density, p.gram_weight AS p_gram_weight, p.material AS p_material, p.sales_price AS p_sales_price " +
+                     "FROM sal_delivery_detail d LEFT JOIN base_product p ON d.product_id = p.id " +
+                     "WHERE d.deleted = 0 AND d.delivery_id = ? ORDER BY d.line_no";
         List<SalDeliveryDetail> list = new ArrayList<>();
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -263,6 +286,12 @@ public class PrintDataLoader {
         d.setLocationId(rs.getObject("location_id", Long.class));
         d.setLocationName(rs.getString("location_name"));
         d.setSnNo(rs.getString("sn_no"));
+        // 商品规格属性 (JOIN 注入)
+        d.setPThickness(getBigDecimal(rs, "p_thickness"));
+        d.setPWidth(getBigDecimal(rs, "p_width"));
+        d.setPDensity(getBigDecimal(rs, "p_density"));
+        d.setPGramWeight(getBigDecimal(rs, "p_gram_weight"));
+        d.setPMaterial(rs.getString("p_material"));
         return d;
     }
 
@@ -289,6 +318,12 @@ public class PrintDataLoader {
         d.setLocationName(rs.getString("location_name"));
         d.setSnNo(rs.getString("sn_no"));
         d.setRemark(rs.getString("remark"));
+        // 商品规格属性 (JOIN 注入)
+        d.setPThickness(getBigDecimal(rs, "p_thickness"));
+        d.setPWidth(getBigDecimal(rs, "p_width"));
+        d.setPDensity(getBigDecimal(rs, "p_density"));
+        d.setPGramWeight(getBigDecimal(rs, "p_gram_weight"));
+        d.setPMaterial(rs.getString("p_material"));
         return d;
     }
 
