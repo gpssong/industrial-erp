@@ -292,6 +292,14 @@ mvn test                          # 全量
 - **nginx 反代 `/upload/` 路由** — 支持后端静态资源外网访问 (PC 端图片加载)
 - **Sa-Token 白名单** — `/upload/**` 和 `/system/upload/**` 加入匿名白名单, 避免被登录拦截
 
+### v1.0.8 (2026-07-04)
+- **商品单位价格简化** — 批发价/大客户价合并为 价格+成本价, 数据库 drop 旧列
+- **数字字段小数位灵活** — 长度/宽度/厚度/克重/价格/成本价/税率/安全库存/换算率 改用 `el-input type="number"`, 不再强制显示尾随 0
+- **克重单位** — 改为 g/个
+- **生产加工单支持删除** — 后端 `PrdOrderService.delete()`, 仅允许删除草稿状态单据, 前端操作列新增"删除"按钮
+- **App 端商品搜索修复** — 之前用 `stockPage` 查商品 (因无库存记录查不到), 改用 `productPage` 直接查商品表
+- **涉及页面**: 手机开单 (`sales/quick.vue`)、扫码入库/出库、盘点 全部统一用 productPage
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
 - 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)

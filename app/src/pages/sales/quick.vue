@@ -75,10 +75,13 @@ function toast(msg) { alert(msg) }
 
 async function searchAndAdd(keyword) {
   try {
-    const r = await api.stockPage({ pageNum: 1, pageSize: 1, keyword })
-    if (r && r.records && r.records[0]) {
-      addProduct(r.records[0])
-      toast('已添加: ' + r.records[0].productName)
+    const r = await api.productPage({ pageNum: 1, pageSize: 10, keyword })
+    if (r && r.records && r.records.length > 0) {
+      // 精确匹配: 优先 productCode 或 barcode
+      const exact = r.records.find(p => p.productCode === keyword || p.barcode === keyword)
+      const found = exact || r.records[0]
+      addProduct(found)
+      toast('已添加: ' + found.productName)
     } else {
       toast('商品未找到: ' + keyword)
     }

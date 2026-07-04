@@ -44,4 +44,7 @@ public class PrdOrderController {
         service.finish(id, goodQty, lossQty, warehouseId);
         return R.ok();
     }
+
+    @DeleteMapping("/{id}")
+    public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
 }

@@ -19,8 +19,7 @@ public class BaseProductUnit {
     private BigDecimal conversionRate;
     private BigDecimal purchasePrice;
     private BigDecimal salesPrice;
-    private BigDecimal wholesalePrice;
-    private BigDecimal vipPrice;
+    private BigDecimal costPrice;
     private Integer sortNo;
     private Long createBy;
     private LocalDateTime createTime;
@@ -45,10 +44,8 @@ public class BaseProductUnit {
     public void setPurchasePrice(BigDecimal purchasePrice) { this.purchasePrice = purchasePrice; }
     public BigDecimal getSalesPrice() { return salesPrice; }
     public void setSalesPrice(BigDecimal salesPrice) { this.salesPrice = salesPrice; }
-    public BigDecimal getWholesalePrice() { return wholesalePrice; }
-    public void setWholesalePrice(BigDecimal wholesalePrice) { this.wholesalePrice = wholesalePrice; }
-    public BigDecimal getVipPrice() { return vipPrice; }
-    public void setVipPrice(BigDecimal vipPrice) { this.vipPrice = vipPrice; }
+    public BigDecimal getCostPrice() { return costPrice; }
+    public void setCostPrice(BigDecimal costPrice) { this.costPrice = costPrice; }
     public Integer getSortNo() { return sortNo; }
     public void setSortNo(Integer sortNo) { this.sortNo = sortNo; }
     public Long getCreateBy() { return createBy; }

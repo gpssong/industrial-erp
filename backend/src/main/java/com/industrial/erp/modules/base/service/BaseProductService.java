@@ -116,8 +116,7 @@ public class BaseProductService {
         for (BaseProductUnit u : units) {
             if (u.getIsMain() != null && u.getIsMain() == 1) {
                 p.setSalesPrice(u.getSalesPrice());
-                p.setWholesalePrice(u.getWholesalePrice());
-                p.setVipPrice(u.getVipPrice());
+                p.setCostPrice(u.getCostPrice());
                 p.setPurchasePrice(u.getPurchasePrice());
                 p.setMainUnitId(u.getUnitId());
                 break;

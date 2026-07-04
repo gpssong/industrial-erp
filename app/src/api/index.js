@@ -98,6 +98,9 @@ export const api = {
   customerList: () => request({ url: '/base/customer/list' }),
   // 供应商
   supplierList: () => request({ url: '/base/supplier/list' }),
+  // 商品
+  productPage: (params) => request({ url: '/base/product/page', data: params }),
+  productDetail: (id) => request({ url: '/base/product/' + id }),
   // 销售
   salesOrderPage: (params) => request({ url: '/sales/order/page', data: params }),
   salesOrderAdd: (data) => request({ url: '/sales/order', method: 'POST', data }),

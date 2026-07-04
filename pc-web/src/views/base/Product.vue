@@ -34,7 +34,6 @@
         <el-table-column prop="density" label="厚度" width="80" />
         <el-table-column prop="colorNo" label="色号" width="80" />
         <el-table-column prop="salesPrice" label="价格" width="100" align="right" />
-        <el-table-column prop="costPrice" label="成本价" width="100" align="right" />
         <el-table-column prop="safetyStock" label="安全库存" width="100" align="right" />
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
@@ -68,24 +67,23 @@
           <el-col :span="8"><el-form-item label="色号"><el-input v-model="form.colorNo" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="6"><el-form-item label="长度"><el-input-number v-model="form.thickness" :precision="4" :step="0.1" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="宽度"><el-input-number v-model="form.width" :precision="4" :step="1" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="厚度"><el-input-number v-model="form.density" :precision="6" :step="0.01" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="克重(g/m²)"><el-input-number v-model="form.gramWeight" :precision="4" :step="1" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="长度"><el-input v-model.number="form.thickness" type="number" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="宽度"><el-input v-model.number="form.width" type="number" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="厚度"><el-input v-model.number="form.density" type="number" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="克重(g/个)"><el-input v-model.number="form.gramWeight" type="number" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
           <el-col :span="6"><el-form-item label="条形码"><el-input v-model="form.barcode" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="6"><el-form-item label="价格"><el-input-number v-model="form.salesPrice" :precision="4" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="参考采购价"><el-input-number v-model="form.purchasePrice" :precision="4" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="成本价"><el-input-number v-model="form.costPrice" :precision="4" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="税率(%)"><el-input-number v-model="form.taxRate" :precision="2" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="价格"><el-input v-model.number="form.salesPrice" type="number" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="成本价"><el-input v-model.number="form.costPrice" type="number" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="税率(%)"><el-input v-model.number="form.taxRate" type="number" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="6"><el-form-item label="安全库存"><el-input-number v-model="form.safetyStock" :precision="4" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="批次管理"><el-switch v-model="form.isBatch" :active-value="1" :inactive-value="0" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="序列号"><el-switch v-model="form.isSn" :active-value="1" :inactive-value="0" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="安全库存"><el-input v-model.number="form.safetyStock" type="number" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="批次管理"><el-switch v-model="form.isBatch" :active-value="1" :inactive-value="0" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="序列号"><el-switch v-model="form.isSn" :active-value="1" :inactive-value="0" /></el-form-item></el-col>
         </el-row>
 
         <!-- 商品照片 -->
@@ -123,10 +121,9 @@
           <div v-for="(unit, idx) in form.units" :key="idx" class="unit-row">
             <el-tag :type="unit.isMain === 1 ? 'success' : 'info'" @click="setMainUnit(idx)" style="cursor:pointer; margin-right:8px">主</el-tag>
             <el-input v-model="unit.unitName" placeholder="单位名称" size="small" style="width:100px;margin-right:8px" />
-            <el-input-number v-model="unit.conversionRate" :precision="6" :step="0.01" size="small" style="width:120px;margin-right:8px" placeholder="换算率" />
-            <el-input-number v-model="unit.salesPrice" :precision="4" size="small" style="width:100px;margin-right:8px" placeholder="零售价" />
-            <el-input-number v-model="unit.wholesalePrice" :precision="4" size="small" style="width:100px;margin-right:8px" placeholder="批发价" />
-            <el-input-number v-model="unit.vipPrice" :precision="4" size="small" style="width:100px;margin-right:8px" placeholder="大客户价" />
+            <el-input v-model.number="unit.conversionRate" type="number" size="small" style="width:120px;margin-right:8px" placeholder="换算率" />
+            <el-input v-model.number="unit.salesPrice" type="number" size="small" style="width:100px;margin-right:8px" placeholder="价格" />
+            <el-input v-model.number="unit.costPrice" type="number" size="small" style="width:100px;margin-right:8px" placeholder="成本价" />
             <el-button link type="danger" @click="form.units.splice(idx, 1)">删除</el-button>
           </div>
         </div>
@@ -178,7 +175,7 @@ const previewImgUrl = ref('')
 const form = reactive({
   id: null, productCode: '', productName: '', spec: '', model: '', material: '',
   thickness: null, width: null, density: null, gramWeight: null, colorNo: '', barcode: '',
-  salesPrice: 0, wholesalePrice: 0, vipPrice: 0, purchasePrice: 0, costPrice: 0,
+  salesPrice: 0, purchasePrice: 0, costPrice: 0,
   taxRate: 13.00, safetyStock: 0, isBatch: 1, isSn: 0, status: 1,
   remark: '', images: [], imageUrl: '', units: []
 })
@@ -268,8 +265,6 @@ function onAdd() {
   form.colorNo = ''
   form.barcode = ''
   form.salesPrice = 0
-  form.wholesalePrice = 0
-  form.vipPrice = 0
   form.purchasePrice = 0
   form.costPrice = 0
   form.taxRate = 13.00
@@ -303,7 +298,7 @@ async function onDelete(row) {
 }
 
 function addUnit() {
-  form.units.push({ unitName: '', isMain: 0, conversionRate: 1, salesPrice: 0, wholesalePrice: 0, vipPrice: 0 })
+  form.units.push({ unitName: '', isMain: 0, conversionRate: 1, salesPrice: 0, costPrice: 0 })
 }
 
 function setMainUnit(index) {

@@ -28,11 +28,12 @@
             <el-tag>{{ ({DRAFT:'草稿',RELEASED:'已开工',PRODUCING:'生产中',FINISHED:'已完成',CLOSED:'已关闭'})[row.billStatus] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="onPrint(row)">打印</el-button>
             <el-button v-if="row.billStatus==='DRAFT' || row.billStatus==='RELEASED'" link type="primary" @click="onRelease(row)">开工</el-button>
             <el-button v-if="row.billStatus==='RELEASED' || row.billStatus==='PRODUCING'" link type="primary" @click="onFinish(row)">完工</el-button>
+            <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -162,7 +163,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import { prdOrderApi, bomApi } from '@/api/production'
 import { warehouseApi, productApi } from '@/api/base'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', productName: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
@@ -257,6 +258,24 @@ function onFinish(row) {
 async function doFinish() {
   await prdOrderApi.finish(finishForm.id, { goodQty: finishForm.goodQty, lossQty: finishForm.lossQty })
   ElMessage.success('完工, 成品已入库'); finishVisible.value = false; loadData()
+}
+
+async function onDelete(row) {
+  await ElMessageBox.confirm(
+    `确定删除生产单 "${row.billNo}"?`,
+    '删除确认',
+    { type: 'warning' }
+  )
+  submitting.value = true
+  try {
+    await prdOrderApi.delete(row.id)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '删除失败')
+  } finally {
+    submitting.value = false
+  }
 }
 function onPrint(row) {
   printUrl.value = `/api/print/prd-order/${row.id}.html?token=${localStorage.getItem('erp_token')}`

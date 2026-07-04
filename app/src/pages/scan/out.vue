@@ -70,7 +70,7 @@ function onManualInput() {
 async function onSearch() {
   if (!code.value) return
   try {
-    const r = await api.stockPage({ pageNum: 1, pageSize: 10, keyword: code.value })
+    const r = await api.productPage({ pageNum: 1, pageSize: 10, keyword: code.value })
     if (r && r.records && r.records.length > 0) {
       const exact = r.records.find(p => p.productCode === code.value || p.barcode === code.value)
       const found = exact || r.records[0]
