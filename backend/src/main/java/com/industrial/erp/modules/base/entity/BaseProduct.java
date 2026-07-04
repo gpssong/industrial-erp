@@ -34,8 +34,6 @@ public class BaseProduct {
     private Long minUnitId;
     private BigDecimal purchasePrice;
     private BigDecimal salesPrice;
-    private BigDecimal wholesalePrice;
-    private BigDecimal vipPrice;
     private BigDecimal costPrice;
     private BigDecimal taxRate;
     private Integer isWeigh;
@@ -93,10 +91,6 @@ public class BaseProduct {
     public void setPurchasePrice(BigDecimal purchasePrice) { this.purchasePrice = purchasePrice; }
     public BigDecimal getSalesPrice() { return salesPrice; }
     public void setSalesPrice(BigDecimal salesPrice) { this.salesPrice = salesPrice; }
-    public BigDecimal getWholesalePrice() { return wholesalePrice; }
-    public void setWholesalePrice(BigDecimal wholesalePrice) { this.wholesalePrice = wholesalePrice; }
-    public BigDecimal getVipPrice() { return vipPrice; }
-    public void setVipPrice(BigDecimal vipPrice) { this.vipPrice = vipPrice; }
     public BigDecimal getCostPrice() { return costPrice; }
     public void setCostPrice(BigDecimal costPrice) { this.costPrice = costPrice; }
     public BigDecimal getTaxRate() { return taxRate; }

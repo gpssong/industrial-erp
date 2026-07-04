@@ -69,8 +69,9 @@ function onManualInput() {
 async function onSearch() {
   if (!code.value) return
   try {
-    const r = await api.stockPage({ pageNum: 1, pageSize: 10, keyword: code.value })
+    const r = await api.productPage({ pageNum: 1, pageSize: 10, keyword: code.value })
     if (r && r.records && r.records.length > 0) {
+      // 精确匹配: 优先 productCode 或 barcode
       const exact = r.records.find(p => p.productCode === code.value || p.barcode === code.value)
       const found = exact || r.records[0]
       product.value = found

@@ -267,4 +267,17 @@ public class PrdOrderService {
         upd.setLossRate(lossRate);
         orderMapper.updateById(upd);
     }
+
+    /**
+     * 删除生产单 (只能删除草稿状态)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long orderId) {
+        PrdOrder order = orderMapper.selectById(orderId);
+        if (order == null) throw BizException.of("生产单不存在");
+        if (!Constants.STATUS_DRAFT.equals(order.getBillStatus())) {
+            throw BizException.of("只能删除草稿状态的生产单");
+        }
+        orderMapper.deleteById(orderId);
+    }
 }

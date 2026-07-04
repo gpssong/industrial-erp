@@ -61,7 +61,7 @@ async function searchAndAdd(kw) {
   }
   kw = kw.trim()
   try {
-    const r = await api.stockPage({ pageNum: 1, pageSize: 10, keyword: kw })
+    const r = await api.productPage({ pageNum: 1, pageSize: 10, keyword: kw })
     if (r && r.records && r.records.length > 0) {
       // 精确匹配: 优先 productCode 或 barcode
       const exact = r.records.find(p => p.productCode === kw || p.barcode === kw)
@@ -71,7 +71,7 @@ async function searchAndAdd(kw) {
         toast('已在列表中: ' + p.productName)
         return
       }
-      list.value.push({ ...p, bookQty: p.qty, actualQty: p.qty, remark: '' })
+      list.value.push({ ...p, bookQty: p.qty || 0, actualQty: p.qty || 0, remark: '' })
       if (!exact && r.records.length > 1) {
         toast('找到 ' + r.records.length + ' 个商品, 添加第一个: ' + p.productName)
       }
