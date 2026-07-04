@@ -26,7 +26,7 @@
 <table>
   <thead>
     <tr>
-      <th>序号</th><th>商品</th><th>规格</th>
+      <th>序号</th><th>商品</th><th>规格</th><th>长/宽/厚</th><th>克重/材质</th>
       <th class="right">数量</th><th class="right">单价</th><th class="right">金额</th>
       <#if taxSeparation>
         <th class="right">税率</th><th class="right">税额</th>
@@ -39,6 +39,8 @@
       <td>${(d.lineNo)!"0"}</td>
       <td>${(d.productName)!"-"}</td>
       <td>${(d.spec)!"-"}</td>
+      <td>${(d.thickness)!"-"}/${(d.width)!"-"}/${(d.density)!"-"}</td>
+      <td>${(d.gramWeight)!"-"}/${(d.material)!"-"}</td>
       <td class="right">${((d.qty)!0)?string["0.####"]}</td>
       <td class="right">${((d.price)!0)?string["0.####"]}</td>
       <td class="right">${((d.amount)!0)?string["0.####"]}</td>

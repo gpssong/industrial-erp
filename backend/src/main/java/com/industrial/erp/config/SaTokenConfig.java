@@ -38,6 +38,9 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         "/auth/captcha",
                         // 打印 (Electron 通过浏览器直接拉取 HTML 渲染)
                         "/print/**",
+                        // 上传文件
+                        "/system/upload/**",
+                        "/upload/**",
                         // 文档/监控 (Knife4j / Actuator)
                         "/doc.html",
                         "/v3/api-docs/**",

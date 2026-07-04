@@ -31,8 +31,9 @@
   </div>
 </template>
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { navigateTo } from '../../utils/nav.js'
+import { applyTabBar } from '../../utils/permission.js'
 
 const user = ref(JSON.parse(localStorage.getItem('erp_user') || '{}'))
 
@@ -53,6 +54,8 @@ function onLogout() {
     navigateTo('/pages/login/index')
   }
 }
+
+onMounted(() => { applyTabBar() })
 </script>
 <style scoped>
 .container { padding: 12px; }

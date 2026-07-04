@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.production.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -11,6 +12,18 @@ import java.time.LocalDateTime;
 
 @TableName("prd_order")
 public class PrdOrder {
+    // ===== 商品规格属性 (transient, JOIN 注入) =====
+    @TableField(exist = false)
+    private transient BigDecimal pThickness;
+    @TableField(exist = false)
+    private transient BigDecimal pWidth;
+    @TableField(exist = false)
+    private transient BigDecimal pDensity;
+    @TableField(exist = false)
+    private transient BigDecimal pGramWeight;
+    @TableField(exist = false)
+    private transient String pMaterial;
+
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private String billNo;
@@ -113,4 +126,29 @@ public class PrdOrder {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+
+    // transient 字段 getter/setter
+    public BigDecimal getPThickness() { return pThickness; }
+    public void setPThickness(BigDecimal pThickness) { this.pThickness = pThickness; }
+    public BigDecimal getPWidth() { return pWidth; }
+    public void setPWidth(BigDecimal pWidth) { this.pWidth = pWidth; }
+    public BigDecimal getPDensity() { return pDensity; }
+    public void setPDensity(BigDecimal pDensity) { this.pDensity = pDensity; }
+    public BigDecimal getPGramWeight() { return pGramWeight; }
+    public void setPGramWeight(BigDecimal pGramWeight) { this.pGramWeight = pGramWeight; }
+    public String getPMaterial() { return pMaterial; }
+    public void setPMaterial(String pMaterial) { this.pMaterial = pMaterial; }
+    /** 模板字段: thickness = 长度 */
+    public BigDecimal getThickness() { return pThickness; }
+    public void setThickness(BigDecimal thickness) { this.pThickness = thickness; }
+    public BigDecimal getWidth() { return pWidth; }
+    public void setWidth(BigDecimal width) { this.pWidth = width; }
+    /** 模板字段: density = 厚度 */
+    public BigDecimal getDensity() { return pDensity; }
+    public void setDensity(BigDecimal density) { this.pDensity = density; }
+    /** 模板字段: gramWeight = 克重 */
+    public BigDecimal getGramWeight() { return pGramWeight; }
+    public void setGramWeight(BigDecimal gramWeight) { this.pGramWeight = gramWeight; }
+    public String getMaterial() { return pMaterial; }
+    public void setMaterial(String material) { this.pMaterial = material; }
 }

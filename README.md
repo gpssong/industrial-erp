@@ -278,6 +278,20 @@ mvn test                          # 全量
 - **扫码精确匹配** — 扫码入库/出库/盘点改为 keyword 搜索 + productCode/barcode 精确匹配, 避免条码不对误匹配商品
 - **移动端 Capacitor 适配** — API 地址自动识别 Capacitor 环境使用绝对路径; 网络安全配置允许 HTTP 明文; 原生相机权限授权
 
+### v1.0.7 (2026-07-03)
+- **商品字段标签优化** — 表单字段 `厚度/幅宽/密度` 改为 `长度/宽度/厚度`; 三个价格合并为单一 `价格` 字段, 去掉批发价/大客户价展示
+- **商品增加克重字段** — `gram_weight` (g/m²), 用于描述薄膜/纸张等商品的克重
+- **商品管理增加备注** — 文本域, 最多 500 字
+- **PC 商品图片上传** — 后端新增 `/system/upload/file` 接口, 前端商品管理支持多图上传/预览/删除, 表格显示缩略图
+- **打印模板规格属性** — 销售出库/采购入库/退货等明细模板增加 `长度/宽度/厚度/克重/材质` 列, 生产加工单模板支持打印规格
+- **生产加工单规格显示** — PrdOrderService 注入商品规格属性, 打印时表格展示完整商品信息 (商品/规格/数量/宽度/长度/克重/备注)
+- **打印模板 Map 数据支持** — PrintTemplateEngine.getFieldValue 支持 Map 类型字段取值, 兼容伪明细行渲染
+- **权限简化模型** — PermissionService.hasPerm 调整为拥有 `:list` 权限即自动获得同模块 `:add`/`:edit`/`:delete` 权限, 简化角色权限分配
+- **打印模板字段参考补全** — 生产单类型增加"明细"和"表尾"标签页, 右侧字段列表加入 thickness/width/density/gramWeight/material/remark 字段
+- **采购退货/销售退货菜单补全** — 数据库补充 403/503 菜单记录 (SQL 迁移脚本 `10_add_return_menus.sql`)
+- **nginx 反代 `/upload/` 路由** — 支持后端静态资源外网访问 (PC 端图片加载)
+- **Sa-Token 白名单** — `/upload/**` 和 `/system/upload/**` 加入匿名白名单, 避免被登录拦截
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
 - 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)

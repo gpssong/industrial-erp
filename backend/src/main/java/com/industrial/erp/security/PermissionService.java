@@ -36,7 +36,16 @@ public class PermissionService {
 
     public boolean hasPerm(String perm) {
         if (SecurityContext.isSuperAdmin()) return true;
-        return StpUtil.hasPermission(perm);
+        // 直接权限匹配
+        if (StpUtil.hasPermission(perm)) return true;
+        // 简化权限模型: 拥有 ":list" 权限即视为拥有该模块的 add/edit/delete 权限
+        // (避免每个角色都需要详细分配每个按钮权限, 数据级权限更符合业务)
+        if (perm != null && perm.endsWith(":add") || perm != null && perm.endsWith(":edit")
+                || perm != null && perm.endsWith(":delete")) {
+            String basePerm = perm.substring(0, perm.lastIndexOf(':'));
+            if (StpUtil.hasPermission(basePerm + ":list")) return true;
+        }
+        return false;
     }
 
     public void requirePerm(String perm) {

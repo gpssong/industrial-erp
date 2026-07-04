@@ -24,6 +24,8 @@ public class BaseProduct {
     private BigDecimal thickness;
     private BigDecimal width;
     private BigDecimal density;
+    /** 克重 (g/m² 或 g/件) */
+    private BigDecimal gramWeight;
     private String colorNo;
     private String batchNo;
     private String barcode;
@@ -73,6 +75,8 @@ public class BaseProduct {
     public void setWidth(BigDecimal width) { this.width = width; }
     public BigDecimal getDensity() { return density; }
     public void setDensity(BigDecimal density) { this.density = density; }
+    public BigDecimal getGramWeight() { return gramWeight; }
+    public void setGramWeight(BigDecimal gramWeight) { this.gramWeight = gramWeight; }
     public String getColorNo() { return colorNo; }
     public void setColorNo(String colorNo) { this.colorNo = colorNo; }
     public String getBatchNo() { return batchNo; }

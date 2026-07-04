@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.math.BigDecimal;
 import java.util.Map;
 
 /**
@@ -71,8 +72,21 @@ public class PrintService {
     public String renderPrdOrder(Long id) {
         PrdOrder bill = dataLoader.findPrdOrder(id);
         if (bill == null) throw BizException.of("生产单不存在");
-        // 生产单无明细行, 无价税分离
-        return doRender("PRD_ORDER", false, bill, Collections.emptyList());
+        // 生产单无真实明细行，将成品信息作为一行数据传入 (用于用户自定义模板)
+        java.util.Map<String, Object> prdDetail = new java.util.LinkedHashMap<>();
+        prdDetail.put("productName", bill.getProductName());
+        prdDetail.put("productCode", bill.getProductCode());
+        prdDetail.put("spec", bill.getSpec());
+        prdDetail.put("unitName", bill.getUnitName());
+        prdDetail.put("qty", bill.getPlanQty() != null ? bill.getPlanQty() : BigDecimal.ZERO);
+        prdDetail.put("thickness", bill.getThickness() != null ? bill.getThickness() : "—");
+        prdDetail.put("width", bill.getWidth() != null ? bill.getWidth() : "—");
+        prdDetail.put("density", bill.getDensity() != null ? bill.getDensity() : "—");
+        prdDetail.put("gramWeight", bill.getGramWeight() != null ? bill.getGramWeight() : "—");
+        prdDetail.put("material", bill.getMaterial() != null ? bill.getMaterial() : "—");
+        prdDetail.put("remark", bill.getRemark() != null ? bill.getRemark() : "");
+        List<Object> details = java.util.Collections.singletonList(prdDetail);
+        return doRender("PRD_ORDER", false, bill, details);
     }
 
     public String renderPurReturn(Long id) {

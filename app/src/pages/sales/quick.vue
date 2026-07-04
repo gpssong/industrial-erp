@@ -53,10 +53,11 @@
   </div>
 </template>
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../api/index.js'
-import { doScan } from '../../utils/scan.js'
+import { doScan, stopScan } from '../../utils/scan.js'
 import { navigateTo } from '../../utils/nav.js'
+import { applyTabBar } from '../../utils/permission.js'
 
 const customers = ref([])
 const customerId = ref('')
@@ -64,6 +65,7 @@ const details = ref([])
 
 onMounted(async () => {
   try { customers.value = await api.customerList() || [] } catch (e) { customers.value = [] }
+  applyTabBar()
 })
 
 const totalQty = computed(() => details.value.reduce((s, d) => s + (+d.qty || 0), 0))
@@ -130,6 +132,8 @@ async function onSave() {
   }
 }
 
+// 退出页面时关闭摄像头
+onUnmounted(() => { stopScan() })
 </script>
 <style scoped>
 .container { padding: 12px; }
