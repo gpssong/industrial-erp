@@ -208,6 +208,7 @@ CREATE TABLE `sys_print_template` (
   `paper_width`   INT          DEFAULT 80,
   `paper_height`  INT          DEFAULT 120,
   `content`       MEDIUMTEXT   COMMENT 'Freemarker 模板内容',
+  `template_config` TEXT         COMMENT 'HTML 模式打印配置 (JSON 字符串, v1.0.4+)',
   `is_default`    TINYINT      DEFAULT 0,
   `status`        TINYINT      DEFAULT 1,
   `create_by`     BIGINT       DEFAULT NULL,
