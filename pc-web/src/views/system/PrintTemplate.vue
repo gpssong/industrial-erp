@@ -182,6 +182,7 @@ import { salDeliveryApi, salReturnApi } from '@/api/sales'
 import { prdOrderApi } from '@/api/production'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import CodeEditor from '@/components/CodeEditor.vue'
+import { getPrintUrl } from '@/composables/usePrintUrl'
 
 const typeMap = { SAL_DELIVERY: '销售出库', PUR_RECEIPT: '采购入库', PRD_ORDER: '生产单', PUR_RETURN: '采购退货', SAL_RETURN: '销售退货' }
 const paperSizes = [
@@ -681,7 +682,7 @@ async function onPreview(row) {
   if (!realId) { ElMessage.warning('暂无单据数据，请先创建后再预览'); return }
   const typeToPath = { SAL_DELIVERY: 'sales-delivery', PUR_RECEIPT: 'purchase-receipt', PRD_ORDER: 'prd-order', PUR_RETURN: 'purchase-return', SAL_RETURN: 'sales-return' }
   const path = typeToPath[row.templateType] || row.templateType.toLowerCase().replaceAll('_', '-')
-  previewUrl.value = `/api/print/${path}/${realId}.html?token=${localStorage.getItem('erp_token')}&_t=${Date.now()}`
+  previewUrl.value = getPrintUrl(`/api/print/${path}`, realId)
   previewVisible.value = true
 }
 

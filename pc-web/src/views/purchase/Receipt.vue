@@ -90,6 +90,7 @@ import { purReceiptApi } from '@/api/purchase'
 import { supplierApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getPrintUrl } from '@/composables/usePrintUrl'
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', supplierId: null, productName: '' })
 const data = ref({ records: [], total: 0 })
@@ -97,8 +98,17 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const printVisible = ref(false)
 const printUrl = ref('')
+const printId = ref('')
 function doPrint() {
   printVisible.value = false
+  if (window.erpDesktop?.print?.salesDelivery) {
+    // 采购入库复用 salesDelivery handler (后端打印模板通用)
+    window.erpDesktop.print.salesDelivery(printId.value).then((r) => {
+      if (!r?.success) ElMessage.error('打印失败: ' + (r?.reason || ''))
+      else ElMessage.success('发送打印任务')
+    })
+    return
+  }
   window.open(printUrl.value, '_blank')
 }
 const submitting = ref(false)
@@ -213,7 +223,8 @@ async function onCheck(row) {
 }
 
 function onPrint(row) {
-  printUrl.value = `/api/print/purchase-receipt/${row.id}.html?token=${localStorage.getItem('erp_token')}`
+  printId.value = row.id
+  printUrl.value = getPrintUrl('/api/print/purchase-receipt', row.id)
   printVisible.value = true
 }
 

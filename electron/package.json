@@ -12,10 +12,7 @@
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux"
   },
-  "dependencies": {
-    "electron-store": "^8.2.0",
-    "node-printer": "^1.0.4"
-  },
+  "dependencies": {},
   "devDependencies": {
     "electron": "29.4.6",
     "electron-builder": "^24.13.0"
@@ -29,6 +26,7 @@
     "files": [
       "src/**/*",
       "build/**/*",
+      "pc-web-dist/**/*",
       "package.json"
     ],
     "win": {
@@ -44,8 +42,24 @@
       "shortcutName": "工业ERP"
     },
     "mac": {
-      "target": "dmg",
-      "icon": "build/icon.icns"
-    }
+      "target": [
+        {
+          "target": "dmg",
+          "arch": "x64"
+        },
+        {
+          "target": "dmg",
+          "arch": "arm64"
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.business"
+    },
+    "extraResources": [
+      {
+        "from": "pc-web-dist",
+        "to": "pc-web-dist"
+      }
+    ]
   }
 }

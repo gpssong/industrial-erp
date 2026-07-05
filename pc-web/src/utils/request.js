@@ -7,16 +7,27 @@ import 'nprogress/nprogress.css'
 
 NProgress.configure({ showSpinner: false })
 
-// 调试: 启动时打印最终使用的 baseURL, 帮助定位 404
-const _resolvedBase =
-  localStorage.getItem('erp_api_base')
+// 优先级: Electron 注入的完整 API URL > localStorage(用户手动配置) > 环境变量(VITE_API_BASE) > 默认 /api
+// 在 Electron 中, window.__ERP_API_BASE__ 由 preload.js 注入, 包含完整的远端 API 地址
+// 这样可以避免 file:// 协议下 axios 请求 /api 时变成 file:///api/xxx
+const _electronApiBase = typeof window !== 'undefined' && window.__ERP_API_BASE__
+const _resolvedBase = _electronApiBase
+  || localStorage.getItem('erp_api_base')
   || import.meta.env.VITE_API_BASE
   || '/api'
-console.log('[request] baseURL =', _resolvedBase, '| localStorage erp_api_base =', localStorage.getItem('erp_api_base'))
+
+// 校验: 必须以 /api 开头, 否则拦截并提示, 避免静默报 Network Error
+const isValidApiBase = (base) => typeof base === 'string' && (base.startsWith('http') || base.startsWith('/api'))
+const apiBase = isValidApiBase(_resolvedBase) ? _resolvedBase : '/api'
+if (_resolvedBase !== apiBase) {
+  console.warn('[request] 无效的 API 地址 "%s", 已自动恢复为默认 /api', _resolvedBase)
+  localStorage.removeItem('erp_api_base')
+}
+
+console.log('[request] baseURL =', apiBase, '| localStorage erp_api_base =', localStorage.getItem('erp_api_base'))
 
 const service = axios.create({
-  // 优先级: localStorage(用户手动配置) > 环境变量(VITE_API_BASE) > 默认 /api
-  baseURL: _resolvedBase,
+  baseURL: apiBase,
   timeout: 30000
 })
 
@@ -61,7 +72,7 @@ service.interceptors.response.use(res => {
     handle401()
     return Promise.reject(err)
   }
-  ElMessage.error(err.message || '网络异常')
+  ElMessage.error(err.message?.includes('Network') ? '无法连接服务器, 请在登录页底部「服务器连接设置」中检查 API 地址' : (err.message || '操作失败'))
   return Promise.reject(err)
 })
 

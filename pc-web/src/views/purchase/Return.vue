@@ -81,6 +81,7 @@ import { purReturnApi } from '@/api/purchase'
 import { supplierApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage } from 'element-plus'
+import { getPrintUrl } from '@/composables/usePrintUrl'
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '' })
 const data = ref({ records: [], total: 0 })
@@ -145,7 +146,7 @@ async function onCheck(row) {
 }
 
 function onPrint(row) {
-  printUrl.value = `/api/print/purchase-return/${row.id}.html?token=${localStorage.getItem('erp_token')}`
+  printUrl.value = getPrintUrl('/api/print/purchase-return', row.id)
   printVisible.value = true
 }
 function doPrint() { printVisible.value = false; window.open(printUrl.value, '_blank') }
