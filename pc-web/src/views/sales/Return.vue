@@ -81,6 +81,7 @@ import { salReturnApi } from '@/api/sales'
 import { customerApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage } from 'element-plus'
+import { getPrintUrl } from '@/composables/usePrintUrl'
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '' })
 const data = ref({ records: [], total: 0 })
@@ -145,7 +146,7 @@ async function onCheck(row) {
 }
 
 function onPrint(row) {
-  printUrl.value = `/api/print/sales-return/${row.id}.html?token=${localStorage.getItem('erp_token')}`
+  printUrl.value = getPrintUrl('/api/print/sales-return', row.id)
   printVisible.value = true
 }
 function doPrint() { printVisible.value = false; window.open(printUrl.value, '_blank') }

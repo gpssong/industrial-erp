@@ -51,6 +51,7 @@ export default defineConfig({
       }
     }
   },
+  base: './', // 相对路径, 兼容 file:// 协议 (Electron 本地模式) 和 http:// (远端模式)
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 1500

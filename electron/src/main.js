@@ -9,24 +9,27 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, globalShortcut, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const { autoUpdater } = require('electron-updater')
-const log = require('electron-log')
-const Store = require('electron-store')
 
-const store = new Store({
-  defaults: {
-    apiBase: 'http://localhost:8080/api',
-    webBase: 'http://localhost:5173',
-    printName: '',
-    autoStart: false,
-    windowSize: { width: 1366, height: 800 }
-  }
-})
+// 简单的 JSON 配置文件存储 (替代 electron-store)
+const CONFIG_FILE = path.join(app.getPath('userData'), 'config.json')
+const DEFAULT_CONFIG = {
+  apiBase: 'http://home.93gushi.com:8088/api',
+  webBase: 'http://home.93gushi.com:8088',
+  printName: '',
+  autoStart: false,
+  windowSize: { width: 1366, height: 800 }
+}
+function loadConfig() {
+  try { return Object.assign({}, DEFAULT_CONFIG, JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'))) }
+  catch (e) { return { ...DEFAULT_CONFIG } }
+}
+function saveConfig(cfg) { try { fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2)) } catch (e) {} }
+let store = loadConfig()
 
 let mainWindow = null
 
 function createWindow() {
-  const { width, height } = store.get('windowSize')
+  const { width, height } = store.windowSize
   mainWindow = new BrowserWindow({
     width, height, minWidth: 1024, minHeight: 700,
     title: '工业ERP - 桌面客户端',
@@ -41,27 +44,55 @@ function createWindow() {
     backgroundColor: '#1e6091'
   })
 
-  // 加载页面
+  // 优先从远端加载 (避免 file:// 协议下 Vite 哈希资源缓存问题)
+  // 仅当网络不可用时才降级到本地 dist
+  const resourcePath = process.resourcesPath
+  const distExists = fs.existsSync(path.join(resourcePath, 'pc-web-dist', 'index.html'))
   const devUrl = process.env.VITE_DEV_SERVER_URL
+
   if (devUrl) {
     mainWindow.loadURL(devUrl)
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
-    // 加载打包后的 dist/index.html
-    const indexPath = path.join(__dirname, '../../pc-web/dist/index.html')
-    if (fs.existsSync(indexPath)) {
-      mainWindow.loadFile(indexPath, { hash: '/dashboard' })
-    } else {
-      // 兜底: 加载远端
-      mainWindow.loadURL(store.get('webBase'))
-    }
+    // 尝试加载远端 (推荐路径, 避免 file:// 缓存)
+    const remoteUrl = store.webBase + '/#/login'
+    mainWindow.loadURL(remoteUrl).catch(() => {
+      // 网络不可用时降级到本地 dist
+      if (distExists) {
+        const distPath = path.join(resourcePath, 'pc-web-dist', 'index.html')
+        mainWindow.loadFile(distPath)
+      }
+    })
   }
 
+  // 监听加载失败, 降级到本地 dist
+  let failedToLoadRemote = false
+  mainWindow.webContents.on('did-fail-load', (e, code, desc) => {
+    console.error('[main.js] did-fail-load:', code, desc)
+    if (!failedToLoadRemote && distExists) {
+      failedToLoadRemote = true
+      const distPath = path.join(resourcePath, 'pc-web-dist', 'index.html')
+      console.log('[main.js] Falling back to local dist:', distPath)
+      mainWindow.loadFile(distPath)
+    }
+  })
+  mainWindow.webContents.on('console-message', (e, level, message) => {
+    console.log('[renderer]', message)
+  })
+  // 优先从远端加载 (避免 file:// 协议下 hash 路由的 base 路径问题)
+  // 启动延迟 500ms 后再 load, 让 web-contents 完全就绪
+  mainWindow.webContents.once('did-finish-load', () => {
+    console.log('[main.js] page loaded:', mainWindow.webContents.getURL())
+  })
+  mainWindow.webContents.on('render-process-gone', (e, details) => {
+    console.error('[main.js] render-process-gone:', details)
+  })
   mainWindow.once('ready-to-show', () => mainWindow.show())
 
   mainWindow.on('close', () => {
     const b = mainWindow.getBounds()
-    store.set('windowSize', { width: b.width, height: b.height })
+    Object.assign(store, { windowSize: { width: b.width, height: b.height } })
+    saveConfig(store)
   })
 
   mainWindow.on('closed', () => { mainWindow = null })
@@ -119,7 +150,7 @@ async function openSettings() {
   const r = await dialog.showMessageBox(mainWindow, {
     type: 'info',
     title: '系统设置',
-    message: '当前API地址: ' + store.get('apiBase'),
+    message: '当前API地址: ' + store.apiBase,
     buttons: ['修改', '取消']
   })
   if (r.response === 0) {
@@ -141,13 +172,13 @@ function showAbout() {
  */
 async function printLocal() {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } })
-  const url = store.get('apiBase').replace('/api', '') + '/print/sales-delivery/1.html'
+  const url = store.apiBase.replace('/api', '') + '/print/sales-delivery/1.html'
   win.loadURL(url)
   win.webContents.on('did-finish-load', () => {
     win.webContents.print({
       silent: false,
       printBackground: true,
-      deviceName: store.get('printName') || ''
+      deviceName: store.printName || ''
     }, (success, reason) => {
       if (!success) dialog.showErrorBox('打印失败', reason)
     })
@@ -158,7 +189,7 @@ app.whenReady().then(() => {
   createWindow()
   buildMenu()
   // 开机自启
-  if (store.get('autoStart')) app.setLoginItemSettings({ openAtLogin: true })
+  if (store.autoStart) app.setLoginItemSettings({ openAtLogin: true })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -171,15 +202,33 @@ app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(
 // ============== IPC 桥接 ==============
 ipcMain.handle('print:salesDelivery', async (e, id) => {
   const win = new BrowserWindow({ show: false })
-  const url = store.get('apiBase').replace('/api', '') + '/print/sales-delivery/' + id + '.html'
+  const url = store.apiBase.replace('/api', '') + '/print/sales-delivery/' + id + '.html'
   win.loadURL(url)
   return new Promise((resolve) => {
     win.webContents.on('did-finish-load', () => {
       win.webContents.print({
         silent: false, printBackground: true,
-        deviceName: store.get('printName') || ''
+        deviceName: store.printName || ''
       }, (success, reason) => {
-        if (!success) log.error('打印失败:', reason)
+        if (!success) console.error('[main.js] 打印失败:', reason)
+        resolve({ success, reason })
+        win.close()
+      })
+    })
+  })
+})
+
+ipcMain.handle('print:prdOrder', async (e, id) => {
+  const win = new BrowserWindow({ show: false })
+  const url = store.apiBase.replace('/api', '') + '/print/prd-order/' + id + '.html'
+  win.loadURL(url)
+  return new Promise((resolve) => {
+    win.webContents.on('did-finish-load', () => {
+      win.webContents.print({
+        silent: false, printBackground: true,
+        deviceName: store.printName || ''
+      }, (success, reason) => {
+        if (!success) console.error('[main.js] 打印失败:', reason)
         resolve({ success, reason })
         win.close()
       })
@@ -198,6 +247,6 @@ ipcMain.handle('print:list', async () => {
   return []
 })
 
-ipcMain.handle('settings:get', () => store.store)
-ipcMain.handle('settings:set', (e, kv) => { store.set(kv); return true })
+ipcMain.handle('settings:get', () => store)
+ipcMain.handle('settings:set', (e, kv) => { Object.assign(store, kv); saveConfig(store); return true })
 ipcMain.handle('app:version', () => app.getVersion())

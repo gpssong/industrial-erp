@@ -165,6 +165,7 @@ import { reactive, ref, onMounted } from 'vue'
 import { prdOrderApi, bomApi } from '@/api/production'
 import { warehouseApi, productApi } from '@/api/base'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getPrintUrl } from '@/composables/usePrintUrl'
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', productName: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
@@ -178,8 +179,18 @@ const form = ref({ bomId: null, productId: null, productName: '', productCode: '
 const finishForm = reactive({ id: null, goodQty: 0, lossQty: 0 })
 const printVisible = ref(false)
 const printUrl = ref('')
+const printId = ref('')
 function doPrint() {
   printVisible.value = false
+  // 优先使用 Electron 原生打印 API (弹出系统打印机选择对话框)
+  if (window.erpDesktop?.print?.salesDelivery) {
+    window.erpDesktop.print.salesDelivery(printId.value).then((r) => {
+      if (!r?.success) ElMessage.error('打印失败: ' + (r?.reason || ''))
+      else ElMessage.success('发送打印任务')
+    })
+    return
+  }
+  // 浏览器降级方案: 打开新窗口后自动触发打印
   const w = window.open(printUrl.value, '_blank')
   if (w) w.onload = () => w.print()
 }
@@ -319,7 +330,8 @@ async function onDelete(row) {
   }
 }
 function onPrint(row) {
-  printUrl.value = `/api/print/prd-order/${row.id}.html?token=${localStorage.getItem('erp_token')}`
+  printId.value = row.id
+  printUrl.value = getPrintUrl('/api/print/prd-order', row.id)
   printVisible.value = true
 }
 onMounted(loadData)

@@ -3,9 +3,23 @@
  */
 const { contextBridge, ipcRenderer } = require('electron')
 
+// 注入环境变量: 告诉前端 axios 使用完整 API URL (解决 file:// 协议下 /api 路径解析问题)
+const { app } = require('electron')
+const path = require('path')
+const fs = require('fs')
+try {
+  const configPath = path.join(app.getPath('userData'), 'config.json')
+  const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+  // 将 apiBase 注入到 window.__ERP_API_BASE__，前端会读取它
+  contextBridge.exposeInMainWorld('__ERP_API_BASE__', cfg.apiBase || 'http://home.93gushi.com:8088/api')
+} catch (e) {
+  contextBridge.exposeInMainWorld('__ERP_API_BASE__', 'http://home.93gushi.com:8088/api')
+}
+
 contextBridge.exposeInMainWorld('erpDesktop', {
   print: {
     salesDelivery: (id) => ipcRenderer.invoke('print:salesDelivery', id),
+    prdOrder: (id) => ipcRenderer.invoke('print:prdOrder', id),
     list: () => ipcRenderer.invoke('print:list')
   },
   settings: {

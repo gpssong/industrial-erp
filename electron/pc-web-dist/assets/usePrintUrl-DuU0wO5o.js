@@ -1,0 +1,1 @@
+function r(t,e){const o=window.location.origin,n=localStorage.getItem("erp_token")||"";return o==="file://"?`${(window.__ERP_API_BASE__||"http://home.93gushi.com:8088/api").replace("/api","")}${t}/${e}.html?token=${n}&_t=${Date.now()}`:`${o}${t}/${e}.html?token=${n}&_t=${Date.now()}`}export{r as g};

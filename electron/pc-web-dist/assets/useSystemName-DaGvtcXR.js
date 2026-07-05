@@ -1,0 +1,1 @@
+import{c as e}from"./system-ENjH5IQT.js";import{r as c}from"./index-BquR6P3S.js";const t=c("工业ERP");function i(){async function s(){try{const a=await e.getByKey("SYS_NAME");a!=null&&a.data&&(t.value=a.data)}catch{}}async function o(a){await e.updateValue("SYS_NAME",a),t.value=a}return{systemName:t,loadSystemName:s,saveSystemName:o}}export{i as u};
