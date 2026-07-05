@@ -30,7 +30,7 @@
         <el-table-column prop="billDate" label="日期" width="110" />
         <el-table-column prop="customerName" label="客户" />
         <el-table-column prop="firstProductName" label="商品名称" show-overflow-tooltip />
-        <el-table-column prop="warehouseId" label="仓库ID" width="80" />
+        <el-table-column prop="warehouseName" label="仓库" min-width="120" show-overflow-tooltip />
         <el-table-column prop="totalQty" label="数量" width="100" align="right" />
         <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
         <el-table-column prop="costAmount" label="成本" width="100" align="right" />
