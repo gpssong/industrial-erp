@@ -37,6 +37,7 @@ CREATE TABLE `base_product` (
   `thickness`       DECIMAL(18,4) DEFAULT NULL COMMENT '厚度(mm/um)',
   `width`           DECIMAL(18,4) DEFAULT NULL COMMENT '幅宽(mm)',
   `density`         DECIMAL(18,6) DEFAULT NULL COMMENT '密度(g/cm3)',
+  `gram_weight`     DECIMAL(18,4) DEFAULT NULL COMMENT '克重 (g/件, v1.0.7+)',
   `color_no`        VARCHAR(32)   DEFAULT NULL COMMENT '色号',
   `batch_no`        VARCHAR(64)   DEFAULT NULL COMMENT '批次号',
   `barcode`         VARCHAR(64)   DEFAULT NULL COMMENT '条形码',
