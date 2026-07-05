@@ -53,6 +53,10 @@ public class BackupService {
     private String mysqldumpPath;
     @Value("${erp.backup.mysql-path:mysql}")
     private String mysqlPath;
+    @Value("${erp.backup.db-host:127.0.0.1}")
+    private String dbHost;
+    @Value("${erp.backup.db-port:3306}")
+    private int dbPort;
 
     /**
      * 每天凌晨 3 点执行自动备份
@@ -74,8 +78,10 @@ public class BackupService {
             String name = "erp_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + "_" + IdUtil.fastSimpleUUID().substring(0, 4) + ".sql";
             File file = new File(dir, name);
             // 实际: 通过 ProcessBuilder 调用 mysqldump (路径可通过 erp.backup.mysqldump-path 覆盖)
+            // 显式指定 -h / -P: Docker 部署下 MySQL 在另一容器, 默认 socket 连接会失败
             ProcessBuilder pb = new ProcessBuilder(
-                    mysqldumpPath, "-u" + dbUser, "-p" + dbPwd,
+                    mysqldumpPath, "-h" + dbHost, "-P" + dbPort,
+                    "-u" + dbUser, "-p" + dbPwd,
                     "--default-character-set=utf8mb4",
                     "--single-transaction",
                     "--routines", "--triggers",
@@ -123,6 +129,7 @@ public class BackupService {
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     mysqlPath,
+                    "-h" + dbHost, "-P" + dbPort,
                     "-u" + dbUser,
                     "-p" + dbPwd,
                     dbName
@@ -171,6 +178,7 @@ public class BackupService {
             try {
                 ProcessBuilder pb = new ProcessBuilder(
                         mysqlPath,
+                        "-h" + dbHost, "-P" + dbPort,
                         "-u" + dbUser,
                         "-p" + dbPwd,
                         dbName

@@ -118,6 +118,9 @@ erp:
     sql-path: ${ERP_BACKUP_SQL_PATH:./sql}
     mysqldump-path: ${ERP_MYSQLDUMP:mysqldump}
     mysql-path: ${ERP_MYSQL:mysql}
+    # mysqldump 连接参数: Docker 部署下必须用容器网络名 mysql (不能用 localhost socket)
+    db-host: ${ERP_DB_HOST:mysql}
+    db-port: ${ERP_DB_PORT:3306}
     retention-days: ${ERP_BACKUP_RETENTION_DAYS:30}
 
 logging:
