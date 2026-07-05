@@ -77,6 +77,8 @@ public class PrintService {
         //   - spec: 优先 PrdOrder.spec (创建时快照), 缺则实时从商品表取 (避免商品更新后打印仍显示旧值)
         //   - remark: 优先 PrdOrder.remark, 缺则 PrdOrder.bomRemark
         String productSpec = dataLoader.findProductSpec(bill.getProductId());
+        String pickedRemark = pickRemark(bill);
+        String bomRemark = bill.getBomRemark() != null ? bill.getBomRemark() : "";
         java.util.Map<String, Object> prdDetail = new java.util.LinkedHashMap<>();
         prdDetail.put("productName", bill.getProductName());
         prdDetail.put("productCode", bill.getProductCode());
@@ -88,7 +90,9 @@ public class PrintService {
         prdDetail.put("density", bill.getDensity() != null ? bill.getDensity() : "—");
         prdDetail.put("gramWeight", bill.getGramWeight() != null ? bill.getGramWeight() : "—");
         prdDetail.put("material", bill.getMaterial() != null ? bill.getMaterial() : "—");
-        prdDetail.put("remark", pickRemark(bill));
+        prdDetail.put("remark", pickedRemark);
+        // 明细行内允许显式引用 BOM 备注字段
+        prdDetail.put("bomRemark", bomRemark);
         List<Object> details = java.util.Collections.singletonList(prdDetail);
         return doRender("PRD_ORDER", false, bill, details);
     }

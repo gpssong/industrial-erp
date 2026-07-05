@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root>
+  <task>
+    <id>2</id>
+    <name>ERP CORS 修复 (一次性)</name>
+    <type>script</type>
+    <enable>1</enable>
+    <command>/var/services/homes/gpssong/fix-cors.sh</command>
+    <run_as>root</run_as>
+    <notify>0</notify>
+  </task>
+</Root>
