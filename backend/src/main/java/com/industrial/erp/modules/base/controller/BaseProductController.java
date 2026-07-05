@@ -62,4 +62,13 @@ public class BaseProductController {
     public R<BigDecimal> convert(@RequestParam Long productId, @RequestParam Long unitId, @RequestParam BigDecimal qty) {
         return R.ok(service.convertToMain(productId, unitId, qty));
     }
+
+    /** App 端专用商品搜索 (不检查 base:product:list 权限) */
+    @GetMapping("/app-search")
+    public R<PageResult<BaseProduct>> appSearch(@RequestParam(defaultValue = "1") Integer pageNum,
+                                                @RequestParam(defaultValue = "20") Integer pageSize,
+                                                @RequestParam(required = false) String keyword) {
+        // App 端商品搜索: 只要登录就能查 (不需要 base:product:list)
+        return R.ok(PageResult.of(service.pageWithoutPerm(pageNum, pageSize, keyword)));
+    }
 }

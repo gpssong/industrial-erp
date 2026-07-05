@@ -12,6 +12,7 @@ export const prdOrderApi = {
   page: (params) => request.get('/production/order/page', { params }),
   detail: (id) => request.get(`/production/order/${id}`),
   add: (data) => request.post('/production/order', data),
+  update: (data) => request.put('/production/order', data),
   release: (id) => request.post(`/production/order/${id}/release`),
   finish: (id, params) => request.post(`/production/order/${id}/finish`, null, { params }),
   delete: (id) => request.delete(`/production/order/${id}`)

@@ -47,6 +47,21 @@ public class BaseProductService {
         return productMapper.selectPage(p, w);
     }
 
+    /** App 端专用：不检查权限的商品查询 */
+    public IPage<BaseProduct> pageWithoutPerm(Integer pageNum, Integer pageSize, String keyword) {
+        Page<BaseProduct> p = new Page<>(pageNum, pageSize);
+        LambdaQueryWrapper<BaseProduct> w = new LambdaQueryWrapper<>();
+        if (StrUtil.isNotBlank(keyword)) {
+            w.and(q -> q.like(BaseProduct::getProductCode, keyword)
+                    .or().like(BaseProduct::getProductName, keyword)
+                    .or().like(BaseProduct::getBarcode, keyword)
+                    .or().like(BaseProduct::getSpec, keyword)
+                    .or().like(BaseProduct::getMaterial, keyword));
+        }
+        w.orderByDesc(BaseProduct::getId);
+        return productMapper.selectPage(p, w);
+    }
+
     public Map<String, Object> detail(Long id) {
         BaseProduct p = productMapper.selectById(id);
         if (p == null) throw BizException.of("商品不存在");

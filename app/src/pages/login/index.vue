@@ -42,7 +42,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { navigateTo } from '../../utils/nav.js'
-const form = reactive({ username: 'admin', password: 'admin123' })
+const form = reactive({ username: '', password: '' })
 
 // 服务器设置
 const showServer = ref(false)
@@ -82,6 +82,14 @@ async function onLogin() {
     // 保存权限和菜单
     localStorage.setItem('erp_permissions', JSON.stringify(r.permissions || []))
     localStorage.setItem('erp_menus', JSON.stringify(r.menus || []))
+    // 二次拉取 /me 确保菜单数据最新 (兼容老登录)
+    try {
+      const me = await api.me()
+      const userObj = me.data || me
+      localStorage.setItem('erp_user', JSON.stringify(userObj))
+      localStorage.setItem('erp_menus', JSON.stringify(userObj.menus || r.menus || []))
+      localStorage.setItem('erp_permissions', JSON.stringify(userObj.permissions || r.permissions || []))
+    } catch (e) { /* 忽略, 使用登录返回数据 */ }
     navigateTo('/pages/dashboard/index')
   } catch (e) {
     console.error('[LOGIN] 登录失败:', e)

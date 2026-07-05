@@ -300,6 +300,21 @@ mvn test                          # 全量
 - **App 端商品搜索修复** — 之前用 `stockPage` 查商品 (因无库存记录查不到), 改用 `productPage` 直接查商品表
 - **涉及页面**: 手机开单 (`sales/quick.vue`)、扫码入库/出库、盘点 全部统一用 productPage
 
+### v1.0.9 (2026-07-05)
+- **生产加工单支持编辑** — 后端新增 `@PutMapping` 更新端点和 `PrdOrderService.update()` 方法 (仅草稿状态可编辑), PC 端 Order.vue 操作列增加"编辑"按钮
+- **生产单打印显示 BOM 备注** — PrdOrder 实体新增 `bomRemark` transient 字段, PrdOrderService.detail() 注入 BOM 备注, 打印模板合并显示生产单 + BOM 备注
+- **生产单打印去掉数字尾随 0** — prd_order.ftl 模板新增 `<#macro trimNum>` 自定义宏, 格式化 `planQty/actualQty/goodQty/lossQty/lossRate` 等数字字段
+- **App 端扫码入库真实提交** — 之前 onSubmit() 只是显示 toast, 现在真正调用 `api.purchaseReceiptAdd()` 创建入库单 (含 supplierId/details/warehouseId)
+- **App 端扫码入库供应商选择** — 新增供应商选择器 (从 `/base/supplier/list` 加载, 自建模态弹窗)
+- **App 端新增 `/base/product/app-search` 接口** — App 专用商品搜索, 不检查 `base:product:list` 权限 (影响扫描入库/出库/开单/盘点)
+- **App 端登录表单清空** — 之前默认填 `admin/admin123`, 现在为空白让用户自己输入
+- **App 端 tabBar 改为 4 项** — 工作台 / 库存 / 扫码入库 / 我的
+- **App 端缓存修复** — 强制从 localStorage 重新读取用户数据, 避免先登录 admin 再登普通账号显示全部功能的问题
+- **App 端功能按 PC 端菜单权限过滤** — 工作台快捷功能从后端 `/me` 返回的 `menus` 动态映射, 管理员看全部, 普通用户看 PC 端分配的菜单
+- **Windows 桌面端安装包** — `工业ERP-Setup-1.0.2-Win64.exe` (74 MB, NSIS 安装器, 含 Vue 静态资源)
+- **Mac 桌面端安装包** — `工业ERP-1.0.2-Mac-arm64.dmg` (91 MB, Apple Silicon, 含 Vue 静态资源)
+- **生产单打印支持 App 端规格属性** — 厚度/宽度/克重/材质/克重统一从 `base_product` JOIN 显示
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
 - 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)

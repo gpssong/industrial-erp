@@ -98,8 +98,9 @@ export const api = {
   customerList: () => request({ url: '/base/customer/list' }),
   // 供应商
   supplierList: () => request({ url: '/base/supplier/list' }),
-  // 商品
+  // 商品 (App 端用 appSearch,PC 端用 page)
   productPage: (params) => request({ url: '/base/product/page', data: params }),
+  productAppSearch: (keyword) => request({ url: '/base/product/app-search', data: { keyword } }),
   productDetail: (id) => request({ url: '/base/product/' + id }),
   // 销售
   salesOrderPage: (params) => request({ url: '/sales/order/page', data: params }),

@@ -35,6 +35,9 @@ public class PrdOrderController {
     @PostMapping
     public R<Void> add(@RequestBody PrdOrder o) { service.add(o); return R.ok(); }
 
+    @PutMapping
+    public R<Void> update(@RequestBody PrdOrder o) { service.update(o); return R.ok(); }
+
     @PostMapping("/{id}/release")
     public R<Long> release(@PathVariable Long id) { return R.ok(service.release(id)); }
 

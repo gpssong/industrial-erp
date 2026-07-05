@@ -92,7 +92,7 @@ public class PrdOrderService {
 
     public PrdOrder detail(Long id) {
         PrdOrder order = orderMapper.selectById(id);
-        // JOIN 注入商品规格属性 (打印模板用)
+        // JOIN 注入商品规格属性 + BOM 备注 (打印模板用)
         if (order != null && order.getProductId() != null) {
             BaseProduct p = productMapper.selectById(order.getProductId());
             if (p != null) {
@@ -101,6 +101,13 @@ public class PrdOrderService {
                 order.setPDensity(p.getDensity());
                 order.setPGramWeight(p.getGramWeight());
                 order.setPMaterial(p.getMaterial());
+            }
+        }
+        // 从 BOM 表取备注
+        if (order != null && order.getBomId() != null) {
+            PrdBom bom = bomService.detail(order.getBomId());
+            if (bom != null && bom.getRemark() != null) {
+                order.setBomRemark(bom.getRemark());
             }
         }
         return order;
@@ -140,6 +147,32 @@ public class PrdOrderService {
             }
         }
         orderMapper.insert(order);
+
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void update(PrdOrder order) {
+        permService.requirePerm("production:order:edit");
+        PrdOrder exist = orderMapper.selectById(order.getId());
+        if (exist == null) throw BizException.of("生产单不存在");
+        if (!Constants.STATUS_DRAFT.equals(exist.getBillStatus())) {
+            throw BizException.of("只能编辑草稿状态的生产单");
+        }
+        if (order.getProductId() != null && exist.getProductId() != order.getProductId()) {
+            BaseProduct p = productMapper.selectById(order.getProductId());
+            if (p != null) {
+                order.setProductCode(p.getProductCode());
+                order.setProductName(p.getProductName());
+                order.setSpec(p.getSpec());
+            }
+        }
+        if (order.getBomId() != null) {
+            PrdBom bom = bomService.detail(order.getBomId());
+            if (bom != null) {
+                order.setBomNo(bom.getBomCode());
+            }
+        }
+        orderMapper.updateById(order);
     }
 
     /**

@@ -1,17 +1,15 @@
-// 权限工具: 检查页面访问权限 + tabBar 动态控制
+// 权限工具：检查页面访问权限 + tabBar 动态控制
 
-// tabBar 与权限的映射
+// tabBar 与权限的映射 (新配置:4 项)
 const TAB_PERMS = {
-  '/pages/dashboard/index': '',  // 工作台: 总能访问
-  '/pages/inventory/query': 'inventory:stock:list',
-  '/pages/sales/quick': 'sales:delivery:list',
-  '/pages/report/index': '',  // 报表: 总能访问
-  '/pages/profile/index': ''   // 我的: 总能访问
+  '/pages/dashboard/index': '',      // 工作台：总能访问
+  '/pages/inventory/query': 'inventory:stock:list',  // 库存
+  '/pages/scan/in': 'purchase:receipt:list',         // 扫码入库
+  '/pages/profile/index': ''          // 我的：总能访问
 }
 
 // 页面与权限的映射 (非 tabBar 页面)
 const PAGE_PERMS = {
-  '/pages/scan/in': 'purchase:receipt:list',
   '/pages/scan/out': 'sales:delivery:list',
   '/pages/count/index': 'inventory:stock:list',
   '/pages/sales/order': 'sales:order:list',
@@ -56,9 +54,8 @@ export function applyTabBar() {
   const tabs = [
     { idx: 0, path: '/pages/dashboard/index', text: '工作台' },
     { idx: 1, path: '/pages/inventory/query', text: '库存', perm: 'inventory:stock:list' },
-    { idx: 2, path: '/pages/sales/quick', text: '开单', perm: 'sales:delivery:list' },
-    { idx: 3, path: '/pages/report/index', text: '报表' },
-    { idx: 4, path: '/pages/profile/index', text: '我的' }
+    { idx: 2, path: '/pages/scan/in', text: '扫码入库', perm: 'purchase:receipt:list' },
+    { idx: 3, path: '/pages/profile/index', text: '我的' }
   ]
   const admin = isAdmin()
   const perms = getPermissions()
@@ -74,7 +71,7 @@ export function applyTabBar() {
   })
 }
 
-// 在 onShow 时调用, 保证页面切换时刷新 tabBar
+// 在 onShow 时调用，保证页面切换时刷新 tabBar
 export function onShowWithPermission() {
   return applyTabBar
 }
