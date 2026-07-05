@@ -23,6 +23,11 @@ UPDATE sys_dept
 SET dept_name = CONVERT(CAST(CONVERT(dept_name USING latin1) AS BINARY) USING utf8)
 WHERE dept_name REGEXP 'Ã|Â|Ä|Å|Æ|Ç|È|É|Ê|Ë|ä|ö|ü';
 
+-- 修复 sys_dept 部门负责人 (v1.0.4+ 显示在右上角, 容易漏)
+UPDATE sys_dept
+SET leader = CONVERT(CAST(CONVERT(leader USING latin1) AS BINARY) USING utf8)
+WHERE leader REGEXP 'Ã|Â|Ä|Å|Æ|Ç|È|É|Ê|Ë|ä|ö|ü';
+
 -- 修复 sys_role 角色名
 UPDATE sys_role
 SET role_name = CONVERT(CAST(CONVERT(role_name USING latin1) AS BINARY) USING utf8)
