@@ -114,6 +114,18 @@ public class PrintDataLoader {
                 // ignore
             }
         }
+        // 注入 BOM 备注 (打印模板 {{bomRemark}})
+        if (order != null && order.getBomId() != null) {
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement ps = conn.prepareStatement("SELECT remark FROM prd_bom WHERE id = ? AND deleted = 0")) {
+                ps.setObject(1, order.getBomId());
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) order.setBomRemark(rs.getString("remark"));
+                }
+            } catch (SQLException e) {
+                // ignore
+            }
+        }
         return order;
     }
 
