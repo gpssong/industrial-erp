@@ -28,8 +28,9 @@
             <el-tag>{{ ({DRAFT:'草稿',RELEASED:'已开工',PRODUCING:'生产中',FINISHED:'已完成',CLOSED:'已关闭'})[row.billStatus] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="450" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="onEdit(row)">编辑</el-button>
             <el-button link type="primary" @click="onPrint(row)">打印</el-button>
             <el-button v-if="row.billStatus==='DRAFT' || row.billStatus==='RELEASED'" link type="primary" @click="onRelease(row)">开工</el-button>
             <el-button v-if="row.billStatus==='RELEASED' || row.billStatus==='PRODUCING'" link type="primary" @click="onFinish(row)">完工</el-button>
@@ -41,8 +42,8 @@
         :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
     </div>
 
-    <!-- 新增弹窗 -->
-    <el-dialog v-model="dialogVisible" title="新增生产单" width="600px" destroy-on-close>
+    <!-- 新增/编辑弹窗 -->
+    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑生产单' : '新增生产单'" width="600px" destroy-on-close>
       <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
         <el-form-item label="BOM" prop="bomId">
           <el-select v-model="form.bomId" placeholder="请选择BOM" filterable style="width:100%" @change="onBomChange">
@@ -203,6 +204,41 @@ function onReset() {
 async function loadBomList() { if (bomList.value.length === 0) bomList.value = (await bomApi.page({ pageNum: 1, pageSize: 999 })).data?.records || [] }
 async function loadWarehouses() { if (warehouses.value.length === 0) warehouses.value = (await warehouseApi.list()).data || [] }
 
+async function onEdit(row) {
+  try {
+    const r = await prdOrderApi.detail(row.id)
+    const d = r.data
+    form.value = {
+      id: d.id,
+      bomId: d.bomId,
+      productId: d.productId,
+      productName: d.productName,
+      productCode: d.productCode,
+      spec: d.spec,
+      unitId: d.unitId,
+      unitName: d.unitName,
+      planQty: d.planQty || 1,
+      lossRate: d.lossRate || 0,
+      workshop: d.workshop || '',
+      warehouseId: d.warehouseId,
+      leader: d.leader || '',
+      startDate: d.startDate ? d.startDate.substring(0, 10) : '',
+      endDate: d.endDate ? d.endDate.substring(0, 10) : '',
+      remark: d.remark || '',
+      thickness: d.thickness,
+      width: d.width,
+      density: d.density,
+      gramWeight: d.gramWeight,
+      material: d.material
+    }
+    await loadBomList()
+    await loadWarehouses()
+    dialogVisible.value = true
+  } catch (e) {
+    ElMessage.error('加载失败：' + e.message)
+  }
+}
+
 async function onAdd() {
   form.value = { bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' }
   await loadBomList()
@@ -239,12 +275,17 @@ async function onSubmit() {
   await formRef.value.validate()
   submitting.value = true
   try {
-    await prdOrderApi.add(form.value)
-    ElMessage.success('新增成功')
+    if (form.value.id) {
+      await prdOrderApi.update(form.value)
+      ElMessage.success('修改成功')
+    } else {
+      await prdOrderApi.add(form.value)
+      ElMessage.success('新增成功')
+    }
     dialogVisible.value = false
     loadData()
   } catch (e) {
-    ElMessage.error(e.message || '新增失败')
+    ElMessage.error(e.message || '提交失败')
   } finally { submitting.value = false }
 }
 

@@ -16,7 +16,7 @@
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",
-    "navigationBarTitleText": "工业ERP",
+    "navigationBarTitleText": "工业 ERP",
     "navigationBarBackgroundColor": "#1e6091",
     "backgroundColor": "#f5f5f5"
   },
@@ -27,8 +27,7 @@
     "list": [
       { "pagePath": "pages/dashboard/index", "text": "工作台" },
       { "pagePath": "pages/inventory/query", "text": "库存" },
-      { "pagePath": "pages/sales/quick", "text": "开单" },
-      { "pagePath": "pages/report/index", "text": "报表" },
+      { "pagePath": "pages/scan/in", "text": "扫码入库" },
       { "pagePath": "pages/profile/index", "text": "我的" }
     ]
   }

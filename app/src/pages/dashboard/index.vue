@@ -34,49 +34,65 @@
 import { ref, computed, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { navigateTo } from '../../utils/nav.js'
-import { applyTabBar } from '../../utils/permission.js'
+import { applyTabBar, isAdmin } from '../../utils/permission.js'
 
 const user = ref({})
 const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, warningCount: 0 })
 const today = new Date().toISOString().substring(0, 10)
 const greeting = ref('您好')
 
-// 所有快捷菜单
-const allMenus = [
-  { path: '/pages/sales/quick', title: '手机开单', icon: '📝', perm: 'sales:delivery:list' },
-  { path: '/pages/scan/in', title: '扫码入库', icon: '📥', perm: 'purchase:receipt:list' },
-  { path: '/pages/scan/out', title: '扫码出库', icon: '📤', perm: 'sales:delivery:list' },
-  { path: '/pages/count/index', title: '外勤盘点', icon: '📋', perm: 'inventory:stock:list' },
-  { path: '/pages/inventory/query', title: '查库存', icon: '📦', perm: 'inventory:stock:list' },
-  { path: '/pages/sales/order', title: '销售订单', icon: '📃', perm: 'sales:order:list' },
-  { path: '/pages/purchase/order', title: '采购订单', icon: '📋', perm: 'purchase:order:list' },
-  { path: '/pages/report/index', title: '经营简报', icon: '📊', perm: '' }
-]
+// PC 端菜单路径 -> App 端页面映射
+const PATH_TO_APP = {
+  '/sales/delivery': { path: '/pages/sales/quick', title: '手机开单', icon: '📝' },
+  '/sales/order': { path: '/pages/sales/order', title: '销售订单', icon: '📃' },
+  '/sales/return': { path: '/pages/scan/out', title: '扫码出库', icon: '📤' },
+  '/purchase/receipt': { path: '/pages/scan/in', title: '扫码入库', icon: '📥' },
+  '/purchase/order': { path: '/pages/purchase/order', title: '采购订单', icon: '📋' },
+  '/purchase/return': { path: '/pages/sales/quick', title: '采购退货', icon: '↩️' },
+  '/inventory/stock': { path: '/pages/inventory/query', title: '查库存', icon: '📦' },
+  '/inventory/ledger': { path: '/pages/inventory/query', title: '库存台账', icon: '📒' },
+  '/production/order': { path: '/pages/count/index', title: '外勤盘点', icon: '📋' },
+  '/report/dashboard': { path: '/pages/report/index', title: '经营简报', icon: '📊' }
+}
 
-// 是否为管理员
-const isAdmin = computed(() => {
-  const u = user.value
-  if (!u) return false
-  if (u.userId === 1 || u.userId === '1' || u.userId === 0 || u.userId === '0') return true
-  if (u.isAdmin === 1 || u.isAdmin === true) return true
-  return (u.roles || []).includes('SUPER_ADMIN')
-})
-
-// 获取用户权限列表
-function getPermissions() {
+// 根据 PC 端分配的菜单权限, 动态生成可见的 App 端快捷功能
+function getServerMenus() {
   try {
-    const raw = uni.getStorageSync('erp_permissions')
-    if (typeof raw === 'string') return JSON.parse(raw)
+    const raw = uni.getStorageSync('erp_menus')
+    if (typeof raw === 'string') return JSON.parse(raw || '[]')
     if (Array.isArray(raw)) return raw
     return []
   } catch (e) { return [] }
 }
 
-// 根据权限过滤可见菜单
 const visibleMenus = computed(() => {
-  if (isAdmin.value) return allMenus
-  const perms = getPermissions()
-  return allMenus.filter(m => !m.perm || perms.includes(m.perm))
+  // 管理员: 显示全部 App 端功能
+  if (isAdmin()) {
+    return [
+      PATH_TO_APP['/sales/delivery'],
+      PATH_TO_APP['/sales/order'],
+      PATH_TO_APP['/inventory/stock'],
+      PATH_TO_APP['/production/order'],
+      PATH_TO_APP['/purchase/receipt'],
+      PATH_TO_APP['/sales/return'],
+      PATH_TO_APP['/report/dashboard'],
+      PATH_TO_APP['/inventory/ledger']
+    ]
+  }
+  // 普通用户: 从 PC 端已分配的菜单中, 映射出 App 端可用功能
+  const serverMenus = getServerMenus()
+  const paths = new Set(serverMenus.map(m => m.path).filter(Boolean))
+  const seen = new Set()
+  const result = []
+  for (const m of serverMenus) {
+    if (!m.path) continue
+    const app = PATH_TO_APP[m.path]
+    if (app && !seen.has(app.path)) {
+      seen.add(app.path)
+      result.push(app)
+    }
+  }
+  return result
 })
 
 function nav(url) {

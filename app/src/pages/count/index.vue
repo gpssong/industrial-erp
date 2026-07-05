@@ -61,7 +61,8 @@ async function searchAndAdd(kw) {
   }
   kw = kw.trim()
   try {
-    const r = await api.productPage({ pageNum: 1, pageSize: 10, keyword: kw })
+    // App 端专用接口，不检查 base:product:list 权限
+const r = await api.productAppSearch(kw)
     if (r && r.records && r.records.length > 0) {
       // 精确匹配: 优先 productCode 或 barcode
       const exact = r.records.find(p => p.productCode === kw || p.barcode === kw)

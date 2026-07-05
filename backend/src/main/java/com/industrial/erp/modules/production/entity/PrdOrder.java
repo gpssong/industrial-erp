@@ -23,6 +23,8 @@ public class PrdOrder {
     private transient BigDecimal pGramWeight;
     @TableField(exist = false)
     private transient String pMaterial;
+    @TableField(exist = false)
+    private transient String bomRemark;
 
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
@@ -151,4 +153,6 @@ public class PrdOrder {
     public void setGramWeight(BigDecimal gramWeight) { this.pGramWeight = gramWeight; }
     public String getMaterial() { return pMaterial; }
     public void setMaterial(String material) { this.pMaterial = material; }
+    public String getBomRemark() { return bomRemark; }
+    public void setBomRemark(String bomRemark) { this.bomRemark = bomRemark; }
 }

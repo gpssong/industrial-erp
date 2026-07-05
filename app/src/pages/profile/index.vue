@@ -1,11 +1,13 @@
 <template>
   <div class="container">
     <div class="card" style="display:flex;align-items:center;gap:12px">
-      <div class="avatar">{{ (user?.nickname || 'U').charAt(0) }}</div>
+      <div class="avatar">{{ avatarChar }}</div>
       <div>
-        <div style="font-size:18px;font-weight:bold">{{ user?.nickname || user?.username }}</div>
+        <div style="font-size:18px;font-weight:bold">{{ displayName }}</div>
         <div class="muted">{{ user?.deptName || '' }}</div>
-        <div class="muted" v-if="isAdmin">管理员</div>
+        <div class="muted" v-if="user?.roles && user.roles.length">
+          {{ user.roles.map(r => roleLabel(r)).join(' / ') }}
+        </div>
       </div>
     </div>
 
@@ -33,17 +35,39 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { navigateTo } from '../../utils/nav.js'
-import { applyTabBar } from '../../utils/permission.js'
+import { applyTabBar, isAdmin } from '../../utils/permission.js'
 
-const user = ref(JSON.parse(localStorage.getItem('erp_user') || '{}'))
+const user = ref({})
 
-const isAdmin = computed(() => {
+// 强制从 localStorage 重新解析 (避免 Capacitor 缓存)
+function loadUser() {
+  try {
+    const raw = localStorage.getItem('erp_user')
+    user.value = raw ? JSON.parse(raw) : {}
+  } catch (e) { user.value = {} }
+}
+
+const displayName = computed(() => {
   const u = user.value
-  if (!u) return false
-  if (u.userId === 1 || u.userId === '1' || u.userId === 0 || u.userId === '0') return true
-  if (u.isAdmin === 1 || u.isAdmin === true) return true
-  return (u.roles || []).includes('SUPER_ADMIN')
+  if (!u) return '未登录'
+  return u.nickname || u.username || '用户'
 })
+
+const avatarChar = computed(() => {
+  return (displayName.value || 'U').charAt(0).toUpperCase()
+})
+
+function roleLabel(r) {
+  const map = {
+    SUPER_ADMIN: '超级管理员',
+    SALES_MGR: '销售经理',
+    PURCHASE_MGR: '采购经理',
+    WAREHOUSE_MGR: '仓库主管',
+    PRODUCTION_MGR: '生产主管',
+    FINANCE: '财务'
+  }
+  return map[r] || r
+}
 
 function onLogout() {
   if (confirm('确定退出登录?')) {
@@ -55,7 +79,10 @@ function onLogout() {
   }
 }
 
-onMounted(() => { applyTabBar() })
+onMounted(() => {
+  loadUser()
+  applyTabBar()
+})
 </script>
 <style scoped>
 .container { padding: 12px; }
