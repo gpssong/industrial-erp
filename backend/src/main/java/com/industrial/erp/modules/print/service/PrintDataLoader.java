@@ -117,6 +117,21 @@ public class PrintDataLoader {
         return order;
     }
 
+    /** 查询商品的 spec 字段 (用于打印回退, 避免生产单快照为空) */
+    public String findProductSpec(Long productId) {
+        if (productId == null) return null;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement("SELECT spec FROM base_product WHERE id = ? AND deleted = 0")) {
+            ps.setObject(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) return rs.getString("spec");
+            }
+        } catch (SQLException e) {
+            // ignore
+        }
+        return null;
+    }
+
     public PurReturn findPurReturn(Long id) {
         PurReturn r = purReturnMapper.selectById(id);
         if (r != null) {

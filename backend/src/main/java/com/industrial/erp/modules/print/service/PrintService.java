@@ -73,10 +73,14 @@ public class PrintService {
         PrdOrder bill = dataLoader.findPrdOrder(id);
         if (bill == null) throw BizException.of("生产单不存在");
         // 生产单无真实明细行，将成品信息作为一行数据传入 (用于用户自定义模板)
+        // 规格/备注等字段综合 PrdOrder + BaseProduct + BOM:
+        //   - spec: 优先 PrdOrder.spec (创建时快照), 缺则实时从商品表取 (避免商品更新后打印仍显示旧值)
+        //   - remark: 优先 PrdOrder.remark, 缺则 PrdOrder.bomRemark
+        String productSpec = dataLoader.findProductSpec(bill.getProductId());
         java.util.Map<String, Object> prdDetail = new java.util.LinkedHashMap<>();
         prdDetail.put("productName", bill.getProductName());
         prdDetail.put("productCode", bill.getProductCode());
-        prdDetail.put("spec", bill.getSpec());
+        prdDetail.put("spec", StrUtil.isNotBlank(bill.getSpec()) ? bill.getSpec() : (productSpec != null ? productSpec : ""));
         prdDetail.put("unitName", bill.getUnitName());
         prdDetail.put("qty", bill.getPlanQty() != null ? bill.getPlanQty() : BigDecimal.ZERO);
         prdDetail.put("thickness", bill.getThickness() != null ? bill.getThickness() : "—");
@@ -84,9 +88,17 @@ public class PrintService {
         prdDetail.put("density", bill.getDensity() != null ? bill.getDensity() : "—");
         prdDetail.put("gramWeight", bill.getGramWeight() != null ? bill.getGramWeight() : "—");
         prdDetail.put("material", bill.getMaterial() != null ? bill.getMaterial() : "—");
-        prdDetail.put("remark", bill.getRemark() != null ? bill.getRemark() : "");
+        prdDetail.put("remark", pickRemark(bill));
         List<Object> details = java.util.Collections.singletonList(prdDetail);
         return doRender("PRD_ORDER", false, bill, details);
+    }
+
+    /** 优先生产单自身 remark, 缺则 BOM 备注, 缺则空 */
+    private String pickRemark(PrdOrder bill) {
+        if (bill == null) return "";
+        if (StrUtil.isNotBlank(bill.getRemark())) return bill.getRemark();
+        if (StrUtil.isNotBlank(bill.getBomRemark())) return bill.getBomRemark();
+        return "";
     }
 
     public String renderPurReturn(Long id) {

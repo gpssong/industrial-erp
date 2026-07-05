@@ -130,10 +130,30 @@ public class PrintTemplateEngine {
             } catch (Exception e) { return "0"; }
         }
         String val = d != null ? getFieldValue(d, field) : "";
+        // 文本字段 (规格/名称/编码/单位/备注/批次等) 原样返回, 不强制 4 位小数
+        // 避免 "55213341" 这种纯数字规格被错误地显示成 "55213341.0000"
+        if (isTextField(field)) return val;
         return fmtNum(val);
     }
 
-    /** 把字符串格式化为 4 位小数的纯数字串 */
+    /** 文本字段: 不应格式化为数字, 原样输出 */
+    private boolean isTextField(String field) {
+        if (field == null) return false;
+        String f = field.toLowerCase();
+        return f.equals("spec") || f.equals("productname") || f.equals("productcode")
+                || f.equals("customername") || f.equals("customercode")
+                || f.equals("suppliername") || f.equals("suppliercode")
+                || f.equals("warehousename") || f.equals("unitname")
+                || f.equals("remark") || f.equals("batchno") || f.equals("snno") || f.equals("qrcode")
+                || f.equals("barcode") || f.equals("material") || f.equals("colorno")
+                || f.equals("model") || f.equals("workshop") || f.equals("leader")
+                || f.equals("billno") || f.equals("bomno") || f.equals("orderno")
+                || f.equals("buyer") || f.equals("buyer_name") || f.equals("salesman")
+                || f.equals("address") || f.equals("phone") || f.equals("contact_person")
+                || f.equals("billstatus") || f.contains("name") || f.contains("no");
+    }
+
+    /** 把字符串格式化为 4 位小数的纯数字串 (仅当值看起来是数字; 文本字段如规格/编码/名称原样返回) */
     public String fmtNum(String val) {
         if (val == null || val.isEmpty()) return "";
         try { return new BigDecimal(val).setScale(4, RoundingMode.HALF_UP).toPlainString(); }
