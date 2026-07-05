@@ -315,6 +315,15 @@ mvn test                          # 全量
 - **Mac 桌面端安装包** — `工业ERP-1.0.2-Mac-arm64.dmg` (91 MB, Apple Silicon, 含 Vue 静态资源)
 - **生产单打印支持 App 端规格属性** — 厚度/宽度/克重/材质/克重统一从 `base_product` JOIN 显示
 
+### v1.1.1 (2026-07-05) — 群晖 NAS 部署热修复
+- **CORS 白名单补全** — `http://home.93gushi.com:8088` (Electron 客户端登录 403 修复)
+- **数据备份修复** — Dockerfile 安装 `default-mysql-client` 提供 mysqldump; BackupService 增加 `-h/-P` 跨容器连接配置 (`ERP_DB_HOST=mysql` / `ERP_DB_PORT=3306`)
+- **v1.0.4 schema 漂移迁移** — 新增 `sql/11_add_template_config.sql` (`sys_print_template.template_config` 列 + `PRICE_TAX_SEPARATION` 配置项) 与 `sql/12_add_gram_weight.sql` (`base_product.gram_weight` 列), 并同步到基线 `01_schema_system.sql` / `02_schema_base.sql`
+- **历史双重 UTF-8 乱码修复** — `sql/fix_double_utf8_mojibake.sql` + `scripts/scan_mojibake.sh` 一键生成/批量修复旧数据 (sys_menu / sys_dept / sys_role / sys_user / base_product / base_customer / base_supplier / base_warehouse / pur_order / sal_order), 修复后右上角部门负责人/菜单名等中文显示恢复正常
+- **生产单打印规格/备注修复** — `PrintService.renderPrdOrder` 优先取 PrdOrder.spec 快照, 缺则回落到 `PrintDataLoader.findProductSpec` 实时从 `base_product` 取; `printTemplateEngine.isTextField` 白名单 + `isNumericField` 判断, 避免纯数字规格被错误格式化为 `55213341.0000`
+- **生产单打印显示 BOM 备注** — `PrintDataLoader.findPrdOrder` JOIN `prd_bom.remark` → PrdOrder.bomRemark; 渲染层 `prdDetail` Map.put("bomRemark", ...); `isTextField` 增加 `f.contains("remark")`, 避免 `13413445.0000` 的错误格式化
+- **打印模板编辑面板补全** — `pc-web` 生产单字段参考列表新增 `BOM 备注 (bomRemark)` 可点击插入, 与 `生产单备注 (remark)` 拆分为两个独立条目
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
 - 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)
