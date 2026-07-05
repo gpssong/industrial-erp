@@ -230,7 +230,7 @@ const allFields = {
     { value: 'thickness', label: '长度' }, { value: 'width', label: '宽度' }, { value: 'density', label: '厚度' },
     { value: 'gramWeight', label: '克重' }, { value: 'material', label: '材质' },
     // 备注
-    { value: 'remark', label: '备注' },
+    { value: 'remark', label: '生产单备注' }, { value: 'bomRemark', label: 'BOM备注' },
   ],
   // 明细（通用）
   detail: [
