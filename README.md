@@ -341,6 +341,43 @@ mvn test                          # 全量
 - **NAS 清理**: 释放 2.6GB 孤儿镜像 + 1.62GB 构建缓存, 删孤儿容器 `vibrant_euler` / `epic_benz`
 - **前端文档**: `docs/21_操作日志与登录日志功能.md` + `docs/22_自服务修改密码与前端调优.md`
 
+### v1.1.3 (2026-07-06) — 安全加固 + 健壮性修复
+
+**接口鉴权 (CVE 级)**
+- `/print/**` — 移除 SaToken 白名单, 类级 `@SaCheckPermission("print:use")`, 匿名访问拿不到单据 HTML
+- `/report/**` — 类级 `@SaCheckPermission("report:view")`, dashboard/salesSummary 等经营数据需授权
+- `/system/upload/file` — 类级 `@SaCheckLogin` + 后缀白名单移除 `.jsp`/`.html`/`.htm`/`.svg`(XSS 载荷 + 未鉴权上传)
+- `/system/backup/{manual,restore,delete}` — `@SaCheckRole("admin")`, 仅 admin 可恢复数据库; `page/list` 改为 `@SaCheckLogin`
+
+**事务补全**
+- `PurReceiptService.check()` 加 `@Transactional(rollbackFor = Exception.class)` — 4 写无事务, 中途挂会库存已增但订单未收
+- `FinArapController.cash` 加 `@Transactional(rollbackFor = Exception.class)` — 收付款 + 现金流水须同成功同失败
+
+**NPE 防御 + 日志**
+- `PrdOrderService:279` + `OutsourceService:92, 143` — `wh.getWarehouseName()` 加 null 保护(成品入库仓库被删不会崩)
+- `AuthService:90` — `Integer.parseInt(failCount)` 包 try-catch, Redis 注入非数字不会阻塞登录
+- `PrintDataLoader` — `catch (Exception ignore) {}` 改 `log.warn(..., e)`, 数据缺失不再静默
+
+**前端健壮性 (13 处)**
+- `request.js` — 删生产环境 `console.log` 噪音; 非 JSON 响应(502 HTML 页)不崩; 401 跳 `/login?redirect=<原路径>`, 登录后跳回; 网络错误文案按 `err.code` 区分
+- `Login.vue` — 登录成功读 `redirect` query 跳回原页
+- `MainLayout.vue` — avatar fallback `'U'` → `'用户'`
+- 8 处 catch 改为 `ElMessage.error(e.message || ...)` 不再吞错误
+- 11 处删除/保存加 `try/catch` 用户感知到失败
+
+**CORS 默认域补全 (前置提交 bfc3a87)**
+- `docker-compose.yml` `backend.environment` 新增 `ERP_CORS_ALLOWED_ORIGINS` 声明, 默认值含 `http://home.93gushi.com:8088` 等生产域
+- `request.js` 拦截器对 HTTP 4xx/5xx 多打 `[HTTP_ERR] status url | code | msg`, 便于排查"Failed to load resource"类纯浏览器原生错误
+
+**升级注意**
+- **必须** 跑 `sql/seed/14_v113_permissions.sql` seed SQL — 给 admin 自动勾 `print:use` / `report:view`, 否则现有 admin 会失去打印/报表权限
+- seed 给所有内置业务角色 (SUPER_ADMIN / PURCHASE_MGR / SALES_MGR / WAREHOUSE_MGR / PRODUCTION_MGR / FINANCE) 自动绑定新权限
+- 升级后建议 admin 在 角色管理 review 自定义角色
+
+**部署文档**
+- `sql/seed/14_v113_permissions.sql` — 权限 seed
+- `docs/20_v111_部署热修复专题.md` — 第 8 章 v1.1.3 安全与事务修复 (新增)
+
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
 - 菜单/按钮/数据范围三级权限 (SCOPE_ALL / SCOPE_DEPT_SUB / SCOPE_DEPT / SCOPE_SELF)
