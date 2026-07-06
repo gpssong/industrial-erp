@@ -164,11 +164,13 @@ cd android && ./gradlew assembleDebug  # 构建 debug APK
 
 ### 系统管理 ✅
 - 用户/部门/角色/菜单 ✅ 按钮权限/数据范围
-- **系统设置 (el-tabs 三标签页)**
+- **右上角下拉: 修改密码 / 退出登录** ✅ — 用户自助改密码(校验旧密码, ≥6 位)
+- **系统设置 (el-tabs 四标签页)**
   - 系统参数 ✅ — 含**价税分离开关**，影响采购/销售/生产/入库单据的显示
   - **打印模板** ✅ — 支持销售出库/采购入库/生产单，自定义 `{{field}}` 文本插值 + `{{#details}}` 明细循环，实时预览
-  - **数据备份** ✅ — 自动备份 + 手动备份
-- 操作日志/数据字典
+  - **数据备份** ✅ — 自动备份 + 手动备份 + 90 天前清理
+  - **操作日志** ✅ — 含登录日志子 tab; 删除操作存整对象 JSON 快照(主子表), "查看快照"弹窗
+- 数据字典
 
 ### 基础资料 ✅
 - 商品(厚度/幅宽/密度/色号/批次) + 多单位换算
@@ -323,6 +325,21 @@ mvn test                          # 全量
 - **生产单打印规格/备注修复** — `PrintService.renderPrdOrder` 优先取 PrdOrder.spec 快照, 缺则回落到 `PrintDataLoader.findProductSpec` 实时从 `base_product` 取; `printTemplateEngine.isTextField` 白名单 + `isNumericField` 判断, 避免纯数字规格被错误格式化为 `55213341.0000`
 - **生产单打印显示 BOM 备注** — `PrintDataLoader.findPrdOrder` JOIN `prd_bom.remark` → PrdOrder.bomRemark; 渲染层 `prdDetail` Map.put("bomRemark", ...); `isTextField` 增加 `f.contains("remark")`, 避免 `13413445.0000` 的错误格式化
 - **打印模板编辑面板补全** — `pc-web` 生产单字段参考列表新增 `BOM 备注 (bomRemark)` 可点击插入, 与 `生产单备注 (remark)` 拆分为两个独立条目
+
+### v1.1.2 (2026-07-06) — 操作日志 + 自服务修改密码
+- **系统设置 → 操作日志 tab** (含登录日志子 tab)
+  - 后端: `SysLoginLog` 实体/Mapper/Controller 完整化(原是返回空分页的空壳), `AuthService.login` 写登录成功/失败日志(含 IP + UA 解析的浏览器/系统)
+  - 后端: `OperLogEvent` + `OperLogPublisher` + `OperLogEventListener` 用 ApplicationEventPublisher 实现真正异步写库(原 `@Async` 自身调用不生效已修)
+  - 后端: `sys_oper_log` 表加 `snapshot_json LONGTEXT` 字段(ALTER TABLE 已跑), 删除前存整对象 + 子表完整 JSON
+  - 后端: 17 个 `service.delete()` 全部改 `mapper.update set deleted=1` 软删除 + `@Transactional` + 写快照, 顺便修 `SalOrderService.delete` 不级联删 detail 的 bug
+  - 前端: `OperationLog.vue` 双 tab (操作日志 + 登录日志) + JSON 弹窗 + 清理 90 天前按钮
+- **右上角"修改密码"按钮**
+  - 后端: `PUT /api/system/user/me/password` — 用户改自己密码, 校验旧密码, 强校验"新密码不能与原密码相同"
+  - 前端: `MainLayout.vue` dropdown 加 🔑 修改密码项(在退出登录之上), 弹窗输入, 改成功后强制登出重新登录
+- **ResizeObserver 警告静默** — `pc-web/src/main.js` 全局过滤 `console.error` + `window.onerror` 里包含 "ResizeObserver loop" 的消息(无害但污染 console)
+- **安全加固**: `application.yml` 移除 `erp_root_pwd` 默认兜底, CORS 默认仅 localhost; `docker-compose.yml` 用 `:?` 必填语法; `backup.sh`/`restore.sh` 从 `.env` 读 `MYSQL_ROOT_PASSWORD`(不再硬编码)
+- **NAS 清理**: 释放 2.6GB 孤儿镜像 + 1.62GB 构建缓存, 删孤儿容器 `vibrant_euler` / `epic_benz`
+- **前端文档**: `docs/21_操作日志与登录日志功能.md` + `docs/22_自服务修改密码与前端调优.md`
 
 ## 🔒 安全
 - Sa-Token (JWT) + Redis 分布式会话
