@@ -72,6 +72,14 @@ service.interceptors.response.use(res => {
     handle401()
     return Promise.reject(err)
   }
+  // HTTP 层 403/500 等: 把完整 URL / status / 后端 R.msg 都打到 console,
+  // 便于排查 "Failed to load resource" 类的纯浏览器原生错误 (例如反代层 403)
+  if (err.response) {
+    const url = (err.config?.baseURL || '') + (err.config?.url || '')
+    const code = err.response.data?.code
+    const msg = err.response.data?.msg || err.response.data?.message
+    console.error('[HTTP_ERR]', err.response.status, url, '| code:', code, '| msg:', msg)
+  }
   ElMessage.error(err.message?.includes('Network') ? '无法连接服务器, 请在登录页底部「服务器连接设置」中检查 API 地址' : (err.message || '操作失败'))
   return Promise.reject(err)
 })
