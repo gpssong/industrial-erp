@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -43,6 +44,7 @@ public class BaseCustomerService {
 
     public BaseCustomer detail(Long id) { return mapper.selectById(id); }
 
+    @OperLog(module="客户管理", businessType="ADD", saveParam=true)
     public void add(BaseCustomer c) {
         permService.requirePerm("base:customer:add");
         if (c.getStatus() == null) c.setStatus(1);
@@ -52,6 +54,7 @@ public class BaseCustomerService {
         mapper.insert(c);
     }
 
+    @OperLog(module="客户管理", businessType="EDIT", saveParam=true)
     public void update(BaseCustomer c) {
         permService.requirePerm("base:customer:edit");
         mapper.updateById(c);

@@ -12,6 +12,7 @@ import com.industrial.erp.modules.inventory.service.StockService;
 import com.industrial.erp.modules.production.entity.PrdFinishedIn;
 import com.industrial.erp.modules.production.mapper.PrdFinishedInMapper;
 import com.industrial.erp.utils.BillNoGenerator;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,7 @@ public class PrdFinishedInService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="成品入库", businessType="ADD", saveParam=true)
     public void add(PrdFinishedIn in) {
         permService.requirePerm("production:finished-in:add");
         if (in.getBillDate() == null) in.setBillDate(LocalDate.now());

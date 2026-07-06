@@ -8,6 +8,7 @@ import com.industrial.erp.modules.production.entity.PrdBom;
 import com.industrial.erp.modules.production.entity.PrdBomDetail;
 import com.industrial.erp.modules.production.mapper.PrdBomDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdBomMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
@@ -52,6 +53,7 @@ public class PrdBomService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="BOM清单", businessType="ADD", saveParam=true)
     public void add(PrdBom bom) {
         permService.requirePerm("production:bom:add");
         if (bom.getStatus() == null) bom.setStatus(1);
@@ -63,6 +65,7 @@ public class PrdBomService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="BOM清单", businessType="EDIT", saveParam=true)
     public void update(PrdBom bom) {
         permService.requirePerm("production:bom:edit");
         bomMapper.updateById(bom);

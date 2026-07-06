@@ -13,6 +13,7 @@ import com.industrial.erp.modules.inventory.entity.InvCheckDetail;
 import com.industrial.erp.modules.inventory.mapper.InvCheckDetailMapper;
 import com.industrial.erp.modules.inventory.mapper.InvCheckMapper;
 import com.industrial.erp.utils.BillNoGenerator;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +62,7 @@ public class InvCheckService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="库存盘点", businessType="ADD", saveParam=true)
     public void add(InvCheck check) {
         permService.requirePerm("inventory:check:add");
         if (check.getBillDate() == null) check.setBillDate(LocalDate.now());

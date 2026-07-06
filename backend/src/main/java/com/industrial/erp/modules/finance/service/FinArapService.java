@@ -3,6 +3,7 @@ package com.industrial.erp.modules.finance.service;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.modules.finance.entity.FinArap;
 import com.industrial.erp.modules.finance.mapper.FinArapMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.entity.PurReceiptDetail;
 import com.industrial.erp.modules.purchase.entity.PurReturn;
@@ -103,6 +104,7 @@ public class FinArapService {
     }
 
     /** 核销: 收/付款单 -> 应收/应付 */
+    @OperLog(module="应收应付", businessType="EDIT", saveParam=true)
     public void writeoff(Long arapId, BigDecimal amount) {
         FinArap origin = arapMapper.selectById(arapId);
         if (origin == null) throw new com.industrial.erp.exception.BizException("应收/应付单不存在");

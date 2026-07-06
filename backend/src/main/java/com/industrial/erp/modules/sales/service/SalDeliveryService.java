@@ -18,6 +18,7 @@ import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
@@ -97,6 +98,7 @@ public class SalDeliveryService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售出库", businessType="ADD", saveParam=true)
     public void add(SalDelivery delivery) {
         permService.requirePerm("sales:delivery:add");
         if (delivery.getBillDate() == null) delivery.setBillDate(LocalDate.now());
@@ -156,6 +158,7 @@ public class SalDeliveryService {
      * 修改销售出库单 (仅 DRAFT 状态可改)
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售出库", businessType="EDIT", saveParam=true)
     public void update(SalDelivery delivery) {
         permService.requirePerm("sales:delivery:edit");
         SalDelivery origin = deliveryMapper.selectById(delivery.getId());

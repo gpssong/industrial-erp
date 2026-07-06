@@ -10,6 +10,7 @@ import com.industrial.erp.modules.inventory.entity.InvTransferDetail;
 import com.industrial.erp.modules.inventory.mapper.InvTransferDetailMapper;
 import com.industrial.erp.modules.inventory.mapper.InvTransferMapper;
 import com.industrial.erp.utils.BillNoGenerator;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +43,7 @@ public class InvTransferService {
     private final PermissionService permService;
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="库存调拨", businessType="ADD", saveParam=true)
     public void add(InvTransfer transfer) {
         permService.requirePerm("inventory:transfer:add");
         if (transfer.getBillDate() == null) transfer.setBillDate(LocalDate.now());

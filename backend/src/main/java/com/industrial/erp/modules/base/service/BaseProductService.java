@@ -9,6 +9,7 @@ import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseProductUnit;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseProductUnitMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -79,6 +80,7 @@ public class BaseProductService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="商品管理", businessType="ADD", saveParam=true)
     public void add(BaseProduct p, List<BaseProductUnit> units) {
         permService.requirePerm("base:product:add");
         // 检查是否有同编码的正常记录
@@ -99,6 +101,7 @@ public class BaseProductService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="商品管理", businessType="EDIT", saveParam=true)
     public void update(BaseProduct p, List<BaseProductUnit> units) {
         permService.requirePerm("base:product:edit");
         BaseProduct origin = productMapper.selectById(p.getId());
