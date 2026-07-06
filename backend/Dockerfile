@@ -1,15 +1,15 @@
-# Multi-stage build for Spring Boot ERP backend
-# 使用腾讯云镜像源, 绕开飞牛 docker.fnnas.com 的 401 问题
-FROM mirror.ccs.tencentyun.com/library/maven:3.9-eclipse-temurin-17 AS builder
+# 多阶段: Maven 编译 + 运行镜像分离
+# 注: 镜像源从 2026-04 改用 maven.aliyun.com (腾讯云镜像已下线)
+FROM maven:3.9-eclipse-temurin-17 AS builder
 WORKDIR /app
 COPY pom.xml .
 RUN mvn -B -q dependency:go-offline
 COPY src ./src
 RUN mvn -B -q -DskipTests clean package
 
-FROM mirror.ccs.tencentyun.com/library/eclipse-temurin:17-jre
+FROM eclipse-temurin:17-jre
 WORKDIR /opt/app
-COPY --from=builder /app/target/industrial-erp.jar app.jar
+COPY --from=builder /app/target/industrial-erp-*.jar app.jar
 EXPOSE 8080
 # 数据备份功能依赖 mysqldump / mysql 客户端 (基础镜像不含)
 # 持久化安装: 镜像构建时一次安装, 容器内随时可用
