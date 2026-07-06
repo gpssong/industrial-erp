@@ -341,6 +341,20 @@ mvn test                          # 全量
 - **NAS 清理**: 释放 2.6GB 孤儿镜像 + 1.62GB 构建缓存, 删孤儿容器 `vibrant_euler` / `epic_benz`
 - **前端文档**: `docs/21_操作日志与登录日志功能.md` + `docs/22_自服务修改密码与前端调优.md`
 
+### v1.1.4 (2026-07-06) — 操作日志补全
+
+**根因**
+- v1.1.2 引入的 `OperLogAspect` 通过 `@annotation(@OperLog)` 截获,但业务 Service 没有任何方法标了 `@OperLog`,所以切面从未触发,`sys_oper_log` 仅有 3 条删除日志(`publishDeleteSnapshot` 手动发布)。登录日志 (`AuthService.recordLogin`) 写库正常,与乱码无关。
+
+**修复**
+- 全量扫描 17 个业务 Service,给 `add` / `update` / `edit` / `save` / `import` / `assign` 等写操作批量加 `@OperLog(module="...", businessType="ADD" 或 "EDIT")`
+- 跳过 `delete` (已有 `publishDeleteSnapshot`) 和 `updatePassword` / `changeOwnPassword` / `resetPassword` (敏感)
+- 覆盖模块: 商品/客户/供应商/仓库/单位/采购订单/采购入库/采购退货/销售订单/销售出库/销售退货/库存调拨/库存盘点/生产订单/BOM/领料/成品入库/应收应付/外协加工
+- 写操作日志现在能正常累积,删除操作依然带完整 JSON 快照
+
+**升级**
+- 仅代码改动,无 SQL 迁移。重新构建后端 jar,重启容器即可
+
 ### v1.1.3 (2026-07-06) — 安全加固 + 健壮性修复
 
 **接口鉴权 (CVE 级)**
