@@ -15,6 +15,7 @@ import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.common.Constants;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -60,6 +61,7 @@ public class FinArapController {
     /**
      * 收款 / 付款
      */
+    @Transactional(rollbackFor = Exception.class)
     @PostMapping("/cash")
     public R<Void> cash(@RequestBody FinCashFlow flow) {
         if ("RECEIPT".equals(flow.getBillType())) permService.requirePerm("finance:receipt:add");

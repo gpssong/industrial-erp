@@ -90,9 +90,10 @@ public class OutsourceService {
         if (!Constants.STATUS_DRAFT.equals(o.getBillStatus())) throw BizException.of("状态不正确");
         List<OutIssueDetail> details = issueDetailMapper.selectByIssueId(id);
         BaseWarehouse wh = warehouseMapper.selectById(o.getWarehouseId());
+        String whName = wh != null ? wh.getWarehouseName() : "";
         for (OutIssueDetail d : details) {
             stockService.outStock(Constants.LEDGER_PROD_OUT, o.getId(), o.getBillNo(), d.getId(),
-                    o.getWarehouseId(), wh.getWarehouseName(), null, null,
+                    o.getWarehouseId(), whName, null, null,
                     d.getProductId(), d.getUnitId(), d.getUnitName(), d.getBatchNo(),
                     d.getQty(), d.getPrice(), o.getBillNo(),
                     o.getSupplierId(), null, "委外发料 " + o.getBillNo());
@@ -141,10 +142,11 @@ public class OutsourceService {
         if (!Constants.STATUS_DRAFT.equals(in.getBillStatus())) throw BizException.of("状态不正确");
         List<OutProcessingInDetail> details = piDetailMapper.selectByPiId(id);
         BaseWarehouse wh = warehouseMapper.selectById(in.getWarehouseId());
+        String whName = wh != null ? wh.getWarehouseName() : "";
         for (OutProcessingInDetail d : details) {
             // 入库 (按材料价入库, 加工费单独结算)
             stockService.inStock(Constants.LEDGER_PROD_IN, in.getId(), in.getBillNo(), d.getId(),
-                    in.getWarehouseId(), wh.getWarehouseName(), null, null,
+                    in.getWarehouseId(), whName, null, null,
                     d.getProductId(), d.getUnitId(), d.getUnitName(), d.getBatchNo(),
                     d.getQty(), d.getPrice(), in.getBillNo(),
                     in.getSupplierId(), null, "委外入库 " + in.getBillNo());
