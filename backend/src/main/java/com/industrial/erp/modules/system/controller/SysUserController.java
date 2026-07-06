@@ -59,6 +59,18 @@ public class SysUserController {
         return R.ok();
     }
 
+    /**
+     * 当前登录用户改自己的密码 — 需传 {oldPassword, newPassword}.
+     * 注意: 这个路径必须在 /{id}... 之前注册, 但实际 @PutMapping("/me/password")
+     * 是字面量不会跟 @PathVariable 冲突.
+     */
+    @Operation(summary = "改自己的密码")
+    @PutMapping("/me/password")
+    public R<Void> changeMyPassword(@RequestBody java.util.Map<String, String> body) {
+        userService.changeOwnPassword(body.get("oldPassword"), body.get("newPassword"));
+        return R.ok();
+    }
+
     @Operation(summary = "删除")
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) {
