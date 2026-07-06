@@ -13,6 +13,7 @@ import com.industrial.erp.modules.sales.entity.SalOrderDetail;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalOrderMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
@@ -68,6 +69,7 @@ public class SalOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售订单", businessType="ADD", saveParam=true)
     public void add(SalOrder order) {
         permService.requirePerm("sales:order:add");
         if (order.getBillDate() == null) order.setBillDate(LocalDate.now());
@@ -126,6 +128,7 @@ public class SalOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售订单", businessType="EDIT", saveParam=true)
     public void update(SalOrder order) {
         permService.requirePerm("sales:order:edit");
         BaseCustomer c = customerMapper.selectById(order.getCustomerId());

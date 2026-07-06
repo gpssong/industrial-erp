@@ -22,6 +22,7 @@ import com.industrial.erp.modules.purchase.mapper.PurOrderDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurOrderMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
@@ -98,6 +99,7 @@ public class PurReceiptService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购入库", businessType="ADD", saveParam=true)
     public void add(PurReceipt receipt) {
         permService.requirePerm("purchase:receipt:add");
         if (receipt.getBillDate() == null) receipt.setBillDate(LocalDate.now());
@@ -148,6 +150,7 @@ public class PurReceiptService {
      * 修改入库单 (仅 DRAFT 状态可改)
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购入库", businessType="EDIT", saveParam=true)
     public void update(PurReceipt receipt) {
         permService.requirePerm("purchase:receipt:edit");
         PurReceipt origin = receiptMapper.selectById(receipt.getId());

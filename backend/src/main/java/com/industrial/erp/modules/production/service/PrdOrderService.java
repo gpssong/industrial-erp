@@ -21,6 +21,7 @@ import com.industrial.erp.modules.production.mapper.PrdFinishedInMapper;
 import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
@@ -119,6 +120,7 @@ public class PrdOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="生产加工单", businessType="ADD", saveParam=true)
     public void add(PrdOrder order) {
         permService.requirePerm("production:order:add");
         if (order.getBillDate() == null) order.setBillDate(LocalDate.now());
@@ -156,6 +158,7 @@ public class PrdOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="生产加工单", businessType="EDIT", saveParam=true)
     public void update(PrdOrder order) {
         permService.requirePerm("production:order:edit");
         PrdOrder exist = orderMapper.selectById(order.getId());

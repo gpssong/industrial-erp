@@ -19,6 +19,7 @@ import com.industrial.erp.modules.sales.mapper.SalReturnMapper;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
 import org.slf4j.Logger;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -78,6 +79,7 @@ public class SalReturnService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售退货", businessType="ADD", saveParam=true)
     public void add(SalReturn ret) {
         permService.requirePerm("sales:return:add");
         if (ret.getBillDate() == null) ret.setBillDate(LocalDate.now());

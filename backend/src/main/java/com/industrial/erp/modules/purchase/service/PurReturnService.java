@@ -16,6 +16,7 @@ import com.industrial.erp.modules.purchase.entity.PurReturn;
 import com.industrial.erp.modules.purchase.entity.PurReturnDetail;
 import com.industrial.erp.modules.purchase.mapper.PurReturnDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReturnMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
 import org.slf4j.Logger;
@@ -78,6 +79,7 @@ public class PurReturnService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购退货", businessType="ADD", saveParam=true)
     public void add(PurReturn ret) {
         permService.requirePerm("purchase:return:add");
         if (ret.getBillDate() == null) ret.setBillDate(LocalDate.now());

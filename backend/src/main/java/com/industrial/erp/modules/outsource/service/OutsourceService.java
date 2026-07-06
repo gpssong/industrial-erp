@@ -17,6 +17,7 @@ import com.industrial.erp.modules.outsource.mapper.OutIssueMapper;
 import com.industrial.erp.modules.outsource.mapper.OutProcessingInDetailMapper;
 import com.industrial.erp.modules.outsource.mapper.OutProcessingInMapper;
 import com.industrial.erp.utils.BillNoGenerator;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,6 +54,7 @@ public class OutsourceService {
 
     // 委外发料
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="外协加工", businessType="ADD", saveParam=true)
     public void addIssue(OutIssue issue) {
         permService.requirePerm("outsource:issue:add");
         if (issue.getBillDate() == null) issue.setBillDate(LocalDate.now());
@@ -105,6 +107,7 @@ public class OutsourceService {
 
     // 委外入库
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="外协加工", businessType="ADD", saveParam=true)
     public void addProcessingIn(OutProcessingIn in) {
         permService.requirePerm("outsource:pi:add");
         if (in.getBillDate() == null) in.setBillDate(LocalDate.now());

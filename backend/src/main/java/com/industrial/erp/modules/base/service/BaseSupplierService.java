@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseSupplier;
 import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -41,7 +42,9 @@ public class BaseSupplierService {
     }
 
     public BaseSupplier detail(Long id) { return mapper.selectById(id); }
+    @OperLog(module="供应商管理", businessType="ADD", saveParam=true)
     public void add(BaseSupplier s) { permService.requirePerm("base:supplier:add"); if (s.getStatus()==null) s.setStatus(1); mapper.insert(s); }
+    @OperLog(module="供应商管理", businessType="EDIT", saveParam=true)
     public void update(BaseSupplier s) { permService.requirePerm("base:supplier:edit"); mapper.updateById(s); }
     public void delete(Long id) { permService.requirePerm("base:supplier:delete"); BaseSupplier s = mapper.selectById(id); if (s == null) throw BizException.of("供应商不存在或已删除"); mapper.update(null, new LambdaUpdateWrapper<BaseSupplier>().eq(BaseSupplier::getId, id).set(BaseSupplier::getDeleted, 1)); operLogPublisher.publishDeleteSnapshot("供应商管理", String.valueOf(id), s, null); }
 }

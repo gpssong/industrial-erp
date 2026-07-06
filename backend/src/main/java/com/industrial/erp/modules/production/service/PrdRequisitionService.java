@@ -13,6 +13,7 @@ import com.industrial.erp.modules.production.entity.PrdRequisition;
 import com.industrial.erp.modules.production.entity.PrdRequisitionDetail;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
@@ -68,6 +69,7 @@ public class PrdRequisitionService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="生产领料", businessType="ADD", saveParam=true)
     public void add(PrdRequisition req) {
         permService.requirePerm("production:requisition:add");
         if (req.getBillDate() == null) req.setBillDate(LocalDate.now());

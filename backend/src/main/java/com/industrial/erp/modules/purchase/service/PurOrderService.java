@@ -13,6 +13,7 @@ import com.industrial.erp.modules.purchase.entity.PurOrderDetail;
 import com.industrial.erp.modules.purchase.mapper.PurOrderDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurOrderMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
+import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
@@ -68,6 +69,7 @@ public class PurOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购订单", businessType="ADD", saveParam=true)
     public void add(PurOrder order) {
         permService.requirePerm("purchase:order:add");
         if (order.getBillDate() == null) order.setBillDate(LocalDate.now());
@@ -124,6 +126,7 @@ public class PurOrderService {
     }
 
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购订单", businessType="EDIT", saveParam=true)
     public void update(PurOrder order) {
         permService.requirePerm("purchase:order:edit");
         PurOrder origin = orderMapper.selectById(order.getId());
