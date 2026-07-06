@@ -36,9 +36,7 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         // 注意: /auth/setpwd 已从白名单移除, 必须登录并是超管才能调用
                         "/auth/login",
                         "/auth/captcha",
-                        // 打印 (Electron 通过浏览器直接拉取 HTML 渲染)
-                        "/print/**",
-                        // 上传文件
+                        // 上传文件 (上传 API 单独鉴权, 静态资源访问放行)
                         "/system/upload/**",
                         "/upload/**",
                         // 文档/监控 (Knife4j / Actuator)

@@ -15,6 +15,8 @@ import com.industrial.erp.modules.sales.entity.SalReturn;
 import com.industrial.erp.modules.sales.entity.SalReturnDetail;
 import com.industrial.erp.modules.sales.mapper.SalReturnDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalReturnMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -35,6 +37,8 @@ import java.util.List;
  */
 @Component
 public class PrintDataLoader {
+
+    private static final Logger log = LoggerFactory.getLogger(PrintDataLoader.class);
 
     private final DataSource dataSource;
     private final PrdOrderMapper prdOrderMapper;
@@ -111,7 +115,7 @@ public class PrintDataLoader {
                     }
                 }
             } catch (SQLException e) {
-                // ignore
+                log.warn("print data loader lookup failed (product spec)", e);
             }
         }
         // 注入 BOM 备注 (打印模板 {{bomRemark}})
@@ -123,7 +127,7 @@ public class PrintDataLoader {
                     if (rs.next()) order.setBomRemark(rs.getString("remark"));
                 }
             } catch (SQLException e) {
-                // ignore
+                log.warn("print data loader lookup failed (bom remark)", e);
             }
         }
         return order;
@@ -139,7 +143,7 @@ public class PrintDataLoader {
                 if (rs.next()) return rs.getString("spec");
             }
         } catch (SQLException e) {
-            // ignore
+            log.warn("print data loader lookup failed (product spec fallback)", e);
         }
         return null;
     }
@@ -171,7 +175,9 @@ public class PrintDataLoader {
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) r.setWarehouseName(rs.getString(1));
             }
-        } catch (SQLException ignore) {}
+        } catch (SQLException e) {
+            log.warn("print data loader lookup failed (pur return warehouse)", e);
+        }
     }
 
     private void fillWarehouseName(SalReturn r) {
@@ -183,7 +189,9 @@ public class PrintDataLoader {
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) r.setWarehouseName(rs.getString(1));
             }
-        } catch (SQLException ignore) {}
+        } catch (SQLException e) {
+            log.warn("print data loader lookup failed (sal return warehouse)", e);
+        }
     }
 
     public List<PurReceiptDetail> findPurReceiptDetails(Long receiptId) {

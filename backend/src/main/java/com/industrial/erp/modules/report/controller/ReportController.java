@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.report.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.report.mapper.ReportMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,6 +15,7 @@ import java.util.Map;
 @Tag(name = "报表中心")
 @RestController
 @RequestMapping("/report")
+@SaCheckPermission("report:view")
 public class ReportController {
 
     public ReportController(ReportMapper reportMapper) {

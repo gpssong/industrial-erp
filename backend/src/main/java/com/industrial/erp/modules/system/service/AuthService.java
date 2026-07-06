@@ -87,7 +87,13 @@ public class AuthService {
             // 登录失败次数限制
             String limitKey = Constants.REDIS_LOGIN_LIMIT + dto.getUsername();
             String failCount = redis.opsForValue().get(limitKey);
-            if (StrUtil.isNotBlank(failCount) && Integer.parseInt(failCount) >= 5) {
+            int failCountInt = 0;
+            try {
+                failCountInt = Integer.parseInt(failCount);
+            } catch (NumberFormatException ignore) {
+                // Redis 中存储异常值时, 视为 0
+            }
+            if (StrUtil.isNotBlank(failCount) && failCountInt >= 5) {
                 throw BizException.of("登录失败次数过多, 请5分钟后再试");
             }
 

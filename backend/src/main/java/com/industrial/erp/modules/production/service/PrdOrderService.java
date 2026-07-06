@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.inventory.service.StockService;
@@ -276,7 +277,8 @@ public class PrdOrderService {
         // 入库
         String whName = null;
         if (fi.getWarehouseId() != null) {
-            whName = warehouseMapper.selectById(fi.getWarehouseId()).getWarehouseName();
+            BaseWarehouse wh = warehouseMapper.selectById(fi.getWarehouseId());
+            whName = wh != null ? wh.getWarehouseName() : "";
         }
         // 价格 = 归集的成本/良品数
         BigDecimal cost = order.getCostAmount() == null ? BigDecimal.ZERO : order.getCostAmount();
