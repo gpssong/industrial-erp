@@ -14,12 +14,15 @@ import com.industrial.erp.modules.system.entity.SysMenu;
 import com.industrial.erp.modules.system.entity.SysRole;
 import com.industrial.erp.modules.system.entity.SysUser;
 import com.industrial.erp.modules.system.mapper.SysDeptMapper;
+import com.industrial.erp.modules.system.mapper.SysLoginLogMapper;
 import com.industrial.erp.modules.system.mapper.SysMenuMapper;
 import com.industrial.erp.modules.system.mapper.SysRoleMapper;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
+import com.industrial.erp.modules.system.entity.SysLoginLog;
 import com.industrial.erp.modules.system.vo.LoginVO;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.security.SecurityContext;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -37,14 +40,16 @@ public class AuthService {
     private final SysMenuMapper menuMapper;
     private final SysDeptMapper deptMapper;
     private final SysRoleMapper roleMapper;
+    private final SysLoginLogMapper loginLogMapper;
     private final StringRedisTemplate redis;
 
     public AuthService(SysUserMapper userMapper, SysMenuMapper menuMapper, SysDeptMapper deptMapper,
-                       SysRoleMapper roleMapper, StringRedisTemplate redis) {
+                       SysRoleMapper roleMapper, SysLoginLogMapper loginLogMapper, StringRedisTemplate redis) {
         this.userMapper = userMapper;
         this.menuMapper = menuMapper;
         this.deptMapper = deptMapper;
         this.roleMapper = roleMapper;
+        this.loginLogMapper = loginLogMapper;
         this.redis = redis;
     }
 
@@ -63,76 +68,147 @@ public class AuthService {
         return r;
     }
 
-    public LoginVO login(LoginDTO dto) {
-        // 校验图形验证码 (生产环境启用)
-        if (StrUtil.isNotBlank(dto.getCaptchaKey())) {
-            String code = redis.opsForValue().get(Constants.REDIS_LOGIN_LIMIT + "captcha:" + dto.getCaptchaKey());
-            if (code == null) throw BizException.of("验证码已过期");
-            if (!code.equalsIgnoreCase(dto.getCaptchaCode())) throw BizException.of("验证码错误");
-            redis.delete(Constants.REDIS_LOGIN_LIMIT + "captcha:" + dto.getCaptchaKey());
+    public LoginVO login(LoginDTO dto, HttpServletRequest request) {
+        // 解析登录上下文 (IP / UA)
+        String ip = clientIp(request);
+        String ua = request != null ? request.getHeader("User-Agent") : null;
+        String browser = parseBrowser(ua);
+        String os = parseOs(ua);
+
+        try {
+            // 校验图形验证码 (生产环境启用)
+            if (StrUtil.isNotBlank(dto.getCaptchaKey())) {
+                String code = redis.opsForValue().get(Constants.REDIS_LOGIN_LIMIT + "captcha:" + dto.getCaptchaKey());
+                if (code == null) throw BizException.of("验证码已过期");
+                if (!code.equalsIgnoreCase(dto.getCaptchaCode())) throw BizException.of("验证码错误");
+                redis.delete(Constants.REDIS_LOGIN_LIMIT + "captcha:" + dto.getCaptchaKey());
+            }
+
+            // 登录失败次数限制
+            String limitKey = Constants.REDIS_LOGIN_LIMIT + dto.getUsername();
+            String failCount = redis.opsForValue().get(limitKey);
+            if (StrUtil.isNotBlank(failCount) && Integer.parseInt(failCount) >= 5) {
+                throw BizException.of("登录失败次数过多, 请5分钟后再试");
+            }
+
+            SysUser user = userMapper.selectByUsername(dto.getUsername());
+            if (user == null) {
+                incrFail(limitKey);
+                throw new BizException("用户名或密码错误");
+            }
+            if (user.getStatus() == 0) {
+                throw new BizException("账号已停用");
+            }
+            if (!ENCODER.matches(dto.getPassword(), user.getPassword())) {
+                incrFail(limitKey);
+                throw new BizException("用户名或密码错误");
+            }
+
+            // 登录 Sa-Token
+            StpUtil.login(user.getId());
+            StpUtil.getSession().set("username", user.getUsername());
+            StpUtil.getSession().set("isAdmin", user.getIsAdmin());
+            // 修复: 原代码 user.getIsAdmin() == 1 ? 1L : 1L 两个分支相同, 现统一写 DEFAULT_TENANT
+            // 后续接入多租户时, 此处改为读取 user.getTenantId()
+            StpUtil.getSession().set(Constants.CURRENT_TENANT, Constants.DEFAULT_TENANT);
+
+            // 预计算并缓存 data_scope (取多角色中权限最大, 即数字最小)
+            Integer dataScope = computeDataScope(user.getId());
+            if (dataScope != null) {
+                StpUtil.getSession().set(PermissionService.SESSION_DATA_SCOPE, dataScope);
+            }
+
+            // 更新最后登录信息
+            user.setLastLoginTime(LocalDateTime.now());
+            user.setUpdateBy(user.getId());
+            userMapper.updateById(user);
+
+            // 清除失败计数
+            redis.delete(limitKey);
+
+            // 拼装返回
+            LoginVO vo = new LoginVO();
+            vo.setToken(StpUtil.getTokenValue());
+            vo.setUserId(user.getId());
+            vo.setUsername(user.getUsername());
+            vo.setNickname(StrUtil.blankToDefault(user.getNickname(), user.getUsername()));
+            vo.setAvatar(user.getAvatar());
+            vo.setDeptId(user.getDeptId());
+            if (user.getDeptId() != null) {
+                SysDept dept = deptMapper.selectById(user.getDeptId());
+                if (dept != null) vo.setDeptName(dept.getDeptName());
+            }
+            vo.setRoles(userMapper.selectRoleCodesByUserId(user.getId()));
+            vo.setPermissions(userMapper.selectPermsByUserId(user.getId()));
+            vo.setMenus(menuMapper.selectMenusByUserId(user.getId()));
+            vo.setIsAdmin(user.getIsAdmin());
+
+            // 记录登录成功日志
+            recordLogin(dto.getUsername(), 1, "登录成功", ip, browser, os);
+            log.info("用户登录: userId={}, username={}", user.getId(), user.getUsername());
+            return vo;
+        } catch (BizException e) {
+            // 记录登录失败日志 (BizException 携带原始 msg)
+            recordLogin(dto.getUsername(), 0, e.getMessage(), ip, browser, os);
+            throw e;
+        } catch (RuntimeException e) {
+            // 系统异常也记录 (避免失败原因完全丢失)
+            recordLogin(dto.getUsername(), 0, "系统异常: " + e.getMessage(), ip, browser, os);
+            throw e;
         }
+    }
 
-        // 登录失败次数限制
-        String limitKey = Constants.REDIS_LOGIN_LIMIT + dto.getUsername();
-        String failCount = redis.opsForValue().get(limitKey);
-        if (StrUtil.isNotBlank(failCount) && Integer.parseInt(failCount) >= 5) {
-            throw BizException.of("登录失败次数过多, 请5分钟后再试");
+    /**
+     * 写入登录日志 (append-only, 不走事务)
+     */
+    private void recordLogin(String username, int status, String msg, String ip, String browser, String os) {
+        try {
+            SysLoginLog l = new SysLoginLog();
+            l.setUsername(username);
+            l.setIpAddress(ip);
+            l.setBrowser(browser);
+            l.setOs(os);
+            l.setStatus(status);
+            l.setMsg(msg);
+            l.setLoginTime(LocalDateTime.now());
+            loginLogMapper.insert(l);
+        } catch (Exception e) {
+            // 日志写入失败不影响登录主流程
+            log.warn("写入登录日志失败: username={}, err={}", username, e.getMessage());
         }
+    }
 
-        SysUser user = userMapper.selectByUsername(dto.getUsername());
-        if (user == null) {
-            incrFail(limitKey);
-            throw BizException.of("用户名或密码错误");
-        }
-        if (user.getStatus() == 0) {
-            throw BizException.of("账号已停用");
-        }
-        if (!ENCODER.matches(dto.getPassword(), user.getPassword())) {
-            incrFail(limitKey);
-            throw BizException.of("用户名或密码错误");
-        }
+    private String clientIp(HttpServletRequest req) {
+        if (req == null) return null;
+        String ip = req.getHeader("X-Forwarded-For");
+        if (StrUtil.isBlank(ip) || "unknown".equalsIgnoreCase(ip)) ip = req.getHeader("X-Real-IP");
+        if (StrUtil.isBlank(ip) || "unknown".equalsIgnoreCase(ip)) ip = req.getRemoteAddr();
+        return ip;
+    }
 
-        // 登录 Sa-Token
-        StpUtil.login(user.getId());
-        StpUtil.getSession().set("username", user.getUsername());
-        StpUtil.getSession().set("isAdmin", user.getIsAdmin());
-        // 修复: 原代码 user.getIsAdmin() == 1 ? 1L : 1L 两个分支相同, 现统一写 DEFAULT_TENANT
-        // 后续接入多租户时, 此处改为读取 user.getTenantId()
-        StpUtil.getSession().set(Constants.CURRENT_TENANT, Constants.DEFAULT_TENANT);
+    /** 极简 UA 解析: 不引依赖, 仅匹配关键字; 可能为 null. */
+    private String parseBrowser(String ua) {
+        if (ua == null) return null;
+        ua = ua.toLowerCase();
+        if (ua.contains("edg/") || ua.contains("edge")) return "Edge";
+        if (ua.contains("chrome") && !ua.contains("chromium")) return "Chrome";
+        if (ua.contains("safari") && !ua.contains("chrome")) return "Safari";
+        if (ua.contains("firefox")) return "Firefox";
+        if (ua.contains("micromessenger")) return "WeChat";
+        if (ua.contains("postman")) return "Postman";
+        if (ua.contains("curl")) return "Curl";
+        return "Other";
+    }
 
-        // 预计算并缓存 data_scope (取多角色中权限最大, 即数字最小)
-        Integer dataScope = computeDataScope(user.getId());
-        if (dataScope != null) {
-            StpUtil.getSession().set(PermissionService.SESSION_DATA_SCOPE, dataScope);
-        }
-
-        // 更新最后登录信息
-        user.setLastLoginTime(LocalDateTime.now());
-        user.setUpdateBy(user.getId());
-        userMapper.updateById(user);
-
-        // 清除失败计数
-        redis.delete(limitKey);
-
-        // 拼装返回
-        LoginVO vo = new LoginVO();
-        vo.setToken(StpUtil.getTokenValue());
-        vo.setUserId(user.getId());
-        vo.setUsername(user.getUsername());
-        vo.setNickname(StrUtil.blankToDefault(user.getNickname(), user.getUsername()));
-        vo.setAvatar(user.getAvatar());
-        vo.setDeptId(user.getDeptId());
-        if (user.getDeptId() != null) {
-            SysDept dept = deptMapper.selectById(user.getDeptId());
-            if (dept != null) vo.setDeptName(dept.getDeptName());
-        }
-        vo.setRoles(userMapper.selectRoleCodesByUserId(user.getId()));
-        vo.setPermissions(userMapper.selectPermsByUserId(user.getId()));
-        vo.setMenus(menuMapper.selectMenusByUserId(user.getId()));
-        vo.setIsAdmin(user.getIsAdmin());
-
-        log.info("用户登录: userId={}, username={}", user.getId(), user.getUsername());
-        return vo;
+    private String parseOs(String ua) {
+        if (ua == null) return null;
+        ua = ua.toLowerCase();
+        if (ua.contains("windows")) return "Windows";
+        if (ua.contains("mac os") || ua.contains("macintosh")) return "macOS";
+        if (ua.contains("android")) return "Android";
+        if (ua.contains("iphone") || ua.contains("ipad") || ua.contains("ios")) return "iOS";
+        if (ua.contains("linux")) return "Linux";
+        return "Other";
     }
 
     public void logout() {

@@ -4,21 +4,26 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.system.entity.SysConfig;
 import com.industrial.erp.modules.system.mapper.SysConfigMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 
 @Service
 public class SysConfigService {
 
-    public SysConfigService(SysConfigMapper configMapper, PermissionService permService) {
+    public SysConfigService(SysConfigMapper configMapper, PermissionService permService, OperLogPublisher operLogPublisher) {
         this.configMapper = configMapper;
         this.permService = permService;
+        this.operLogPublisher = operLogPublisher;
     }
 
     private final SysConfigMapper configMapper;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<SysConfig> page(Integer pageNum, Integer pageSize, String configName, Integer configType) {
         permService.requirePerm("system:config:list");
@@ -44,7 +49,11 @@ public class SysConfigService {
 
     public void delete(Long id) {
         permService.requirePerm("system:config:delete");
-        configMapper.deleteById(id);
+        SysConfig c = configMapper.selectById(id);
+        if (c == null) throw BizException.of("系统参数不存在或已删除");
+        configMapper.update(null, new LambdaUpdateWrapper<SysConfig>()
+                .eq(SysConfig::getId, id).set(SysConfig::getDeleted, 1));
+        operLogPublisher.publishDeleteSnapshot("系统参数", String.valueOf(id), c, null);
     }
 
     public String getByKey(String key) {

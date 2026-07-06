@@ -6,7 +6,9 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.modules.system.entity.SysUser;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,11 +20,13 @@ public class SysUserService {
 
     private final SysUserMapper userMapper;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
     private static final BCryptPasswordEncoder ENCODER = new BCryptPasswordEncoder();
 
-    public SysUserService(SysUserMapper userMapper, PermissionService permService) {
+    public SysUserService(SysUserMapper userMapper, PermissionService permService, OperLogPublisher operLogPublisher) {
         this.userMapper = userMapper;
         this.permService = permService;
+        this.operLogPublisher = operLogPublisher;
     }
 
     public IPage<SysUser> page(Integer pageNum, Integer pageSize, String username, String realName, Long deptId) {
@@ -78,7 +82,11 @@ public class SysUserService {
 
     public void delete(Long id) {
         permService.requirePerm("system:user:del");
-        userMapper.deleteById(id);
+        SysUser u = userMapper.selectById(id);
+        if (u == null) throw new com.industrial.erp.exception.BizException("用户不存在或已删除");
+        userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+                .eq(SysUser::getId, id).set(SysUser::getDeleted, 1));
+        operLogPublisher.publishDeleteSnapshot("用户管理", String.valueOf(id), u, null);
     }
 
     public void resetPassword(Long id, String password) {

@@ -13,25 +13,29 @@ import com.industrial.erp.modules.purchase.entity.PurOrderDetail;
 import com.industrial.erp.modules.purchase.mapper.PurOrderDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurOrderMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.List;
 
 @Service
 public class PurOrderService {
 
-    public PurOrderService(PurOrderMapper orderMapper, PurOrderDetailMapper detailMapper, BaseSupplierMapper supplierMapper, BillNoGenerator billNoGenerator, PermissionService permService, PurReceiptDetailMapper receiptDetailMapper) {
+    public PurOrderService(PurOrderMapper orderMapper, PurOrderDetailMapper detailMapper, BaseSupplierMapper supplierMapper, BillNoGenerator billNoGenerator, PermissionService permService, PurReceiptDetailMapper receiptDetailMapper, OperLogPublisher operLogPublisher) {
         this.orderMapper = orderMapper;
         this.detailMapper = detailMapper;
         this.supplierMapper = supplierMapper;
         this.billNoGenerator = billNoGenerator;
         this.permService = permService;
         this.receiptDetailMapper = receiptDetailMapper;
+        this.operLogPublisher = operLogPublisher;
     }
     private final PurOrderMapper orderMapper;
     private final PurOrderDetailMapper detailMapper;
@@ -39,6 +43,7 @@ public class PurOrderService {
     private final PurReceiptDetailMapper receiptDetailMapper;
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<PurOrder> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus) {
         permService.requirePerm("purchase:order:list");
@@ -103,7 +108,19 @@ public class PurOrderService {
 
     public void delete(Long id) {
         permService.requirePerm("purchase:order:delete");
-        orderMapper.deleteById(id);
+        PurOrder order = orderMapper.selectById(id);
+        if (order == null) throw BizException.of("订单不存在或已删除");
+        List<PurOrderDetail> details = detailMapper.selectByOrderId(id);
+        // 软删除主
+        orderMapper.update(null, new LambdaUpdateWrapper<PurOrder>()
+                .eq(PurOrder::getId, id).set(PurOrder::getDeleted, 1));
+        // 软删除子
+        if (details != null && !details.isEmpty()) {
+            detailMapper.update(null, new LambdaUpdateWrapper<PurOrderDetail>()
+                    .eq(PurOrderDetail::getOrderId, id).set(PurOrderDetail::getDeleted, 1));
+        }
+        // 写操作日志
+        operLogPublisher.publishDeleteSnapshot("采购订单", String.valueOf(id), order, details);
     }
 
     @Transactional(rollbackFor = Exception.class)

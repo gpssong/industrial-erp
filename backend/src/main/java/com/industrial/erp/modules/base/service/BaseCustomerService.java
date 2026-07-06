@@ -7,7 +7,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -16,12 +18,14 @@ import java.util.List;
 @Service
 public class BaseCustomerService {
 
-    public BaseCustomerService(BaseCustomerMapper mapper, PermissionService permService) {
+    public BaseCustomerService(BaseCustomerMapper mapper, PermissionService permService, OperLogPublisher operLogPublisher) {
         this.mapper = mapper;
         this.permService = permService;
+        this.operLogPublisher = operLogPublisher;
     }
     private final BaseCustomerMapper mapper;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<BaseCustomer> page(Integer pageNum, Integer pageSize, String keyword) {
         permService.requirePerm("base:customer:list");
@@ -55,7 +59,11 @@ public class BaseCustomerService {
 
     public void delete(Long id) {
         permService.requirePerm("base:customer:delete");
-        mapper.deleteById(id);
+        BaseCustomer c = mapper.selectById(id);
+        if (c == null) throw BizException.of("客户不存在或已删除");
+        mapper.update(null, new LambdaUpdateWrapper<BaseCustomer>()
+                .eq(BaseCustomer::getId, id).set(BaseCustomer::getDeleted, 1));
+        operLogPublisher.publishDeleteSnapshot("客户管理", String.valueOf(id), c, null);
     }
 
     /** 校验信用额度 */

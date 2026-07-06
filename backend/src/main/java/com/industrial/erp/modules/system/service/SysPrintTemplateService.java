@@ -5,8 +5,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.system.entity.SysPrintTemplate;
 import com.industrial.erp.modules.system.mapper.SysPrintTemplateMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,13 +16,15 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class SysPrintTemplateService {
 
-    public SysPrintTemplateService(SysPrintTemplateMapper templateMapper, PermissionService permService) {
+    public SysPrintTemplateService(SysPrintTemplateMapper templateMapper, PermissionService permService, OperLogPublisher operLogPublisher) {
         this.templateMapper = templateMapper;
         this.permService = permService;
+        this.operLogPublisher = operLogPublisher;
     }
 
     private final SysPrintTemplateMapper templateMapper;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<SysPrintTemplate> page(Integer pageNum, Integer pageSize, String templateName, String templateType) {
         permService.requirePerm("system:print:list");
@@ -61,7 +65,11 @@ public class SysPrintTemplateService {
 
     public void delete(Long id) {
         permService.requirePerm("system:print:delete");
-        templateMapper.deleteById(id);
+        SysPrintTemplate t = templateMapper.selectById(id);
+        if (t == null) throw BizException.of("打印模板不存在或已删除");
+        templateMapper.update(null, new LambdaUpdateWrapper<SysPrintTemplate>()
+                .eq(SysPrintTemplate::getId, id).set(SysPrintTemplate::getDeleted, 1));
+        operLogPublisher.publishDeleteSnapshot("打印模板", String.valueOf(id), t, null);
     }
 
     /**

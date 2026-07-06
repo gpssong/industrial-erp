@@ -9,7 +9,9 @@ import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseProductUnit;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseProductUnitMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,15 +23,17 @@ import java.util.Map;
 @Service
 public class BaseProductService {
 
-    public BaseProductService(BaseProductMapper productMapper, BaseProductUnitMapper unitMapper, PermissionService permService) {
+    public BaseProductService(BaseProductMapper productMapper, BaseProductUnitMapper unitMapper, PermissionService permService, OperLogPublisher operLogPublisher) {
         this.productMapper = productMapper;
         this.unitMapper = unitMapper;
         this.permService = permService;
+        this.operLogPublisher = operLogPublisher;
     }
 
     private final BaseProductMapper productMapper;
     private final BaseProductUnitMapper unitMapper;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<BaseProduct> page(Integer pageNum, Integer pageSize, String keyword, Long categoryId) {
         permService.requirePerm("base:product:list");
@@ -111,8 +115,13 @@ public class BaseProductService {
         permService.requirePerm("base:product:delete");
         BaseProduct p = productMapper.selectById(id);
         if (p == null) throw BizException.of("商品不存在");
-        // 直接使用物理删除，避免唯一索引冲突
-        productMapper.physicalDeleteById(id);
+        // 软删除主表 (add() 会在再次新增同编码时物理清理软删除墓碑, 避免唯一索引冲突)
+        productMapper.update(null, new LambdaUpdateWrapper<BaseProduct>()
+                .eq(BaseProduct::getId, id).set(BaseProduct::getDeleted, 1));
+        // 软删除单位子表
+        unitMapper.update(null, new LambdaUpdateWrapper<BaseProductUnit>()
+                .eq(BaseProductUnit::getProductId, id).set(BaseProductUnit::getDeleted, 1));
+        operLogPublisher.publishDeleteSnapshot("商品管理", String.valueOf(id), p, null);
     }
 
     private void saveUnits(Long productId, List<BaseProductUnit> units) {

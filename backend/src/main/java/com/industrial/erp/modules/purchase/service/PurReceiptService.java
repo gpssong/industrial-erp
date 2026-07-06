@@ -22,8 +22,10 @@ import com.industrial.erp.modules.purchase.mapper.PurOrderDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurOrderMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +41,7 @@ import java.util.List;
 @Service
 public class PurReceiptService {
 
-    public PurReceiptService(PurReceiptMapper receiptMapper, PurReceiptDetailMapper receiptDetailMapper, PurOrderMapper orderMapper, PurOrderDetailMapper orderDetailMapper, BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService) {
+    public PurReceiptService(PurReceiptMapper receiptMapper, PurReceiptDetailMapper receiptDetailMapper, PurOrderMapper orderMapper, PurOrderDetailMapper orderDetailMapper, BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, OperLogPublisher operLogPublisher) {
         this.receiptMapper = receiptMapper;
         this.receiptDetailMapper = receiptDetailMapper;
         this.orderMapper = orderMapper;
@@ -50,6 +52,7 @@ public class PurReceiptService {
         this.stockService = stockService;
         this.arapService = arapService;
         this.permService = permService;
+        this.operLogPublisher = operLogPublisher;
     }
 
     private final PurReceiptMapper receiptMapper;
@@ -62,6 +65,7 @@ public class PurReceiptService {
     private final StockService stockService;
     private final FinArapService arapService;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<PurReceipt> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus, String productName) {
         permService.requirePerm("purchase:receipt:list");
@@ -207,10 +211,18 @@ public class PurReceiptService {
         if (!Constants.STATUS_DRAFT.equals(r.getBillStatus())) {
             throw BizException.of("只有草稿状态可删除");
         }
-        // 删明细
-        receiptDetailMapper.delete(new LambdaQueryWrapper<PurReceiptDetail>().eq(PurReceiptDetail::getReceiptId, id));
-        // 物理删除主表 (避免 bill_no 唯一索引冲突)
-        receiptMapper.deleteById(id);
+        // 取明细快照
+        List<PurReceiptDetail> details = receiptDetailMapper.selectByReceiptId(id);
+        // 软删除明细
+        if (details != null && !details.isEmpty()) {
+            receiptDetailMapper.update(null, new LambdaUpdateWrapper<PurReceiptDetail>()
+                    .eq(PurReceiptDetail::getReceiptId, id).set(PurReceiptDetail::getDeleted, 1));
+        }
+        // 软删除主表
+        receiptMapper.update(null, new LambdaUpdateWrapper<PurReceipt>()
+                .eq(PurReceipt::getId, id).set(PurReceipt::getDeleted, 1));
+        // 写操作日志
+        operLogPublisher.publishDeleteSnapshot("采购入库", String.valueOf(id), r, details);
     }
 
     /**

@@ -18,8 +18,10 @@ import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,7 +39,7 @@ import java.util.List;
 @Service
 public class SalDeliveryService {
 
-    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper) {
+    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher) {
         this.deliveryMapper = deliveryMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
@@ -47,6 +49,7 @@ public class SalDeliveryService {
         this.arapService = arapService;
         this.permService = permService;
         this.orderDetailMapper = orderDetailMapper;
+        this.operLogPublisher = operLogPublisher;
     }
 
     private static final Logger log = LoggerFactory.getLogger(SalDeliveryService.class);
@@ -60,6 +63,7 @@ public class SalDeliveryService {
     private final StockService stockService;
     private final FinArapService arapService;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<SalDelivery> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus, String productName) {
         permService.requirePerm("sales:delivery:list");
@@ -218,8 +222,18 @@ public class SalDeliveryService {
         if (!Constants.STATUS_DRAFT.equals(d.getBillStatus())) {
             throw BizException.of("只有草稿状态可删除");
         }
-        detailMapper.delete(new LambdaQueryWrapper<SalDeliveryDetail>().eq(SalDeliveryDetail::getDeliveryId, id));
-        deliveryMapper.deleteById(id);
+        // 取明细快照
+        List<SalDeliveryDetail> details = detailMapper.selectByDeliveryId(id);
+        // 软删除明细
+        if (details != null && !details.isEmpty()) {
+            detailMapper.update(null, new LambdaUpdateWrapper<SalDeliveryDetail>()
+                    .eq(SalDeliveryDetail::getDeliveryId, id).set(SalDeliveryDetail::getDeleted, 1));
+        }
+        // 软删除主表
+        deliveryMapper.update(null, new LambdaUpdateWrapper<SalDelivery>()
+                .eq(SalDelivery::getId, id).set(SalDelivery::getDeleted, 1));
+        // 写操作日志
+        operLogPublisher.publishDeleteSnapshot("销售出库", String.valueOf(id), d, details);
     }
 
     /**
