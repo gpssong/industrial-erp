@@ -138,11 +138,17 @@ async function onSave() {
     payload.taxAmount = taxAmount
     payload.totalAmountTax = totalAmount + taxAmount
     await salReturnApi.add(payload); ElMessage.success('保存成功'); dialogVisible.value = false; loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '保存失败')
   } finally { submitting.value = false }
 }
 
 async function onCheck(row) {
-  await salReturnApi.check(row.id); ElMessage.success('审核成功, 库存已回滚并冲减应收'); loadData()
+  try {
+    await salReturnApi.check(row.id); ElMessage.success('审核成功, 库存已回滚并冲减应收'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '审核失败')
+  }
 }
 
 function onPrint(row) {

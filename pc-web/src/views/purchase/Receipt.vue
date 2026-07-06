@@ -197,6 +197,8 @@ async function onSave() {
       await purReceiptApi.add(payload); ElMessage.success('保存成功')
     }
     dialogVisible.value = false; loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '保存失败')
   } finally { submitting.value = false }
 }
 
@@ -214,12 +216,20 @@ async function onDelete(row) {
   try {
     await ElMessageBox.confirm(`确认删除入库单 ${row.billNo}? 删除后不可恢复`, '删除确认', { type: 'warning' })
   } catch { return }
-  await purReceiptApi.delete(row.id)
-  ElMessage.success('删除成功'); loadData()
+  try {
+    await purReceiptApi.delete(row.id)
+    ElMessage.success('删除成功'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '删除失败')
+  }
 }
 
 async function onCheck(row) {
-  await purReceiptApi.check(row.id); ElMessage.success('审核成功, 库存+成本已更新'); loadData()
+  try {
+    await purReceiptApi.check(row.id); ElMessage.success('审核成功, 库存+成本已更新'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '审核失败')
+  }
 }
 
 function onPrint(row) {

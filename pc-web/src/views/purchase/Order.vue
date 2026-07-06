@@ -143,9 +143,13 @@ async function onEdit(row) {
 
 async function onDelete(row) {
   await ElMessageBox.confirm(`确定删除订单 ${row.billNo}?`, '提示', { type: 'warning' })
-  await purOrderApi.delete(row.id)
-  ElMessage.success('删除成功')
-  loadData()
+  try {
+    await purOrderApi.delete(row.id)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '删除失败')
+  }
 }
 
 function addDetail() {

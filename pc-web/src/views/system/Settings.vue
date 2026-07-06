@@ -118,7 +118,7 @@ async function onTaxSeparationChange(val) {
   try {
     await saveTaxSeparation(val)
     ElMessage.success(val === 'true' ? '已开启价税分离模式' : '已关闭价税分离模式')
-  } catch (e) { ElMessage.error('保存失败') }
+  } catch (e) { ElMessage.error(e.message || '保存失败') }
 }
 
 async function loadData() {

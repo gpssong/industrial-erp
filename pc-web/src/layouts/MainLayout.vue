@@ -41,11 +41,11 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
-          <span class="company">{{ userInfo?.nickname || '用户' }}</span>
+          <span class="company">{{ userInfo?.nickname || userInfo?.username || '用户' }}</span>
           <el-dropdown @command="onCommand">
             <span class="user-trigger">
-              <el-avatar :size="28">{{ (userInfo?.nickname || 'U').charAt(0) }}</el-avatar>
-              <span style="margin-left:8px">{{ userInfo?.nickname || userInfo?.username }}</span>
+              <el-avatar :size="28">{{ (userInfo?.nickname || userInfo?.username || '用户').charAt(0) }}</el-avatar>
+              <span style="margin-left:8px">{{ userInfo?.nickname || userInfo?.username || '用户' }}</span>
             </span>
             <template #dropdown>
               <el-dropdown-menu>

@@ -91,12 +91,20 @@ function onAdd() { Object.assign(form, { id: null, customerCode: '', customerNam
 function onEdit(row) { Object.assign(form, row); dialogVisible.value = true }
 async function onDelete(row) {
   await ElMessageBox.confirm(`删除 ${row.customerName}?`, '提示', { type: 'warning' })
-  await customerApi.delete(row.id); ElMessage.success('已删除'); loadData()
+  try {
+    await customerApi.delete(row.id); ElMessage.success('已删除'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '删除失败')
+  }
 }
 async function onSave() {
-  if (form.id) await customerApi.update(form)
-  else await customerApi.add(form)
-  ElMessage.success('已保存'); dialogVisible.value = false; loadData()
+  try {
+    if (form.id) await customerApi.update(form)
+    else await customerApi.add(form)
+    ElMessage.success('已保存'); dialogVisible.value = false; loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '保存失败')
+  }
 }
 onMounted(loadData)
 </script>

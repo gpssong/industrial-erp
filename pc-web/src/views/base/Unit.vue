@@ -41,11 +41,19 @@ function onAdd() { Object.assign(form, { id: null, unitCode: '', unitName: '' })
 function onEdit(row) { Object.assign(form, row); dialogVisible.value = true }
 async function onDelete(row) {
   await ElMessageBox.confirm(`删除 ${row.unitName}?`, '提示', { type: 'warning' })
-  await unitApi.delete(row.id); ElMessage.success('已删除'); loadData()
+  try {
+    await unitApi.delete(row.id); ElMessage.success('已删除'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '删除失败')
+  }
 }
 async function onSave() {
-  if (form.id) await unitApi.update(form); else await unitApi.add(form)
-  ElMessage.success('已保存'); dialogVisible.value = false; loadData()
+  try {
+    if (form.id) await unitApi.update(form); else await unitApi.add(form)
+    ElMessage.success('已保存'); dialogVisible.value = false; loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '保存失败')
+  }
 }
 onMounted(loadData)
 </script>
