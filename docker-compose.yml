@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mirror.ccs.tencentyun.com/library/mysql:8.0
+    image: mysql:8.0
     container_name: erp-mysql
     restart: unless-stopped
     # NAS 部署: 不暴露 3306 到主机, 仅容器网络 erp-net 内可见.
@@ -36,7 +36,7 @@ services:
       start_period: 60s
 
   redis:
-    image: mirror.ccs.tencentyun.com/library/redis:7-alpine
+    image: redis:7-alpine
     container_name: erp-redis
     restart: unless-stopped
     # NAS 部署: 不暴露 6379 到主机, 仅容器网络 erp-net 内可见.
