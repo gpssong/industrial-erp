@@ -6,7 +6,8 @@ services:
     # NAS 部署: 不暴露 3306 到主机, 仅容器网络 erp-net 内可见.
     # 如需客户端工具连库, 用 docker exec (见 NAS 部署说明).
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-erp_root_pwd}
+      # ⚠️  必须通过 .env 提供 MYSQL_ROOT_PASSWORD, 不要接受默认值.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
       MYSQL_DATABASE: industrial_erp
       TZ: Asia/Shanghai
     command:
@@ -62,7 +63,7 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/industrial_erp?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-erp_root_pwd}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       # NAS 8G 内存调优: MySQL(~1G) + Redis(~0.3G) + 后端 + DSM 系统 + Docker 守护,

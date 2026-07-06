@@ -31,7 +31,26 @@ PCWEB_CONTAINER="erp-pc-web"
 APP_H5_CONTAINER="erp-app-h5"
 
 DB_USER="root"
-DB_PASS="erp_root_pwd"
+# ⚠️  不要硬编码密码. 从 docker-compose 部署目录的 .env 中读取 (set -a 自动 export),
+# 找不到任何路径时立即失败, 避免冒认 erp_root_pwd 这种弱口令.
+DB_PASS=""
+for ENV_FILE in \
+    "$(dirname "$SCRIPT_DIR")/../.env" \
+    "$SCRIPT_DIR/.env" \
+    "$SCRIPT_DIR/../.env" \
+    "/volume3/docker/erp-system/.env" \
+    "/volume1/docker/erp-system/.env"
+do
+    if [ -f "$ENV_FILE" ]; then
+        set -a; . "$ENV_FILE"; set +a
+        log "已加载 .env: $ENV_FILE"
+        break
+    fi
+done
+DB_PASS="${MYSQL_ROOT_PASSWORD:-${ERP_DB_PASSWORD:-}}"
+if [ -z "$DB_PASS" ]; then
+    fail "未找到 MYSQL_ROOT_PASSWORD/.env; 无法备份. 请在 docker-compose 同级目录创建 .env 并设置 MYSQL_ROOT_PASSWORD=..."
+fi
 DB_NAME="industrial_erp"
 MYSQLDUMP="/usr/bin/mysqldump"
 GZIP_BIN="$(command -v pigz || command -v gzip)"

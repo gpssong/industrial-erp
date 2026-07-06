@@ -33,7 +33,9 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${SPRING_DATASOURCE_HOST:127.0.0.1}:${SPRING_DATASOURCE_PORT:3306}/${SPRING_DATASOURCE_DB:industrial_erp}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:850225sonG}
+    # ⚠️  不要写默认值. 启动时缺 SPRING_DATASOURCE_PASSWORD 会触发 'Failed to determine suitable jdbc url',
+    # 这是有意为之 — 防呆: 生产部署必须显式设置环境变量.
+    password: ${SPRING_DATASOURCE_PASSWORD:}
     hikari:
       maximum-pool-size: 30
       minimum-idle: 3
@@ -106,13 +108,12 @@ erp:
     path: ${ERP_UPLOAD_PATH:/opt/industrial-erp/upload}
   print:
     template-path: classpath:/templates/print
-  # 跨域白名单 (CORS Origin), 逗号分隔. 仅列表内的域名/端口可通过浏览器跨域调用 API.
-  # 生产环境必须删掉 localhost 条目, 仅保留生产域名.
-  # 部署到 NAS 时可通过环境变量 ERP_CORS_ALLOWED_ORIGINS 覆盖 (Spring 占位符).
+  # ⚠️  生产部署必须通过 ERP_CORS_ALLOWED_ORIGINS 环境变量覆盖 (见 .env.example),
+  # 默认值仅含 localhost 开发域; 不覆盖 = 浏览器跨域调用 API 失败 (有意为之, 防意外暴露).
   cors:
-    # 注意: Spring 的 allowedOrigins (因 allowCredentials=true) 不支持通配符, 必须列全具体 origin.
-    # 新加子域时同步修改这里, 或在部署 .env 用 ERP_CORS_ALLOWED_ORIGINS 覆盖.
-    allowed-origins: ${ERP_CORS_ALLOWED_ORIGINS:https://93gushi.com,https://www.93gushi.com,https://home.93gushi.com,http://home.93gushi.com,http://home.93gushi.com:8088,http://192.168.0.150:8088,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:8080}
+    # Spring 的 allowedOrigins (因 allowCredentials=true) 不支持通配符, 必须列全具体 origin.
+    # 新加子域时同步修改 .env 的 ERP_CORS_ALLOWED_ORIGINS.
+    allowed-origins: ${ERP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:8080}
   backup:
     path: ${ERP_BACKUP_PATH:${user.home}/erp-backup}
     sql-path: ${ERP_BACKUP_SQL_PATH:./sql}
@@ -126,6 +127,6 @@ erp:
 logging:
   level:
     root: INFO
-    com.industrial.erp: DEBUG
+    com.industrial.erp: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

@@ -16,6 +16,26 @@ set -euo pipefail
 
 BACKUP_ROOT="${ERP_BACKUP_ROOT:-/volume3/docker/erp-system/data/erp-backup}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ⚠️  从 .env 读取 MYSQL_ROOT_PASSWORD, 不再硬编码 erp_root_pwd
+DB_PASS=""
+for ENV_FILE in \
+    "$(dirname "$SCRIPT_DIR")/../.env" \
+    "$SCRIPT_DIR/.env" \
+    "$SCRIPT_DIR/../.env" \
+    "/volume3/docker/erp-system/.env" \
+    "/volume1/docker/erp-system/.env"
+do
+    if [ -f "$ENV_FILE" ]; then
+        set -a; . "$ENV_FILE"; set +a
+        break
+    fi
+done
+DB_PASS="${MYSQL_ROOT_PASSWORD:-${ERP_DB_PASSWORD:-}}"
+if [ -z "$DB_PASS" ]; then
+    echo "✗ 未找到 MYSQL_ROOT_PASSWORD; 无法执行数据库操作. 请在 docker-compose 同级目录创建 .env 并设置 MYSQL_ROOT_PASSWORD=..."
+    exit 1
+fi
 DB_ONLY=0
 BIN_ONLY=0
 TARGET_TS="${1:-}"
@@ -72,14 +92,14 @@ if [[ " ${do[*]} " =~ " db " ]]; then
     echo "→ 先 dump 当前库到安全点"
     SAFETY="$BACKUP_ROOT/db/pre-restore_$(date +%Y%m%d_%H%M%S).sql.gz"
     sudo /usr/local/bin/docker exec erp-mysql mysqldump \
-        -uroot -perp_root_pwd --default-character-set=utf8mb4 \
+        -uroot -p"${DB_PASS}" --default-character-set=utf8mb4 \
         --single-transaction --quick --routines --triggers \
         industrial_erp 2>/dev/null | gzip -6 > "$SAFETY"
     echo "  当前库快照: $SAFETY"
 
     echo "→ 加载 SQL 到容器"
     sudo /usr/local/bin/docker exec -i erp-mysql mysql \
-        -uroot -perp_root_pwd industrial_erp < "$SQL_TMP"
+        -uroot -p"${DB_PASS}" industrial_erp < "$SQL_TMP"
     rm -f "$SQL_TMP"
     echo "✓ DB 恢复完成"
 fi
