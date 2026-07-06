@@ -76,6 +76,9 @@ services:
       ERP_BACKUP_RETENTION_DAYS: "30"
       ERP_MYSQLDUMP: mysqldump
       ERP_MYSQL: mysql
+      # CORS 白名单 (来自 .env, 默认仅本地开发域, 生产必须覆盖)
+      # Spring Security 因 allowCredentials=true 不支持 *, 必须列全具体 origin
+      ERP_CORS_ALLOWED_ORIGINS: ${ERP_CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:8080}
       TZ: Asia/Shanghai
     # 后端 8080 仅暴露到主机, 不直接对公网; 公网请走 DSM 反代 + HTTPS
     ports:
