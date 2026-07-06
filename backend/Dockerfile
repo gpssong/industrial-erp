@@ -1,15 +1,9 @@
-# 多阶段: Maven 编译 + 运行镜像分离
-# 注: 镜像源从 2026-04 改用 maven.aliyun.com (腾讯云镜像已下线)
-FROM maven:3.9-eclipse-temurin-17 AS builder
-WORKDIR /app
-COPY pom.xml .
-RUN mvn -B -q dependency:go-offline
-COPY src ./src
-RUN mvn -B -q -DskipTests clean package
-
+# 单阶段: 用宿主机已编译的 jar (避免 mvn 容器内重编; NAS 部署的 src 不一定同步)
+# 1. 先在 mac 本地 mvn package, 推到 NAS 覆盖 industrial-erp-1.0.4.jar
+# 2. docker build 时 COPY 这个 jar 进镜像
 FROM eclipse-temurin:17-jre
 WORKDIR /opt/app
-COPY --from=builder /app/target/industrial-erp-*.jar app.jar
+COPY industrial-erp-1.0.4.jar app.jar
 EXPOSE 8080
 # 数据备份功能依赖 mysqldump / mysql 客户端 (基础镜像不含)
 # 持久化安装: 镜像构建时一次安装, 容器内随时可用
