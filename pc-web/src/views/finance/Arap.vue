@@ -72,8 +72,12 @@ function onPay(row) {
 }
 async function doPay() {
   const { id, ...payload } = form
-  await arapApi.cash(payload)
-  ElMessage.success('收/付款成功'); payVisible.value = false; loadData()
+  try {
+    await arapApi.cash(payload)
+    ElMessage.success('收/付款成功'); payVisible.value = false; loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '收/付款失败')
+  }
 }
 onMounted(loadData)
 </script>

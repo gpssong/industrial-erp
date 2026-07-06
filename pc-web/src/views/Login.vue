@@ -62,12 +62,13 @@
 
 <script setup>
 import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElCollapseTransition } from 'element-plus'
 import { User, Lock, Setting, ArrowDown } from '@element-plus/icons-vue'
 
 const router = useRouter()
+const route = useRoute()
 const user = useUserStore()
 const formRef = ref()
 const loading = ref(false)
@@ -119,7 +120,13 @@ async function onLogin() {
     loading.value = true
     await user.loginAction({ username: form.username, password: form.password })
     ElMessage.success('登录成功')
-    router.push('/dashboard')
+    // 登录成功后优先跳回原路径 (被 401 拦截时由 request.js 写入 ?redirect=)
+    const redirect = route.query.redirect
+    if (redirect && typeof redirect === 'string' && redirect.startsWith('/')) {
+      router.replace(redirect)
+    } else {
+      router.replace('/dashboard')
+    }
   } catch (e) {
     console.error(e)
   } finally {

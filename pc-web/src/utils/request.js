@@ -24,8 +24,6 @@ if (_resolvedBase !== apiBase) {
   localStorage.removeItem('erp_api_base')
 }
 
-console.log('[request] baseURL =', apiBase, '| localStorage erp_api_base =', localStorage.getItem('erp_api_base'))
-
 const service = axios.create({
   baseURL: apiBase,
   timeout: 30000
@@ -36,8 +34,6 @@ service.interceptors.request.use(config => {
   NProgress.start()
   const user = useUserStore()
   if (user.token) config.headers['Authorization'] = user.token  // Sa-Token 直接取值，不加 Bearer 前缀
-  // 调试: 打印每次请求的完整 URL (首次 404 时排查)
-  console.log('[request] ->', (config.baseURL || '') + config.url)
   return config
 }, err => Promise.reject(err))
 
@@ -48,7 +44,7 @@ function handle401(msg) {
   isShowing401 = true
   ElMessageBox.confirm(msg || '登录已过期, 请重新登录', '提示', { type: 'warning' })
     .then(() => {
-      router.push('/login')
+      router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
     })
     .catch(() => {})
     .finally(() => { isShowing401 = false })
@@ -58,13 +54,14 @@ function handle401(msg) {
 service.interceptors.response.use(res => {
   NProgress.done()
   const data = res.data
-  if (data.code === 200) return data
-  if (data.code === 401) {
+  // 防御: 后端返回 HTML/字符串(例如 nginx 502/404 页面)时, data 不是对象, 不能 .code
+  if (typeof data === 'object' && data !== null && data.code === 200) return data
+  if (typeof data === 'object' && data !== null && data.code === 401) {
     handle401(data.msg)
     return Promise.reject(new Error(data.msg || '未登录'))
   }
-  ElMessage.error(data.msg || '操作失败')
-  return Promise.reject(new Error(data.msg))
+  ElMessage.error((data && data.msg) || '服务器响应格式异常')
+  return Promise.reject(new Error((data && data.msg) || '服务器响应格式异常'))
 }, err => {
   NProgress.done()
   // HTTP 层 401 (例如 Nginx 反代未鉴权)
@@ -80,7 +77,11 @@ service.interceptors.response.use(res => {
     const msg = err.response.data?.msg || err.response.data?.message
     console.error('[HTTP_ERR]', err.response.status, url, '| code:', code, '| msg:', msg)
   }
-  ElMessage.error(err.message?.includes('Network') ? '无法连接服务器, 请在登录页底部「服务器连接设置」中检查 API 地址' : (err.message || '操作失败'))
+  ElMessage.error(
+    err.code === 'ERR_NETWORK' ? '无法连接服务器, 请在登录页底部「服务器连接设置」中检查 API 地址'
+    : err.code === 'ECONNABORTED' ? '请求超时, 请重试'
+    : (err.message || '操作失败')
+  )
   return Promise.reject(err)
 })
 
