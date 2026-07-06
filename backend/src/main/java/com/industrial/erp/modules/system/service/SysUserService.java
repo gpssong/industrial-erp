@@ -80,6 +80,30 @@ public class SysUserService {
         userMapper.updateById(u);
     }
 
+    /**
+     * 用户改自己的密码 — 校验旧密码, 不需任何权限.
+     * 不知道旧密码的用户必须联系超管重置 (AuthService.setPassword).
+     */
+    public void changeOwnPassword(String oldPwd, String newPwd) {
+        if (StrUtil.isBlank(oldPwd) || StrUtil.isBlank(newPwd)) {
+            throw new com.industrial.erp.exception.BizException("原密码和新密码均不能为空");
+        }
+        if (oldPwd.equals(newPwd)) {
+            throw new com.industrial.erp.exception.BizException("新密码不能与原密码相同");
+        }
+        Long uid = com.industrial.erp.security.SecurityContext.getUserId();
+        if (uid == null) throw new com.industrial.erp.exception.BizException(401, "未登录");
+        SysUser u = userMapper.selectById(uid);
+        if (u == null) throw new com.industrial.erp.exception.BizException("用户不存在");
+        if (!ENCODER.matches(oldPwd, u.getPassword())) {
+            throw new com.industrial.erp.exception.BizException("原密码错误");
+        }
+        SysUser upd = new SysUser();
+        upd.setId(uid);
+        upd.setPassword(ENCODER.encode(newPwd));
+        userMapper.updateById(upd);
+    }
+
     public void delete(Long id) {
         permService.requirePerm("system:user:del");
         SysUser u = userMapper.selectById(id);

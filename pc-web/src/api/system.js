@@ -9,7 +9,9 @@ export const userApi = {
   resetPwd: (id, newPwd) => request.post(`/system/user/${id}/resetPwd`, null, { params: { newPwd } }),
   getRoles: (id) => request.get(`/system/user/${id}/roles`),
   assignRoles: (id, roleIds) => request.put(`/system/user/${id}/roles`, roleIds),
-  updatePassword: (id, password) => request.put(`/system/user/${id}/password`, { password })
+  updatePassword: (id, password) => request.put(`/system/user/${id}/password`, { password }),
+  // 当前用户改自己的密码
+  changeOwnPassword: (oldPassword, newPassword) => request.put('/system/user/me/password', { oldPassword, newPassword })
 }
 
 export const roleApi = {
