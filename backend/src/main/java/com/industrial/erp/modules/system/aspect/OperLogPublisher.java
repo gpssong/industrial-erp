@@ -31,10 +31,15 @@ public class OperLogPublisher {
     public static final String BIZ_OTHER = "OTHER";
 
     private final ApplicationEventPublisher publisher;
-    private final ObjectMapper om = new ObjectMapper();
+    /**
+     * 注入 Spring 配置好的 ObjectMapper (含 JSR310 / JavaTimeModule / Long 转 String 等),
+     * 而不是 new 一个裸的 — 否则 LocalDateTime / BigDecimal 等会序列化失败.
+     */
+    private final ObjectMapper om;
 
-    public OperLogPublisher(ApplicationEventPublisher publisher) {
+    public OperLogPublisher(ApplicationEventPublisher publisher, ObjectMapper om) {
         this.publisher = publisher;
+        this.om = om;
     }
 
     /**
@@ -98,7 +103,11 @@ public class OperLogPublisher {
                 snap.put("entity", entity);
                 if (details != null) snap.put("details", details);
                 l.setSnapshotJson(om.writeValueAsString(snap));
-            } catch (JsonProcessingException ignore) {}
+            } catch (JsonProcessingException e) {
+                // 序列化失败不能影响主删除流程; snapshot 字段留空, 业务级日志仍记录成功
+                org.slf4j.LoggerFactory.getLogger(OperLogPublisher.class)
+                        .warn("删除快照序列化失败: {}", e.getMessage());
+            }
             l.setUserId(SecurityContext.getUserId());
             l.setUsername(SecurityContext.getUsername());
             l.setCostTime(0L);
@@ -107,6 +116,8 @@ public class OperLogPublisher {
             publisher.publishEvent(new OperLogEvent(this, l));
         } catch (Exception e) {
             // 切面失败不能影响主删除流程
+            org.slf4j.LoggerFactory.getLogger(OperLogPublisher.class)
+                    .warn("publishDeleteSnapshot error: {}", e.getMessage());
         }
     }
 
