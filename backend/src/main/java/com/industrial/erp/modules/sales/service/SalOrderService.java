@@ -13,6 +13,7 @@ import com.industrial.erp.modules.sales.entity.SalOrderDetail;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalOrderMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
@@ -21,17 +22,19 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.List;
 
 @Service
 public class SalOrderService {
 
-    public SalOrderService(SalOrderMapper orderMapper, SalOrderDetailMapper detailMapper, BaseCustomerMapper customerMapper, BillNoGenerator billNoGenerator, PermissionService permService, SalDeliveryDetailMapper deliveryDetailMapper) {
+    public SalOrderService(SalOrderMapper orderMapper, SalOrderDetailMapper detailMapper, BaseCustomerMapper customerMapper, BillNoGenerator billNoGenerator, PermissionService permService, SalDeliveryDetailMapper deliveryDetailMapper, OperLogPublisher operLogPublisher) {
         this.orderMapper = orderMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
         this.billNoGenerator = billNoGenerator;
         this.permService = permService;
         this.deliveryDetailMapper = deliveryDetailMapper;
+        this.operLogPublisher = operLogPublisher;
     }
 
     private final SalOrderMapper orderMapper;
@@ -40,6 +43,7 @@ public class SalOrderService {
     private final SalDeliveryDetailMapper deliveryDetailMapper;
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<SalOrder> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus) {
         permService.requirePerm("sales:order:list");
@@ -105,7 +109,20 @@ public class SalOrderService {
 
     public void delete(Long id) {
         permService.requirePerm("sales:order:delete");
-        orderMapper.deleteById(id);
+        SalOrder order = orderMapper.selectById(id);
+        if (order == null) throw new BizException("订单不存在或已删除");
+        // 取快照 (主+子)
+        List<SalOrderDetail> details = detailMapper.selectByOrderId(id);
+        // 软删除主
+        orderMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<SalOrder>()
+                .eq(SalOrder::getId, id).set(SalOrder::getDeleted, 1));
+        // 软删除子
+        if (details != null && !details.isEmpty()) {
+            detailMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<SalOrderDetail>()
+                    .eq(SalOrderDetail::getOrderId, id).set(SalOrderDetail::getDeleted, 1));
+        }
+        // 写操作日志
+        operLogPublisher.publishDeleteSnapshot("销售订单", String.valueOf(id), order, details);
     }
 
     @Transactional(rollbackFor = Exception.class)

@@ -13,8 +13,10 @@ import com.industrial.erp.modules.production.entity.PrdRequisition;
 import com.industrial.erp.modules.production.entity.PrdRequisitionDetail;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,13 +33,14 @@ import java.util.List;
 @Service
 public class PrdRequisitionService {
 
-    public PrdRequisitionService(PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper detailMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService) {
+    public PrdRequisitionService(PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper detailMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher) {
         this.reqMapper = reqMapper;
         this.detailMapper = detailMapper;
         this.warehouseMapper = warehouseMapper;
         this.billNoGenerator = billNoGenerator;
         this.stockService = stockService;
         this.permService = permService;
+        this.operLogPublisher = operLogPublisher;
     }
 
     private final PrdRequisitionMapper reqMapper;
@@ -46,6 +49,7 @@ public class PrdRequisitionService {
     private final BillNoGenerator billNoGenerator;
     private final StockService stockService;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<PrdRequisition> page(Integer pageNum, Integer pageSize, String billNo, String billType) {
         permService.requirePerm("production:requisition:list");
@@ -123,6 +127,17 @@ public class PrdRequisitionService {
 
     public void delete(Long id) {
         permService.requirePerm("production:requisition:delete");
-        reqMapper.deleteById(id);
+        PrdRequisition req = reqMapper.selectById(id);
+        if (req == null) throw BizException.of("单据不存在或已删除");
+        List<PrdRequisitionDetail> details = detailMapper.selectByRequisitionId(id);
+        // 软删除主
+        reqMapper.update(null, new LambdaUpdateWrapper<PrdRequisition>()
+                .eq(PrdRequisition::getId, id).set(PrdRequisition::getDeleted, 1));
+        // 软删除子
+        if (details != null && !details.isEmpty()) {
+            detailMapper.update(null, new LambdaUpdateWrapper<PrdRequisitionDetail>()
+                    .eq(PrdRequisitionDetail::getRequisitionId, id).set(PrdRequisitionDetail::getDeleted, 1));
+        }
+        operLogPublisher.publishDeleteSnapshot("生产领料单", String.valueOf(id), req, details);
     }
 }

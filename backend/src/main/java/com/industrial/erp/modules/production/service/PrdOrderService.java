@@ -20,8 +20,10 @@ import com.industrial.erp.modules.production.mapper.PrdFinishedInMapper;
 import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,8 +49,9 @@ public class PrdOrderService {
     private final BillNoGenerator billNoGenerator;
     private final StockService stockService;
     private final PermissionService permService;
+    private final OperLogPublisher operLogPublisher;
 
-    public PrdOrderService(PrdOrderMapper orderMapper, PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper, PrdFinishedInMapper finishedInMapper, PrdBomService bomService, BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService) {
+    public PrdOrderService(PrdOrderMapper orderMapper, PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper, PrdFinishedInMapper finishedInMapper, PrdBomService bomService, BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher) {
         this.orderMapper = orderMapper;
         this.reqMapper = reqMapper;
         this.reqDetailMapper = reqDetailMapper;
@@ -59,6 +62,7 @@ public class PrdOrderService {
         this.billNoGenerator = billNoGenerator;
         this.stockService = stockService;
         this.permService = permService;
+        this.operLogPublisher = operLogPublisher;
     }
 
     public IPage<PrdOrder> page(Integer pageNum, Integer pageSize, String billNo, String billStatus, String productName) {
@@ -306,11 +310,14 @@ public class PrdOrderService {
      */
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long orderId) {
+        permService.requirePerm("production:order:delete");
         PrdOrder order = orderMapper.selectById(orderId);
         if (order == null) throw BizException.of("生产单不存在");
         if (!Constants.STATUS_DRAFT.equals(order.getBillStatus())) {
             throw BizException.of("只能删除草稿状态的生产单");
         }
-        orderMapper.deleteById(orderId);
+        orderMapper.update(null, new LambdaUpdateWrapper<PrdOrder>()
+                .eq(PrdOrder::getId, orderId).set(PrdOrder::getDeleted, 1));
+        operLogPublisher.publishDeleteSnapshot("生产加工单", String.valueOf(orderId), order, null);
     }
 }

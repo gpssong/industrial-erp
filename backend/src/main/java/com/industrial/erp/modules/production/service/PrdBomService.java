@@ -8,8 +8,10 @@ import com.industrial.erp.modules.production.entity.PrdBom;
 import com.industrial.erp.modules.production.entity.PrdBomDetail;
 import com.industrial.erp.modules.production.mapper.PrdBomDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdBomMapper;
+import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,17 +20,19 @@ import java.util.List;
 @Service
 public class PrdBomService {
 
-    public PrdBomService(PrdBomMapper bomMapper, PrdBomDetailMapper detailMapper, PermissionService permService, BillNoGenerator billNoGenerator) {
+    public PrdBomService(PrdBomMapper bomMapper, PrdBomDetailMapper detailMapper, PermissionService permService, BillNoGenerator billNoGenerator, OperLogPublisher operLogPublisher) {
         this.bomMapper = bomMapper;
         this.detailMapper = detailMapper;
         this.permService = permService;
         this.billNoGenerator = billNoGenerator;
+        this.operLogPublisher = operLogPublisher;
     }
 
     private final PrdBomMapper bomMapper;
     private final PrdBomDetailMapper detailMapper;
     private final PermissionService permService;
     private final BillNoGenerator billNoGenerator;
+    private final OperLogPublisher operLogPublisher;
 
     public IPage<PrdBom> page(Integer pageNum, Integer pageSize, String keyword) {
         permService.requirePerm("production:bom:list");
@@ -68,7 +72,18 @@ public class PrdBomService {
 
     public void delete(Long id) {
         permService.requirePerm("production:bom:delete");
-        bomMapper.deleteById(id);
+        PrdBom bom = bomMapper.selectById(id);
+        if (bom == null) throw new com.industrial.erp.exception.BizException("BOM不存在或已删除");
+        List<PrdBomDetail> details = detailMapper.selectByBomId(id);
+        // 软删除主
+        bomMapper.update(null, new LambdaUpdateWrapper<PrdBom>()
+                .eq(PrdBom::getId, id).set(PrdBom::getDeleted, 1));
+        // 软删除子
+        if (details != null && !details.isEmpty()) {
+            detailMapper.update(null, new LambdaUpdateWrapper<PrdBomDetail>()
+                    .eq(PrdBomDetail::getBomId, id).set(PrdBomDetail::getDeleted, 1));
+        }
+        operLogPublisher.publishDeleteSnapshot("BOM清单", String.valueOf(id), bom, details);
     }
 
     private void saveDetails(Long bomId, List<PrdBomDetail> details) {

@@ -158,6 +158,7 @@ CREATE TABLE `sys_oper_log` (
   `cost_time`     BIGINT       DEFAULT 0     COMMENT '耗时ms',
   `status`        TINYINT      DEFAULT 1     COMMENT '状态: 0=失败 1=成功',
   `error_msg`     TEXT         DEFAULT NULL  COMMENT '错误信息',
+  `snapshot_json` LONGTEXT     DEFAULT NULL  COMMENT '删除前的完整对象 JSON (仅 DELETE 业务类型填充)',
   `oper_time`     DATETIME     DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
   PRIMARY KEY (`id`),
   KEY `idx_sys_oper_user` (`user_id`),

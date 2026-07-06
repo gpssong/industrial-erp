@@ -23,6 +23,8 @@ public class SysOperLog {
     private Long costTime;
     private Integer status;
     private String errorMsg;
+    /** 删除前的完整对象 JSON 快照 (仅 businessType=DELETE 时填充) */
+    private String snapshotJson;
     private LocalDateTime operTime;
 
     public Long getId() { return id; }
@@ -53,6 +55,8 @@ public class SysOperLog {
     public void setStatus(Integer status) { this.status = status; }
     public String getErrorMsg() { return errorMsg; }
     public void setErrorMsg(String errorMsg) { this.errorMsg = errorMsg; }
+    public String getSnapshotJson() { return snapshotJson; }
+    public void setSnapshotJson(String snapshotJson) { this.snapshotJson = snapshotJson; }
     public LocalDateTime getOperTime() { return operTime; }
     public void setOperTime(LocalDateTime operTime) { this.operTime = operTime; }
 }

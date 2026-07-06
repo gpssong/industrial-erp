@@ -66,3 +66,14 @@ export const backupApi = {
   factoryReset: () => request.post('/system/backup/factory-reset'),
   clearData: (tables) => request.post('/system/backup/clear', tables)
 }
+
+// 操作日志 (含删除数据快照)
+export const operLogApi = {
+  page: (params) => request.get('/system/oper-log/page', { params }),
+  clean: (params) => request.delete('/system/oper-log/clean', { params })
+}
+
+// 登录日志
+export const loginLogApi = {
+  page: (params) => request.get('/system/login-log/page', { params })
+}

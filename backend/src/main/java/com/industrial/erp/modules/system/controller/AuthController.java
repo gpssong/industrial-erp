@@ -6,6 +6,7 @@ import com.industrial.erp.modules.system.service.AuthService;
 import com.industrial.erp.modules.system.vo.LoginVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,8 +23,8 @@ public class AuthController {
 
     @Operation(summary = "登录")
     @PostMapping("/login")
-    public R<LoginVO> login(@RequestBody @Valid LoginDTO dto) {
-        return R.ok(authService.login(dto));
+    public R<LoginVO> login(@RequestBody @Valid LoginDTO dto, HttpServletRequest request) {
+        return R.ok(authService.login(dto, request));
     }
 
     @Operation(summary = "登出")
