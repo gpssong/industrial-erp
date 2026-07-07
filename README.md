@@ -341,6 +341,25 @@ mvn test                          # 全量
 - **NAS 清理**: 释放 2.6GB 孤儿镜像 + 1.62GB 构建缓存, 删孤儿容器 `vibrant_euler` / `epic_benz`
 - **前端文档**: `docs/21_操作日志与登录日志功能.md` + `docs/22_自服务修改密码与前端调优.md`
 
+### v1.1.5 (2026-07-06) — UI 简化 + 打印鉴权兼容 + EP 3.0 兼容
+
+**UI 简化 (按用户反馈)**
+- 客户管理: 删除"类型"和"价格等级"两列 + 表单"价格等级"选择器
+- 供应商管理: 删除"类型"列
+- 仓库管理: 删除"类型"列 + 表单"类型"选择器(原材料/半成品/成品/普通)
+- 后端实体/数据库字段保留,数据兼容
+
+**打印鉴权兼容 (修复 401)**
+- `pc-web/src/composables/usePrintUrl.js` 把 query 参数从 `?token=` 改成 `?Authorization=`
+- Sa-Token `is-read-query: true` 模式下,query 参数名必须等于 `tokenName` (=Authorization),否则 401
+- 实测对比: `?token=xxx` → 401, `?Authorization=xxx` → 200
+
+**Element Plus 3.0 兼容**
+- 5 个文件 15 处 `el-radio` 的 `label=` 写法改为 `value=`
+- 涉及: PageTemplate.vue / Dept.vue / User.vue / Role.vue / Menu.vue (含静态 `label="M"`/`label="B"`)
+- `el-option :label=` 保留(语义不同,EP 不废弃)
+- 消除 console 红色 deprecation 警告
+
 ### v1.1.4 (2026-07-06) — 操作日志补全
 
 **根因**
