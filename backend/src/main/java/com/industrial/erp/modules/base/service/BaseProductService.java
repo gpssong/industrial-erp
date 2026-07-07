@@ -93,6 +93,14 @@ public class BaseProductService {
         if (deleted != null) {
             productMapper.physicalDeleteById(deleted.getId()); // 物理删除
         }
+        // 同上处理 barcode: uniq_base_product_barcode (barcode, deleted) 唯一索引,
+        // 如果之前用过同 barcode 然后软删除, 重新用会因唯一索引冲突 DuplicateKeyException.
+        if (StrUtil.isNotBlank(p.getBarcode())) {
+            BaseProduct deletedByBarcode = productMapper.selectAnyByBarcode(p.getBarcode());
+            if (deletedByBarcode != null) {
+                productMapper.physicalDeleteById(deletedByBarcode.getId());
+            }
+        }
         if (p.getStatus() == null) p.setStatus(1);
         // 从主单位同步价格到商品
         syncPriceFromMainUnit(p, units);
