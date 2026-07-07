@@ -45,8 +45,8 @@
           <el-form :model="form" label-width="100px">
             <el-form-item label="类型">
               <el-radio-group v-model="form.menuType">
-                <el-radio label="M">菜单</el-radio>
-                <el-radio label="B">按钮</el-radio>
+                <el-radio value="M">菜单</el-radio>
+                <el-radio value="B">按钮</el-radio>
               </el-radio-group>
             </el-form-item>
             <el-row :gutter="12">
