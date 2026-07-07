@@ -129,6 +129,8 @@ DROP TABLE IF EXISTS `prd_requisition_detail`;
 CREATE TABLE `prd_requisition_detail` (
   `id`            BIGINT        NOT NULL AUTO_INCREMENT,
   `requisition_id` BIGINT       NOT NULL,
+  `line_no`       INT           DEFAULT NULL COMMENT '行号',
+  `material_type` VARCHAR(32)   DEFAULT NULL COMMENT '物料类型',
   `product_id`    BIGINT        NOT NULL,
   `product_code`  VARCHAR(64)   DEFAULT NULL,
   `product_name`  VARCHAR(128)  DEFAULT NULL,
