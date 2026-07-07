@@ -1,7 +1,6 @@
 package com.industrial.erp.modules.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
-import cn.dev33.satoken.annotation.SaCheckRole;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.PageResult;
@@ -37,15 +36,15 @@ public class SysBackupController {
     }
 
     @PostMapping("/manual")
-    @SaCheckRole("admin")
     public R<String> manualBackup() {
+        permService.requireSuperAdmin();
         String name = backupService.backup(2);
         return R.ok(name);
     }
 
     @PostMapping("/restore/{id}")
-    @SaCheckRole("admin")
     public R<Void> restore(@PathVariable Long id) {
+        permService.requireSuperAdmin();
         SysBackupRecord r = recordService.getById(id);
         if (r == null) return R.fail("备份记录不存在");
         backupService.restore(r.getFilePath());
@@ -53,8 +52,8 @@ public class SysBackupController {
     }
 
     @DeleteMapping("/{id}")
-    @SaCheckRole("admin")
     public R<Void> delete(@PathVariable Long id) {
+        permService.requireSuperAdmin();
         SysBackupRecord r = recordService.getById(id);
         if (r != null) {
             backupService.deleteFile(r.getFilePath());
@@ -64,7 +63,6 @@ public class SysBackupController {
     }
 
     @PostMapping("/factory-reset")
-    @SaCheckRole("admin")
     public R<Void> factoryReset() {
         permService.requireSuperAdmin();
         backupService.factoryReset();
@@ -72,7 +70,6 @@ public class SysBackupController {
     }
 
     @PostMapping("/clear")
-    @SaCheckRole("admin")
     public R<Void> clearData(@RequestBody java.util.List<String> tables) {
         permService.requireSuperAdmin();
         backupService.clearData(tables);
