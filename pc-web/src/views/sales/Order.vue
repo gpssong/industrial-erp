@@ -73,13 +73,13 @@
             <el-table-column prop="productCode" label="编码" width="120" />
             <el-table-column prop="productName" label="名称" />
             <el-table-column label="数量" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :step-strictly="false" size="small" /></template>
             </el-table-column>
             <el-table-column label="单价(含税)" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :precision="4" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :precision="4" :step-strictly="false" size="small" /></template>
             </el-table-column>
             <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80">
-              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" :step-strictly="false" size="small" /></template>
             </el-table-column>
             <el-table-column label="操作" width="60">
               <template #default="{ row, $index }"><el-button link type="danger" @click="form.details.splice($index, 1)">删除</el-button></template>

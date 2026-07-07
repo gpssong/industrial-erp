@@ -90,12 +90,12 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="计划数量" prop="planQty">
-              <el-input-number v-model="form.planQty" :min="0" :precision="4" style="width:100%" />
+              <el-input-number v-model="form.planQty" :min="0" :precision="4" :step-strictly="false" style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="损耗率%">
-              <el-input-number v-model="form.lossRate" :min="0" :precision="2" style="width:100%" />
+              <el-input-number v-model="form.lossRate" :min="0" :precision="2" :step-strictly="false" style="width:100%" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -141,8 +141,8 @@
     <!-- 完工登记弹窗 -->
     <el-dialog v-model="finishVisible" title="完工登记" width="420px">
       <el-form :model="finishForm" label-width="100px">
-        <el-form-item label="良品数量"><el-input-number v-model="finishForm.goodQty" :precision="4" :min="0" /></el-form-item>
-        <el-form-item label="损耗数量"><el-input-number v-model="finishForm.lossQty" :precision="4" :min="0" /></el-form-item>
+        <el-form-item label="良品数量"><el-input-number v-model="finishForm.goodQty" :precision="4" :step-strictly="false" :min="0" /></el-form-item>
+        <el-form-item label="损耗数量"><el-input-number v-model="finishForm.lossQty" :precision="4" :step-strictly="false" :min="0" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="finishVisible=false">取消</el-button>
