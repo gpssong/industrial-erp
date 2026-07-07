@@ -78,8 +78,8 @@
         <el-row :gutter="12">
           <el-col :span="6"><el-form-item label="收货地址"><el-input v-model="form.address" /></el-form-item></el-col>
           <el-col :span="6"><el-form-item label="收货电话"><el-input v-model="form.phone" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="整单折扣"><el-input-number v-model="form.discountAmount" :precision="2" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="抹零"><el-input-number v-model="form.tailAmount" :precision="2" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="整单折扣"><el-input-number v-model="form.discountAmount" :precision="2" :step-strictly="false" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="抹零"><el-input-number v-model="form.tailAmount" :precision="2" :step-strictly="false" /></el-form-item></el-col>
         </el-row>
 
         <el-form-item label="商品明细">
@@ -103,14 +103,14 @@
               </template>
             </el-table-column>
             <el-table-column label="数量" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="4" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="4" :step-strictly="false" size="small" /></template>
             </el-table-column>
             <el-table-column label="单价(含税)" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :precision="4" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :precision="4" :step-strictly="false" size="small" /></template>
             </el-table-column>
             <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ (row.qty*row.price).toFixed(4) }}</span></template></el-table-column>
             <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80">
-              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" :step-strictly="false" size="small" /></template>
             </el-table-column>
             <el-table-column v-if="taxSeparation === 'true'" label="价税合计" width="120" align="right">
               <template #default="{ row }"><span>{{ ((row.qty*row.price)*(1+(row.taxRate||0)/100)).toFixed(4) }}</span></template>
