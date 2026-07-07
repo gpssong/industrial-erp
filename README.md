@@ -341,6 +341,32 @@ mvn test                          # 全量
 - **NAS 清理**: 释放 2.6GB 孤儿镜像 + 1.62GB 构建缓存, 删孤儿容器 `vibrant_euler` / `epic_benz`
 - **前端文档**: `docs/21_操作日志与登录日志功能.md` + `docs/22_自服务修改密码与前端调优.md`
 
+### v1.1.6 (2026-07-06) — 数字自动去尾 + 打印修复
+
+**全局数字去尾 0**
+- 33 处 `<el-input-number>` 加 `:step-strictly="false"`,用户输入 1.5 → 显示 1.5(不显示 1.5000)
+- 不改数据库精度,只改显示行为,影响 13 个 view 文件
+
+**生产单表单去尾(深一层修复)**
+- `:step-strictly="false"` 对装载值不生效,EP 装载 v-model 时仍按 precision=N 显示
+- 改用 EP 的 `:formatter` + `:parser` hook 接管显示,真正去尾 0
+- planQty 740 → 显示 740(不是 740.0000);lossRate 0 → 显示 0(不是 0.00)
+
+**打印模板数字去尾**
+- 后端 `PrintTemplateEngine.fmtNum` 之前 `setScale(4)` 强制 4 位 → "740.0000"
+- 改为 setScale(4) 后追加 `stripTrailingZeros() + toPlainString()`
+- 740 → "740", 31.4 → "31.4", 避免科学计数法
+
+**生产单打印显示商品主单位**
+- 模板里 `{{unitName}}` 之前从 PrdOrder.unitName 取,新建场景可能空
+- PrdOrderService.renderPrdOrder 注入 `unitName` + `mainUnitName`
+- 优先 PrdOrder.unitName,缺则查 `BaseProductUnitMapper.selectMainUnit(productId)`(is_main=1)
+
+**打印预览自动唤起打印对话框**
+- 后端 `PrintTemplateEngine.buildFromTemplate` 在 `</body>` 前注入:
+  `<script>window.addEventListener('load',function(){setTimeout(function(){try{window.print()}catch(e){}},300)});</script>`
+- 用户点"打印" → 新窗口打开 → 自动弹出系统打印机选择对话框
+
 ### v1.1.5 (2026-07-06) — UI 简化 + 打印鉴权兼容 + EP 3.0 兼容
 
 **UI 简化 (按用户反馈)**
