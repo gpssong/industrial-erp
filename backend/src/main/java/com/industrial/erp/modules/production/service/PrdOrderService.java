@@ -202,12 +202,27 @@ public class PrdOrderService {
         // 计算每种原料的实际用量 = baseQty * (planQty / bom.baseQty) * (1 + lossRate/100)
         BigDecimal ratio = order.getPlanQty().divide(bom.getBaseQty() == null ? BigDecimal.ONE : bom.getBaseQty(), 6, RoundingMode.HALF_UP);
 
+        // 仓库回退: 生产单可能没填仓库 (prd_order.warehouse_id nullable),
+        // 但 prd_requisition.warehouse_id NOT NULL, 直接 NULL 会爆 SQLIntegrityConstraintViolation.
+        // 优先用生产单的; 没有则取仓库表 is_default=1 的默认仓库; 都没有报错让用户去维护仓库.
+        Long reqWarehouseId = order.getWarehouseId();
+        if (reqWarehouseId == null) {
+            BaseWarehouse defaultWh = warehouseMapper.selectOne(new LambdaQueryWrapper<BaseWarehouse>()
+                    .eq(BaseWarehouse::getIsDefault, 1)
+                    .eq(BaseWarehouse::getDeleted, 0)
+                    .last("LIMIT 1"));
+            if (defaultWh == null) {
+                throw BizException.of("生产单未填仓库, 且仓库表中无默认仓库. 请先在 '仓库管理' 中设置一个默认仓库, 或编辑本生产单填写仓库后再开工.");
+            }
+            reqWarehouseId = defaultWh.getId();
+        }
+
         PrdRequisition req = new PrdRequisition();
         req.setBillNo(billNoGenerator.generate(Constants.BILL_RQ));
         req.setBillDate(LocalDate.now());
         req.setPrdOrderId(order.getId());
         req.setPrdOrderNo(order.getBillNo());
-        req.setWarehouseId(order.getWarehouseId());
+        req.setWarehouseId(reqWarehouseId);
         req.setWorkshop(order.getWorkshop());
         req.setWorkshopId(order.getWorkshopId());
         req.setBillType("ISSUE");
