@@ -36,7 +36,7 @@
     <el-dialog v-model="payVisible" :title="form.billType==='AR'?'收款单':'付款单'" width="500px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="收/付日期"><el-date-picker v-model="form.billDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
-        <el-form-item label="收/付金额"><el-input-number v-model="form.amount" :precision="2" :min="0" /></el-form-item>
+        <el-form-item label="收/付金额"><el-input-number v-model="form.amount" :precision="4" :min="0" /></el-form-item>
         <el-form-item label="收/付方式">
           <el-select v-model="form.payType" style="width:100%">
             <el-option label="现金" value="CASH" />
