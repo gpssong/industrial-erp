@@ -43,7 +43,7 @@
         </el-row>
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="版本"><el-input v-model="form.version" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="损耗率%"><el-input-number v-model="form.lossRate" :min="0" :max="100" :precision="4" style="width:100%" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="损耗率%"><el-input-number v-model="form.lossRate" :min="0" :max="100" :precision="2" style="width:100%" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="备注"><el-input v-model="form.remark" /></el-form-item></el-col>
         </el-row>
         <!-- 原料明细 -->
@@ -71,7 +71,7 @@
               <template #default="{ row }"><el-input-number v-model="row.baseQty" :min="0" :precision="4" size="small" style="width:100%" /></template>
             </el-table-column>
             <el-table-column label="损耗率%" width="100">
-              <template #default="{ row }"><el-input-number v-model="row.lossRate" :min="0" :precision="4" size="small" style="width:100%" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.lossRate" :min="0" :precision="2" size="small" style="width:100%" /></template>
             </el-table-column>
             <el-table-column label="操作" width="60">
               <template #default="{ row, $index }"><el-button link type="danger" @click="form.details.splice($index,1)">删</el-button></template>

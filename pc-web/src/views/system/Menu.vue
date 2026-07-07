@@ -90,7 +90,7 @@
             <el-row :gutter="12">
               <el-col :span="8">
                 <el-form-item label="排序">
-                  <el-input-number v-model="form.sortNo" :min="0" :precision="4" style="width:100%" />
+                  <el-input-number v-model="form.sortNo" :min="0" style="width:100%" />
                 </el-form-item>
               </el-col>
               <el-col :span="8">

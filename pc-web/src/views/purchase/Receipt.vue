@@ -60,7 +60,7 @@
             <el-table-column label="规格" width="120"><template #default="{ row }"><span>{{ row.spec }}</span></template></el-table-column>
             <el-table-column label="数量" width="120"><template #default="{ row }"><el-input-number v-model="row.qty" :precision="4" size="small" /></template></el-table-column>
             <el-table-column label="单价(含税)" width="120"><template #default="{ row }"><el-input-number v-model="row.price" :precision="4" size="small" /></template></el-table-column>
-            <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80"><template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="4" size="small" /></template></el-table-column>
+            <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80"><template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" size="small" /></template></el-table-column>
             <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ (row.qty*row.price).toFixed(2) }}</span></template></el-table-column>
             <el-table-column label="批次"><template #default="{ row }"><el-input v-model="row.batchNo" size="small" /></template></el-table-column>
             <el-table-column label="库位"><template #default="{ row }"><el-input v-model="row.locationName" size="small" /></template></el-table-column>
