@@ -42,7 +42,7 @@
           <el-col :span="12"><el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="8"><el-form-item label="税率(%)"><el-input-number v-model="form.taxRate" :precision="4" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="税率(%)"><el-input-number v-model="form.taxRate" :precision="2" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="外协厂"><el-switch v-model="form.isOutsource" :active-value="1" :inactive-value="0" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="税号"><el-input v-model="form.taxNo" /></el-form-item></el-col>
         </el-row>

@@ -45,11 +45,11 @@
           <el-col :span="12"><el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="税率(%)"><el-input-number v-model="form.taxRate" :precision="4" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="税率(%)"><el-input-number v-model="form.taxRate" :precision="2" /></el-form-item></el-col>
           <el-col :span="12"><el-form-item label="税号"><el-input v-model="form.taxNo" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="24"><el-form-item label="授信额度"><el-input-number v-model="form.creditLimit" :precision="4" :min="0" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="授信额度"><el-input-number v-model="form.creditLimit" :precision="2" :min="0" /></el-form-item></el-col>
         </el-row>
         <el-form-item label="地址"><el-input v-model="form.address" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
