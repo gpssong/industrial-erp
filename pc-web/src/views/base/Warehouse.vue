@@ -8,7 +8,6 @@
         <el-table-column type="index" width="50" />
         <el-table-column prop="warehouseCode" label="编码" width="120" />
         <el-table-column prop="warehouseName" label="仓库名称" />
-        <el-table-column prop="warehouseType" label="类型" width="100" />
         <el-table-column prop="manager" label="负责人" width="100" />
         <el-table-column prop="phone" label="电话" width="120" />
         <el-table-column prop="address" label="地址" />
@@ -30,14 +29,6 @@
       <el-form :model="form" label-width="100px">
         <el-form-item label="编码"><el-input v-model="form.warehouseCode" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="form.warehouseName" /></el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="form.warehouseType" style="width:100%">
-            <el-option label="原材料仓" value="RAW" />
-            <el-option label="半成品仓" value="SEMI" />
-            <el-option label="成品仓" value="FG" />
-            <el-option label="普通仓" value="NORMAL" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="负责人"><el-input v-model="form.manager" /></el-form-item>
         <el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item>
         <el-form-item label="地址"><el-input v-model="form.address" /></el-form-item>
@@ -57,7 +48,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const list = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
-const form = reactive({ id: null, warehouseCode: '', warehouseName: '', warehouseType: 'NORMAL', manager: '', phone: '', address: '', isDefault: 0, status: 1 })
+const form = reactive({ id: null, warehouseCode: '', warehouseName: '', manager: '', phone: '', address: '', isDefault: 0, status: 1 })
 async function loadData() { loading.value = true; try { list.value = (await warehouseApi.list()).data } finally { loading.value = false } }
 function onAdd() { Object.assign(form, { id: null, warehouseCode: '', warehouseName: '', isDefault: 0 }); dialogVisible.value = true }
 function onEdit(row) { Object.assign(form, row); dialogVisible.value = true }
