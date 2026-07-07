@@ -14,7 +14,6 @@
         <el-table-column type="index" width="50" />
         <el-table-column prop="supplierCode" label="编码" width="120" />
         <el-table-column prop="supplierName" label="供应商名称" />
-        <el-table-column prop="supplierType" label="类型" width="100" />
         <el-table-column prop="contactPerson" label="联系人" width="100" />
         <el-table-column prop="phone" label="电话" width="120" />
         <el-table-column label="外协厂" width="80">
@@ -66,7 +65,7 @@ const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const dialogVisible = ref(false)
 const form = reactive({
-  id: null, supplierCode: '', supplierName: '', supplierType: 'NORMAL',
+  id: null, supplierCode: '', supplierName: '',
   isOutsource: 0, contactPerson: '', phone: '', address: '',
   taxRate: 13.00, status: 1
 })
