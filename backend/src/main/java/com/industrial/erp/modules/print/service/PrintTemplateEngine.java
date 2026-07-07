@@ -482,6 +482,10 @@ public class PrintTemplateEngine {
         html.append("</div>");
         if (showSig) html.append("<div class=\"sign\">仓管签字:_______________</div>");
         html.append("<div class=\"sign\">").append(LocalDateTime.now().toString().substring(0, 16).replace("T", " ")).append("</div>");
+        // 自动唤起浏览器打印对话框: 打印页被 window.open 打开后, onload 时调用 print()
+        // 用户体验: 点 '打印' 按钮 → 新窗口打开 → 立即弹出系统打印机选择 → 选完直接打
+        // (如果用户模板自己也有 window.print, 会被这个 onload 抢先调用一次, 不重复弹)
+        html.append("<script>window.addEventListener('load',function(){setTimeout(function(){try{window.print()}catch(e){}},300)});</script>");
         html.append("</body></html>");
         return html.toString();
     }
