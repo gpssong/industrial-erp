@@ -157,7 +157,13 @@ public class PrintTemplateEngine {
     /** 把字符串格式化为 4 位小数的纯数字串 (仅当值看起来是数字; 文本字段如规格/编码/名称原样返回) */
     public String fmtNum(String val) {
         if (val == null || val.isEmpty()) return "";
-        try { return new BigDecimal(val).setScale(4, RoundingMode.HALF_UP).toPlainString(); }
+        try {
+            // 历史行为: setScale(4) 强制 4 位小数 (e.g. "740.0000")
+            // 用户反馈: 数字应自动去尾随 0 (740 → "740", 31.4 → "31.4", 31.40 → "31.4")
+            // 用 stripTrailingZeros + toPlainString 避免科学计数法
+            BigDecimal bd = new BigDecimal(val).setScale(4, RoundingMode.HALF_UP).stripTrailingZeros();
+            return bd.scale() <= 0 ? bd.toBigInteger().toString() : bd.toPlainString();
+        }
         catch (Exception e) { return val; }
     }
 

@@ -3,6 +3,7 @@ package com.industrial.erp.modules.print.service;
 import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.base.mapper.BaseProductUnitMapper;
 import com.industrial.erp.modules.production.entity.PrdOrder;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.entity.PurReceiptDetail;
@@ -40,15 +41,18 @@ public class PrintService {
     private final PrintTemplateEngine templateEngine;
     private final PrintRenderer renderer;
     private final SysConfigService configService;
+    private final BaseProductUnitMapper mainUnitMapper;
 
     public PrintService(PrintDataLoader dataLoader,
                         PrintTemplateEngine templateEngine,
                         PrintRenderer renderer,
-                        SysConfigService configService) {
+                        SysConfigService configService,
+                        BaseProductUnitMapper mainUnitMapper) {
         this.dataLoader = dataLoader;
         this.templateEngine = templateEngine;
         this.renderer = renderer;
         this.configService = configService;
+        this.mainUnitMapper = mainUnitMapper;
     }
 
     // ========== 公共渲染入口 ==========
@@ -79,16 +83,25 @@ public class PrintService {
         String productSpec = dataLoader.findProductSpec(bill.getProductId());
         String pickedRemark = pickRemark(bill);
         String bomRemark = bill.getBomRemark() != null ? bill.getBomRemark() : "";
+        // 商品主单位名 (模板里 {{unitName}} / {{mainUnitName}} 都能用)
+        String mainUnitName = bill.getUnitName();
+        if (StrUtil.isBlank(mainUnitName) && bill.getProductId() != null) {
+            com.industrial.erp.modules.base.entity.BaseProductUnit mu = mainUnitMapper.selectMainUnit(bill.getProductId());
+            if (mu != null) mainUnitName = mu.getUnitName();
+        }
         java.util.Map<String, Object> prdDetail = new java.util.LinkedHashMap<>();
         prdDetail.put("productName", bill.getProductName());
         prdDetail.put("productCode", bill.getProductCode());
         prdDetail.put("spec", StrUtil.isNotBlank(bill.getSpec()) ? bill.getSpec() : (productSpec != null ? productSpec : ""));
-        prdDetail.put("unitName", bill.getUnitName());
-        prdDetail.put("qty", bill.getPlanQty() != null ? bill.getPlanQty() : BigDecimal.ZERO);
-        prdDetail.put("thickness", bill.getThickness() != null ? bill.getThickness() : "—");
-        prdDetail.put("width", bill.getWidth() != null ? bill.getWidth() : "—");
-        prdDetail.put("density", bill.getDensity() != null ? bill.getDensity() : "—");
-        prdDetail.put("gramWeight", bill.getGramWeight() != null ? bill.getGramWeight() : "—");
+        prdDetail.put("unitName", mainUnitName != null ? mainUnitName : "—");
+        prdDetail.put("mainUnitName", mainUnitName != null ? mainUnitName : "—");
+        // 数字字段自动去尾 0: BigDecimal 默认 toString 会输出 740.0000, 不友好.
+        // stripTrailingZeros + toPlainString 避免科学计数法.
+        prdDetail.put("qty", stripZero(bill.getPlanQty()));
+        prdDetail.put("thickness", stripZero(bill.getThickness(), "—"));
+        prdDetail.put("width", stripZero(bill.getWidth(), "—"));
+        prdDetail.put("density", stripZero(bill.getDensity(), "—"));
+        prdDetail.put("gramWeight", stripZero(bill.getGramWeight(), "—"));
         prdDetail.put("material", bill.getMaterial() != null ? bill.getMaterial() : "—");
         prdDetail.put("remark", pickedRemark);
         // 明细行内允许显式引用 BOM 备注字段
@@ -103,6 +116,20 @@ public class PrintService {
         if (StrUtil.isNotBlank(bill.getRemark())) return bill.getRemark();
         if (StrUtil.isNotBlank(bill.getBomRemark())) return bill.getBomRemark();
         return "";
+    }
+
+    /**
+     * BigDecimal 去尾 0 输出: 740.0000 → "740", 31.4000 → "31.4", null 用 fallback.
+     * 用 stripTrailingZeros + toPlainString 避免科学计数法 (e.g. 7.4E+1).
+     */
+    private Object stripZero(java.math.BigDecimal v) {
+        if (v == null) return java.math.BigDecimal.ZERO;
+        return v.stripTrailingZeros().toPlainString();
+    }
+
+    private Object stripZero(java.math.BigDecimal v, String fallback) {
+        if (v == null) return fallback;
+        return v.stripTrailingZeros().toPlainString();
     }
 
     public String renderPurReturn(Long id) {
@@ -128,6 +155,7 @@ public class PrintService {
         // 1. 新版 JSON 模板 (含 {{}} 语法)
         if (StrUtil.isNotBlank(content) && templateEngine.isJsonTemplate(content)) {
             ObjectNode cfg = templateEngine.parseJsonConfig(content);
+            // BigDecimal 自动去尾 0 在 PrintTemplateEngine.getFieldValue 统一处理
             if (cfg.has("template")) {
                 return templateEngine.buildFromTemplate(cfg.get("template").asText(), taxSep, bill, details, cfg);
             }
