@@ -14,8 +14,6 @@
         <el-table-column type="index" width="50" />
         <el-table-column prop="customerCode" label="编码" width="120" />
         <el-table-column prop="customerName" label="客户名称" />
-        <el-table-column prop="customerType" label="类型" width="100" />
-        <el-table-column prop="priceLevel" label="价格等级" width="100" />
         <el-table-column prop="contactPerson" label="联系人" width="100" />
         <el-table-column prop="phone" label="电话" width="120" />
         <el-table-column prop="creditLimit" label="授信额度" width="120" align="right" />
@@ -47,19 +45,11 @@
           <el-col :span="12"><el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="价格等级">
-            <el-select v-model="form.priceLevel" style="width:100%">
-              <el-option label="零售价" value="RETAIL" />
-              <el-option label="批发价" value="WHOLESALE" />
-              <el-option label="大客户价" value="VIP" />
-              <el-option label="经销商价" value="DISTRIBUTOR" />
-            </el-select>
-          </el-form-item></el-col>
           <el-col :span="12"><el-form-item label="税率(%)"><el-input-number v-model="form.taxRate" :precision="2" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="税号"><el-input v-model="form.taxNo" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="授信额度"><el-input-number v-model="form.creditLimit" :precision="2" :min="0" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="税号"><el-input v-model="form.taxNo" /></el-form-item></el-col>
+          <el-col :span="24"><el-form-item label="授信额度"><el-input-number v-model="form.creditLimit" :precision="2" :min="0" /></el-form-item></el-col>
         </el-row>
         <el-form-item label="地址"><el-input v-model="form.address" /></el-form-item>
         <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
@@ -81,8 +71,8 @@ const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const dialogVisible = ref(false)
 const form = reactive({
-  id: null, customerCode: '', customerName: '', customerType: 'NORMAL',
-  priceLevel: 'RETAIL', contactPerson: '', phone: '', address: '',
+  id: null, customerCode: '', customerName: '',
+  contactPerson: '', phone: '', address: '',
   taxRate: 13.00, creditLimit: 0, creditUsed: 0, status: 1, remark: ''
 })
 
