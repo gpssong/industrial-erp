@@ -100,6 +100,11 @@ public class BaseProductService {
             if (deletedByBarcode != null) {
                 productMapper.physicalDeleteById(deletedByBarcode.getId());
             }
+        } else {
+            // 关键: 空字符串 / 纯空白 不能写入 barcode, 否则与已有空 barcode 记录冲突
+            // (MySQL 8 唯一索引 (barcode, deleted) 把所有空字符串视为同一键, 但 NULL 不参与约束).
+            // 把空字符串归一化为 null, 避免 'Duplicate entry 0 for key uniq_base_product_barcode'.
+            p.setBarcode(null);
         }
         if (p.getStatus() == null) p.setStatus(1);
         // 从主单位同步价格到商品
