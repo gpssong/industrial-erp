@@ -90,12 +90,16 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="计划数量" prop="planQty">
-              <el-input-number v-model="form.planQty" :min="0" :precision="4" :step-strictly="false" style="width:100%" />
+              <el-input-number v-model="form.planQty" :min="0" :step-strictly="false"
+                :formatter="stripZeroFormat" :parser="stripZeroParse"
+                style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="损耗率%">
-              <el-input-number v-model="form.lossRate" :min="0" :precision="2" :step-strictly="false" style="width:100%" />
+              <el-input-number v-model="form.lossRate" :min="0" :max="100" :step-strictly="false"
+                :formatter="stripZeroFormat" :parser="stripZeroParse"
+                style="width:100%" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -166,6 +170,22 @@ import { prdOrderApi, bomApi } from '@/api/production'
 import { warehouseApi, productApi } from '@/api/base'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPrintUrl } from '@/composables/usePrintUrl'
+
+// el-input-number 数字自动去尾 0: 740.0000 → "740", 31.4000 → "31.4"
+// EP 的 precision=N 会强制显示 N 位小数, 所以用 formatter/parser 接管显示.
+const stripZeroFormat = (v) => {
+  if (v == null || v === '') return ''
+  const n = Number(v)
+  if (!isFinite(n)) return String(v)
+  // 用 toString() 自动去尾 0, 但 EP 给的 n 是浮点, 可能 740 → "740" 而 31.4 → "31.4"
+  return String(n)
+}
+const stripZeroParse = (v) => {
+  if (v == null || v === '') return null
+  const n = Number(String(v).replace(/,/g, ''))
+  return isFinite(n) ? n : null
+}
+
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', productName: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
