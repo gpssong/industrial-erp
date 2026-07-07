@@ -13,6 +13,7 @@ public interface BaseProductMapper extends BaseMapper<BaseProduct> {
     BaseProduct selectByCode(@Param("code") String code);
     BaseProduct selectByBarcode(@Param("barcode") String barcode);
     BaseProduct selectAnyByCode(@Param("code") String code);
+    BaseProduct selectAnyByBarcode(@Param("barcode") String barcode);
     List<Map<String, Object>> selectStockSummary(@Param("productId") Long productId);
     void physicalDeleteById(@Param("id") Long id);
 }
