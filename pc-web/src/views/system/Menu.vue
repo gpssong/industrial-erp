@@ -96,16 +96,16 @@
               <el-col :span="8">
                 <el-form-item label="可见">
                   <el-radio-group v-model="form.isVisible">
-                    <el-radio :label="1">显示</el-radio>
-                    <el-radio :label="0">隐藏</el-radio>
+                    <el-radio :value="1">显示</el-radio>
+                    <el-radio :value="0">隐藏</el-radio>
                   </el-radio-group>
                 </el-form-item>
               </el-col>
               <el-col :span="8">
                 <el-form-item label="状态">
                   <el-radio-group v-model="form.status">
-                    <el-radio :label="1">正常</el-radio>
-                    <el-radio :label="0">停用</el-radio>
+                    <el-radio :value="1">正常</el-radio>
+                    <el-radio :value="0">停用</el-radio>
                   </el-radio-group>
                 </el-form-item>
               </el-col>
