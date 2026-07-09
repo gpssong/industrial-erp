@@ -69,7 +69,7 @@
           </el-col>
           <el-col :span="6">
             <el-form-item label="仓库">
-              <el-select v-model="form.warehouseId" style="width:100%">
+              <el-select v-model="form.warehouseId" style="width:100%" @change="onWarehouseChange">
                 <el-option v-for="w in warehouses" :key="w.id" :label="w.warehouseName" :value="w.id" />
               </el-select>
             </el-form-item>
@@ -115,7 +115,16 @@
             <el-table-column v-if="taxSeparation === 'true'" label="价税合计" width="120" align="right">
               <template #default="{ row }"><span>{{ ((row.qty*row.price)*(1+(row.taxRate||0)/100)).toFixed(4) }}</span></template>
             </el-table-column>
-            <el-table-column label="批次" width="100"><template #default="{ row }"><el-input v-model="row.batchNo" size="small" /></template></el-table-column>
+            <el-table-column label="批次" width="160">
+              <template #default="{ row }">
+                <el-select v-model="row.batchNo" size="small" filterable allow-create
+                  default-first-option clearable placeholder="选批次"
+                  style="width:100%">
+                  <el-option v-for="b in (row._batchOptions || [])" :key="(b.batchNo || '<NULL>')"
+                    :label="`${b.batchNo || '<无批次>'} (${b.qty})`" :value="b.batchNo || ''" />
+                </el-select>
+              </template>
+            </el-table-column>
             <el-table-column label="库位" width="100">
               <template #default="{ row }"><el-input v-model="row.locationName" size="small" /></template>
             </el-table-column>
@@ -161,6 +170,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { salDeliveryApi } from '@/api/sales'
 import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
+import { stockApi } from '@/api/inventory'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPrintUrl } from '@/composables/usePrintUrl'
@@ -273,6 +283,8 @@ async function onProductChange(row, v) {
   const mainUnit = row._units.find(u => u.isMain) || row._units[0]
   row.unitId = mainUnit ? mainUnit.unitId : p.mainUnitId
   row.unitName = mainUnit ? mainUnit.unitName : '主单位'
+  // 加载该商品在该仓库下所有可用批次 (供销售出库选 batchNo, 避免审核时"库存不存在")
+  await loadBatchOptionsForRow(row)
   // 优先取该客户对此商品的上次订单单价
   if (form.customerId && row.productId) {
     try {
@@ -293,9 +305,41 @@ async function onProductChange(row, v) {
   }
 }
 
+/**
+ * 拉取当前 row.productId + form.warehouseId 下的所有可用批次 (qty > 0).
+ * v1.1.7+: 仅展示, 仍可手动输入 (allow-create). 默认优先 qty 最大.
+ */
+async function loadBatchOptionsForRow(row) {
+  row._batchOptions = []
+  if (!form.warehouseId || !row.productId) return
+  try {
+    const r = await stockApi.batches(form.warehouseId, row.productId)
+    // 仅展示 qty > 0 的; stockApi.batches 已经按 qty DESC 排好
+    row._batchOptions = (r.data || []).filter(b => Number(b.qty) > 0)
+    // 若还没有 batchNo 且候选只有一条, 自动填上
+    if (!row.batchNo && row._batchOptions.length === 1) {
+      row.batchNo = row._batchOptions[0].batchNo || ''
+    }
+  } catch (e) {
+    /* 后端接口失败也不阻塞开单 */
+  }
+}
+
 function onUnitChange(row, unitId) {
   const u = (row._units || []).find(x => x.unitId === unitId)
   if (u) row.unitName = u.unitName
+}
+
+/**
+ * 仓库切换: 已选商品的明细行全部刷新批次候选, 并清空 batchNo 等待重选.
+ */
+function onWarehouseChange() {
+  form.details.forEach(r => {
+    if (r.productId) {
+      r.batchNo = ''
+      loadBatchOptionsForRow(r)
+    }
+  })
 }
 
 function onCustomerChange() { form.details.forEach(d => d.productId && onProductChange(d, d.productId)) }
