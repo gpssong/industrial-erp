@@ -451,7 +451,10 @@ docker run -d --name erp-backend --restart=always \
 - `<el-input-number>` 数量/单价/税率/折扣/抹零统一 `:formatter="stripZeroFormat" :parser="stripZeroParse"`
 - 表格"金额/价税合计/合计数量/合计金额"展示列改用 `stripTrailingZero4/2` helper 代替 `.toFixed(4)/.toFixed(2)`
 
-**其他视图的影响**: v1.1.6 `:step-strictly="false"` 没真解决装载场景。统一迁移到 `useStripZero` composable 是后续可作的清理(暂留作 v1.1.8)。已经过的视图: 销售出库 `Delivery.vue` (本修复), 生产单 `Order.vue` (v1.1.6 已对)。
+**其他视图的影响 (v1.1.7 增量)**: v1.1.6 `:step-strictly="false"` 没真解决装载场景。统一迁移到 `useStripZero` composable 是后续可作的清理。本批已补做的视图:
+- `sales/Delivery.vue` (v1.1.7 第 1 轮)
+- `purchase/Receipt.vue` (v1.1.7 第 2 轮, 用户截图反馈 "2100.0000 / 0.0000")
+剩余: 销售订单 / 销售退货 / 采购订单 / 采购退货 / 生产 BOM (都是同样模式, 还没用户截图反馈, 留 v1.1.8)。已做 `useStripZero` composable 复用.
 
 ### v1.1.6 (2026-07-06) — 数字自动去尾 + 打印修复
 
