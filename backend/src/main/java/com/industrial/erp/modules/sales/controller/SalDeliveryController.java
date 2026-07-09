@@ -62,4 +62,14 @@ public class SalDeliveryController {
     public R<BigDecimal> lastPrice(@RequestParam Long customerId, @RequestParam Long productId) {
         return R.ok(service.getLastPrice(customerId, productId));
     }
+
+    /**
+     * 查询指定客户最近 50 条历史销售出库明细 (按出库日期 DESC).
+     * 用于销售出库新增/编辑弹窗底部的"该客户历史销售产品"下拉/列表.
+     * v1.1.7+ 新增.
+     */
+    @GetMapping("/customer-history-products")
+    public R<java.util.List<java.util.Map<String, Object>>> customerHistoryProducts(@RequestParam Long customerId) {
+        return R.ok(service.getCustomerHistoryProducts(customerId));
+    }
 }

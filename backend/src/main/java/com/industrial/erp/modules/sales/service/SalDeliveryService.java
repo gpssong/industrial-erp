@@ -97,6 +97,15 @@ public class SalDeliveryService {
         return price != null ? price : BigDecimal.ZERO;
     }
 
+    /**
+     * 查询该客户最近 50 条历史销售出库明细 (按 bill_date DESC).
+     * 用于销售出库新增弹窗底部"该客户历史销售产品"列表. v1.1.7+ 新增.
+     */
+    public java.util.List<java.util.Map<String, Object>> getCustomerHistoryProducts(Long customerId) {
+        if (customerId == null) return java.util.Collections.emptyList();
+        return detailMapper.selectCustomerHistoryProducts(customerId);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     @OperLog(module="销售出库", businessType="ADD", saveParam=true)
     public void add(SalDelivery delivery) {
