@@ -98,6 +98,15 @@ public class PurReceiptService {
         return price != null ? price : BigDecimal.ZERO;
     }
 
+    /**
+     * 查询该供应商最近 50 条历史采购入库明细 (按 bill_date DESC).
+     * 用于采购入库新增弹窗底部"该供应商历史采购产品"列表. v1.1.7+ 新增.
+     */
+    public java.util.List<java.util.Map<String, Object>> getSupplierHistoryProducts(Long supplierId) {
+        if (supplierId == null) return java.util.Collections.emptyList();
+        return receiptDetailMapper.selectSupplierHistoryProducts(supplierId);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     @OperLog(module="采购入库", businessType="ADD", saveParam=true)
     public void add(PurReceipt receipt) {

@@ -16,7 +16,9 @@ export const purReceiptApi = {
   update: (data) => request.put('/purchase/receipt', data),
   delete: (id) => request.delete(`/purchase/receipt/${id}`),
   check: (id) => request.post(`/purchase/receipt/${id}/check`),
-  getLastPrice: (supplierId, productId) => request.get('/purchase/receipt/last-price', { params: { supplierId, productId } })
+  getLastPrice: (supplierId, productId) => request.get('/purchase/receipt/last-price', { params: { supplierId, productId } }),
+  // v1.1.7+ 供应商历史采购产品 (按入库日期 DESC, limit 50) — 采购入库新增弹窗底部参考用
+  getSupplierHistoryProducts: (supplierId) => request.get('/purchase/receipt/supplier-history-products', { params: { supplierId } })
 }
 
 export const purReturnApi = {

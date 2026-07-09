@@ -382,6 +382,14 @@ mvn test                          # 全量
 - 后端: `GET /api/sales/delivery/customer-history-products?customerId=XX` (新增)
 - 前端: `Delivery.vue` 选定客户后自动加载, 重置弹窗时清空
 
+**新功能**: 采购入库弹窗同样加 "历史采购" 列表, 对仗销售出库
+- 列出该供应商最近 50 条采购入库明细 (按入库日期 DESC)
+- 列同销售出库, 单击行加入上方明细
+- 后端: `GET /api/purchase/receipt/supplier-history-products?supplierId=XX` (新增)
+- 前端: `Receipt.vue` 选定供应商后自动加载, 重置弹窗时清空
+
+**学习笔记 (本轮踩坑)**: v1.1.7 第三次后端构建时, mvn package 没加 clean, Docker build 用了上一次的 cached .jar → 新加的 supplier-history-products 接口没进镜像, 上线后报 `Failed to convert 'supplier-history-products' to Long` (路由 fallback 到 detail 用 `{id}` 试图 parseLong). 修复: `mvn clean package` + 新 docker build. **教训: 任何 controller 改动后必须 `mvn clean package`, 防止 stale class 进入 jar**.
+
 **升级注意**
 - 仅代码改动, 无 SQL 迁移. 重建后端 jar + 重启容器即可. 已有库存与单据不需要任何数据修复 (除了上面"应急"那种单据)
 - 若历史遗留下来 batch_no 不一致的单据, 重新打开保存 (自动同步当前候选批次) 再审核即可

@@ -62,4 +62,14 @@ public class PurReceiptController {
     public R<BigDecimal> lastPrice(@RequestParam Long supplierId, @RequestParam Long productId) {
         return R.ok(service.getLastPrice(supplierId, productId));
     }
+
+    /**
+     * 查询指定供应商最近 50 条历史采购入库明细 (按入库日期 DESC).
+     * 用于采购入库新增/编辑弹窗底部的"该供应商历史采购产品"下拉/列表.
+     * v1.1.7+ 新增.
+     */
+    @GetMapping("/supplier-history-products")
+    public R<java.util.List<java.util.Map<String, Object>>> supplierHistoryProducts(@RequestParam Long supplierId) {
+        return R.ok(service.getSupplierHistoryProducts(supplierId));
+    }
 }
