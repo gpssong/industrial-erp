@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -48,9 +49,12 @@ public class StockService {
         if (product == null) throw BizException.of("商品不存在: " + productId);
         BigDecimal amount = price == null ? BigDecimal.ZERO : price.multiply(qty).setScale(4, RoundingMode.HALF_UP);
 
-        String key = Constants.REDIS_STOCK_LOCK + warehouseId + ":" + productId + ":" + (batchNo == null ? "" : batchNo);
+        // v1.1.7+: 空串统一归一为 null, 避免前端 "" 与 后端 null OGNL 行为不一致.
+        String bn = (batchNo == null || batchNo.isEmpty()) ? null : batchNo;
+
+        String key = Constants.REDIS_STOCK_LOCK + warehouseId + ":" + productId + ":" + (bn == null ? "" : bn);
         return redisLock.executeWithLock(key, 5, 30, () -> {
-            InvStock cur = stockMapper.selectForUpdate(warehouseId, productId, batchNo);
+            InvStock cur = stockMapper.selectForUpdate(warehouseId, productId, bn);
             // 操作前的快照, 用于台账. 新建库存场景默认 0.
             BigDecimal beforeQtyIn = cur == null || cur.getQty() == null ? BigDecimal.ZERO : cur.getQty();
             BigDecimal beforeAvgCostIn = cur == null || cur.getAvgCost() == null ? BigDecimal.ZERO : cur.getAvgCost();
@@ -67,7 +71,7 @@ public class StockService {
                 s.setSpec(product.getSpec());
                 s.setUnitId(unitId);
                 s.setUnitName(unitName);
-                s.setBatchNo(batchNo);
+                s.setBatchNo(bn);
                 s.setQty(qty);
                 s.setAvailableQty(qty);
                 s.setAvgCost(price != null ? price : BigDecimal.ZERO);
@@ -108,7 +112,7 @@ public class StockService {
             ledger.setProductName(product.getProductName());
             ledger.setUnitId(unitId);
             ledger.setUnitName(unitName);
-            ledger.setBatchNo(batchNo);
+            ledger.setBatchNo(bn);
             ledger.setQty(qty);
             ledger.setPrice(price);
             ledger.setAmount(amount);
@@ -158,11 +162,27 @@ public class StockService {
         BaseProduct product = productMapper.selectById(productId);
         if (product == null) throw BizException.of("商品不存在: " + productId);
 
-        String key = Constants.REDIS_STOCK_LOCK + warehouseId + ":" + productId + ":" + (batchNo == null ? "" : batchNo);
+        // v1.1.7+: 空串统一归一为 null, 避免前端 "" 与 后端 null OGNL 行为不一致.
+        String bn = (batchNo == null || batchNo.isEmpty()) ? null : batchNo;
+
+        String key = Constants.REDIS_STOCK_LOCK + warehouseId + ":" + productId + ":" + (bn == null ? "" : bn);
         return redisLock.executeWithLock(key, 5, 30, () -> {
-            InvStock stock = stockMapper.selectForUpdate(warehouseId, productId, batchNo);
+            InvStock stock = stockMapper.selectForUpdate(warehouseId, productId, bn);
             if (stock == null) {
-                throw BizException.of("库存不存在, 商品=" + product.getProductName() + ", 仓库=" + warehouseName);
+                // 列一下该仓库+商品所有批次库存, 帮用户定位"出库批次号 与 库存批次号不一致"
+                List<InvStock> candidates = stockMapper.listByWarehouseAndProduct(warehouseId, productId);
+                String detail = candidates.isEmpty()
+                    ? "(该仓库无该商品任何库存记录, 请先录入或采购入库)"
+                    : candidates.stream()
+                        .map(s -> {
+                            String sBatch = s.getBatchNo() == null ? "<无批次>" : s.getBatchNo();
+                            return String.format("[批次=%s, 库存=%s]", sBatch, s.getQty());
+                        })
+                        .reduce((a, b) -> a + ", " + b).orElse("");
+                throw BizException.of(String.format(
+                    "库存不存在, 商品=%s(ID=%d), 仓库=%s(ID=%d), 入参批次=%s. %s",
+                    product.getProductName(), productId, warehouseName, warehouseId,
+                    bn == null ? "<无>" : bn, detail));
             }
             if (stock.getQty().compareTo(qty) < 0) {
                 throw BizException.of("库存不足, 商品=" + product.getProductName() + ", 当前库存=" + stock.getQty() + ", 需要=" + qty);
@@ -196,7 +216,7 @@ public class StockService {
             ledger.setProductName(product.getProductName());
             ledger.setUnitId(unitId);
             ledger.setUnitName(unitName);
-            ledger.setBatchNo(batchNo);
+            ledger.setBatchNo(bn);
             ledger.setQty(qty);
             ledger.setPrice(beforeAvgCost);
             ledger.setAmount(outCost);

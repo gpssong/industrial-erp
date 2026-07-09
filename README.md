@@ -341,6 +341,45 @@ mvn test                          # 全量
 - **NAS 清理**: 释放 2.6GB 孤儿镜像 + 1.62GB 构建缓存, 删孤儿容器 `vibrant_euler` / `epic_benz`
 - **前端文档**: `docs/21_操作日志与登录日志功能.md` + `docs/22_自服务修改密码与前端调优.md`
 
+### v1.1.7 (2026-07-09) — 销售出库"库存不存在"根因修复
+
+**用户报**: 销售出库点击审核 → `Error: 库存不存在, 商品=防锈袋28*36, 仓库=仓库`
+
+**根因 (数据库直查定位)**
+- `inv_stock` 里该商品 (`防锈袋28*36` / `7412fx2638`) 库存 `qty=5000`, `batch_no='PDPD202607090001'`
+- 同张销售出库单 (CKP202607090001) 明细里 `batch_no=NULL`
+- 后端 `InvStockMapper.selectForUpdate` 用 `<if bn != null and bn != "">` 走精确匹配, NULL 与空串分支走 `batch_no IS NULL` 但**实际库存的 batch_no 是非空字符串**, 永远查不到
+
+**修复 (后端 + 前端 双管)**
+
+1. **`InvStockMapper.selectForUpdate` (v1.1.7+)**
+   - 改用 `<choose><when>bn != null and bn != ""</when><otherwise>AND batch_no IS NULL</otherwise></choose>`
+   - 空串与 null 视为同义, OGNL 边界行为不再分裂
+
+2. **`StockService.inStock` / `StockService.outStock` 入参归一化**
+   - 把 `batchNo` 统一 normalize: `null` 或 `""` 都视为 `null`
+   - 加新方法 `listByWarehouseAndProduct` 用于"库存不存在"时列出可用批次 (FIFO 顺序)
+
+3. **错误信息带 ID + 候选批次**
+   - "库存不存在" 错误信息从 `商品=XX, 仓库=XX` 改为:
+     `商品=防锈袋28*36(ID=20750...), 仓库=仓库(ID=20737...), 入参批次=<无>. 可用批次: [批次=PDPD202607090001, 库存=5000.0000]`
+
+4. **新增 `GET /api/inventory/stock/batches` 接口**
+   - 不需要权限 (走 controller 拦截器已登录即可), 给业务开单选批号用
+
+5. **前端 `Delivery.vue` 批次号输入 改为可搜索下拉**
+   - 选完商品 + 仓库 → 自动加载 `batches(warehouseId, productId)`, 列出 qty > 0 的所有批次
+   - 默认优先 qty 最大的批次 (FIFO 优化): 用户可手动切换
+   - 切换仓库时 已选商品的明细行 batchNo 自动清空并重新拉候选
+   - `allow-create` 保留, 用户还能手填批次号 (某些业务允许新批次)
+
+**应急修复 (针对该单)**
+- 直接 `UPDATE sal_delivery_detail SET batch_no='PDPD202607090001' WHERE id=...`, 让用户卡住的 CKP202607090001 立刻可审核
+
+**升级注意**
+- 仅代码改动, 无 SQL 迁移. 重建后端 jar + 重启容器即可. 已有库存与单据不需要任何数据修复 (除了上面"应急"那种单据)
+- 若历史遗留下来 batch_no 不一致的单据, 重新打开保存 (自动同步当前候选批次) 再审核即可
+
 ### v1.1.6 (2026-07-06) — 数字自动去尾 + 打印修复
 
 **全局数字去尾 0**

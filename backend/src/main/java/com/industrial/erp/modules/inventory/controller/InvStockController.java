@@ -84,4 +84,13 @@ public class InvStockController {
         permService.requirePerm("inventory:warning:list");
         return R.ok(ledgerQueryMapper.selectStockAll());
     }
+
+    /**
+     * 列某仓库+某商品下所有可用 (qty>0) 的库存批次 (供 销售/委外开单 时选 batchNo).
+     * <p>v1.1.7+ 新增; 不走 stock/page (需 inventory:stock:list 权限), 让业务开单页能直接 dropdown.
+     */
+    @GetMapping("/stock/batches")
+    public R<List<InvStock>> listBatches(@RequestParam Long warehouseId, @RequestParam Long productId) {
+        return R.ok(stockMapper.listByWarehouseAndProduct(warehouseId, productId));
+    }
 }
