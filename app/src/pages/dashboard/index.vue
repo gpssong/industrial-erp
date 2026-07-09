@@ -41,14 +41,11 @@ const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, 
 const today = new Date().toISOString().substring(0, 10)
 const greeting = ref('您好')
 
-// PC 端菜单路径 -> App 端页面映射
+// PC 端菜单路径 -> App 端页面映射 (v1.1.7+: 删除手机开单 + 销售订单, 扫码出库=PC 销售出库)
 const PATH_TO_APP = {
-  '/sales/delivery': { path: '/pages/sales/quick', title: '手机开单', icon: '📝' },
-  '/sales/order': { path: '/pages/sales/order', title: '销售订单', icon: '📃' },
   '/sales/return': { path: '/pages/scan/out', title: '扫码出库', icon: '📤' },
   '/purchase/receipt': { path: '/pages/scan/in', title: '扫码入库', icon: '📥' },
   '/purchase/order': { path: '/pages/purchase/order', title: '采购订单', icon: '📋' },
-  '/purchase/return': { path: '/pages/sales/quick', title: '采购退货', icon: '↩️' },
   '/inventory/stock': { path: '/pages/inventory/query', title: '查库存', icon: '📦' },
   '/inventory/ledger': { path: '/pages/inventory/query', title: '库存台账', icon: '📒' },
   '/production/order': { path: '/pages/count/index', title: '外勤盘点', icon: '📋' },
@@ -69,12 +66,11 @@ const visibleMenus = computed(() => {
   // 管理员: 显示全部 App 端功能
   if (isAdmin()) {
     return [
-      PATH_TO_APP['/sales/delivery'],
-      PATH_TO_APP['/sales/order'],
+      PATH_TO_APP['/sales/return'],
+      PATH_TO_APP['/purchase/receipt'],
+      PATH_TO_APP['/purchase/order'],
       PATH_TO_APP['/inventory/stock'],
       PATH_TO_APP['/production/order'],
-      PATH_TO_APP['/purchase/receipt'],
-      PATH_TO_APP['/sales/return'],
       PATH_TO_APP['/report/dashboard'],
       PATH_TO_APP['/inventory/ledger']
     ]
