@@ -396,6 +396,23 @@ docker run -d --name erp-pc-web --restart=always \
 
 **部署教训 (写入 v1.1.7)**: NAS 上 `erp-pc-web` 容器固定使用宿主端口 18080 (与 DSM 自动生成的 `http.erp8088.conf` 的 `proxy_pass 18080` 匹配);如要换端口, 需同步修改 `/etc/nginx/conf.d/http.erp8088.conf` 的 `proxy_pass` (或经 DSM 控制面板 → 登录门户 → 反向代理 加一条新规则)
 
+**用户报 3**: `home.93gushi.com:8088` 报 `Error: Unable to connect to Redis (127.0.0.1:6379)`
+
+**根因**: 手工 `docker run` 启动 `erp-backend` 时, 误把环境变量名写成 `ERP_REDIS_HOST=redis`,但 Spring Boot 实际读的是 `SPRING_DATA_REDIS_HOST`(SpringBoot 标准 redis 属性名)。环境变量未生效 → 后端 fallback 到 application.yml 默认值 `127.0.0.1` → 容器内没有 6379 → 连接被拒绝 → "Unable to connect to Redis"。
+
+**修复**: 重启容器, 用正确的环境变量名 `SPRING_DATA_REDIS_HOST=redis`:
+
+```bash
+docker run -d --name erp-backend ... \
+  -e SPRING_DATA_REDIS_HOST=redis \
+  -e SPRING_DATA_REDIS_PORT=6379 \
+  ...
+```
+
+**验证**: `curl http://home.93gushi.com:8088/api/auth/captcha` → `200`
+
+**部署教训 (追加)**: Spring Boot 容器化时,Redis 配置必须用 `SPRING_DATA_REDIS_HOST`,**不要**自定义 `ERP_REDIS_HOST` 这种"项目化"名字。`docker-compose.yml` / `.env.example` 都用前者,符合 Spring 习惯。后续部署若手工 docker run,照抄 README 与 .env.example。
+
 ### v1.1.6 (2026-07-06) — 数字自动去尾 + 打印修复
 
 **全局数字去尾 0**

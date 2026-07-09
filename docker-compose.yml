@@ -66,6 +66,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      # ⚠️ Spring Boot redis starter 读 spring.data.redis.*, 必须是 SPRING_DATA_REDIS_HOST (非 ERP_REDIS_HOST)
+      # 早期手工 docker run 时误把环境变量名写成 ERP_REDIS_HOST, 后端实际连 127.0.0.1:6379 容器内没用 -> 启动失败
+      SPRING_DATA_REDIS_PORT: 6379
       # NAS 8G 内存调优: MySQL(~1G) + Redis(~0.3G) + 后端 + DSM 系统 + Docker 守护,
       # 后端堆控制在 768M (峰值含 metaspace), metaspace 限 192M.
       JAVA_OPTS: "-Xms256m -Xmx768m -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -Dfile.encoding=UTF-8 -Duser.timezone=GMT+8"
