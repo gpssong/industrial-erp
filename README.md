@@ -443,6 +443,16 @@ docker run -d --name erp-backend --restart=always \
 - Redis: `SPRING_DATA_REDIS_*` (HOST/PORT), **不要** ERP_REDIS_*
 - 容器间通信用 service 名 (`mysql`, `redis`), 不用 localhost / 127.0.0.1
 
+**用户报 5**: 销售出库编辑/新增弹窗里"数量 735.0000、单价 17.0000、金额 12495.0000", 没自动去尾 0
+
+**根因**: v1.1.6 我只对生产单 `Order.vue` 做了 formatter/parser 注入, **漏掉了 `Delivery.vue`**(销售出库)。`:step-strictly="false"` 只对用户输入生效, EP 在 v-model 装载数值时仍然按 `:precision=N` 强制显示 N 位小数, 这就是用户看到的 735.0000 / 17.0000。
+
+**修复 (v1.1.7+)**: `Delivery.vue` 加同样 formatter/parser + 复用为 composable `src/composables/useStripZero.js`:
+- `<el-input-number>` 数量/单价/税率/折扣/抹零统一 `:formatter="stripZeroFormat" :parser="stripZeroParse"`
+- 表格"金额/价税合计/合计数量/合计金额"展示列改用 `stripTrailingZero4/2` helper 代替 `.toFixed(4)/.toFixed(2)`
+
+**其他视图的影响**: v1.1.6 `:step-strictly="false"` 没真解决装载场景。统一迁移到 `useStripZero` composable 是后续可作的清理(暂留作 v1.1.8)。已经过的视图: 销售出库 `Delivery.vue` (本修复), 生产单 `Order.vue` (v1.1.6 已对)。
+
 ### v1.1.6 (2026-07-06) — 数字自动去尾 + 打印修复
 
 **全局数字去尾 0**
