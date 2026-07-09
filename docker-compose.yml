@@ -61,6 +61,9 @@ services:
         condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      # ⚠️ Spring Boot DataSource 读 spring.datasource.*, 这三个必须用 SPRING_DATASOURCE_*, 不要自定义 ERP_DB_*
+      # 早期手工 docker run 时误把环境变量名写成 ERP_DB_HOST/ERP_DB_PORT/ERP_DB_USERNAME/ERP_DB_PASSWORD
+      # 后端 fallback 到 application.yml 默认 127.0.0.1:3306 -> 容器内无 mysql -> CannotGetJdbcConnectionException
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/industrial_erp?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
