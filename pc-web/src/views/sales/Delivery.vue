@@ -78,8 +78,8 @@
         <el-row :gutter="12">
           <el-col :span="6"><el-form-item label="收货地址"><el-input v-model="form.address" /></el-form-item></el-col>
           <el-col :span="6"><el-form-item label="收货电话"><el-input v-model="form.phone" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="整单折扣"><el-input-number v-model="form.discountAmount" :precision="2" :step-strictly="false" /></el-form-item></el-col>
-          <el-col :span="6"><el-form-item label="抹零"><el-input-number v-model="form.tailAmount" :precision="2" :step-strictly="false" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="整单折扣"><el-input-number v-model="form.discountAmount" :step-strictly="false" :formatter="stripZeroFormat" :parser="stripZeroParse" /></el-form-item></el-col>
+          <el-col :span="6"><el-form-item label="抹零"><el-input-number v-model="form.tailAmount" :step-strictly="false" :formatter="stripZeroFormat" :parser="stripZeroParse" /></el-form-item></el-col>
         </el-row>
 
         <el-form-item label="商品明细">
@@ -103,17 +103,17 @@
               </template>
             </el-table-column>
             <el-table-column label="数量" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="4" :step-strictly="false" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
             </el-table-column>
             <el-table-column label="单价(含税)" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :precision="4" :step-strictly="false" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
             </el-table-column>
-            <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ (row.qty*row.price).toFixed(4) }}</span></template></el-table-column>
+            <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ stripTrailingZero4(row.qty * row.price) }}</span></template></el-table-column>
             <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80">
-              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" :step-strictly="false" size="small" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
             </el-table-column>
             <el-table-column v-if="taxSeparation === 'true'" label="价税合计" width="120" align="right">
-              <template #default="{ row }"><span>{{ ((row.qty*row.price)*(1+(row.taxRate||0)/100)).toFixed(4) }}</span></template>
+              <template #default="{ row }"><span>{{ stripTrailingZero4((row.qty||0)*(row.price||0)*(1+((row.taxRate||0))/100)) }}</span></template>
             </el-table-column>
             <el-table-column label="批次" width="160">
               <template #default="{ row }">
@@ -137,12 +137,12 @@
           </el-col>
           <el-col :span="12">
             <div class="summary">
-              <p>合计数量: <b>{{ totalQty.toFixed(4) }}</b></p>
-              <p v-if="taxSeparation !== 'true'">合计金额: <b>¥ {{ totalAmount.toFixed(2) }}</b></p>
+              <p>合计数量: <b>{{ stripTrailingZero4(totalQty) }}</b></p>
+              <p v-if="taxSeparation !== 'true'">合计金额: <b>¥ {{ stripTrailingZero2(totalAmount) }}</b></p>
               <template v-if="taxSeparation === 'true'">
-                <p>不含税金额: <b>¥ {{ totalAmount.toFixed(2) }}</b></p>
-                <p>税额: <b>¥ {{ (totalAmount * 0.13).toFixed(2) }}</b></p>
-                <p class="total">价税合计: <b>¥ {{ (totalAmount * 1.13).toFixed(2) }}</b></p>
+                <p>不含税金额: <b>¥ {{ stripTrailingZero2(totalAmount) }}</b></p>
+                <p>税额: <b>¥ {{ stripTrailingZero2(totalAmount * 0.13) }}</b></p>
+                <p class="total">价税合计: <b>¥ {{ stripTrailingZero2(totalAmount * 1.13) }}</b></p>
               </template>
             </div>
           </el-col>
@@ -174,6 +174,32 @@ import { stockApi } from '@/api/inventory'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPrintUrl } from '@/composables/usePrintUrl'
+
+// el-input-number 数字自动去尾 0 (v1.1.6 引入; v1.1.7 补到销售出库):
+// EP 的 precision=N 会强制显示 N 位小数, 用 formatter/parser 接管显示.
+// 740 → "740", 31.4 → "31.4", 17 → "17"
+const stripZeroFormat = (v) => {
+  if (v == null || v === '') return ''
+  const n = Number(v)
+  if (!isFinite(n)) return String(v)
+  return String(n)
+}
+const stripZeroParse = (v) => {
+  if (v == null || v === '') return null
+  const n = Number(String(v).replace(/,/g, ''))
+  return isFinite(n) ? n : null
+}
+// 计算列去尾 0: 量纲 4 位 (数量), 金额 2 位 (元)
+const stripTrailingZero4 = (v) => {
+  if (v == null || v === '' || !isFinite(Number(v))) return ''
+  const n = Number(v)
+  return Number.isInteger(n) ? String(n) : n.toString()
+}
+const stripTrailingZero2 = (v) => {
+  if (v == null || v === '' || !isFinite(Number(v))) return ''
+  const n = Number(v)
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '')
+}
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', customerId: null, billStatus: '', productName: '' })
 const data = ref({ records: [], total: 0 })
