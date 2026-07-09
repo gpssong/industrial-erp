@@ -390,6 +390,14 @@ mvn test                          # 全量
 
 **学习笔记 (本轮踩坑)**: v1.1.7 第三次后端构建时, mvn package 没加 clean, Docker build 用了上一次的 cached .jar → 新加的 supplier-history-products 接口没进镜像, 上线后报 `Failed to convert 'supplier-history-products' to Long` (路由 fallback 到 detail 用 `{id}` 试图 parseLong). 修复: `mvn clean package` + 新 docker build. **教训: 任何 controller 改动后必须 `mvn clean package`, 防止 stale class 进入 jar**.
 
+**App 端改动 (v1.1.7+)**
+- 删除 "手机开单" (`pages/sales/quick.vue`) 和 "销售订单" (`pages/sales/order.vue`) — `rm` 文件 + `rmdir sales/`, 工作台 PATH_TO_APP 移除 `/sales/delivery` 和 `/sales/order` 项, visibleMenus 数组不再引用
+- `pages.json` 删除 `sales/quick` 和 `sales/order` 两条 route
+- "扫码出库" (`pages/scan/out.vue`) 改造: 对应 PC 端 "销售出库", 加 **客户选择** (必选) + **仓库选择** (必选, 业务提交需 warehouse_id) + **历史销售列表** (选客户后自动加载最近 50 条, 单击加入明细, 同 productId+batchNo 自动合并)
+- 提交生成草稿销售出库单 (POST `/sales/delivery`), 走 `api.salesDeliveryAdd`, 待 PC 端审核入库扣减
+- `api/index.js` 新增 `customerHistoryProducts` + `warehouseList` + `salesDeliveryDetail` 方法
+- 部署: NAS 上 `/volume3/docker/erp-system/app-h5/dist/` 全量覆盖 → `docker build -t erp-app-h5:latest` → `docker run --name erp-app-h5 --network erp-system_erp-net -p 18090:80`. nginx.conf 中 `proxy_pass` 用 erp-backend 容器 IP `172.18.0.4:8080` (非 service 名 `backend`, 避免 docker DNS 解析不到)
+
 **升级注意**
 - 仅代码改动, 无 SQL 迁移. 重建后端 jar + 重启容器即可. 已有库存与单据不需要任何数据修复 (除了上面"应急"那种单据)
 - 若历史遗留下来 batch_no 不一致的单据, 重新打开保存 (自动同步当前候选批次) 再审核即可

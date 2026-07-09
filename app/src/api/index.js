@@ -98,6 +98,8 @@ export const api = {
   customerList: () => request({ url: '/base/customer/list' }),
   // 供应商
   supplierList: () => request({ url: '/base/supplier/list' }),
+  // 仓库 (v1.1.7+ App 扫码出库需要选仓库)
+  warehouseList: () => request({ url: '/base/warehouse/list' }),
   // 商品 (App 端用 appSearch,PC 端用 page)
   productPage: (params) => request({ url: '/base/product/page', data: params }),
   productAppSearch: (keyword) => request({ url: '/base/product/app-search', data: { keyword } }),
@@ -106,6 +108,10 @@ export const api = {
   salesOrderPage: (params) => request({ url: '/sales/order/page', data: params }),
   salesOrderAdd: (data) => request({ url: '/sales/order', method: 'POST', data }),
   salesDeliveryAdd: (data) => request({ url: '/sales/delivery', method: 'POST', data }),
+  // v1.1.7+ App 扫码出库对应的"该客户历史销售"
+  customerHistoryProducts: (customerId) => request({ url: '/sales/delivery/customer-history-products', data: { customerId } }),
+  // v1.1.7+ App 扫码出库提交后,跳转到 PC 端审查 — 供前端提交后获取单据 ID
+  salesDeliveryDetail: (id) => request({ url: '/sales/delivery/' + id }),
   // 采购
   purchaseOrderPage: (params) => request({ url: '/purchase/order/page', data: params }),
   purchaseReceiptAdd: (data) => request({ url: '/purchase/receipt', method: 'POST', data }),
