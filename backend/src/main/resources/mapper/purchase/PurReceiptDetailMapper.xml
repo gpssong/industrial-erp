@@ -10,4 +10,32 @@
         WHERE b.supplier_id = #{supplierId} AND d.product_id = #{productId} AND b.deleted = 0 AND d.deleted = 0
         ORDER BY b.bill_date DESC LIMIT 1
     </select>
+
+    <!--
+        供应商历史采购产品列表 (用于采购入库新增弹窗底部下拉参考).
+        取该供应商最近 50 条采购入库明细 (按单据日期 DESC), 含冗余主表 bill_no / bill_date.
+        v1.1.7+ 新增 (与销售出库 customer-history-products 对仗).
+    -->
+    <select id="selectSupplierHistoryProducts" resultType="java.util.Map">
+        SELECT
+            d.id              AS detail_id,
+            d.product_id      AS productId,
+            d.product_code    AS productCode,
+            d.product_name    AS productName,
+            d.spec            AS spec,
+            d.unit_id         AS unitId,
+            d.unit_name       AS unitName,
+            d.batch_no        AS batchNo,
+            d.qty             AS qty,
+            d.price           AS price,
+            d.tax_rate        AS taxRate,
+            d.remark          AS remark,
+            b.bill_no         AS billNo,
+            b.bill_date       AS billDate
+        FROM pur_receipt_detail d
+        JOIN pur_receipt b ON b.id = d.receipt_id
+        WHERE b.supplier_id = #{supplierId} AND b.deleted = 0 AND d.deleted = 0
+        ORDER BY b.bill_date DESC, b.id DESC
+        LIMIT 50
+    </select>
 </mapper>

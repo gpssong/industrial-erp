@@ -44,7 +44,7 @@
       <el-form :model="form" label-width="100px">
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="入库日期"><el-date-picker v-model="form.billDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="供应商"><el-select v-model="form.supplierId" filterable style="width:100%"><el-option v-for="s in suppliers" :key="s.id" :label="s.supplierName" :value="s.id" /></el-select></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="供应商"><el-select v-model="form.supplierId" filterable style="width:100%" @change="onSupplierChange"><el-option v-for="s in suppliers" :key="s.id" :label="s.supplierName" :value="s.id" /></el-select></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="仓库"><el-select v-model="form.warehouseId" style="width:100%"><el-option v-for="w in warehouses" :key="w.id" :label="w.warehouseName" :value="w.id" /></el-select></el-form-item></el-col>
         </el-row>
         <el-form-item label="入库明细">
@@ -68,6 +68,39 @@
           </el-table>
         </el-form-item>
         <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
+
+        <!-- 该供应商历史采购产品 (v1.1.7+ 选定供应商后展示, 点击行复制到上方明细) -->
+        <el-form-item v-if="form.supplierId" label="历史采购">
+          <div style="width:100%">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="color:#666;font-size:12px">最近 50 条入库记录, 单击行把该明细复制到上方</span>
+              <el-button size="small" link type="primary" @click="loadSupplierHistory" :loading="historyLoading">刷新</el-button>
+            </div>
+            <el-table :data="supplierHistory" size="small" border max-height="220"
+              @row-click="onHistoryRowClick" highlight-current-row stripe>
+              <el-table-column prop="billDate" label="日期" width="100" />
+              <el-table-column prop="productCode" label="产品编码" width="140" />
+              <el-table-column prop="productName" label="产品名称" />
+              <el-table-column prop="spec" label="规格" width="120" />
+              <el-table-column prop="unitName" label="单位" width="60" />
+              <el-table-column prop="qty" label="数量" width="80" align="right">
+                <template #default="{ row }">{{ stripTrailingZero4(row.qty) }}</template>
+              </el-table-column>
+              <el-table-column prop="price" label="单价(含税)" width="100" align="right">
+                <template #default="{ row }">{{ stripTrailingZero2(row.price) }}</template>
+              </el-table-column>
+              <el-table-column prop="remark" label="备注" show-overflow-tooltip />
+              <el-table-column label="操作" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click.stop="onHistoryRowClick(row)">加入明细</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div v-if="supplierHistory.length === 0 && !historyLoading" style="color:#999;font-size:12px;padding:10px;text-align:center">
+              该供应商暂无历史采购记录
+            </div>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible=false">取消</el-button>
@@ -93,7 +126,7 @@ import { useStripZero } from '@/composables/useStripZero'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPrintUrl } from '@/composables/usePrintUrl'
 
-const { stripZeroFormat, stripZeroParse, stripTrailingZero2 } = useStripZero()
+const { stripZeroFormat, stripZeroParse, stripTrailingZero2, stripTrailingZero4 } = useStripZero()
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', supplierId: null, productName: '' })
 const data = ref({ records: [], total: 0 })
@@ -119,6 +152,9 @@ const suppliers = ref([])
 const warehouses = ref([])
 const products = ref([])
 const productLoading = ref(false)
+// v1.1.7+: 选定供应商后展示历史采购产品列表
+const supplierHistory = ref([])
+const historyLoading = ref(false)
 const form = reactive({ billDate: new Date().toISOString().substring(0,10), supplierId: null, warehouseId: null, remark: '', details: [] })
 const { taxSeparation, loadTaxSeparation } = useTaxSeparation()
 
@@ -153,6 +189,7 @@ async function onAdd() {
   await loadSuppliers()
   warehouses.value = (await warehouseApi.list()).data
   products.value = (await productApi.page({ pageNum: 1, pageSize: 100 })).data.records
+  supplierHistory.value = []   // v1.1.7+ 重置历史采购
   dialogVisible.value = true
 }
 
@@ -174,6 +211,53 @@ async function onProduct(row, v) {
     } catch (e) { /* ignore */ }
   }
   row.price = +p.purchasePrice || 0
+}
+
+/**
+ * 供应商变化时, 自动加载该供应商历史采购产品列表. v1.1.7+ 新增.
+ */
+function onSupplierChange() {
+  loadSupplierHistory()
+}
+
+/**
+ * 加载指定供应商最近 50 条历史采购入库明细, 用于弹窗底部"历史采购"列表.
+ * v1.1.7+ 新增.
+ */
+async function loadSupplierHistory() {
+  if (!form.supplierId) { supplierHistory.value = []; return }
+  historyLoading.value = true
+  try {
+    const r = await purReceiptApi.getSupplierHistoryProducts(form.supplierId)
+    supplierHistory.value = r.data || []
+  } catch (e) {
+    supplierHistory.value = []
+    ElMessage.error('加载供应商历史采购失败: ' + e.message)
+  } finally { historyLoading.value = false }
+}
+
+/**
+ * 点击历史采购行 → 把该明细加到 form.details.
+ * 若同 productId+batchNo 已存在, 累加数量; 否则追加新行, 复用 products 找 label.
+ */
+async function onHistoryRowClick(row) {
+  const newLine = {
+    productId: row.productId, productCode: row.productCode, productName: row.productName,
+    spec: row.spec, unitId: row.unitId, unitName: row.unitName,
+    qty: row.qty != null ? Number(row.qty) : 0,
+    price: row.price != null ? Number(row.price) : 0,
+    taxRate: row.taxRate != null ? Number(row.taxRate) : 13,
+    batchNo: row.batchNo, locationName: '', remark: row.remark
+  }
+  // 合并判断 (按 productId+batchNo 累加数量)
+  const exist = form.details.find(d => d.productId === newLine.productId && (d.batchNo || '') === (newLine.batchNo || ''))
+  if (exist) {
+    exist.qty = (+exist.qty || 0) + (+newLine.qty || 0)
+    ElMessage.success(`已合并到明细行 (累计数量 ${exist.qty})`)
+    return
+  }
+  form.details.push(newLine)
+  ElMessage.success('已加入明细行')
 }
 
 async function onSave() {
