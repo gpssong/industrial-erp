@@ -147,6 +147,39 @@
             </div>
           </el-col>
         </el-row>
+
+        <!-- 该客户历史销售产品 (v1.1.7+ 选定客户后展示, 点击行复制到上方明细) -->
+        <el-form-item v-if="form.customerId" label="历史销售">
+          <div class="customer-history" style="width:100%">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="color:#666;font-size:12px">最近 50 条出库记录, 单击行把该明细复制到上方</span>
+              <el-button size="small" link type="primary" @click="loadCustomerHistory" :loading="historyLoading">刷新</el-button>
+            </div>
+            <el-table :data="customerHistory" size="small" border max-height="220"
+              @row-click="onHistoryRowClick" highlight-current-row stripe>
+              <el-table-column prop="billDate" label="日期" width="100" />
+              <el-table-column prop="productCode" label="产品编码" width="140" />
+              <el-table-column prop="productName" label="产品名称" />
+              <el-table-column prop="spec" label="规格" width="120" />
+              <el-table-column prop="unitName" label="单位" width="60" />
+              <el-table-column prop="qty" label="数量" width="80" align="right">
+                <template #default="{ row }">{{ stripTrailingZero4(row.qty) }}</template>
+              </el-table-column>
+              <el-table-column prop="price" label="单价(含税)" width="100" align="right">
+                <template #default="{ row }">{{ stripTrailingZero2(row.price) }}</template>
+              </el-table-column>
+              <el-table-column prop="remark" label="备注" show-overflow-tooltip />
+              <el-table-column label="操作" width="80" fixed="right">
+                <template #default="{ row }">
+                  <el-button link type="primary" size="small" @click.stop="onHistoryRowClick(row)">加入明细</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div v-if="customerHistory.length === 0 && !historyLoading" style="color:#999;font-size:12px;padding:10px;text-align:center">
+              该客户暂无历史销售记录
+            </div>
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -225,6 +258,9 @@ const customers = ref([])
 const warehouses = ref([])
 const units = ref([])
 const productList = ref([])
+// v1.1.7+: 选定客户后展示历史销售产品列表
+const customerHistory = ref([])
+const historyLoading = ref(false)
 
 const form = reactive({
   id: null, billNo: '', billDate: new Date().toISOString().substring(0, 10),
@@ -276,6 +312,7 @@ async function onAdd() {
   form.phone = ''
   form.discountAmount = 0
   form.tailAmount = 0
+  customerHistory.value = []   // v1.1.7+ 重置历史销售列表
   form.remark = ''
   form.details = []
   await loadCustomers()
@@ -368,7 +405,66 @@ function onWarehouseChange() {
   })
 }
 
-function onCustomerChange() { form.details.forEach(d => d.productId && onProductChange(d, d.productId)) }
+function onCustomerChange() {
+  // 1. 已选明细行的商品重新拉规格/单位/价格
+  form.details.forEach(d => d.productId && onProductChange(d, d.productId))
+  // 2. 加载该客户历史销售产品列表
+  loadCustomerHistory()
+}
+
+/**
+ * 加载指定客户的最近 50 条历史销售出库明细, 用于弹窗底部"历史销售"列表.
+ * v1.1.7+ 新增.
+ */
+async function loadCustomerHistory() {
+  if (!form.customerId) { customerHistory.value = []; return }
+  historyLoading.value = true
+  try {
+    const r = await salDeliveryApi.getCustomerHistoryProducts(form.customerId)
+    customerHistory.value = r.data || []
+  } catch (e) {
+    customerHistory.value = []
+    ElMessage.error('加载客户历史销售失败: ' + e.message)
+  } finally { historyLoading.value = false }
+}
+
+/**
+ * 点击历史销售行 → 把该明细加到 form.details.
+ * 若同 productId 已存在, 累加数量; 否则追加新行 (复用 productList 找 label, 拉批次候选).
+ */
+async function onHistoryRowClick(row) {
+  // 1. 关键属性复制
+  const newLine = {
+    productId: row.productId, productCode: row.productCode, productName: row.productName,
+    spec: row.spec, unitId: row.unitId, unitName: row.unitName,
+    qty: row.qty != null ? Number(row.qty) : 0,
+    price: row.price != null ? Number(row.price) : 0,
+    taxRate: row.taxRate != null ? Number(row.taxRate) : 13,
+    batchNo: row.batchNo, locationName: '', remark: row.remark
+  }
+  // 2. 合并到 form.details (按 productId+batchNo 累加数量)
+  const exist = form.details.find(d => d.productId === newLine.productId && (d.batchNo || '') === (newLine.batchNo || ''))
+  if (exist) {
+    exist.qty = (+exist.qty || 0) + (+newLine.qty || 0)
+    ElMessage.success(`已合并到明细行 (累计数量 ${exist.qty})`)
+    return
+  }
+  form.details.push(newLine)
+  // 3. 异步: 加载该商品所有单位 + 该仓库批次候选, 让用户能用下拉
+  if (!productList.value.find(p => p.id === newLine.productId)) {
+    try {
+      const r = await productApi.detail(newLine.productId)
+      const p = r.data?.product || r.data
+      if (p) {
+        productList.value.push({ id: p.id, productCode: p.productCode, productName: p.productName })
+      }
+    } catch (e) { /* ignore */ }
+  }
+  // 等下个 tick 让新行挂上, 再加载批次候选
+  await Promise.resolve()
+  await loadBatchOptionsForRow(newLine)
+  ElMessage.success('已加入明细行')
+}
 
 async function onSave() {
   if (!form.customerId) return ElMessage.warning('请选择客户')

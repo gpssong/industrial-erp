@@ -10,4 +10,33 @@
         WHERE b.customer_id = #{customerId} AND d.product_id = #{productId} AND b.deleted = 0 AND d.deleted = 0
         ORDER BY b.bill_date DESC LIMIT 1
     </select>
+
+    <!--
+        客户历史销售产品列表 (用于销售出库新增弹窗底部下拉参考).
+        取该客户最近 50 条销售出库明细 (按单据日期 DESC), 每条含主表 bill_no / bill_date 冗余.
+        不做 GROUP BY product_id: 用户可能对同一商品多个批次/不同单价, 都展示.
+        排序: 单据日期 DESC, 保持最新出库靠前.
+    -->
+    <select id="selectCustomerHistoryProducts" resultType="java.util.Map">
+        SELECT
+            d.id              AS detail_id,
+            d.product_id      AS productId,
+            d.product_code    AS productCode,
+            d.product_name    AS productName,
+            d.spec            AS spec,
+            d.unit_id         AS unitId,
+            d.unit_name       AS unitName,
+            d.batch_no        AS batchNo,
+            d.qty             AS qty,
+            d.price           AS price,
+            d.tax_rate        AS taxRate,
+            d.remark          AS remark,
+            b.bill_no         AS billNo,
+            b.bill_date       AS billDate
+        FROM sal_delivery_detail d
+        JOIN sal_delivery b ON b.id = d.delivery_id
+        WHERE b.customer_id = #{customerId} AND b.deleted = 0 AND d.deleted = 0
+        ORDER BY b.bill_date DESC, b.id DESC
+        LIMIT 50
+    </select>
 </mapper>

@@ -16,7 +16,9 @@ export const salDeliveryApi = {
   update: (data) => request.put('/sales/delivery', data),
   delete: (id) => request.delete(`/sales/delivery/${id}`),
   check: (id) => request.post(`/sales/delivery/${id}/check`),
-  getLastPrice: (customerId, productId) => request.get('/sales/delivery/last-price', { params: { customerId, productId } })
+  getLastPrice: (customerId, productId) => request.get('/sales/delivery/last-price', { params: { customerId, productId } }),
+  // v1.1.7+ 客户历史销售产品 (按出库日期 DESC, limit 50) — 销售出库新增弹窗底部参考用
+  getCustomerHistoryProducts: (customerId) => request.get('/sales/delivery/customer-history-products', { params: { customerId } })
 }
 
 export const salReturnApi = {
