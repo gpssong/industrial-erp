@@ -413,6 +413,36 @@ docker run -d --name erp-backend ... \
 
 **部署教训 (追加)**: Spring Boot 容器化时,Redis 配置必须用 `SPRING_DATA_REDIS_HOST`,**不要**自定义 `ERP_REDIS_HOST` 这种"项目化"名字。`docker-compose.yml` / `.env.example` 都用前者,符合 Spring 习惯。后续部署若手工 docker run,照抄 README 与 .env.example。
 
+**用户报 4**: `home.93gushi.com:8088` 报 `Error: Failed to obtain JDBC Connection` + `SysUserMapper.selectPermsByUserId`
+
+**根因**: 同上 3 的"姊妹篇"。手工 `docker run` 启动 `erp-backend` 时, MySQL 环境变量名也写错了 — 用了 `ERP_DB_HOST=mysql / ERP_DB_PORT=3306 / ERP_DB_USERNAME=root / ERP_DB_PASSWORD=erp_root_pwd`, 但 Spring Boot 实际读的是 `SPRING_DATASOURCE_URL/HOST/PORT/USERNAME/PASSWORD`。环境变量未生效 → fallback 到 application.yml 默认 `jdbc:mysql://127.0.0.1:3306/industrial_erp` → 容器内无 MySQL → `CannotGetJdbcConnectionException`。
+
+**修复**: 重启容器用 4 个 `SPRING_DATASOURCE_*` 环境变量(URL/HOST/PORT/USERNAME/PASSWORD)。这里给一个**已验证可用**的完整 `docker run` 模板,留存 README 顶部供未来重启直接拷:
+
+```bash
+docker run -d --name erp-backend --restart=always \
+  --network erp-system_erp-net -p 8080:8080 \
+  -v /volume3/docker/erp-system/data/backup:/opt/industrial-erp/backup \
+  -v /volume3/docker/erp-system/data/upload:/opt/industrial-erp/upload \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -e SPRING_DATASOURCE_HOST=mysql \
+  -e SPRING_DATASOURCE_PORT=3306 \
+  -e SPRING_DATASOURCE_USERNAME=root \
+  -e SPRING_DATASOURCE_PASSWORD=erp_root_pwd \
+  -e SPRING_DATASOURCE_DB=industrial_erp \
+  -e SPRING_DATA_REDIS_HOST=redis \
+  -e SPRING_DATA_REDIS_PORT=6379 \
+  -e ERP_CORS_ALLOWED_ORIGINS="http://localhost:5173,http://localhost:8088,http://home.93gushi.com,http://home.93gushi.com:8088" \
+  erp-system-backend:1.1.7
+```
+
+**验证**: `curl /api/system/user/perms/admin` (admin token) → `200`
+
+**部署教训 (再次追加)**: Spring Boot 容器化的"环境变量黄金法则":
+- DB: `SPRING_DATASOURCE_*` (HOST/PORT/DB/USERNAME/PASSWORD), **不要** ERP_DB_*
+- Redis: `SPRING_DATA_REDIS_*` (HOST/PORT), **不要** ERP_REDIS_*
+- 容器间通信用 service 名 (`mysql`, `redis`), 不用 localhost / 127.0.0.1
+
 ### v1.1.6 (2026-07-06) — 数字自动去尾 + 打印修复
 
 **全局数字去尾 0**
