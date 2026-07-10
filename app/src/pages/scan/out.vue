@@ -43,8 +43,11 @@
     <view v-if="product" class="card">
       <view class="row"><text class="label">商品:</text><text>{{ product.productName }}</text></view>
       <view class="row" style="margin-top:4px"><text class="label">编码:</text><text class="muted">{{ product.productCode }}</text></view>
-      <view class="row" style="margin-top:4px"><text class="label">价格:</text><text>¥{{ Number(price || 0).toString() }}</text></view>
       <view class="form-item" style="margin-top:8px">
+        <text class="label">价格 (可编辑) ¥</text>
+        <input class="input" type="digit" v-model.number="price" />
+      </view>
+      <view class="form-item">
         <text class="label">数量</text>
         <input class="input" type="number" v-model.number="qty" @confirm="onAdd" />
       </view>
@@ -227,6 +230,7 @@ function onScan() {
 function onAdd() {
   if (!product.value) { toast('请先搜索商品'); return }
   if (Number(qty.value) <= 0) { toast('数量必须大于 0'); return }
+  if (Number(price.value) < 0) { toast('价格不能为负'); return }
   list.value.push({
     productId: product.value.id,
     productCode: product.value.productCode,
@@ -240,7 +244,7 @@ function onAdd() {
     locationName: '',
     remark: remark.value
   })
-  product.value = null; qty.value = 1; remark.value = ''; code.value = ''
+  product.value = null; qty.value = 1; remark.value = ''; code.value = ''; price.value = 0
   toast('已添加')
 }
 

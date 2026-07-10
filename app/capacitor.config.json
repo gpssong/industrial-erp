@@ -14,5 +14,6 @@
   },
   "android": {
     "allowMixedContent": true
-  }
+  },
+  "includePlugins": ["NativeScanner"]
 }

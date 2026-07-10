@@ -40,6 +40,10 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+    // v1.1.8+: 本地原生扫码桥接依赖 - ZXing 引擎 + BarcodeScanner 插件
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+    implementation 'com.google.zxing:core:3.3.0'
+    implementation project(':capacitor-community-barcode-scanner')
 }
 
 apply from: 'capacitor.build.gradle'

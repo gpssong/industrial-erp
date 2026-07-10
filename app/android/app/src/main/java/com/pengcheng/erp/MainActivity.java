@@ -21,6 +21,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         // Register plugins before super.onCreate
         registerPlugin(BarcodeScanner.class);
+        registerPlugin(NativeScannerPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Request camera permission

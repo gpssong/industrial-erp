@@ -8,12 +8,10 @@ const TAB_PERMS = {
   '/pages/profile/index': ''          // 我的：总能访问
 }
 
-// 页面与权限的映射 (非 tabBar 页面)
+// 页面与权限的映射 (非 tabBar 页面; v1.1.8+ 移除采购订单)
 const PAGE_PERMS = {
   '/pages/scan/out': 'sales:delivery:list',
   '/pages/count/index': 'inventory:stock:list',
-  '/pages/sales/order': 'sales:order:list',
-  '/pages/purchase/order': 'purchase:order:list',
   '/pages/system/users': 'system:user:list'
 }
 

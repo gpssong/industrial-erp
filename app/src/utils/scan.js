@@ -1,5 +1,14 @@
-// 扫码工具: uni-app 原生扫码 / Capacitor BarcodeScanner / prompt 降级
+// 扫码工具: 优先用本地原生 ZXing Activity (v1.1.8+ 解决遮挡 + 超时)
+// 降级: @capacitor-community/barcode-scanner / prompt
+// 实现:
+//   1. NativeScanner (本项目自定义) - 直接 launch CaptureActivity 全屏扫码, 100% 不被 WebView 遮挡
+//   2. BarcodeScanner (@capacitor-community) - 有 WebView 叠加 bug, 兜底
+//   3. prompt - 最低降级
+import { registerPlugin } from '@capacitor/core'
 import { BarcodeScanner } from '@capacitor-community/barcode-scanner'
+
+// 注册本地原生插件 (对应 com.pengcheng.erp.NativeScannerPlugin)
+const NativeScanner = registerPlugin('NativeScanner')
 
 export function isH5() {
   return typeof window !== 'undefined' && typeof document !== 'undefined'
@@ -14,29 +23,18 @@ export function uniScanCodeAvailable() {
   return typeof uni !== 'undefined' && typeof uni.scanCode === 'function'
 }
 
-// 扫码状态追踪
-let scannerActive = false
-
-// 强制关闭摄像头 (页面切换/退出时调用)
+// 强制关闭摄像头 (页面切换/退出时调用, 仅对 BarcodeScanner 插件有效)
 export async function stopScan() {
-  if (isCapacitor() && scannerActive) {
-    try {
-      await BarcodeScanner.stopScan()
-    } catch (e) {}
-    scannerActive = false
-    // 恢复背景
-    if (typeof document !== 'undefined') {
-      document.querySelector('body').style.background = ''
-      const app = document.querySelector('#app')
-      if (app) app.style.background = ''
-    }
+  if (isCapacitor()) {
+    try { await BarcodeScanner.stopScan() } catch (e) {}
+    try { await BarcodeScanner.showBackground() } catch (e) {}
   }
 }
 
 // 通用扫码入口
 // opts: { onResult(text), onCancel(), onError(err) }
 export async function doScan(opts) {
-  // uni-app 原生扫码 (HBuilderX 打包)
+  // uni-app 原生扫码 (HBuilderX 打包, 非 Capacitor)
   if (uniScanCodeAvailable()) {
     return new Promise((resolve) => {
       uni.scanCode({
@@ -46,80 +44,57 @@ export async function doScan(opts) {
     })
   }
 
-  // Capacitor: 原生扫码
+  // Capacitor: 优先用本地原生 ZXing (v1.1.8+)
   if (isCapacitor()) {
     try {
-      // 检查权限
-      const status = await BarcodeScanner.checkPermission({ force: true })
-      if (!status.granted) {
-        // 请求权限
-        const reqStatus = await BarcodeScanner.checkPermission({ force: true })
-        if (!reqStatus.granted) {
-          alert('需要相机权限才能扫码，请在设置中授权')
-          opts.onCancel && opts.onCancel()
-          return
-        }
-      }
-
-      // 隐藏 WebView 背景 (扫码需要透明)
-      document.querySelector('body').style.background = 'transparent'
-      const app = document.querySelector('#app')
-      if (app) app.style.background = 'transparent'
-
-      // 开始扫码
-      BarcodeScanner.hideBackground()
-      scannerActive = true
-      const result = await BarcodeScanner.startScan()
-      scannerActive = false
-
-      // 恢复背景
-      document.querySelector('body').style.background = ''
-      if (app) app.style.background = ''
-
-      if (result.hasContent) {
+      console.log('[scan] calling NativeScanner.startScan()')
+      const result = await NativeScanner.startScan()
+      console.log('[scan] NativeScanner result:', JSON.stringify(result))
+      if (result && result.hasContent && result.content) {
         opts.onResult && opts.onResult(result.content)
       } else {
         opts.onCancel && opts.onCancel()
       }
+      return
     } catch (e) {
-      scannerActive = false
-      // 恢复背景
-      if (typeof document !== 'undefined') {
-        document.querySelector('body').style.background = ''
-        const app = document.querySelector('#app')
-        if (app) app.style.background = ''
+      console.error('[scan] NativeScanner error:', e)
+      // NativeScanner 不存在 (老版本) 或出错, 降级到 prompt
+      const msg = (e && e.message) || String(e || '')
+      if (msg.toLowerCase().includes('not implemented') || msg.toLowerCase().includes('not found')) {
+        // 真的没有这个插件, 走 prompt
+        return promptFallback(opts)
       }
-
-      // 用户取消或其他错误
-      if (e.message && (e.message.includes('cancel') || e.message.includes('User'))) {
+      // 其它错误 (用户取消等)
+      if (msg.toLowerCase().includes('cancel') || msg.toLowerCase().includes('user')) {
         opts.onCancel && opts.onCancel()
-      } else {
-        // 降级到 prompt
-        const c = prompt('扫码失败，请手动输入条码/商品编码:')
-        if (c && c.trim()) {
-          opts.onResult && opts.onResult(c.trim())
-        } else {
-          opts.onCancel && opts.onCancel()
-        }
+        return
       }
+      // 其它异常 (例如权限被拒), 降级 prompt
+      return promptFallback(opts, '扫码启动失败: ' + msg)
     }
-    return
   }
 
   // H5 浏览器: prompt 输入
-  const c = (typeof window !== 'undefined' ? window.prompt : prompt)('请输入条码 / 商品编码')
+  return promptFallback(opts)
+}
+
+function promptFallback(opts, prefixMsg) {
+  const placeholder = prefixMsg
+    ? prefixMsg + '\n请手动输入条码 / 商品编码:'
+    : '请输入条码 / 商品编码'
+  const c = (typeof window !== 'undefined' ? window.prompt : prompt)(placeholder)
   if (c && c.trim()) {
     opts.onResult && opts.onResult(c.trim())
   } else {
-    opts.onCancel && opts.onCancel()
+    if (prefixMsg) opts.onError && opts.onError(new Error(prefixMsg))
+    else opts.onCancel && opts.onCancel()
   }
 }
 
-// 监听页面切换, 自动关闭摄像头
+// 监听页面切换, 自动关闭摄像头 (仅 BarcodeScanner 插件需要)
 if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => { stopScan() })
   window.addEventListener('beforeunload', () => { stopScan() })
-  // uni-app 页面切换事件
   if (typeof uni !== 'undefined') {
     uni.on && uni.on('onHide', () => { stopScan() })
   }
