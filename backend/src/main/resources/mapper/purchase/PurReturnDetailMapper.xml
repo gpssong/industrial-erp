@@ -2,7 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.industrial.erp.modules.purchase.mapper.PurReturnDetailMapper">
     <select id="selectByReturnId" resultType="com.industrial.erp.modules.purchase.entity.PurReturnDetail">
-        SELECT d.*, p.thickness AS pThickness, p.width AS pWidth, p.density AS pDensity, p.gram_weight AS pGramWeight, p.material AS pMaterial
+        SELECT d.*, p.thickness AS pThickness, p.width AS pWidth, p.density AS pDensity, p.gram_weight AS pGramWeight, p.material AS pMaterial, p.model AS pModel
         FROM pur_return_detail d LEFT JOIN base_product p ON d.product_id = p.id
         WHERE d.return_id = #{returnId} AND d.deleted = 0 ORDER BY d.line_no
     </select>

@@ -150,7 +150,7 @@
             <div><b v-pre>{{#details}}</b> — 开始明细循环</div>
             <div><b v-pre>{{/details}}</b> — 结束明细循环</div>
             <div style="margin-top:8px;font-weight:600;color:#67c23a">商品字段 (插入到明细循环中)</div>
-            <div><b>{{productName}}</b> 商品名 · <b>{{productCode}}</b> 编码 · <b>{{spec}}</b> 规格</div>
+            <div><b>{{productName}}</b> 商品名 · <b>{{productCode}}</b> 编码 · <b>{{spec}}</b> 规格 · <b>{{model}}</b> 型号</div>
             <div><b>{{unitName}}</b> 单位 · <b>{{qty}}</b> 数量 · <b>{{price}}</b> 单价</div>
             <div><b>{{amount}}</b> 金额 · <b>{{batchNo}}</b> 批次 · <b>{{remark}}</b> 备注</div>
             <div style="margin-top:8px;font-weight:600;color:#67c23a">商品规格属性</div>
@@ -233,11 +233,12 @@ const allFields = {
     // 备注
     { value: 'remark', label: '生产单备注' }, { value: 'bomRemark', label: 'BOM备注' },
   ],
-  // 明细（通用）
+  // 明细(通用)
   detail: [
     { value: 'lineNo', label: '行号' }, { value: 'productName', label: '商品名称' },
     { value: 'productCode', label: '商品编码' }, { value: 'spec', label: '规格' },
-    { value: 'unitName', label: '单位' }, { value: 'qty', label: '数量' },
+    { value: 'model', label: '型号' }, { value: 'unitName', label: '单位' },
+    { value: 'qty', label: '数量' },
     { value: 'price', label: '单价(含税)' }, { value: 'priceEx', label: '不含税单价' },
     { value: 'amount', label: '金额' }, { value: 'amountTax', label: '含税金额' },
     { value: 'taxRate', label: '税率%' }, { value: 'taxAmount', label: '税额' },
