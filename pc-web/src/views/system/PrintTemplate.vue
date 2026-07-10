@@ -69,6 +69,7 @@
               </el-form-item>
               <el-form-item label="标题文字" style="margin-bottom:0">
                 <el-input v-model="cfg.title" style="width:110px" />
+                <el-checkbox v-model="cfg.showTitle" style="margin-left:6px">显示</el-checkbox>
               </el-form-item>
               <el-form-item label="模板模式" style="margin-bottom:0">
                 <el-radio-group v-model="cfg.mode" size="small">
@@ -123,7 +124,7 @@
           <div class="editor-preview">
             <div class="editor-label">👁 打印预览</div>
             <div class="preview-page" :style="previewStyle">
-              <div class="prev-title">{{ cfg.title || '单据' }}</div>
+              <div class="prev-title" v-if="cfg.showTitle">{{ cfg.title || '单据' }}</div>
               <div class="prev-content" v-html="previewHtml" />
               <div class="prev-sign" v-if="cfg.showSignature">仓管签字:_______________</div>
             </div>
@@ -270,6 +271,7 @@ const fieldGroups = computed(() => getFieldGroups(form.value.templateType))
 const cfg = ref({
   paperSize: 'P76',
   title: '单据',
+  showTitle: true,
   showSignature: true,
   template: `单号: {{billNo}}
 日期: {{billDate}}
@@ -544,7 +546,7 @@ function getPaperLabel(row) {
 function loadCfgFromContent(content) {
   if (!content || !content.trim().startsWith('{')) {
     cfg.value = {
-      paperSize: 'P76', title: '单据', showSignature: true, mode: 'text',
+      paperSize: 'P76', title: '单据', showTitle: true, showSignature: true, mode: 'text',
       template: getDefaultTemplate(form.value.templateType),
     }
     return
@@ -552,9 +554,10 @@ function loadCfgFromContent(content) {
   try {
     const parsed = JSON.parse(content)
     if (!parsed.mode) parsed.mode = 'text'
+    if (parsed.showTitle === undefined) parsed.showTitle = true
     cfg.value = parsed
   } catch {
-    cfg.value = { paperSize: 'P76', title: '单据', showSignature: true, mode: 'text', template: getDefaultTemplate(form.value.templateType) }
+    cfg.value = { paperSize: 'P76', title: '单据', showTitle: true, showSignature: true, mode: 'text', template: getDefaultTemplate(form.value.templateType) }
   }
 }
 
@@ -629,7 +632,7 @@ BOM: {{bomNo}}
 }
 
 function contentFromCfg() {
-  return JSON.stringify({ paperSize: cfg.value.paperSize, title: cfg.value.title, showSignature: cfg.value.showSignature, mode: cfg.value.mode, template: cfg.value.template })
+  return JSON.stringify({ paperSize: cfg.value.paperSize, title: cfg.value.title, showTitle: cfg.value.showTitle, showSignature: cfg.value.showSignature, mode: cfg.value.mode, template: cfg.value.template })
 }
 
 async function loadData() {
@@ -639,7 +642,7 @@ async function loadData() {
 
 function onAdd() {
   form.value = { id: null, templateName: '', templateType: 'SAL_DELIVERY', paperWidth: 76, paperHeight: 120, content: '', isDefault: 0 }
-  cfg.value = { paperSize: 'P76', title: '销售出库单', showSignature: true, template: getDefaultTemplate('SAL_DELIVERY') }
+  cfg.value = { paperSize: 'P76', title: '销售出库单', showTitle: true, showSignature: true, template: getDefaultTemplate('SAL_DELIVERY') }
   updatePreview()
   dialogVisible.value = true
 }

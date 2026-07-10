@@ -8,9 +8,15 @@
     <!-- 供应商选择 -->
     <view class="card">
       <view class="form-item">
-        <text class="label">供应商</text>
+        <text class="label">供应商 (必选) *</text>
         <view class="picker" @click="showSupplierModal = true">
           <text style="color:#333">{{ currentSupplierName }}</text>
+        </view>
+      </view>
+      <view class="form-item" style="margin-top:8px">
+        <text class="label">仓库 (必选) *</text>
+        <view class="picker" @click="showWarehouseModal = true">
+          <text :class="{ placeholder: !form.warehouseId }" style="color:#333">{{ currentWarehouseName }}</text>
         </view>
       </view>
     </view>
@@ -24,6 +30,18 @@
           <text>{{ s.supplierName || '(未命名)' }}</text>
         </view>
         <view class="modal-close" @click="showSupplierModal = false">取消</view>
+      </view>
+    </view>
+
+    <!-- 仓库选择弹窗 -->
+    <view v-if="showWarehouseModal" class="mask" @click="showWarehouseModal = false">
+      <view class="modal" @click.stop>
+        <text class="modal-title">选择仓库</text>
+        <view v-if="!warehouses.length" class="empty">正在加载仓库列表...</view>
+        <view v-for="(w, i) in warehouses" :key="w.id" class="modal-item" @click="onWarehouseSelect(i)">
+          <text>{{ w.warehouseName || '(未命名)' }}</text>
+        </view>
+        <view class="modal-close" @click="showWarehouseModal = false">取消</view>
       </view>
     </view>
 
@@ -42,8 +60,12 @@
 
     <view v-if="product" class="card">
       <view class="row"><text class="label">商品:</text><text>{{ product.productName }}</text></view>
-      <view class="row" style="margin-top:4px"><text class="label">价格:</text><text>¥{{ price.toFixed(2) }}</text></view>
+      <view class="row" style="margin-top:4px"><text class="label">编码:</text><text class="muted">{{ product.productCode }}</text></view>
       <view class="form-item" style="margin-top:8px">
+        <text class="label">价格 (可编辑) ¥</text>
+        <input class="input" type="digit" v-model.number="price" />
+      </view>
+      <view class="form-item">
         <text class="label">数量</text>
         <input class="input" type="number" v-model.number="qty" @confirm="onAdd" />
       </view>
@@ -58,11 +80,14 @@
 
     <view class="card" v-for="(item, i) in list" :key="i">
       <view class="row">
-        <view>
+        <view style="flex:1">
           <text style="font-weight:bold">{{ item.productName }}</text>
           <text class="muted" style="display:block">{{ item.productCode }}</text>
         </view>
-        <text style="color:var(--primary)">× {{ item.qty }}</text>
+        <view style="text-align:right">
+          <text style="color:var(--primary)">× {{ item.qty }}</text>
+          <text class="muted" style="display:block">¥ {{ Number(item.price || 0).toString() }}</text>
+        </view>
       </view>
       <view class="row" style="margin-top:6px">
         <text class="muted" @click="list.splice(i, 1)" style="cursor:pointer">🗑 删除</text>
@@ -91,6 +116,10 @@ const submitted = ref(false)
 const suppliers = ref([])
 const supplierIdx = ref(-1)
 const showSupplierModal = ref(false)
+const warehouses = ref([])
+const warehouseIdx = ref(-1)
+const showWarehouseModal = ref(false)
+const form = ref({ warehouseId: null })
 
 const currentSupplierName = computed(() => {
   if (supplierIdx.value >= 0 && suppliers.value[supplierIdx.value]) {
@@ -100,9 +129,23 @@ const currentSupplierName = computed(() => {
   return '点击选择供应商'
 })
 
+const currentWarehouseName = computed(() => {
+  if (warehouseIdx.value >= 0 && warehouses.value[warehouseIdx.value]) {
+    return warehouses.value[warehouseIdx.value].warehouseName || '(未命名)'
+  }
+  if (warehouses.value.length === 0) return '正在加载...'
+  return '点击选择仓库'
+})
+
 function onSupplierSelect(idx) {
   supplierIdx.value = idx
   showSupplierModal.value = false
+}
+
+function onWarehouseSelect(idx) {
+  warehouseIdx.value = idx
+  form.value.warehouseId = warehouses.value[idx].id
+  showWarehouseModal.value = false
 }
 
 function toast(msg) {
@@ -138,11 +181,21 @@ function onScan() {
 
 function onAdd() {
   if (supplierIdx.value < 0) { toast('请先选择供应商'); return }
+  if (!form.value.warehouseId) { toast('请先选择仓库'); return }
   if (!product.value) { toast('请先搜索商品'); return }
   if (Number(qty.value) <= 0) { toast('数量必须大于 0'); return }
-  list.value.push({ ...product.value, qty: Number(qty.value), remark: remark.value })
-  product.value = null; qty.value = 1; remark.value = ''; code.value = ''
-  toast('已添加')
+  if (Number(price.value) < 0) { toast('价格不能为负'); return }
+  // 合并: 同 productId 自动累加数量
+  const newItem = { ...product.value, qty: Number(qty.value), price: Number(price.value || 0), remark: remark.value }
+  const exist = list.value.find(d => (d.id || d.productId) === newItem.id)
+  if (exist) {
+    exist.qty = Number(exist.qty || 0) + newItem.qty
+    toast(`已合并 (累计 ${exist.qty})`)
+  } else {
+    list.value.push(newItem)
+    toast('已添加')
+  }
+  product.value = null; qty.value = 1; remark.value = ''; code.value = ''; price.value = 0
 }
 
 function onClear() { list.value = [] }
@@ -150,6 +203,7 @@ function onClear() { list.value = [] }
 async function onSubmit() {
   if (list.value.length === 0) { toast('请先添加商品'); return }
   if (supplierIdx.value < 0) { toast('请先选择供应商'); return }
+  if (!form.value.warehouseId) { toast('请先选择仓库'); return }
   try {
     const selectedSupplier = suppliers.value[supplierIdx.value]
     const details = list.value.map(item => ({
@@ -160,23 +214,25 @@ async function onSubmit() {
       unitId: item.unitId,
       unitName: item.unitName || '个',
       qty: Number(item.qty),
-      price: Number(price.value),
+      price: Number(item.price || 0),
       taxRate: selectedSupplier.taxRate || 13.00,
       remark: item.remark || ''
     }))
     const r = await api.purchaseReceiptAdd({
       billType: 'PURCHASE',
       supplierId: selectedSupplier.id,
-      warehouseId: 1,
+      warehouseId: form.value.warehouseId,
       details: details,
       remark: 'App 扫码入库'
     })
-    toast('入库单已提交：' + (r.data?.billNo || '成功'))
+    console.log('[in.vue] purchaseReceiptAdd result:', JSON.stringify(r))
+    const billNo = (r && r.billNo) || (r && r.data && r.data.billNo) || (r && r.data && typeof r.data === 'string' ? r.data : '') || ''
+    toast('入库单已提交：' + (billNo || '成功'))
     submitted.value = true
     list.value = []
   } catch (e) {
     console.error('提交入库失败:', e)
-    toast('提交失败：' + (e.msg || e.message || '网络错误'))
+    toast('提交失败：' + (e.msg || (e && e.message) || '网络错误'))
   }
 }
 
@@ -188,7 +244,7 @@ async function loadSuppliers() {
     const token = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_token')) || ''
     const url = base + '/base/supplier/list'
     console.log('[in.vue] fetching:', url, 'token:', token.substring(0, 20))
-    
+
     const r = await fetch(url, {
       method: 'GET',
       headers: { 'Authorization': token }
@@ -196,7 +252,7 @@ async function loadSuppliers() {
     console.log('[in.vue] response status:', r.status)
     const data = await r.json()
     console.log('[in.vue] response data:', JSON.stringify(data).substring(0, 200))
-    
+
     if (data && data.code === 200 && Array.isArray(data.data)) {
       suppliers.value = data.data
       if (suppliers.value.length > 0) {
@@ -213,7 +269,18 @@ async function loadSuppliers() {
   }
 }
 
-onMounted(() => { loadSuppliers() })
+async function loadWarehouses() {
+  try {
+    const list = await api.warehouseList()
+    warehouses.value = list || []
+    console.log('[in.vue] loaded warehouses:', warehouses.value.length)
+  } catch (e) {
+    console.error('[in.vue] loadWarehouses error:', e)
+    warehouses.value = []
+  }
+}
+
+onMounted(() => { loadSuppliers(); loadWarehouses() })
 onUnmounted(() => { stopScan() })
 </script>
 

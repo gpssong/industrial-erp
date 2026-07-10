@@ -60,6 +60,7 @@ public class PrintRenderer {
     public String renderLegacyConfig(ObjectNode cfg, boolean taxSep, Object bill, java.util.List<?> details) {
         String title = cfg.has("title") ? cfg.get("title").asText() : "单据";
         String paperSize = cfg.has("paperSize") ? cfg.get("paperSize").asText() : "P76";
+        boolean showTitle = !cfg.has("showTitle") || cfg.get("showTitle").asBoolean();
         int width = engine.paperWidth(paperSize);
 
         StringBuilder html = new StringBuilder();
@@ -76,8 +77,8 @@ public class PrintRenderer {
             .append(".hr{border-top:1px dashed #000;margin:4px 0;}")
             .append(".sign{text-align:right;margin-top:6px;font-size:10px;}")
             .append(".right{text-align:right;}")
-            .append("</style></head><body>")
-            .append("<h1>").append(engine.escHtml(title)).append("</h1>");
+            .append("</style></head><body>");
+        if (showTitle) html.append("<h1>").append(engine.escHtml(title)).append("</h1>");
 
         html.append(buildHeader(bill, engine.toStringList(cfg, "headerFields")));
         boolean showTax = taxSep && cfg.has("showTax") && cfg.get("showTax").asBoolean();

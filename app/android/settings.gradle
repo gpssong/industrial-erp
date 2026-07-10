@@ -1,5 +1,8 @@
 include ':app'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+// v1.1.8+: 自定义引入 BarcodeScanner 插件模块 (capacitor.settings.gradle 自动生成时会覆盖此行, 需重新添加)
+include ':capacitor-community-barcode-scanner'
+project(':capacitor-community-barcode-scanner').projectDir = new File('../node_modules/@capacitor-community/barcode-scanner/android')
 
 apply from: 'capacitor.settings.gradle'

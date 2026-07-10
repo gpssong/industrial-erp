@@ -45,7 +45,8 @@ function request({ url, method = 'GET', data = {} }) {
         const d = res.data
         if (d.code === 200) resolve(d.data)
         else if (d.code === 401) {
-          uni.removeStorageSync('erp_token')
+          try { uni.removeStorageSync('erp_token') } catch (e) {}
+          try { localStorage.removeItem('erp_token') } catch (e) {}
           uni.reLaunch({ url: '/pages/login/index' })
           reject(d)
         } else {

@@ -77,18 +77,24 @@ async function onLogin() {
   try {
     const r = await api.login(form)
     console.log('[LOGIN] 登录成功:', r)
-    localStorage.setItem('erp_token', r.token)
-    localStorage.setItem('erp_user', JSON.stringify(r))
-    // 保存权限和菜单
-    localStorage.setItem('erp_permissions', JSON.stringify(r.permissions || []))
-    localStorage.setItem('erp_menus', JSON.stringify(r.menus || []))
+    // v1.1.8+: 用 uni.setStorageSync 持久化 (原生 App 端: 内部存储, 杀进程后保留)
+    // 同时写 localStorage 兜底 H5 端
+    const persist = (k, v) => {
+      const s = typeof v === 'string' ? v : JSON.stringify(v)
+      try { if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync(k, v) } catch (e) {}
+      try { localStorage.setItem(k, s) } catch (e) {}
+    }
+    persist('erp_token', r.token)
+    persist('erp_user', r)
+    persist('erp_permissions', r.permissions || [])
+    persist('erp_menus', r.menus || [])
     // 二次拉取 /me 确保菜单数据最新 (兼容老登录)
     try {
       const me = await api.me()
       const userObj = me.data || me
-      localStorage.setItem('erp_user', JSON.stringify(userObj))
-      localStorage.setItem('erp_menus', JSON.stringify(userObj.menus || r.menus || []))
-      localStorage.setItem('erp_permissions', JSON.stringify(userObj.permissions || r.permissions || []))
+      persist('erp_user', userObj)
+      persist('erp_menus', userObj.menus || r.menus || [])
+      persist('erp_permissions', userObj.permissions || r.permissions || [])
     } catch (e) { /* 忽略, 使用登录返回数据 */ }
     navigateTo('/pages/dashboard/index')
   } catch (e) {

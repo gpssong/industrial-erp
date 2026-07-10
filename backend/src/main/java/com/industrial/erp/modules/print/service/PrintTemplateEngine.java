@@ -415,6 +415,7 @@ public class PrintTemplateEngine {
         String paperSize = cfg.has("paperSize") ? cfg.get("paperSize").asText() : "P76";
         int width = paperWidth(paperSize);
         String title = cfg.has("title") ? cfg.get("title").asText() : "单据";
+        boolean showTitle = !cfg.has("showTitle") || cfg.get("showTitle").asBoolean();
         boolean showSig = !cfg.has("showSignature") || cfg.get("showSignature").asBoolean();
         boolean htmlMode = "html".equalsIgnoreCase(cfg.has("mode") ? cfg.get("mode").asText() : "");
 
@@ -434,9 +435,9 @@ public class PrintTemplateEngine {
             .append(".bold{font-weight:bold;}")
             .append(".total{font-weight:bold;font-size:11px;margin-top:4px;}")
             .append(".sign{text-align:right;margin-top:8px;font-size:10px;}")
-            .append("</style></head><body>")
-            .append("<h1>").append(escHtml(title)).append("</h1>")
-            .append("<div class=\"sec\">");
+            .append("</style></head><body>");
+        if (showTitle) html.append("<h1>").append(escHtml(title)).append("</h1>");
+        html.append("<div class=\"sec\">");
 
         int ds = template.indexOf("{{#details}}");
         int de = template.indexOf("{{/details}}");
