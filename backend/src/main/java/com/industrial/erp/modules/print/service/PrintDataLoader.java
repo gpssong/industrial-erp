@@ -195,7 +195,7 @@ public class PrintDataLoader {
     }
 
     public List<PurReceiptDetail> findPurReceiptDetails(Long receiptId) {
-        String sql = "SELECT d.*, p.thickness AS p_thickness, p.width AS p_width, p.density AS p_density, p.gram_weight AS p_gram_weight, p.material AS p_material, p.sales_price AS p_sales_price " +
+        String sql = "SELECT d.*, p.thickness AS p_thickness, p.width AS p_width, p.density AS p_density, p.gram_weight AS p_gram_weight, p.material AS p_material, p.sales_price AS p_sales_price, p.model AS p_model " +
                      "FROM pur_receipt_detail d LEFT JOIN base_product p ON d.product_id = p.id " +
                      "WHERE d.deleted = 0 AND d.receipt_id = ? ORDER BY d.line_no";
         List<PurReceiptDetail> list = new ArrayList<>();
@@ -212,7 +212,7 @@ public class PrintDataLoader {
     }
 
     public List<SalDeliveryDetail> findSalDeliveryDetails(Long deliveryId) {
-        String sql = "SELECT d.*, p.thickness AS p_thickness, p.width AS p_width, p.density AS p_density, p.gram_weight AS p_gram_weight, p.material AS p_material, p.sales_price AS p_sales_price " +
+        String sql = "SELECT d.*, p.thickness AS p_thickness, p.width AS p_width, p.density AS p_density, p.gram_weight AS p_gram_weight, p.material AS p_material, p.sales_price AS p_sales_price, p.model AS p_model " +
                      "FROM sal_delivery_detail d LEFT JOIN base_product p ON d.product_id = p.id " +
                      "WHERE d.deleted = 0 AND d.delivery_id = ? ORDER BY d.line_no";
         List<SalDeliveryDetail> list = new ArrayList<>();
@@ -327,6 +327,7 @@ public class PrintDataLoader {
         d.setPDensity(getBigDecimal(rs, "p_density"));
         d.setPGramWeight(getBigDecimal(rs, "p_gram_weight"));
         d.setPMaterial(rs.getString("p_material"));
+        d.setPModel(rs.getString("p_model"));
         return d;
     }
 
@@ -359,6 +360,7 @@ public class PrintDataLoader {
         d.setPDensity(getBigDecimal(rs, "p_density"));
         d.setPGramWeight(getBigDecimal(rs, "p_gram_weight"));
         d.setPMaterial(rs.getString("p_material"));
+        d.setPModel(rs.getString("p_model"));
         return d;
     }
 

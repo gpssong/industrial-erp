@@ -22,6 +22,8 @@ public class SalDeliveryDetail {
     private transient BigDecimal pGramWeight;
     @TableField(exist = false)
     private transient String pMaterial;
+    @TableField(exist = false)
+    private transient String pModel;
 
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
@@ -122,6 +124,8 @@ public class SalDeliveryDetail {
     public void setPGramWeight(BigDecimal pGramWeight) { this.pGramWeight = pGramWeight; }
     public String getPMaterial() { return pMaterial; }
     public void setPMaterial(String pMaterial) { this.pMaterial = pMaterial; }
+    public String getPModel() { return pModel; }
+    public void setPModel(String pModel) { this.pModel = pModel; }
     /** 模板字段: thickness = 长度 */
     public BigDecimal getThickness() { return pThickness; }
     public void setThickness(BigDecimal thickness) { this.pThickness = thickness; }
@@ -135,4 +139,7 @@ public class SalDeliveryDetail {
     public void setGramWeight(BigDecimal gramWeight) { this.pGramWeight = gramWeight; }
     public String getMaterial() { return pMaterial; }
     public void setMaterial(String material) { this.pMaterial = material; }
+    /** 模板字段: model = 型号 */
+    public String getModel() { return pModel; }
+    public void setModel(String model) { this.pModel = model; }
 }
