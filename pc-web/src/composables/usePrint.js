@@ -54,31 +54,87 @@ export function clearTemplateCache(bizType) {
 }
 
 /**
- * 把业务单据按 fieldMap 转成模板需要的 previewData
- * - header 字段直接拷贝
- * - 明细行按 detailFieldMap 重命名
+ * 把业务单据按 fieldMap 转成模板需要的 previewData.
+ * - 所有"有值"的字段都转成 string. 这一步不是性格是防御: myprint-design 的 print 路径
+ *   对 `previewDataTmp` 用 `if (!previewDataTmp)` 做空值判断 (0 在 JS 是 falsy), 会把
+ *   BigDecimal 0 / 数字 0 当成空 → 走到 fallback 链 `formatter() → element.data`,
+ *   对于 `field + 内容` 形态的 Text 元素会渲染空白.
+ * - 明细行按 detailFieldMap 重命名.
  *
  * @param {Object} bill 后端返回的单据详情
  * @param {Object} fieldMap { templateField: billField, ... }
  * @param {string|null} detailsKey 单据明细数组在 bill 中的字段名 (如 'details'), 没有传 null
  * @param {Object|null} detailFieldMap { templateField: detailField, ... }
- * @returns {Object} previewData
+ * @returns {Object} previewData (所有值已 stringify, myprint 打印路径空值链会被绕过)
  */
 export function buildPreviewData(bill, fieldMap, detailsKey, detailFieldMap) {
   const header = {}
   for (const [tplField, billField] of Object.entries(fieldMap || {})) {
-    header[tplField] = bill[billField] != null ? bill[billField] : ''
+    header[tplField] = toPrintValue(bill[billField])
   }
   if (!detailsKey || !Array.isArray(bill[detailsKey])) return header
   const dMap = detailFieldMap || {}
   header[detailsKey] = bill[detailsKey].map(row => {
     const out = {}
     for (const [tplField, srcField] of Object.entries(dMap)) {
-      out[tplField] = row[srcField] != null ? row[srcField] : ''
+      out[tplField] = toPrintValue(row[srcField])
     }
     return out
   })
   return header
+}
+
+/**
+ * 把单值转成"打印字符串". 规则:
+ * - null / undefined / '' → ''    (空字符串, 渲染层会跳过)
+ * - 其它所有值 (含 0, false, BigDecimal 0) → String(val)    (绕过 myprint 的 `if (!x)` falsy 判断)
+ */
+function toPrintValue(v) {
+  if (v == null || v === '') return ''
+  return String(v)
+}
+
+/**
+ * 把后端存的 panel JSON 字符串修正成 myprint v6 期望的形状. 实际只修两件事:
+ * - 把历史上误存的 `type:'Barcode'|'QRCode'` 改成 `type:'Text', contentType:'Barcode'|'QrCode'`,
+ *   让 print 路径 `else if (type == "Text")` 分支能进入;
+ * - 把 `option.barcodeFormat` 等配置保留下来.
+ * 幂等, 重复调用无副作用. 直接对 elementList 递归处理, 包含 tableHeadList/tableBodyList 内嵌字段.
+ */
+export function normalizePanel(panelJson) {
+  let panel
+  try { panel = typeof panelJson === 'string' ? JSON.parse(panelJson) : (panelJson || {}) }
+  catch (e) { return panelJson }
+  if (panel && Array.isArray(panel.elementList)) {
+    for (const el of panel.elementList) normalizeElement(el)
+  }
+  if (panel && panel.pageHeader) normalizeElement(panel.pageHeader)
+  if (panel && panel.pageFooter) normalizeElement(panel.pageFooter)
+  return typeof panelJson === 'string' ? JSON.stringify(panel) : panel
+}
+
+function normalizeElement(el) {
+  if (!el || typeof el !== 'object') return
+  // 老存储: type='Barcode' or 'QRCode' (no contentType)
+  if (el.type === 'Barcode' && !el.contentType) {
+    el.type = 'Text'
+    el.contentType = 'Barcode'
+  } else if ((el.type === 'QRCode' || el.type === 'QrCode') && !el.contentType) {
+    el.type = 'Text'
+    el.contentType = 'QrCode'
+  }
+  // DataTable 内的列元素也可能直接标记为 Barcode / QrCode, 递归修
+  for (const k of ['tableHeadList', 'tableBodyList', 'statisticsList', 'elementList']) {
+    if (Array.isArray(el[k])) {
+      for (const row of el[k]) {
+        if (Array.isArray(row)) {
+          for (const c of row) normalizeElement(c)
+        } else if (row && typeof row === 'object') {
+          normalizeElement(row)
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -102,10 +158,13 @@ export async function doPrint({ bizType, bill, fieldMap, detailsKey, detailField
     ElMessage.error('打印模板内容为空')
     return
   }
+  // 修 #3: 老模板库里可能有 type:'Barcode'/'QRCode'(没 contentType)导致 print 路径被丢弃,
+  // 这里做兜底归一化, 单次幂等, 不修改 tpl.content.
+  const panel = normalizePanel(tpl.content)
   const data = buildPreviewData(bill, fieldMap, detailsKey, detailFieldMap)
   try {
     await MyPrinter.chromePrinter({
-      panel: tpl.content,
+      panel,
       previewDataList: [data]
     })
   } catch (e) {

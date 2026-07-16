@@ -162,9 +162,11 @@ function buildProviderElementList(bizType) {
           { type: 'Text', field: 'amount', label: '金额', width: 25, height: 8 },
           { type: 'Text', field: 'batchNo', label: '批次', width: 25, height: 8 }
         ] },
-      { type: 'Barcode', field: 'billNo', label: '条形码(单据号)', width: 60, height: 20,
+      // myprint v6 期望 Barcode/QRCode 的外层 type 是 'Text', contentType 子类型区分,
+      // 否则 print 路径 `else if (previewWrapper.type == 'Text' || ...)` 直接跳过不渲染
+      { type: 'Text', contentType: 'Barcode', field: 'billNo', label: '条形码(单据号)', width: 60, height: 20,
         option: { barcodeFormat: 'CODE128' } },
-      { type: 'QRCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 }
+      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 }
     )
   }
   if (t === 'PRD_ORDER') {
@@ -182,12 +184,134 @@ function buildProviderElementList(bizType) {
       { type: 'Text', field: 'leader', label: '负责人', width: 30, height: 8 },
       { type: 'Text', field: 'startDate', label: '开工日期', width: 50, height: 8 },
       { type: 'Text', field: 'endDate', label: '结束日期', width: 50, height: 8 },
-      { type: 'Barcode', field: 'billNo', label: '条形码(单据号)', width: 60, height: 20,
+      { type: 'Text', contentType: 'Barcode', field: 'billNo', label: '条形码(单据号)', width: 60, height: 20,
         option: { barcodeFormat: 'CODE128' } },
-      { type: 'QRCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 }
+      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 }
     )
   }
   return list
+}
+
+/**
+ * 给设计器一份 bizType 对应的示例 previewData (修 #1).
+ * 字段命名跟 usePrint.js 的 HEADER_MAP / DETAIL_MAP 完全一致, designer/preview/print 三方共享同一份词表.
+ * 拖入的 Text 元素 (含合计数量 / 合计金额) 在画布里立刻能看到内容, 不用每次跑 doPrint 来验证.
+ */
+function buildSamplePreviewData(bizType) {
+  const t = String(bizType || '').toUpperCase()
+  const sampleDetail = (lineNo, opts = {}) => ({
+    lineNo,
+    productCode: opts.code || 'P0001',
+    productName: opts.name || '示例塑料薄膜 28μ',
+    model: opts.model || 'M-001',
+    spec: opts.spec || '28*36*0.16',
+    unitName: opts.unit || '卷',
+    qty: opts.qty != null ? opts.qty : 50.5,
+    price: opts.price != null ? opts.price : 25.00,
+    amount: opts.amount != null ? opts.amount : 1262.50,
+    taxRate: 13,
+    batchNo: opts.batch || 'B2026-001',
+    locationName: opts.location || 'A-01-01'
+  })
+  const salesPreview = {
+    billNo: 'SAL-2026-0001',
+    billDate: '2026-07-16',
+    customerName: '示例客户有限公司',
+    customerPhone: '021-12345678',
+    warehouseName: '主仓',
+    address: '上海市浦东新区张江路 100 号',
+    phone: '021-12345678',
+    totalQty: 100.50,
+    totalAmount: 5025.00,
+    totalAmountTax: 5025.00,
+    remark: '含税价. 仅作设计器示例, 不影响实际打印.'
+  }
+  const map = {
+    SAL_DELIVERY: {
+      ...salesPreview,
+      details: [
+        sampleDetail(1, { amount: 1262.50 }),
+        sampleDetail(2, { code: 'P0002', name: '示例涂层膜 50μ', model: 'M-002', spec: '50*0.20', qty: 50, price: 75.25, amount: 3762.50, batch: 'B2026-002', location: 'A-01-02' })
+      ]
+    },
+    SAL_RETURN: {
+      ...salesPreview, billNo: 'SRT-2026-0001',
+      details: [sampleDetail(1, { code: 'P0003', name: '退货示例品', qty: -10, amount: -250 })]
+    },
+    PUR_RECEIPT: {
+      ...salesPreview, billNo: 'PUR-2026-0001',
+      supplierName: '示例供应商有限公司', supplierPhone: '0755-87654321',
+      details: [sampleDetail(1, { name: '示例原材料卷 28μ', batch: 'B2026-001' })]
+    },
+    PUR_RETURN: {
+      ...salesPreview, billNo: 'PRT-2026-0001',
+      supplierName: '示例供应商有限公司', supplierPhone: '0755-87654321',
+      details: [sampleDetail(1, { name: '退货示例材料', qty: -5, amount: -125 })]
+    },
+    PRD_ORDER: {
+      billNo: 'PRD-2026-0001',
+      billDate: '2026-07-16',
+      bomCode: 'BOM-2026-001',
+      bomName: '示例复合膜 BOM',
+      productCode: 'FP-001',
+      productName: '复合膜成品',
+      planQty: 1000,
+      actualQty: 850,
+      goodQty: 820,
+      lossQty: 30,
+      lossRate: 3.53,
+      workshop: '一车间',
+      leader: '张组长',
+      startDate: '2026-07-10',
+      endDate: '2026-07-15',
+      remark: '示例生产单数据, 不影响实际打印.'
+    }
+  }
+  return map[t] || {}
+}
+
+/**
+ * 把老模板库里误存的 {type:'Barcode'/'QRCode'} (外层 type 但没 contentType) 归一化成
+ * myprint v6 期望的 {type:'Text', contentType:'Barcode'/'QrCode'} (修 #3).
+ * 与 usePrint.js 里的 normalizePanel 同样的递归结构, 用于设计器加载 / 保存路径.
+ */
+function normalizeElementsDeep(panel) {
+  if (!panel || typeof panel !== 'object') return panel
+  const walk = (el) => {
+    if (!el || typeof el !== 'object') return
+    if (el.type === 'Barcode' && !el.contentType) { el.type = 'Text'; el.contentType = 'Barcode' }
+    else if ((el.type === 'QRCode' || el.type === 'QrCode') && !el.contentType) { el.type = 'Text'; el.contentType = 'QrCode' }
+    for (const k of ['tableHeadList', 'tableBodyList', 'statisticsList', 'elementList']) {
+      if (Array.isArray(el[k])) {
+        for (const row of el[k]) {
+          if (Array.isArray(row)) for (const c of row) walk(c)
+          else if (row && typeof row === 'object') walk(row)
+        }
+      }
+    }
+  }
+  if (Array.isArray(panel.elementList)) for (const el of panel.elementList) walk(el)
+  if (panel.pageHeader) walk(panel.pageHeader)
+  if (panel.pageFooter) walk(panel.pageFooter)
+  return panel
+}
+
+/** 加载到的 content 是 JSON string. 解析后归一化老元素 shape, 再 stringify 回. */
+function normalizeLoadedContent(content) {
+  if (!content) return buildInitialTemplateContent(meta.value)
+  let parsed
+  try { parsed = JSON.parse(content) } catch (e) { return content }
+  normalizeElementsDeep(parsed)
+  return JSON.stringify(parsed)
+}
+
+/** 保存时归一化一次. 老元素已经含 type/contentType 的, 是 no-op. */
+function normalizeForSave(content) {
+  if (!content) return content
+  let parsed
+  try { parsed = JSON.parse(content) } catch (e) { return content }
+  normalizeElementsDeep(parsed)
+  return JSON.stringify(parsed)
 }
 
 const templateRef = ref({ name: '', content: buildInitialTemplateContent(meta.value) })
@@ -199,7 +323,8 @@ function buildModuleRef(metaValue) {
       pageUnit: metaValue.pageUnit || 'mm',
       elementList: buildProviderElementList(metaValue.bizType)
     }),
-    previewData: JSON.stringify([{}])
+    // 修 #1: 给设计器一份 bizType 对应的示例 previewData, 让拖入的字段立刻有内容可预览
+    previewData: JSON.stringify([buildSamplePreviewData(metaValue.bizType)])
   }
 }
 const moduleRef = ref(buildModuleRef(meta.value))
@@ -217,7 +342,7 @@ function goBack() {
  *   props.module 监听导致 panel.elementList 被间接 reset
  */
 function applyToDesigner({ content, meta: m }) {
-  templateRef.value = { name: m.name, content }
+  templateRef.value = { name: m.name, content: normalizeLoadedContent(content) }
 }
 
 // 监听"会影响画布尺寸 / palette"的字段, 重建 moduleRef
@@ -306,7 +431,7 @@ async function onSaveMeta() {
       status: meta.value.status,
       isDefault: meta.value.isDefault,
       remark: meta.value.remark,
-      content: templateRef.value.content
+      content: normalizeForSave(templateRef.value.content)
     }
     await printTemplateApi.update(payload)
     ElMessage.success('属性已保存')
