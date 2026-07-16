@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.system.mapper.SysPrintTemplateMapper">
+
+    <select id="selectActiveByBizType" resultType="com.industrial.erp.modules.system.entity.SysPrintTemplate">
+        SELECT id, name, biz_type, content, paper_width, paper_height, page_unit,
+               status, is_default, remark, create_by, create_time, update_by, update_time, deleted
+        FROM sys_print_template
+        WHERE biz_type = #{bizType} AND status = 1 AND deleted = 0
+        ORDER BY is_default DESC, id ASC
+        LIMIT 1
+    </select>
+
+</mapper>

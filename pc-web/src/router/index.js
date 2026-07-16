@@ -16,6 +16,8 @@ const routes = [
       { path: 'system/menu', name: 'SysMenu', component: () => import('@/views/system/Menu.vue'), meta: { title: '菜单管理', icon: 'Menu', perm: 'system:menu:list' } },
       { path: 'system/dept', name: 'SysDept', component: () => import('@/views/system/Dept.vue'), meta: { title: '部门管理', icon: 'OfficeBuilding', perm: 'system:dept:list' } },
       { path: 'system/settings', name: 'SysSettings', component: () => import('@/views/system/System.vue'), meta: { title: '系统设置', icon: 'Setting', perm: 'system:config:list' } },
+      { path: 'system/print-template', name: 'SysPrintTemplate', component: () => import('@/views/system/PrintTemplate.vue'), meta: { title: '打印模板', icon: 'Printer', perm: 'system:print:list' } },
+      { path: 'system/print-template/designer/:id', name: 'SysPrintDesigner', component: () => import('@/views/system/PrintDesigner.vue'), meta: { title: '模板设计器', perm: 'system:print:edit', hideInMenu: true } },
       // 基础资料
       { path: 'base/product', name: 'BaseProduct', component: () => import('@/views/base/Product.vue'), meta: { title: '商品管理', icon: 'Goods', perm: 'base:product:list' } },
       { path: 'base/customer', name: 'BaseCustomer', component: () => import('@/views/base/Customer.vue'), meta: { title: '客户管理', icon: 'Avatar', perm: 'base:customer:list' } },

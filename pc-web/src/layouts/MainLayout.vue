@@ -59,7 +59,7 @@
       <el-main class="main-content">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
-            <component :is="Component" />
+            <component :is="Component" :key="$route.fullPath" />
           </transition>
         </router-view>
       </el-main>
@@ -135,7 +135,8 @@ const menuTree = computed(() => {
         { path: '/system/role', title: '角色管理', icon: 'UserFilled' },
         { path: '/system/menu', title: '菜单管理', icon: 'Menu' },
         { path: '/system/dept', title: '部门管理', icon: 'OfficeBuilding' },
-        { path: '/system/settings', title: '系统设置', icon: 'Setting' }
+        { path: '/system/settings', title: '系统设置', icon: 'Setting' },
+        { path: '/system/print-template', title: '打印模板', icon: 'Printer' }
       ]
     },
     {

@@ -135,6 +135,7 @@ public class PrdOrderService {
             order.setProductCode(p.getProductCode());
             order.setProductName(p.getProductName());
             order.setSpec(p.getSpec());
+            order.setModel(p.getModel());
         }
         // 从 BOM 表取 bomNo 填入生产单(打印时需要显示)
         if (order.getBomId() != null && StrUtil.isBlank(order.getBomNo())) {
@@ -172,6 +173,7 @@ public class PrdOrderService {
                 order.setProductCode(p.getProductCode());
                 order.setProductName(p.getProductName());
                 order.setSpec(p.getSpec());
+                order.setModel(p.getModel());
             }
         }
         if (order.getBomId() != null) {
