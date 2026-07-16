@@ -2,6 +2,9 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 import 'element-plus/dist/index.css'
+// myprint-design 打印模板设计器样式
+import 'myprint-design/css/index.css'
+import { MyPrinter, createPrint } from 'myprint-design'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
@@ -27,6 +30,11 @@ window.addEventListener('error', (e) => {
 }, true)
 
 const app = createApp(App)
+// 初始化 myprint 客户端配置
+// chromePrinter (浏览器打印) 不依赖任何外部服务
+// disabledClient: true 阻止 INIT_SOCKET 反复连接 ws://127.0.0.1:9898 (桌面客户端未安装时会刷 ERR_CONNECTION_REFUSED)
+MyPrinter.initMyPrinter({ disabledClient: true })
+app.use(createPrint)
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus)

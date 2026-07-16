@@ -28,13 +28,13 @@
             <el-tag>{{ ({DRAFT:'草稿',RELEASED:'已开工',PRODUCING:'生产中',FINISHED:'已完成',CLOSED:'已关闭'})[row.billStatus] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="450" fixed="right">
+        <el-table-column label="操作" width="490" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="onEdit(row)">编辑</el-button>
-            <el-button link type="primary" @click="onPrint(row)">打印</el-button>
             <el-button v-if="row.billStatus==='DRAFT' || row.billStatus==='RELEASED'" link type="primary" @click="onRelease(row)">开工</el-button>
             <el-button v-if="row.billStatus==='RELEASED' || row.billStatus==='PRODUCING'" link type="primary" @click="onFinish(row)">完工</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="['RELEASED','PRODUCING','FINISHED'].includes(row.billStatus)" link type="warning" @click="onPrint(row)">打印</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -153,23 +153,14 @@
         <el-button type="primary" @click="doFinish">确定</el-button>
       </template>
     </el-dialog>
-
-    <!-- 打印弹窗 -->
-    <el-dialog v-model="printVisible" title="生产加工单打印" width="850px" body-style="padding:0">
-      <iframe v-if="printUrl" :src="printUrl" style="width:100%;height:700px;border:0" />
-      <template #footer>
-        <el-button @click="printVisible=false">取消</el-button>
-        <el-button type="primary" @click="doPrint">打 印</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
 import { prdOrderApi, bomApi } from '@/api/production'
 import { warehouseApi, productApi } from '@/api/base'
+import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getPrintUrl } from '@/composables/usePrintUrl'
 
 // el-input-number 数字自动去尾 0: 740.0000 → "740", 31.4000 → "31.4"
 // EP 的 precision=N 会强制显示 N 位小数, 所以用 formatter/parser 接管显示.
@@ -197,23 +188,6 @@ const bomList = ref([])
 const warehouses = ref([])
 const form = ref({ bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' })
 const finishForm = reactive({ id: null, goodQty: 0, lossQty: 0 })
-const printVisible = ref(false)
-const printUrl = ref('')
-const printId = ref('')
-function doPrint() {
-  printVisible.value = false
-  // 优先使用 Electron 原生打印 API (弹出系统打印机选择对话框)
-  if (window.erpDesktop?.print?.salesDelivery) {
-    window.erpDesktop.print.salesDelivery(printId.value).then((r) => {
-      if (!r?.success) ElMessage.error('打印失败: ' + (r?.reason || ''))
-      else ElMessage.success('发送打印任务')
-    })
-    return
-  }
-  // 浏览器降级方案: 打开新窗口后自动触发打印
-  const w = window.open(printUrl.value, '_blank')
-  if (w) w.onload = () => w.print()
-}
 const rules = { bomId: [{ required: true, message: '请选择BOM', trigger: 'change' }], planQty: [{ required: true, message: '请填写计划数量', trigger: 'blur' }] }
 
 async function loadData() {
@@ -349,10 +323,41 @@ async function onDelete(row) {
     submitting.value = false
   }
 }
-function onPrint(row) {
-  printId.value = row.id
-  printUrl.value = getPrintUrl('/api/print/prd-order', row.id)
-  printVisible.value = true
+
+// 打印 (生产单无嵌套明细, 仅打印主表)
+const { doPrint } = usePrint()
+const PRD_ORDER_HEADER_MAP = {
+  billNo: 'billNo',
+  billDate: 'billDate',
+  bomCode: 'bomCode',
+  bomName: 'bomName',
+  productCode: 'productCode',
+  productName: 'productName',
+  spec: 'spec',
+  model: 'model',
+  unitName: 'unitName',
+  planQty: 'planQty',
+  actualQty: 'actualQty',
+  goodQty: 'goodQty',
+  lossQty: 'lossQty',
+  lossRate: 'lossRate',
+  workshop: 'workshop',
+  leader: 'leader',
+  startDate: 'startDate',
+  endDate: 'endDate',
+  remark: 'remark'
+}
+async function onPrint(row) {
+  try {
+    const r = await prdOrderApi.detail(row.id)
+    await doPrint({
+      bizType: BIZ_TYPES.PRD_ORDER,
+      bill: r.data || {},
+      fieldMap: PRD_ORDER_HEADER_MAP
+    })
+  } catch (e) {
+    ElMessage.error(e.message || '打印失败')
+  }
 }
 onMounted(loadData)
 </script>

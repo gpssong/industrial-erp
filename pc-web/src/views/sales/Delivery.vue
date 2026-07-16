@@ -45,7 +45,7 @@
             <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onEdit(row)">编辑</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="success" @click="onCheck(row)">审核</el-button>
-            <el-button link type="primary" @click="openPrint(row)">打印</el-button>
+            <el-button v-if="row.billStatus==='CHECKED'" link type="warning" @click="onPrint(row)">打印</el-button>
             <el-button link type="primary" @click="onView(row)">详情</el-button>
           </template>
         </el-table-column>
@@ -186,16 +186,6 @@
         <el-button type="primary" @click="onSave" :loading="submitting">保存为草稿</el-button>
       </template>
     </el-dialog>
-
-    <!-- 打印预览 -->
-    <el-dialog v-model="printVisible" title="打印预览" width="500px">
-      <iframe v-if="printUrl" :src="printUrl" style="width:100%;height:500px;border:0" />
-      <p v-else style="text-align:center;color:#999;padding:40px">暂无打印内容</p>
-      <template #footer>
-        <el-button @click="printVisible=false">关闭</el-button>
-        <el-button type="primary" @click="doPrint">打 印</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -205,8 +195,8 @@ import { salDeliveryApi } from '@/api/sales'
 import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
 import { stockApi } from '@/api/inventory'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
+import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getPrintUrl } from '@/composables/usePrintUrl'
 
 // el-input-number 数字自动去尾 0 (v1.1.6 引入; v1.1.7 补到销售出库):
 // EP 的 precision=N 会强制显示 N 位小数, 用 formatter/parser 接管显示.
@@ -238,20 +228,6 @@ const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', customerId: null,
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const dialogVisible = ref(false)
-const printVisible = ref(false)
-const printUrl = ref('')
-const printId = ref('')
-function doPrint() {
-  printVisible.value = false
-  if (window.erpDesktop?.print?.salesDelivery) {
-    window.erpDesktop.print.salesDelivery(printId.value).then((r) => {
-      if (!r?.success) ElMessage.error('打印失败: ' + (r?.reason || ''))
-      else ElMessage.success('发送打印任务')
-    })
-    return
-  }
-  window.open(printUrl.value, '_blank')
-}
 const submitting = ref(false)
 const formRef = ref()
 const customers = ref([])
@@ -567,6 +543,48 @@ async function onCheck(row) {
   loadData()
 }
 
+// 打印 (myprint-design 浏览器打印)
+const { doPrint } = usePrint()
+const SAL_DELIVERY_HEADER_MAP = {
+  billNo: 'billNo',
+  billDate: 'billDate',
+  customerName: 'customerName',
+  warehouseName: 'warehouseName',
+  address: 'address',
+  phone: 'phone',
+  totalQty: 'totalQty',
+  totalAmount: 'totalAmount',
+  remark: 'remark'
+}
+const SAL_DELIVERY_DETAIL_MAP = {
+  lineNo: 'lineNo',
+  productCode: 'productCode',
+  productName: 'productName',
+  model: 'model',
+  spec: 'spec',
+  unitName: 'unitName',
+  qty: 'qty',
+  price: 'price',
+  amount: 'amount',
+  taxRate: 'taxRate',
+  batchNo: 'batchNo',
+  locationName: 'locationName'
+}
+async function onPrint(row) {
+  try {
+    const r = await salDeliveryApi.detail(row.id)
+    await doPrint({
+      bizType: BIZ_TYPES.SAL_DELIVERY,
+      bill: r.data || {},
+      fieldMap: SAL_DELIVERY_HEADER_MAP,
+      detailsKey: 'details',
+      detailFieldMap: SAL_DELIVERY_DETAIL_MAP
+    })
+  } catch (e) {
+    ElMessage.error(e.message || '打印失败')
+  }
+}
+
 async function onView(row) {
   loadTaxSeparation()
   const r = await salDeliveryApi.detail(row.id)
@@ -582,12 +600,6 @@ async function onView(row) {
     }
   }))
   dialogVisible.value = true
-}
-
-function openPrint(row) {
-  printId.value = row.id
-  printUrl.value = getPrintUrl('/api/print/sales-delivery', row.id)
-  printVisible.value = true
 }
 
 function onScan() {

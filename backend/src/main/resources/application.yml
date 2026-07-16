@@ -106,8 +106,7 @@ sa-token:
 erp:
   upload:
     path: ${ERP_UPLOAD_PATH:/opt/industrial-erp/upload}
-  print:
-    template-path: classpath:/templates/print
+  # print.template-path 已删除 (打印模块移除)
   # ⚠️  生产部署必须通过 ERP_CORS_ALLOWED_ORIGINS 环境变量覆盖 (见 .env.example),
   # 默认值仅含 localhost 开发域; 不覆盖 = 浏览器跨域调用 API 失败 (有意为之, 防意外暴露).
   cors:

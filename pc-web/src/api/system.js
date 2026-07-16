@@ -52,14 +52,6 @@ export const configApi = {
   updateValue: (key, value) => request.put('/system/config/value', { key, value })
 }
 
-export const printApi = {
-  page: (params) => request.get('/system/print/page', { params }),
-  detail: (id) => request.get(`/system/print/${id}`),
-  add: (data) => request.post('/system/print', data),
-  update: (data) => request.put('/system/print', data),
-  delete: (id) => request.delete(`/system/print/${id}`)
-}
-
 export const backupApi = {
   page: (params) => request.get('/system/backup/page', { params }),
   manual: () => request.post('/system/backup/manual'),
@@ -78,4 +70,14 @@ export const operLogApi = {
 // 登录日志
 export const loginLogApi = {
   page: (params) => request.get('/system/login-log/page', { params })
+}
+
+// 打印模板 (myprint-design)
+export const printTemplateApi = {
+  page: (params) => request.get('/system/print-template/page', { params }),
+  detail: (id) => request.get(`/system/print-template/${id}`),
+  getByBizType: (bizType) => request.get(`/system/print-template/biz-type/${bizType}`),
+  add: (data) => request.post('/system/print-template', data),
+  update: (data) => request.put('/system/print-template', data),
+  delete: (id) => request.delete(`/system/print-template/${id}`)
 }

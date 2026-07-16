@@ -170,9 +170,5 @@ SELECT id, 2, '米', 0, 0.007, sales_price/4000, wholesale_price/4000, vip_price
 INSERT INTO `base_product_unit`(`product_id`,`unit_id`,`unit_name`,`is_main`,`conversion_rate`,`sales_price`,`wholesale_price`,`vip_price`)
 SELECT id, 3, '公斤', 0, 0.0027, sales_price*0.27, wholesale_price*0.27, vip_price*0.27 FROM `base_product` WHERE product_code='P-FM-BOPP-001';
 
--- 10.17 打印模板 (Freemarker)
-INSERT INTO `sys_print_template`(`id`,`template_code`,`template_name`,`template_type`,`paper_width`,`paper_height`,`content`,`is_default`,`status`) VALUES
-(1,'SAL_DELIVERY','销售出库单(80mm)','SAL_DELIVERY',80,200,NULL,1,1),
-(2,'PUR_RECEIPT','采购入库单(80mm)','PUR_RECEIPT',80,200,NULL,1,1),
-(3,'PRD_ORDER','生产加工单','PRD_ORDER',210,297,NULL,1,1);
+-- 10.17 打印模板 (已删除, 不再 seed)
 

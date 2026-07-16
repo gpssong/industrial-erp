@@ -36,6 +36,7 @@ public class PrdOrder {
     private String productCode;
     private String productName;
     private String spec;
+    private String model;
     private Long unitId;
     private String unitName;
     private BigDecimal planQty;
@@ -80,6 +81,8 @@ public class PrdOrder {
     public void setProductName(String productName) { this.productName = productName; }
     public String getSpec() { return spec; }
     public void setSpec(String spec) { this.spec = spec; }
+    public String getModel() { return model; }
+    public void setModel(String model) { this.model = model; }
     public Long getUnitId() { return unitId; }
     public void setUnitId(Long unitId) { this.unitId = unitId; }
     public String getUnitName() { return unitName; }

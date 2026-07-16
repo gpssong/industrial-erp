@@ -199,29 +199,7 @@ CREATE TABLE `sys_config` (
   UNIQUE KEY `uniq_sys_config_key` (`config_key`, `deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置';
 
--- 1.11 打印模板
-DROP TABLE IF EXISTS `sys_print_template`;
-CREATE TABLE `sys_print_template` (
-  `id`            BIGINT       NOT NULL AUTO_INCREMENT,
-  `template_code` VARCHAR(64)  NOT NULL COMMENT '模板编码: PURCHASE_ORDER/SALES_DELIVERY...',
-  `template_name` VARCHAR(64)  NOT NULL,
-  `template_type` VARCHAR(32)  DEFAULT NULL COMMENT 'paper_80/needle/a4',
-  `paper_width`   INT          DEFAULT 80,
-  `paper_height`  INT          DEFAULT 120,
-  `content`       MEDIUMTEXT   COMMENT 'Freemarker 模板内容',
-  `template_config` TEXT         COMMENT 'HTML 模式打印配置 (JSON 字符串, v1.0.4+)',
-  `is_default`    TINYINT      DEFAULT 0,
-  `status`        TINYINT      DEFAULT 1,
-  `create_by`     BIGINT       DEFAULT NULL,
-  `create_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP,
-  `update_by`     BIGINT       DEFAULT NULL,
-  `update_time`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `deleted`       TINYINT      DEFAULT 0,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uniq_sys_template_code` (`template_code`, `deleted`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='打印模板';
-
--- 1.12 数据备份记录
+-- 1.11 数据备份记录 (原 1.11 打印模板表已删除, 1.11 顺位)
 DROP TABLE IF EXISTS `sys_backup_record`;
 CREATE TABLE `sys_backup_record` (
   `id`          BIGINT       NOT NULL AUTO_INCREMENT,
@@ -237,7 +215,7 @@ CREATE TABLE `sys_backup_record` (
   KEY `idx_sys_backup_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据备份记录';
 
--- 1.13 字典类型
+-- 1.12 字典类型 (原 1.13 顺位上移)
 DROP TABLE IF EXISTS `sys_dict_type`;
 CREATE TABLE `sys_dict_type` (
   `id`         BIGINT       NOT NULL AUTO_INCREMENT,
@@ -254,7 +232,7 @@ CREATE TABLE `sys_dict_type` (
   UNIQUE KEY `uniq_sys_dict_type` (`dict_type`, `deleted`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='字典类型';
 
--- 1.14 字典数据
+-- 1.13 字典数据 (原 1.14 顺位上移)
 DROP TABLE IF EXISTS `sys_dict_data`;
 CREATE TABLE `sys_dict_data` (
   `id`         BIGINT       NOT NULL AUTO_INCREMENT,

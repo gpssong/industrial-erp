@@ -21,10 +21,10 @@
         <el-table-column label="状态" width="80">
           <template #default="{ row }"><el-tag :type="row.billStatus==='CHECKED'?'success':'info'">{{ row.billStatus === 'CHECKED' ? '已审核' : '草稿' }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onCheck(row)">审核</el-button>
-            <el-button link type="primary" @click="onPrint(row)">打印</el-button>
+            <el-button v-if="row.billStatus==='CHECKED'" link type="warning" @click="onPrint(row)">打印</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -65,14 +65,6 @@
         <el-button type="primary" @click="onSave" :loading="submitting">保存</el-button>
       </template>
     </el-dialog>
-    <el-dialog v-model="printVisible" title="打印预览" width="500px">
-      <iframe v-if="printUrl" :src="printUrl" style="width:100%;height:500px;border:0" />
-      <p v-else style="text-align:center;color:#999;padding:40px">暂无打印内容</p>
-      <template #footer>
-        <el-button @click="printVisible=false">关闭</el-button>
-        <el-button type="primary" @click="doPrint">打 印</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 <script setup>
@@ -80,15 +72,13 @@ import { ref, reactive, onMounted } from 'vue'
 import { purReturnApi } from '@/api/purchase'
 import { supplierApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
+import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { ElMessage } from 'element-plus'
-import { getPrintUrl } from '@/composables/usePrintUrl'
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const dialogVisible = ref(false)
-const printVisible = ref(false)
-const printUrl = ref('')
 const submitting = ref(false)
 const suppliers = ref([])
 const warehouses = ref([])
@@ -151,11 +141,44 @@ async function onCheck(row) {
   }
 }
 
-function onPrint(row) {
-  printUrl.value = getPrintUrl('/api/print/purchase-return', row.id)
-  printVisible.value = true
+// 打印
+const { doPrint } = usePrint()
+const PUR_RETURN_HEADER_MAP = {
+  billNo: 'billNo',
+  billDate: 'billDate',
+  supplierName: 'supplierName',
+  warehouseName: 'warehouseName',
+  totalQty: 'totalQty',
+  totalAmount: 'totalAmount',
+  remark: 'remark'
 }
-function doPrint() { printVisible.value = false; window.open(printUrl.value, '_blank') }
+const PUR_RETURN_DETAIL_MAP = {
+  productCode: 'productCode',
+  productName: 'productName',
+  model: 'model',
+  spec: 'spec',
+  unitName: 'unitName',
+  qty: 'qty',
+  price: 'price',
+  amount: 'amount',
+  taxRate: 'taxRate',
+  batchNo: 'batchNo',
+  locationName: 'locationName'
+}
+async function onPrint(row) {
+  try {
+    const r = await purReturnApi.detail(row.id)
+    await doPrint({
+      bizType: BIZ_TYPES.PUR_RETURN,
+      bill: r.data || {},
+      fieldMap: PUR_RETURN_HEADER_MAP,
+      detailsKey: 'details',
+      detailFieldMap: PUR_RETURN_DETAIL_MAP
+    })
+  } catch (e) {
+    ElMessage.error(e.message || '打印失败')
+  }
+}
 
 onMounted(loadData)
 </script>
