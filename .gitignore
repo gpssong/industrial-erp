@@ -120,3 +120,7 @@ data/
 # 但在 NAS 上要保留, 由 docker volume 管理
 .env
 !.env.example
+
+# 根目录预编译 JAR (部署用, 重新 mvn package 即可生成, 不入版本库)
+# backend/**/*.jar 已忽略 backend/ 下的 jar, 这里额外忽略根目录的拷贝
+/industrial-erp-*.jar

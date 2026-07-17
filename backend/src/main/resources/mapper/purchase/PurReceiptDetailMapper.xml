@@ -23,7 +23,6 @@
             d.product_code    AS productCode,
             d.product_name    AS productName,
             d.spec            AS spec,
-            d.model           AS model,
             d.unit_id         AS unitId,
             d.unit_name       AS unitName,
             d.batch_no        AS batchNo,

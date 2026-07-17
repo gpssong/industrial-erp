@@ -21,7 +21,17 @@ public class PrdBomController {
     public R<PageResult<PrdBom>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                       @RequestParam(defaultValue = "20") Integer pageSize,
                                       @RequestParam(required = false) String keyword) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, keyword)));
+        PageResult<PrdBom> page = PageResult.of(service.page(pageNum, pageSize, keyword));
+        // 配方迁移: 给每条 BOM 注上 "被 N 个成品引用", 给前端 BOM 列表用
+        if (page != null && page.getRecords() != null && !page.getRecords().isEmpty()) {
+            java.util.List<Long> ids = new java.util.ArrayList<>();
+            for (PrdBom b : page.getRecords()) ids.add(b.getId());
+            java.util.Map<Long, Long> usage = service.countProductsByBomIds(ids);
+            for (PrdBom b : page.getRecords()) {
+                b.setProductCount(usage.getOrDefault(b.getId(), 0L));
+            }
+        }
+        return R.ok(page);
     }
 
     @GetMapping("/{id}")

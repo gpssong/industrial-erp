@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.production.entity.PrdBom;
 import com.industrial.erp.modules.production.entity.PrdBomDetail;
+import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.production.mapper.PrdBomDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdBomMapper;
 import com.industrial.erp.modules.system.annotation.OperLog;
@@ -21,9 +23,10 @@ import java.util.List;
 @Service
 public class PrdBomService {
 
-    public PrdBomService(PrdBomMapper bomMapper, PrdBomDetailMapper detailMapper, PermissionService permService, BillNoGenerator billNoGenerator, OperLogPublisher operLogPublisher) {
+    public PrdBomService(PrdBomMapper bomMapper, PrdBomDetailMapper detailMapper, BaseProductMapper productMapper, PermissionService permService, BillNoGenerator billNoGenerator, OperLogPublisher operLogPublisher) {
         this.bomMapper = bomMapper;
         this.detailMapper = detailMapper;
+        this.productMapper = productMapper;
         this.permService = permService;
         this.billNoGenerator = billNoGenerator;
         this.operLogPublisher = operLogPublisher;
@@ -31,9 +34,44 @@ public class PrdBomService {
 
     private final PrdBomMapper bomMapper;
     private final PrdBomDetailMapper detailMapper;
+    private final BaseProductMapper productMapper;
     private final PermissionService permService;
     private final BillNoGenerator billNoGenerator;
     private final OperLogPublisher operLogPublisher;
+
+
+    /**
+     * 统计一个 BOM(配方)被多少个成品引用. 用于列表 "N 个成品用这个配方" 列.
+     * @param bomId 配方 ID
+     * @return 引用该配方的成品数量(不含已删除)
+     */
+    public long countProductsByBomId(Long bomId) {
+        if (bomId == null) return 0;
+        Long cnt = productMapper.selectCount(
+            new LambdaQueryWrapper<BaseProduct>()
+                .eq(BaseProduct::getBomId, bomId)
+                .eq(BaseProduct::getDeleted, 0));
+        return cnt != null ? cnt : 0;
+    }
+
+    /**
+     * 批量统计多个 BOM 的成品引用数, 返回 bomId -> count.
+     */
+    public java.util.Map<Long, Long> countProductsByBomIds(java.util.List<Long> bomIds) {
+        java.util.Map<Long, Long> out = new java.util.HashMap<>();
+        if (bomIds == null || bomIds.isEmpty()) return out;
+        List<BaseProduct> rows = productMapper.selectList(
+            new LambdaQueryWrapper<BaseProduct>()
+                .in(BaseProduct::getBomId, bomIds)
+                .eq(BaseProduct::getDeleted, 0)
+                .select(BaseProduct::getBomId));
+        for (BaseProduct p : rows) {
+            if (p.getBomId() != null) {
+                out.merge(p.getBomId(), 1L, Long::sum);
+            }
+        }
+        return out;
+    }
 
     public IPage<PrdBom> page(Integer pageNum, Integer pageSize, String keyword) {
         permService.requirePerm("production:bom:list");

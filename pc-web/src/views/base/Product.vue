@@ -40,6 +40,12 @@
             <el-tag :type="row.status===1?'success':'info'">{{ row.status===1?'启用':'停用' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="配方" width="160">
+          <template #default="{ row }">
+            <el-tag v-if="row.bomName" size="small" type="warning">{{ row.bomName }}</el-tag>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="onEdit(row)">编辑</el-button>
@@ -116,6 +122,17 @@
           </el-col>
         </el-row>
 
+        <!-- 配方选择 -->
+        <el-row :gutter="12">
+          <el-col :span="24">
+            <el-form-item label="配方">
+              <el-select v-model="form.bomId" clearable filterable placeholder="选择配方 (BOM)" style="width:100%">
+                <el-option v-for="b in bomList" :key="b.id" :label="b.bomName + ' (' + b.bomCode + ')'" :value="b.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
         <div class="units-section">
           <el-button @click="addUnit" type="primary" plain size="small"><el-icon><Plus /></el-icon>添加单位</el-button>
           <div v-for="(unit, idx) in form.units" :key="idx" class="unit-row">
@@ -155,6 +172,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { productApi } from '@/api/base'
+import { bomApi } from '@/api/production'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import request from '@/utils/request'
@@ -167,6 +185,13 @@ const stockVisible = ref(false)
 const stockDetail = ref(null)
 const submitting = ref(false)
 const formRef = ref()
+const bomList = ref([])
+const loadBomList = async () => {
+  try {
+    const r = await bomApi.page({ pageNum: 1, pageSize: 9999 })
+    bomList.value = (r.data && r.data.records) || []
+  } catch (e) { /* 静默 */ }
+}
 const fileInput = ref()
 const uploading = ref(false)
 const previewVisible = ref(false)
@@ -273,6 +298,7 @@ function onAdd() {
   form.isSn = 0
   form.status = 1
   form.remark = ''
+  form.bomId = null
   form.images = []
   form.imageUrl = ''
   form.units = [{ unitName: '卷', isMain: 1, conversionRate: 1 }]
@@ -327,7 +353,8 @@ async function onStock(row) {
   stockVisible.value = true
 }
 
-onMounted(loadData)
+// 加载 BOM 列表 (供配方下拉使用)
+onMounted(() => { loadData(); loadBomList() })
 </script>
 
 <style scoped>
