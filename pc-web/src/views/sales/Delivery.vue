@@ -45,7 +45,7 @@
             <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onEdit(row)">编辑</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="success" @click="onCheck(row)">审核</el-button>
-            <el-button v-if="row.billStatus==='CHECKED'" link type="warning" @click="onPrint(row)">打印</el-button>
+            <el-button v-if="['DRAFT','CHECKED'].includes(row.billStatus)" link type="warning" @click="onPrint(row)">打印</el-button>
             <el-button link type="primary" @click="onView(row)">详情</el-button>
           </template>
         </el-table-column>

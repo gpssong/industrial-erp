@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @TableName("prd_order")
 public class PrdOrder {
@@ -26,16 +27,27 @@ public class PrdOrder {
     @TableField(exist = false)
     private transient String bomRemark;
 
+    /** 领料明细 (打印用, JOIN prd_requisition + prd_requisition_detail 注入, 按 prd_order_id 汇总) */
+    @TableField(exist = false)
+    private List<PrdRequisitionDetail> requisitionDetails;
+
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private String billNo;
     private LocalDate billDate;
     private Long bomId;
     private String bomNo;
+    /** BOM 编码/名称, 从 prd_bom 表 JOIN 获取(打印模板用) */
+    @TableField(exist = false)
+    private String bomCode;
+    @TableField(exist = false)
+    private String bomName;
     private Long productId;
     private String productCode;
     private String productName;
     private String spec;
+    /** 成品型号, 从 base_product 同步到生产单但不持久化到 prd_order 表 */
+    @TableField(exist = false)
     private String model;
     private Long unitId;
     private String unitName;
@@ -73,6 +85,10 @@ public class PrdOrder {
     public void setBomId(Long bomId) { this.bomId = bomId; }
     public String getBomNo() { return bomNo; }
     public void setBomNo(String bomNo) { this.bomNo = bomNo; }
+    public String getBomCode() { return bomCode; }
+    public void setBomCode(String bomCode) { this.bomCode = bomCode; }
+    public String getBomName() { return bomName; }
+    public void setBomName(String bomName) { this.bomName = bomName; }
     public Long getProductId() { return productId; }
     public void setProductId(Long productId) { this.productId = productId; }
     public String getProductCode() { return productCode; }
@@ -158,4 +174,6 @@ public class PrdOrder {
     public void setMaterial(String material) { this.pMaterial = material; }
     public String getBomRemark() { return bomRemark; }
     public void setBomRemark(String bomRemark) { this.bomRemark = bomRemark; }
+    public List<PrdRequisitionDetail> getRequisitionDetails() { return requisitionDetails; }
+    public void setRequisitionDetails(List<PrdRequisitionDetail> requisitionDetails) { this.requisitionDetails = requisitionDetails; }
 }

@@ -171,22 +171,45 @@ function buildProviderElementList(bizType) {
   }
   if (t === 'PRD_ORDER') {
     list.push(
+      { type: 'Text', field: 'billNo', label: '单号', width: 50, height: 8 },
+      { type: 'Text', field: 'billDate', label: '日期', width: 50, height: 8 },
       { type: 'Text', field: 'bomCode', label: 'BOM 编码', width: 50, height: 8 },
       { type: 'Text', field: 'bomName', label: 'BOM 名称', width: 60, height: 8 },
       { type: 'Text', field: 'productCode', label: '成品编码', width: 50, height: 8 },
       { type: 'Text', field: 'productName', label: '成品名称', width: 60, height: 8 },
+      { type: 'Text', field: 'spec', label: '规格', width: 40, height: 8 },
+      { type: 'Text', field: 'thickness', label: '长度', width: 30, height: 8 },
+      { type: 'Text', field: 'width', label: '宽度', width: 30, height: 8 },
+      { type: 'Text', field: 'density', label: '厚度', width: 30, height: 8 },
+      { type: 'Text', field: 'gramWeight', label: '克重', width: 30, height: 8 },
+      { type: 'Text', field: 'material', label: '材质', width: 30, height: 8 },
       { type: 'Text', field: 'planQty', label: '计划数量', width: 30, height: 8 },
       { type: 'Text', field: 'actualQty', label: '实际数量', width: 30, height: 8 },
       { type: 'Text', field: 'goodQty', label: '良品数量', width: 30, height: 8 },
       { type: 'Text', field: 'lossQty', label: '损耗数量', width: 30, height: 8 },
-      { type: 'Text', field: 'lossRate', label: '损耗率', width: 30, height: 8 },
+      { type: 'Text', field: 'lossRate', label: '损耗率%', width: 30, height: 8 },
       { type: 'Text', field: 'workshop', label: '车间', width: 40, height: 8 },
       { type: 'Text', field: 'leader', label: '负责人', width: 30, height: 8 },
       { type: 'Text', field: 'startDate', label: '开工日期', width: 50, height: 8 },
       { type: 'Text', field: 'endDate', label: '结束日期', width: 50, height: 8 },
-      { type: 'Text', contentType: 'Barcode', field: 'billNo', label: '条形码(单据号)', width: 60, height: 20,
+      { type: 'Text', field: 'remark', label: '备注', width: 80, height: 8 },
+      { type: 'DataTable', field: 'requisitionDetails', label: '领料明细', width: 180, height: 80,
+        option: { fontFamily: 'heiti', fontSize: 11 },
+        columnList: [
+          { type: 'Text', field: 'lineNo', label: '行号', width: 10, height: 8 },
+          { type: 'Text', field: 'materialType', label: '类型', width: 15, height: 8 },
+          { type: 'Text', field: 'productCode', label: '物料编码', width: 25, height: 8 },
+          { type: 'Text', field: 'productName', label: '物料名称', width: 35, height: 8 },
+          { type: 'Text', field: 'unitName', label: '单位', width: 12, height: 8 },
+          { type: 'Text', field: 'qty', label: '数量', width: 18, height: 8 },
+          { type: 'Text', field: 'price', label: '单价', width: 18, height: 8 },
+          { type: 'Text', field: 'amount', label: '金额', width: 18, height: 8 },
+          { type: 'Text', field: 'batchNo', label: '批次', width: 22, height: 8 },
+          { type: 'Text', field: 'remark', label: '备注', width: 25, height: 8 }
+        ] },
+      { type: 'Text', contentType: 'Barcode', field: 'billNo', label: '条形码(单号)', width: 60, height: 20,
         option: { barcodeFormat: 'CODE128' } },
-      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 }
+      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单号)', width: 30, height: 30 }
     )
   }
   return list
@@ -255,6 +278,12 @@ function buildSamplePreviewData(bizType) {
       bomName: '示例复合膜 BOM',
       productCode: 'FP-001',
       productName: '复合膜成品',
+      spec: '28*36*0.16',
+      thickness: 0.16,
+      width: 36,
+      density: 0.92,
+      gramWeight: 28,
+      material: 'PE',
       planQty: 1000,
       actualQty: 850,
       goodQty: 820,
@@ -264,7 +293,12 @@ function buildSamplePreviewData(bizType) {
       leader: '张组长',
       startDate: '2026-07-10',
       endDate: '2026-07-15',
-      remark: '示例生产单数据, 不影响实际打印.'
+      remark: '示例生产单数据, 不影响实际打印.',
+      requisitionDetails: [
+        { lineNo: 1, materialType: '主料', productCode: 'ldpe2426h', productName: 'LDPE 2426H', unitName: 'kg', qty: 850, price: 8.50, amount: 7225, batchNo: 'B2026-001', remark: '' },
+        { lineNo: 2, materialType: '主料', productCode: 'lldpe7050', productName: 'LLDPE 7050', unitName: 'kg', qty: 150, price: 9.20, amount: 1380, batchNo: 'B2026-001', remark: '' },
+        { lineNo: 3, materialType: '辅料', productCode: 'add001', productName: '示例添加剂', unitName: 'kg', qty: 5, price: 25, amount: 125, batchNo: '', remark: '开口剂' }
+      ]
     }
   }
   return map[t] || {}

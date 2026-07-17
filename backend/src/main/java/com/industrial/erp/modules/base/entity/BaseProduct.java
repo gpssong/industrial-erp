@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.base.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -30,6 +31,9 @@ public class BaseProduct {
     private String batchNo;
     private String barcode;
     private String qrcode;
+    /** 配方 (BOM) ID: 一个成品对应一个配方, 多个成品可共用同一配方 */
+    @TableField("bom_id")
+    private Long bomId;
     private Long mainUnitId;
     private Long minUnitId;
     private BigDecimal purchasePrice;
@@ -83,6 +87,8 @@ public class BaseProduct {
     public void setBarcode(String barcode) { this.barcode = barcode; }
     public String getQrcode() { return qrcode; }
     public void setQrcode(String qrcode) { this.qrcode = qrcode; }
+    public Long getBomId() { return bomId; }
+    public void setBomId(Long bomId) { this.bomId = bomId; }
     public Long getMainUnitId() { return mainUnitId; }
     public void setMainUnitId(Long mainUnitId) { this.mainUnitId = mainUnitId; }
     public Long getMinUnitId() { return minUnitId; }

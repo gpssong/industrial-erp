@@ -14,10 +14,14 @@
         <el-table-column type="index" width="50" />
         <el-table-column prop="bomCode" label="BOM编号" width="160" />
         <el-table-column prop="bomName" label="BOM名称" />
-        <el-table-column prop="productCode" label="成品编码" width="140" />
-        <el-table-column prop="productName" label="成品名称" />
         <el-table-column prop="version" label="版本" width="80" />
         <el-table-column prop="lossRate" label="损耗率%" width="100" align="right" />
+        <el-table-column prop="productCount" label="被引用" width="80" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.productCount && row.productCount > 0" size="small" type="success">{{ row.productCount }} 个成品</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
@@ -34,12 +38,8 @@
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑BOM' : '新增BOM'" width="900px" destroy-on-close>
       <el-form :model="form" label-width="100px">
         <el-row :gutter="12">
-          <el-col :span="12"><el-form-item label="BOM名称"><el-input v-model="form.bomName" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="成品">
-            <el-select v-model="form.productId" placeholder="请选择成品" filterable style="width:100%">
-              <el-option v-for="p in products" :key="p.id" :label="`${p.productCode} ${p.productName}`" :value="p.id" />
-            </el-select>
-          </el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="BOM名称"><el-input v-model="form.bomName" placeholder="配方名称" /></el-form-item></el-col>
+          <el-col :span="12"><el-form-item label="BOM编码"><el-input v-model="form.bomCode" placeholder="留空自动生成" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="版本"><el-input v-model="form.version" /></el-form-item></el-col>
@@ -71,7 +71,7 @@
               <template #default="{ row }"><el-input-number v-model="row.baseQty" :min="0" :precision="4" :step-strictly="false" size="small" style="width:100%" /></template>
             </el-table-column>
             <el-table-column label="损耗率%" width="100">
-              <template #default="{ row }"><el-input-number v-model="row.lossRate" :min="0" :precision="2" :step-strictly="false" size="small" style="width:100%" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.lossRate" :min="0" :max="100" :precision="2" :step-strictly="false" size="small" style="width:100%" /></template>
             </el-table-column>
             <el-table-column label="操作" width="60">
               <template #default="{ row, $index }"><el-button link type="danger" @click="form.details.splice($index,1)">删</el-button></template>
@@ -113,7 +113,7 @@ const detailVisible = ref(false)
 const submitting = ref(false)
 const current = ref(null)
 const products = ref([])
-const form = ref({ id: null, bomName: '', productId: null, version: 'V1', lossRate: 0, remark: '', details: [] })
+const form = ref({ id: null, bomCode: '', bomName: '', version: 'V1', lossRate: 0, remark: '', details: [] })
 
 async function loadData() {
   loading.value = true
@@ -125,7 +125,7 @@ async function loadProducts() {
 }
 
 function onAdd() {
-  form.value = { id: null, bomName: '', productId: null, version: 'V1', lossRate: 0, remark: '', details: [] }
+  form.value = { id: null, bomCode: '', bomName: '', version: 'V1', lossRate: 0, remark: '', details: [] }
   loadProducts()
   dialogVisible.value = true
 }
@@ -155,15 +155,8 @@ function addDetail() {
 
 async function onSubmit() {
   if (!form.value.bomName) { ElMessage.warning('请填写BOM名称'); return }
-  if (!form.value.productId) { ElMessage.warning('请选择成品'); return }
   submitting.value = true
   try {
-    // 同步成品信息到表单
-    const p = products.value.find(x => x.id === form.value.productId)
-    if (p) {
-      form.value.productCode = p.productCode
-      form.value.productName = p.productName
-    }
     // 同步原料信息
     let line = 0
     for (const d of form.value.details) {

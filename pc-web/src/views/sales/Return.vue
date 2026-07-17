@@ -24,7 +24,7 @@
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onCheck(row)">审核</el-button>
-            <el-button v-if="row.billStatus==='CHECKED'" link type="warning" @click="onPrint(row)">打印</el-button>
+            <el-button v-if="['DRAFT','CHECKED'].includes(row.billStatus)" link type="warning" @click="onPrint(row)">打印</el-button>
           </template>
         </el-table-column>
       </el-table>

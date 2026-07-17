@@ -341,6 +341,46 @@ mvn test                          # 全量
 - **NAS 清理**: 释放 2.6GB 孤儿镜像 + 1.62GB 构建缓存, 删孤儿容器 `vibrant_euler` / `epic_benz`
 - **前端文档**: `docs/21_操作日志与登录日志功能.md` + `docs/22_自服务修改密码与前端调优.md`
 
+### v1.1.8 (2026-07-17) — 打印系统 v6 重构 + 生产加工单领料明细
+
+**前端打印系统迁移到 `myprint-design@1.0.12` (Apache-2.0)**
+
+替换原先的 FreeMarker + CodeMirror HTML 模板方案,改用可视化拖拽设计器 (`DesignPanel`)。设计器支持:
+- 文本/条码/二维码/数据表格(多级表头)/SVG 控件拖入画布
+- 实时数据预览 (左侧 palette + 右侧画布 + 中间 inspector 三栏布局)
+- 模板内容存 MySQL `sys_print_template.content` (LONGTEXT, JSON 字符串)
+
+**后端不变,仅前端**。已有模板可直接打开 (老 FreeMarker 模板作 fallback, 新逻辑优先从数据库读模板 JSON)。
+
+**myprint v6 三项适配**
+
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| 拖入合计字段看不到内容 | `previewData: [{}]`, 拖入后 `previewData[field]=undefined` | 新增 `buildSamplePreviewData(bizType)` 给每种业务类型产一份非零样本 |
+| 合计/数量打印空白 | `BigDecimal 0 → number 0 → !0===true → falsy fallback chain` | 新增 `toPrintValue(v)`, 有值全 `String(v)`, 一次性绕开 |
+| 条形码/二维码不渲染 | 老存储 `type:'Barcode'/'QRCode'` (无 `contentType`), print 路径 `else if (type=='Text')` 跳过 | 新增 `normalizePanel(panelJson)`, 递归改 `{type:'Text', contentType:'Barcode'\|'QrCode'}` |
+
+**设计师重入空白画布修复**
+
+之前 `applyToDesigner` 走 `JSON.parse + 字段覆盖 + stringify` round-trip,导致 myprint Fabric.js 画布认不出 elementList。重写为 `templateRef.content = d.content` 直接透传,杜绝 round-trip。
+
+**生产加工单打印领料明细 (新功能)**
+
+- 后端 `PrdOrder` 新增 transient `List<PrdRequisitionDetail> requisitionDetails`
+- 新增 `PrdRequisitionDetailMapper.selectByPrdOrderId(orderId)` — JOIN 跨所有领料单, 按 `r.bill_date/r.id/d.line_no` 排序
+- 新建 `PrdRequisitionDetailMapper.xml` — 顺带补齐 `selectByRequisitionId` (PrdRequisitionService 隐性 bug)
+- `PrdOrderService.detail()` 末尾注入 `requisitionDetails`
+- 前端 `Order.vue` 新增 `PRD_ORDER_DETAIL_MAP`, `onPrint()` 传 `detailsKey:'requisitionDetails'`
+- 前端 `PrintDesigner.vue` PRD_ORDER palette 加 DataTable 元素 (`field:'requisitionDetails'`, 10 列)
+- `buildSamplePreviewData.PRD_ORDER` 加 3 行示例数据
+
+**生产加工单打印模板数据库清理**
+
+清理数据库中已有的 PRD_ORDER 模板 JSON:
+- 删除 4 个孤儿 value 元素 (y=62~77, 无对应 label)
+- 补上 `density` / `material` / `spec` 三个字段绑定
+- 清空 9 个误填为 label 文本的 value `data` 字段 (例: `width` 的 `data="宽度"`, 导致数据缺失时 fallback 渲染出"宽度"两个字)
+
 ### v1.1.7 (2026-07-09) — 销售出库"库存不存在"根因修复 + 端口 18080 复位
 
 **用户报 1**: 销售出库点击审核 → `Error: 库存不存在, 商品=防锈袋28*36, 仓库=仓库`

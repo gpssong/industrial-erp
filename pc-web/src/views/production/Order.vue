@@ -34,7 +34,7 @@
             <el-button v-if="row.billStatus==='DRAFT' || row.billStatus==='RELEASED'" link type="primary" @click="onRelease(row)">开工</el-button>
             <el-button v-if="row.billStatus==='RELEASED' || row.billStatus==='PRODUCING'" link type="primary" @click="onFinish(row)">完工</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
-            <el-button v-if="['RELEASED','PRODUCING','FINISHED'].includes(row.billStatus)" link type="warning" @click="onPrint(row)">打印</el-button>
+            <el-button v-if="['DRAFT','RELEASED','PRODUCING','FINISHED'].includes(row.billStatus)" link type="warning" @click="onPrint(row)">打印</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -45,13 +45,13 @@
     <!-- 新增/编辑弹窗 -->
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑生产单' : '新增生产单'" width="600px" destroy-on-close>
       <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
-        <el-form-item label="BOM" prop="bomId">
-          <el-select v-model="form.bomId" placeholder="请选择BOM" filterable style="width:100%" @change="onBomChange">
-            <el-option v-for="b in bomList" :key="b.id" :label="`${b.bomCode} ${b.bomName}`" :value="b.id" />
+        <el-form-item label="成品" prop="productId">
+          <el-select v-model="form.productId" placeholder="请选择成品" filterable style="width:100%" @change="onProductChange">
+            <el-option v-for="p in productList" :key="p.id" :label="p.productName + ' (' + p.productCode + ')'" :value="p.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="成品">
-          <el-input v-model="form.productName" readonly placeholder="选择BOM后自动带出" />
+        <el-form-item label="BOM">
+          <el-input v-model="form.bomName" readonly placeholder="选择成品后自动带出" />
         </el-form-item>
         <el-row :gutter="12">
           <el-col :span="8">
@@ -185,10 +185,11 @@ const finishVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref(null)
 const bomList = ref([])
+const productList = ref([])
 const warehouses = ref([])
 const form = ref({ bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' })
 const finishForm = reactive({ id: null, goodQty: 0, lossQty: 0 })
-const rules = { bomId: [{ required: true, message: '请选择BOM', trigger: 'change' }], planQty: [{ required: true, message: '请填写计划数量', trigger: 'blur' }] }
+const rules = { productId: [{ required: true, message: '请选择成品', trigger: 'change' }], planQty: [{ required: true, message: '请填写计划数量', trigger: 'blur' }] }
 
 async function loadData() {
   loading.value = true
@@ -207,6 +208,7 @@ function onReset() {
   loadData()
 }
 async function loadBomList() { if (bomList.value.length === 0) bomList.value = (await bomApi.page({ pageNum: 1, pageSize: 999 })).data?.records || [] }
+async function loadProductList() { if (productList.value.length === 0) { const r = await productApi.page({ pageNum: 1, pageSize: 9999 }); productList.value = r.data?.records || [] } }
 async function loadWarehouses() { if (warehouses.value.length === 0) warehouses.value = (await warehouseApi.list()).data || [] }
 
 async function onEdit(row) {
@@ -237,7 +239,12 @@ async function onEdit(row) {
       material: d.material
     }
     await loadBomList()
+    await loadProductList()
     await loadWarehouses()
+    // 编辑时若已有 productId, 手动触发一次 onProductChange 以回填所有信息
+    if (form.value.productId) {
+      await onProductChange(form.value.productId)
+    }
     dialogVisible.value = true
   } catch (e) {
     ElMessage.error('加载失败：' + e.message)
@@ -247,33 +254,45 @@ async function onEdit(row) {
 async function onAdd() {
   form.value = { bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' }
   await loadBomList()
+  await loadProductList()
   await loadWarehouses()
   dialogVisible.value = true
 }
 
-async function onBomChange(bomId) {
-  const bom = bomList.value.find(b => b.id === bomId)
-  if (bom) {
-    form.value.productId = bom.productId
-    form.value.productName = bom.productName
-    form.value.productCode = bom.productCode
-    form.value.spec = bom.spec
-    form.value.unitId = bom.unitId
-    form.value.unitName = bom.unitName
-    form.value.lossRate = bom.lossRate || 0
-    // 拉取产品规格属性
-    try {
-      const r = await productApi.detail(bom.productId)
-      const p = r.data?.product || r.data
-      if (p) {
-        form.value.thickness = p.thickness || ''
-        form.value.width = p.width || ''
-        form.value.density = p.density || ''
-        form.value.gramWeight = p.gramWeight || ''
-        form.value.material = p.material || ''
-      }
-    } catch (e) { /* ignore */ }
+async function onProductChange(productId) {
+  const product = productList.value.find(p => p.id === productId)
+  if (!product) {
+    // 清空所有字段
+    form.value.bomId = null
+    form.value.bomName = ''
+    form.value.productName = ''
+    form.value.productCode = ''
+    form.value.spec = ''
+    form.value.unitId = null
+    form.value.unitName = ''
+    form.value.lossRate = 0
+    form.value.thickness = ''
+    form.value.width = ''
+    form.value.density = ''
+    form.value.gramWeight = ''
+    form.value.material = ''
+    return
   }
+  // 从产品反查 BOM
+  const bom = (bomList.value || []).find(b => b.id === product.bomId)
+  form.value.bomId = product.bomId || bom?.id || null
+  form.value.bomName = bom ? `${bom.bomCode} ${bom.bomName}` : (product.bomId ? '已关联配方' : '')
+  form.value.productName = product.productName
+  form.value.productCode = product.productCode
+  form.value.spec = product.spec || ''
+  form.value.unitId = product.mainUnitId
+  form.value.unitName = product.mainUnitName
+  form.value.lossRate = bom?.lossRate || 0
+  form.value.thickness = product.thickness || ''
+  form.value.width = product.width || ''
+  form.value.density = product.density || ''
+  form.value.gramWeight = product.gramWeight || ''
+  form.value.material = product.material || ''
 }
 
 async function onSubmit() {
@@ -324,17 +343,23 @@ async function onDelete(row) {
   }
 }
 
-// 打印 (生产单无嵌套明细, 仅打印主表)
+// 打印
 const { doPrint } = usePrint()
 const PRD_ORDER_HEADER_MAP = {
   billNo: 'billNo',
   billDate: 'billDate',
   bomCode: 'bomCode',
+  bomNo: 'bomNo',
   bomName: 'bomName',
   productCode: 'productCode',
   productName: 'productName',
   spec: 'spec',
   model: 'model',
+  thickness: 'thickness',
+  width: 'width',
+  density: 'density',
+  gramWeight: 'gramWeight',
+  material: 'material',
   unitName: 'unitName',
   planQty: 'planQty',
   actualQty: 'actualQty',
@@ -347,13 +372,27 @@ const PRD_ORDER_HEADER_MAP = {
   endDate: 'endDate',
   remark: 'remark'
 }
+const PRD_ORDER_DETAIL_MAP = {
+  lineNo: 'lineNo',
+  materialType: 'materialType',
+  productCode: 'productCode',
+  productName: 'productName',
+  unitName: 'unitName',
+  qty: 'qty',
+  price: 'price',
+  amount: 'amount',
+  batchNo: 'batchNo',
+  remark: 'remark'
+}
 async function onPrint(row) {
   try {
     const r = await prdOrderApi.detail(row.id)
     await doPrint({
       bizType: BIZ_TYPES.PRD_ORDER,
       bill: r.data || {},
-      fieldMap: PRD_ORDER_HEADER_MAP
+      fieldMap: PRD_ORDER_HEADER_MAP,
+      detailsKey: 'requisitionDetails',
+      detailFieldMap: PRD_ORDER_DETAIL_MAP
     })
   } catch (e) {
     ElMessage.error(e.message || '打印失败')

@@ -107,14 +107,23 @@ public class PrdOrderService {
                 order.setPDensity(p.getDensity());
                 order.setPGramWeight(p.getGramWeight());
                 order.setPMaterial(p.getMaterial());
+                order.setModel(p.getModel());
             }
         }
-        // 从 BOM 表取备注
+        // 从 BOM 表取 bomCode/bomName + 备注
         if (order != null && order.getBomId() != null) {
             PrdBom bom = bomService.detail(order.getBomId());
-            if (bom != null && bom.getRemark() != null) {
-                order.setBomRemark(bom.getRemark());
+            if (bom != null) {
+                order.setBomCode(bom.getBomCode());
+                order.setBomName(bom.getBomName());
+                if (bom.getRemark() != null) {
+                    order.setBomRemark(bom.getRemark());
+                }
             }
+        }
+        // 加载领料明细 (生产加工单打印用: 跨所有领料单汇总明细行)
+        if (order != null) {
+            order.setRequisitionDetails(reqDetailMapper.selectByPrdOrderId(id));
         }
         return order;
     }
@@ -136,6 +145,10 @@ public class PrdOrderService {
             order.setProductName(p.getProductName());
             order.setSpec(p.getSpec());
             order.setModel(p.getModel());
+            // 配方迁移: 若前端没传 bomId 但成品选了配方, 自动从成品上同步过来
+            if (order.getBomId() == null && p.getBomId() != null) {
+                order.setBomId(p.getBomId());
+            }
         }
         // 从 BOM 表取 bomNo 填入生产单(打印时需要显示)
         if (order.getBomId() != null && StrUtil.isBlank(order.getBomNo())) {

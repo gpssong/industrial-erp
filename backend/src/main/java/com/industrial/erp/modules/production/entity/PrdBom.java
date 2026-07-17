@@ -39,6 +39,9 @@ public class PrdBom {
 
     @TableField(exist = false)
     private List<PrdBomDetail> details;
+    /** 被多少个成品引用 (transient, BOM 列表展示用) */
+    @TableField(exist = false)
+    private Long productCount;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -84,4 +87,6 @@ public class PrdBom {
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
     public List<PrdBomDetail> getDetails() { return details; }
     public void setDetails(List<PrdBomDetail> details) { this.details = details; }
+    public Long getProductCount() { return productCount; }
+    public void setProductCount(Long productCount) { this.productCount = productCount; }
 }

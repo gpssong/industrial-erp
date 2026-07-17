@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.production.mapper.PrdRequisitionDetailMapper">
+    <!-- 按领料单ID查询明细 (PrdRequisitionService.detail() 用) -->
+    <select id="selectByRequisitionId" resultType="com.industrial.erp.modules.production.entity.PrdRequisitionDetail">
+        SELECT * FROM prd_requisition_detail WHERE requisition_id = #{reqId} AND deleted = 0 ORDER BY line_no
+    </select>
+
+    <!--
+        按 prd_order_id 跨所有领料单汇总明细.
+        用途: 生产加工单打印模板展示所有领料明细 (按业务时序展开).
+        排序: 领料单日期 ASC → 领料单 ID ASC → 行号 ASC
+    -->
+    <select id="selectByPrdOrderId" resultType="com.industrial.erp.modules.production.entity.PrdRequisitionDetail">
+        SELECT d.* FROM prd_requisition_detail d
+        JOIN prd_requisition r ON r.id = d.requisition_id
+        WHERE r.prd_order_id = #{orderId} AND r.deleted = 0 AND d.deleted = 0
+        ORDER BY r.bill_date ASC, r.id ASC, d.line_no ASC
+    </select>
+</mapper>
