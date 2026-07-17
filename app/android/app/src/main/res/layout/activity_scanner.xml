@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自定义扫码页面: 在 ZXing CaptureActivity layout 基础上, 顶部加一个返回按钮.
+  DecoratedBarcodeView 渲染相机预览 + 扫描框, 我们用 FrameLayout 叠加在它上面.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:keepScreenOn="true"
+    android:background="#000000">
+
+    <!-- ZXing 相机预览 + 扫描框 (占满整屏) -->
+    <!--
+      DecoratedBarcodeView 是 ZXing 4.3.0 的 compound view (FrameLayout 子类),
+      构造时自动 inflate zxing_barcode_scanner.xml (含 BarcodeView + ViewfinderView + status TextView).
+      不要给 zxing_scanner_layout 属性 (该属性是 CaptureActivity 用, DecoratedBarcodeView 没有).
+    -->
+    <com.journeyapps.barcodescanner.DecoratedBarcodeView
+        android:id="@+id/zxing_barcode_scanner"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:zxing_preview_scaling_strategy="centerCrop"
+        app:zxing_use_texture_view="false"/>
+
+    <!-- 顶部返回栏 (悬浮在 ZXing 之上, 不影响相机) -->
+    <LinearLayout
+        android:id="@+id/top_bar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:background="#88000000"
+        android:layout_gravity="top">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@android:color/transparent"
+            android:src="@drawable/ic_arrow_back"
+            android:tint="#FFFFFF"
+            android:scaleType="centerInside"
+            android:contentDescription="返回"
+            android:padding="8dp"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="扫码"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/tv_hint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="将条码/二维码放入框内"
+            android:textColor="#FFFFFFCC"
+            android:textSize="12sp"/>
+    </LinearLayout>
+
+</FrameLayout>

@@ -26,6 +26,17 @@
 
         </activity>
 
+        <!--
+            v1.1.8+ 自定义扫码界面: 顶部带返回按钮, 内部用 ZXing CaptureManager
+            处理相机生命周期 (不直接用 ZXing 的 CaptureActivity, 因为它的 layout 是 merge 标签, 不方便叠加 UI)
+        -->
+        <activity
+            android:name=".ScannerActivity"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
