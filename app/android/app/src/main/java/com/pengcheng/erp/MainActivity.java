@@ -3,6 +3,7 @@ package com.pengcheng.erp;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
@@ -19,6 +20,16 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 全局异常捕获: 任何未处理的 RuntimeException 都能在这里看到 logcat
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread thread, Throwable ex) {
+                Log.e("UNCAUGHT", "Thread " + thread.getName() + " crashed", ex);
+                // 交给系统默认处理器 (会弹"应用已停止运行")
+                Thread.getDefaultUncaughtExceptionHandler().uncaughtException(thread, ex);
+            }
+        });
+
         // Register plugins before super.onCreate
         registerPlugin(BarcodeScanner.class);
         registerPlugin(NativeScannerPlugin.class);

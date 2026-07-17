@@ -6,11 +6,12 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import com.journeyapps.barcodescanner.CaptureActivity;
 
 /**
- * v1.1.8+ 原生扫码桥接: 直接启动 ZXing 的 CaptureActivity 全屏 Activity,
- * 完全绕过 @capacitor-community/barcode-scanner 的 WebView 叠加方案 (该方案有 BarcodeView 0 尺寸 bug).
+ * v1.1.8+ 原生扫码桥接:
+ *   启动自定义 ScannerActivity (而非 ZXing 的 CaptureActivity),
+ *   ScannerActivity 顶部带返回按钮, 不扫码也能关闭界面.
+ *   内部用 CaptureManager 处理相机生命周期和扫码结果, 扫码逻辑稳定.
  */
 @CapacitorPlugin(name = "NativeScanner", requestCodes = { 8731 })
 public class NativeScannerPlugin extends Plugin {
@@ -20,9 +21,8 @@ public class NativeScannerPlugin extends Plugin {
     public void startScan(PluginCall call) {
         // 必须先 saveCall, 否则 onActivityResult 拿不到 callback
         saveCall(call);
-        Intent intent = new Intent(getActivity(), CaptureActivity.class);
+        Intent intent = new Intent(getActivity(), ScannerActivity.class);
         intent.putExtra("PROMPT_MESSAGE", "将条码/二维码放入框内");
-        // 不要 addFlags CLEAR_TOP, 否则 ZXing CaptureActivity 返回时 data 可能是 null
         bridge.startActivityForPluginWithResult(call, intent, REQUEST_CODE_SCAN);
     }
 

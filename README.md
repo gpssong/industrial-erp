@@ -381,6 +381,25 @@ mvn test                          # 全量
 - 补上 `density` / `material` / `spec` 三个字段绑定
 - 清空 9 个误填为 label 文本的 value `data` 字段 (例: `width` 的 `data="宽度"`, 导致数据缺失时 fallback 渲染出"宽度"两个字)
 
+**App 端扫码加返回按钮 (Android 原生)**
+
+- 新增 `ScannerActivity.java` — 继承 `android.app.Activity`, 用 ZXing `CaptureManager` 处理相机生命周期
+- 顶部悬浮返回栏: 返回按钮 + 标题"扫码" + 提示文字, 点击即 `RESULT_CANCELED` 返回前端
+- 物理返回键也拦截: `onKeyDown(KEYCODE_BACK)` → `finish()`
+- `NativeScannerPlugin.startScan()` 改用 `ScannerActivity` 替代 ZXing 内置 `CaptureActivity`
+- 新建 `AndroidManifest.xml` 注册 `ScannerActivity` (横屏 + 全屏黑主题)
+- 新建 `ic_arrow_back.xml` vector drawable 返回箭头
+- 修复 `activity_scanner.xml` 中 `?attr/selectableItemBackgroundBorderless` 在系统主题下不存在的崩溃
+- `MainActivity` 加全局 `UncaughtExceptionHandler`, 崩溃时 logcat 可追踪
+- **Bug 修复**: `CaptureManager.initializeFromIntent()` 不自动启动解码, 需在 `onCreate` 末尾调用 `barcodeView.decodeContinuous(this)`, 否则扫码无反应
+- **Bug 修复**: `DecoratedBarcodeView` 不能设 `app:zxing_scanner_layout` 属性 (该属性不存在), 否则 inflate 崩溃闪退
+
+**打印模板数据库修复**
+
+- 通过 API 直接更新 `sys_print_template.content` JSON:
+  - 删除 4 个孤儿 value 元素 (y=62~77, 无对应 label)
+  - 清空 9 个误填为 label 文本的 value `data` 字段
+
 ### v1.1.7 (2026-07-09) — 销售出库"库存不存在"根因修复 + 端口 18080 复位
 
 **用户报 1**: 销售出库点击审核 → `Error: 库存不存在, 商品=防锈袋28*36, 仓库=仓库`
