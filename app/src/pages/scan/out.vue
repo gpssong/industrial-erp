@@ -1,5 +1,11 @@
 <template>
   <view class="container">
+    <!-- Loading 遮罩 -->
+    <view v-if="loading" class="loading-overlay">
+      <view class="loading-mask">
+        <text class="loading-text">加载中...</text>
+      </view>
+    </view>
     <view class="card">
       <text class="title">📤 扫码出库 (销售)</text>
       <text class="muted">对应 PC 端销售出库: 选客户 → 扫商品加入明细 → 提交生成草稿销售出库单, 待 PC 端审核</text>
@@ -120,6 +126,7 @@ const historyList = ref([])
 const historyLoading = ref(false)
 const submitted = ref(false)
 const submittedBillNo = ref('')
+const loading = ref(false)
 
 // 表单 (主要存 customerId/customerName/warehouseId/warehouseName)
 const form = ref({ customerId: null, customerName: '', warehouseId: null, warehouseName: '', billDate: new Date().toISOString().substring(0, 10), details: [] })
@@ -130,17 +137,19 @@ function toast(msg) {
 }
 
 async function loadCustomers() {
+  loading.value = true
   try {
     const r = await api.customerList()
     customers.value = r || []
-  } catch (e) { /* ignore */ }
+  } catch (e) { /* ignore */ } finally { loading.value = false }
 }
 
 async function loadWarehouses() {
+  loading.value = true
   try {
     const r = await api.warehouseList()
     warehouses.value = r || []
-  } catch (e) { warehouses.value = [] }
+  } catch (e) { warehouses.value = [] } finally { loading.value = false }
 }
 
 function onCustomerPick(e) {
@@ -203,6 +212,7 @@ function onHistoryPick(row) {
 
 async function onSearch() {
   if (!code.value) return
+  loading.value = true
   try {
     const r = await api.productAppSearch(code.value)
     if (r && r.records && r.records.length > 0) {
@@ -216,7 +226,7 @@ async function onSearch() {
     }
   } catch (e) {
     toast('查询失败: ' + (e.msg || e.message || '网络错误'))
-  }
+  } finally { loading.value = false }
 }
 
 function onScan() {
@@ -254,6 +264,7 @@ async function onSubmit() {
   if (!form.value.customerId) { toast('请先选择客户'); return }
   if (!form.value.warehouseId) { toast('请先选择仓库'); return }
   if (!list.value.length) { toast('请先添加商品'); return }
+  loading.value = true
   const payload = {
     customerId: form.value.customerId,
     warehouseId: form.value.warehouseId,
@@ -263,7 +274,6 @@ async function onSubmit() {
       batchNo: d.batchNo || '', remark: d.remark || ''
     }))
   }
-  if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '提交中...' })
   try {
     await api.salesDeliveryAdd(payload)
     submitted.value = true
@@ -273,7 +283,7 @@ async function onSubmit() {
   } catch (e) {
     toast('提交失败: ' + (e.msg || e.message || '网络错误'))
   } finally {
-    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    loading.value = false
   }
 }
 
@@ -298,4 +308,7 @@ onUnmounted(() => { stopScan() })
 .empty { text-align: center; color: #999; padding: 30px; }
 .history-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #eee; }
 .history-row:last-child { border-bottom: none; }
+.loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+.loading-mask { background: rgba(0,0,0,0.4); border-radius: 8px; padding: 20px 30px; }
+.loading-text { color: #fff; font-size: 14px; }
 </style>

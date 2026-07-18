@@ -110,7 +110,8 @@ services:
     container_name: erp-pc-web
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     # 反代后端 8080; pc-web:80 由容器暴露到主机 18080, DSM 反代从 18080 转发 (避免与 DSM nginx 80 冲突)
     ports:
       - "18080:80"

@@ -28,7 +28,6 @@ LOG_FILE="$LOG_DIR/backup_${DATE_SHORT}.log"
 MYSQL_CONTAINER="erp-mysql"
 BACKEND_CONTAINER="erp-backend"
 PCWEB_CONTAINER="erp-pc-web"
-APP_H5_CONTAINER="erp-app-h5"
 
 DB_USER="root"
 # ⚠️  不要硬编码密码. 从 docker-compose 部署目录的 .env 中读取 (set -a 自动 export),
@@ -145,7 +144,6 @@ backup_dir_if_changed() {
 }
 
 backup_dir_if_changed "$PCWEB_CONTAINER"  "/usr/share/nginx/html"  "pc-web" "pcweb.sha256"
-backup_dir_if_changed "$APP_H5_CONTAINER" "/usr/share/nginx/html"  "app-h5"  "apph5.sha256" || true
 
 # ===== 4. 写 version.json =====
 log "[4/4] 写元信息"

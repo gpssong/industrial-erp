@@ -68,6 +68,7 @@ public class AuthService {
         return r;
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public LoginVO login(LoginDTO dto, HttpServletRequest request) {
         // 解析登录上下文 (IP / UA)
         String ip = clientIp(request);

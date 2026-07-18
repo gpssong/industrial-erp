@@ -138,21 +138,6 @@ if [[ " ${do[*]} " =~ " bin " ]]; then
     else
         echo "  (未找到 pc-web 备份)"
     fi
-
-    # app-h5
-    H5_TGZ=$(ls -1 "$BACKUP_ROOT/frontend/"app-h5*"${TARGET_TS}"*.tar.gz 2>/dev/null | head -1)
-    if [ -n "$H5_TGZ" ]; then
-        echo "→ app-h5: $H5_TGZ"
-        sudo /usr/local/bin/docker cp "$H5_TGZ" erp-app-h5:/tmp/dist.tar.gz
-        sudo /usr/local/bin/docker exec erp-app-h5 sh -c "
-            mkdir -p /tmp/newdist && tar -xzf /tmp/dist.tar.gz -C /tmp/newdist &&
-            cp -a /tmp/newdist/. /usr/share/nginx/html/ &&
-            rm -rf /tmp/newdist /tmp/dist.tar.gz
-        "
-        echo "✓ app-h5 已部署"
-    else
-        echo "  (未找到 app-h5 备份)"
-    fi
 fi
 
 echo "================================================"

@@ -200,41 +200,8 @@ app.on('will-quit', () => globalShortcut.unregisterAll())
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 
 // ============== IPC 桥接 ==============
-ipcMain.handle('print:salesDelivery', async (e, id) => {
-  const win = new BrowserWindow({ show: false })
-  const url = store.apiBase.replace('/api', '') + '/print/sales-delivery/' + id + '.html'
-  win.loadURL(url)
-  return new Promise((resolve) => {
-    win.webContents.on('did-finish-load', () => {
-      win.webContents.print({
-        silent: false, printBackground: true,
-        deviceName: store.printName || ''
-      }, (success, reason) => {
-        if (!success) console.error('[main.js] 打印失败:', reason)
-        resolve({ success, reason })
-        win.close()
-      })
-    })
-  })
-})
-
-ipcMain.handle('print:prdOrder', async (e, id) => {
-  const win = new BrowserWindow({ show: false })
-  const url = store.apiBase.replace('/api', '') + '/print/prd-order/' + id + '.html'
-  win.loadURL(url)
-  return new Promise((resolve) => {
-    win.webContents.on('did-finish-load', () => {
-      win.webContents.print({
-        silent: false, printBackground: true,
-        deviceName: store.printName || ''
-      }, (success, reason) => {
-        if (!success) console.error('[main.js] 打印失败:', reason)
-        resolve({ success, reason })
-        win.close()
-      })
-    })
-  })
-})
+// print:salesDelivery / print:prdOrder 已废弃 — 前端改用 myprint-design 客户端打印,
+// 不再依赖后端静态 HTML 页面. 保留 print:list (获取系统打印机列表) 和 settings/app.
 
 ipcMain.handle('print:list', async () => {
   // Electron 没有直接 API 列出系统打印机, 借助 webContents.getPrintersAsync

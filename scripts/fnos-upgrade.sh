@@ -115,7 +115,7 @@ echo ""
 echo -e "${BLUE}[7/8] 健康检查...${NC}"
 sleep 5
 HEALTH_OK=1
-for c in erp-mysql erp-backend erp-pc-web erp-app-h5; do
+for c in erp-mysql erp-backend erp-pc-web; do
     if docker ps --format '{{.Names}}' | grep -qx "$c"; then
         STATE=$(docker inspect --format '{{.State.Health.Status}}' "$c" 2>/dev/null || echo "no-healthcheck")
         if [ "$STATE" = "healthy" ] || [ "$STATE" = "no-healthcheck" ]; then

@@ -190,6 +190,27 @@ rm -rf data/                  # 清掉上传/备份
 docker compose up -d --build
 ```
 
+## 九、常见问题
+
+### 9.5 改了 pc-web 容器端口后 8088 报 502
+
+DSM 的 Container Manager 会自动生成反向代理配置 `/etc/nginx/conf.d/http.erp8088.conf`, 把 `home.93gushi.com:8088/` 反代到 `http://127.0.0.1:18080` (pc-web 容器).
+
+如果你把 `docker-compose.yml` 中 `pc-web` 的端口改成 `8180:80`, 那么 DSM 反代仍然指向 18080, 上游断了 → 502 Bad Gateway.
+
+**修复**: 改端口后必须同步修改 DSM 反代配置:
+1. DSM 控制面板 → 登录门户 → 高级 → 编辑 `http.erp8088.conf`
+2. 把 `proxy_pass http://127.0.0.1:18080` 改成对应端口
+3. 或者经 DSM 控制面板 → Web 应用程序 → 重建反向代理规则
+
+**推荐**: 固定使用 `18080:80`, 避免 DSM 反代冲突.
+
+### 9.6 端口冲突
+
+- 群晖 DSM Web Station 占用 **80 端口**, 所以 pc-web 容器映射 `18080:80` (而非 80:80)
+- DSM 反代统一走 **8088 端口**, 由 DSM 自动生成的 nginx 配置处理
+- 外网访问: `home.93gushi.com:8088` → 反代到 18080 (pc-web) / 8080 (backend)
+
 ## 十、资源参考
 
 - 项目部署总览: `docs/02_部署方案.md`
