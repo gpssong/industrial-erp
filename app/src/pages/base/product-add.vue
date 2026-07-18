@@ -200,10 +200,10 @@ async function onSubmit() {
     if (!payload.remark) payload.remark = ''
 
     if (payload.id) {
-      await api.productUpdate(payload.id, payload)
+      await api.productUpdate(payload.id, { product: payload, units: [] })
       toast('修改成功')
     } else {
-      await api.productAdd(payload)
+      await api.productAdd({ product: payload, units: [] })
       toast('新增成功')
     }
     // 返回上一页

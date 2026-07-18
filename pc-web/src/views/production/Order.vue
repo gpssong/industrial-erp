@@ -28,13 +28,24 @@
             <el-tag>{{ ({DRAFT:'草稿',RELEASED:'已开工',PRODUCING:'生产中',FINISHED:'已完成',CLOSED:'已关闭'})[row.billStatus] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="490" fixed="right">
+        <el-table-column label="操作" width="540" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="onEdit(row)">编辑</el-button>
             <el-button v-if="row.billStatus==='DRAFT' || row.billStatus==='RELEASED'" link type="primary" @click="onRelease(row)">开工</el-button>
             <el-button v-if="row.billStatus==='RELEASED' || row.billStatus==='PRODUCING'" link type="primary" @click="onFinish(row)">完工</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
-            <el-button v-if="['DRAFT','RELEASED','PRODUCING','FINISHED'].includes(row.billStatus)" link type="warning" @click="onPrint(row)">打印</el-button>
+            <el-dropdown v-if="['DRAFT','RELEASED','PRODUCING','FINISHED'].includes(row.billStatus)" trigger="click" @command="(cmd) => onPrintCommand(cmd, row)">
+              <el-button link type="warning">
+                打印<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="browser">浏览器打印</el-dropdown-item>
+                  <el-dropdown-item command="feie-preview">飞鹅打印预览</el-dropdown-item>
+                  <el-dropdown-item command="feie-print" divided>飞鹅云打印</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -153,23 +164,40 @@
         <el-button type="primary" @click="doFinish">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 飞鹅打印预览弹窗 -->
+    <el-dialog v-model="previewVisible" :title="'飞鹅打印预览 - ' + (previewBillNo || '')" width="420px" destroy-on-close>
+      <div v-loading="previewLoading" style="min-height:200px;">
+        <iframe
+          ref="previewFrame"
+          :srcdoc="previewHtml"
+          style="width:100%;height:500px;border:1px solid #dcdfe6;border-radius:4px;"
+          sandbox="allow-same-origin"
+        ></iframe>
+      </div>
+      <template #footer>
+        <el-button @click="previewVisible=false">关闭</el-button>
+        <el-button type="primary" @click="doFeiePrint" :loading="printing" :disabled="!previewHtml">
+          <el-icon><Printer /></el-icon>确认打印
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
+
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
 import { prdOrderApi, bomApi } from '@/api/production'
 import { warehouseApi, productApi } from '@/api/base'
 import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { feiePrintApi } from '@/api/feie'
+import { ElMessage } from 'element-plus'
+import { ArrowDown, Printer } from '@element-plus/icons-vue'
 
-// el-input-number 数字自动去尾 0: 740.0000 → "740", 31.4000 → "31.4"
-// EP 的 precision=N 会强制显示 N 位小数, 所以用 formatter/parser 接管显示.
+// el-input-number 数字自动去尾 0
 const stripZeroFormat = (v) => {
   if (v == null || v === '') return ''
-  const n = Number(v)
-  if (!isFinite(n)) return String(v)
-  // 用 toString() 自动去尾 0, 但 EP 给的 n 是浮点, 可能 740 → "740" 而 31.4 → "31.4"
-  return String(n)
+  return String(Number(v))
 }
 const stripZeroParse = (v) => {
   if (v == null || v === '') return null
@@ -190,6 +218,32 @@ const warehouses = ref([])
 const form = ref({ bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' })
 const finishForm = reactive({ id: null, goodQty: 0, lossQty: 0 })
 const rules = { productId: [{ required: true, message: '请选择成品', trigger: 'change' }], planQty: [{ required: true, message: '请填写计划数量', trigger: 'blur' }] }
+
+// 飞鹅打印预览
+const previewVisible = ref(false)
+const previewLoading = ref(false)
+const previewHtml = ref('')
+const previewBillNo = ref('')
+const printing = ref(false)
+let pendingPrintOrderId = null
+
+// 打印
+const { doPrint } = usePrint()
+const PRD_ORDER_HEADER_MAP = {
+  billNo: 'billNo', billDate: 'billDate', bomCode: 'bomCode', bomNo: 'bomNo',
+  bomName: 'bomName', productCode: 'productCode', productName: 'productName',
+  spec: 'spec', model: 'model', thickness: 'thickness', width: 'width',
+  density: 'density', gramWeight: 'gramWeight', material: 'material',
+  unitName: 'unitName', planQty: 'planQty', actualQty: 'actualQty',
+  goodQty: 'goodQty', lossQty: 'lossQty', lossRate: 'lossRate',
+  workshop: 'workshop', leader: 'leader', startDate: 'startDate',
+  endDate: 'endDate', remark: 'remark'
+}
+const PRD_ORDER_DETAIL_MAP = {
+  lineNo: 'lineNo', materialType: 'materialType', productCode: 'productCode',
+  productName: 'productName', unitName: 'unitName', qty: 'qty',
+  price: 'price', amount: 'amount', batchNo: 'batchNo', remark: 'remark'
+}
 
 async function loadData() {
   loading.value = true
@@ -216,69 +270,40 @@ async function onEdit(row) {
     const r = await prdOrderApi.detail(row.id)
     const d = r.data
     form.value = {
-      id: d.id,
-      bomId: d.bomId,
-      productId: d.productId,
-      productName: d.productName,
-      productCode: d.productCode,
-      spec: d.spec,
-      unitId: d.unitId,
-      unitName: d.unitName,
+      id: d.id, bomId: d.bomId, productId: d.productId,
+      productName: d.productName, productCode: d.productCode, spec: d.spec,
+      unitId: d.unitId, unitName: d.unitName,
       planQty: d.planQty != null ? Number(d.planQty) : 1,
       lossRate: d.lossRate != null ? Number(d.lossRate) : 0,
-      workshop: d.workshop || '',
-      warehouseId: d.warehouseId,
+      workshop: d.workshop || '', warehouseId: d.warehouseId,
       leader: d.leader || '',
       startDate: d.startDate ? d.startDate.substring(0, 10) : '',
       endDate: d.endDate ? d.endDate.substring(0, 10) : '',
       remark: d.remark || '',
-      thickness: d.thickness,
-      width: d.width,
-      density: d.density,
-      gramWeight: d.gramWeight,
-      material: d.material
+      thickness: d.thickness, width: d.width, density: d.density,
+      gramWeight: d.gramWeight, material: d.material
     }
-    await loadBomList()
-    await loadProductList()
-    await loadWarehouses()
-    // 编辑时若已有 productId, 手动触发一次 onProductChange 以回填所有信息
-    if (form.value.productId) {
-      await onProductChange(form.value.productId)
-    }
+    await loadBomList(); await loadProductList(); await loadWarehouses()
+    if (form.value.productId) await onProductChange(form.value.productId)
     dialogVisible.value = true
-  } catch (e) {
-    ElMessage.error('加载失败：' + e.message)
-  }
+  } catch (e) { ElMessage.error('加载失败：' + e.message) }
 }
 
 async function onAdd() {
   form.value = { bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' }
-  await loadBomList()
-  await loadProductList()
-  await loadWarehouses()
+  await loadBomList(); await loadProductList(); await loadWarehouses()
   dialogVisible.value = true
 }
 
 async function onProductChange(productId) {
   const product = productList.value.find(p => p.id === productId)
   if (!product) {
-    // 清空所有字段
-    form.value.bomId = null
-    form.value.bomName = ''
-    form.value.productName = ''
-    form.value.productCode = ''
-    form.value.spec = ''
-    form.value.unitId = null
-    form.value.unitName = ''
-    form.value.lossRate = 0
-    form.value.thickness = ''
-    form.value.width = ''
-    form.value.density = ''
-    form.value.gramWeight = ''
-    form.value.material = ''
-    return
+    form.value.bomId = null; form.value.bomName = ''; form.value.productName = ''
+    form.value.productCode = ''; form.value.spec = ''; form.value.unitId = null
+    form.value.unitName = ''; form.value.lossRate = 0; form.value.thickness = ''
+    form.value.width = ''; form.value.density = ''; form.value.gramWeight = ''
+    form.value.material = ''; return
   }
-  // 从产品反查 BOM
   const bom = (bomList.value || []).find(b => b.id === product.bomId)
   form.value.bomId = product.bomId || bom?.id || null
   form.value.bomName = bom ? `${bom.bomCode} ${bom.bomName}` : (product.bomId ? '已关联配方' : '')
@@ -299,22 +324,17 @@ async function onSubmit() {
   await formRef.value.validate()
   submitting.value = true
   try {
-    if (form.value.id) {
-      await prdOrderApi.update(form.value)
-      ElMessage.success('修改成功')
-    } else {
-      await prdOrderApi.add(form.value)
-      ElMessage.success('新增成功')
-    }
-    dialogVisible.value = false
-    loadData()
-  } catch (e) {
-    ElMessage.error(e.message || '提交失败')
-  } finally { submitting.value = false }
+    if (form.value.id) { await prdOrderApi.update(form.value); ElMessage.success('修改成功') }
+    else { await prdOrderApi.add(form.value); ElMessage.success('新增成功') }
+    dialogVisible.value = false; loadData()
+  } catch (e) { ElMessage.error(e.message || '提交失败') }
+  finally { submitting.value = false }
 }
 
 async function onRelease(row) {
-  await prdOrderApi.release(row.id); ElMessage.success('已开工, 自动生成领料单'); loadData()
+  await prdOrderApi.release(row.id)
+  ElMessage.success('已开工, 自动生成领料单')
+  loadData()
 }
 function onFinish(row) {
   finishForm.id = row.id; finishForm.goodQty = row.planQty || 0; finishForm.lossQty = 0
@@ -326,65 +346,18 @@ async function doFinish() {
 }
 
 async function onDelete(row) {
-  await ElMessageBox.confirm(
-    `确定删除生产单 "${row.billNo}"?`,
-    '删除确认',
-    { type: 'warning' }
-  )
+  await ElMessageBox.confirm(`确定删除生产单 "${row.billNo}"?`, '删除确认', { type: 'warning' })
   submitting.value = true
   try {
-    await prdOrderApi.delete(row.id)
-    ElMessage.success('删除成功')
-    loadData()
-  } catch (e) {
-    ElMessage.error(e.message || '删除失败')
-  } finally {
-    submitting.value = false
-  }
+    await prdOrderApi.delete(row.id); ElMessage.success('删除成功'); loadData()
+  } catch (e) { ElMessage.error(e.message || '删除失败') }
+  finally { submitting.value = false }
 }
 
-// 打印
-const { doPrint } = usePrint()
-const PRD_ORDER_HEADER_MAP = {
-  billNo: 'billNo',
-  billDate: 'billDate',
-  bomCode: 'bomCode',
-  bomNo: 'bomNo',
-  bomName: 'bomName',
-  productCode: 'productCode',
-  productName: 'productName',
-  spec: 'spec',
-  model: 'model',
-  thickness: 'thickness',
-  width: 'width',
-  density: 'density',
-  gramWeight: 'gramWeight',
-  material: 'material',
-  unitName: 'unitName',
-  planQty: 'planQty',
-  actualQty: 'actualQty',
-  goodQty: 'goodQty',
-  lossQty: 'lossQty',
-  lossRate: 'lossRate',
-  workshop: 'workshop',
-  leader: 'leader',
-  startDate: 'startDate',
-  endDate: 'endDate',
-  remark: 'remark'
-}
-const PRD_ORDER_DETAIL_MAP = {
-  lineNo: 'lineNo',
-  materialType: 'materialType',
-  productCode: 'productCode',
-  productName: 'productName',
-  unitName: 'unitName',
-  qty: 'qty',
-  price: 'price',
-  amount: 'amount',
-  batchNo: 'batchNo',
-  remark: 'remark'
-}
-async function onPrint(row) {
+// ==================== 打印逻辑 ====================
+
+// 浏览器打印 (原有)
+async function doBrowserPrint(row) {
   try {
     const r = await prdOrderApi.detail(row.id)
     await doPrint({
@@ -394,10 +367,71 @@ async function onPrint(row) {
       detailsKey: 'requisitionDetails',
       detailFieldMap: PRD_ORDER_DETAIL_MAP
     })
+  } catch (e) { ElMessage.error(e.message || '打印失败') }
+}
+
+// 飞鹅打印预览
+async function doFeiePreview(row) {
+  try {
+    const r = await prdOrderApi.detail(row.id)
+    previewBillNo.value = r.data?.billNo || ''
+    pendingPrintOrderId = row.id
+    previewLoading.value = true
+    previewHtml.value = ''
+    previewVisible.value = true
+    const htmlRes = await feiePrintApi.preview(row.id)
+    previewHtml.value = htmlRes.data || ''
   } catch (e) {
-    ElMessage.error(e.message || '打印失败')
+    ElMessage.error('预览失败: ' + (e.message || '未知错误'))
+  } finally { previewLoading.value = false }
+}
+
+// 飞鹅直接打印 (无需预览)
+async function doFeieDirectPrint(row) {
+  try {
+    const r = await prdOrderApi.detail(row.id)
+    previewBillNo.value = r.data?.billNo || ''
+    pendingPrintOrderId = row.id
+    // 先渲染再打印
+    previewLoading.value = true
+    const htmlRes = await feiePrintApi.preview(row.id)
+    previewHtml.value = htmlRes.data || ''
+    previewVisible.value = true
+    previewLoading.value = false
+  } catch (e) {
+    ElMessage.error('预览失败: ' + (e.message || '未知错误'))
   }
 }
+
+// 确认飞鹅打印
+async function doFeiePrint() {
+  if (!pendingPrintOrderId) return
+  printing.value = true
+  try {
+    await feiePrintApi.print(pendingPrintOrderId)
+    previewVisible.value = false
+  } catch (e) {
+    ElMessage.error('打印失败: ' + (e.message || '未知错误'))
+  } finally {
+    printing.value = false
+  }
+}
+
+// 打印命令分发
+function onPrintCommand(command, row) {
+  switch (command) {
+    case 'browser':
+      doBrowserPrint(row)
+      break
+    case 'feie-preview':
+      doFeiePreview(row)
+      break
+    case 'feie-print':
+      doFeieDirectPrint(row)
+      break
+  }
+}
+
 onMounted(loadData)
 </script>
 <style scoped>

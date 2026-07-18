@@ -24,23 +24,25 @@ function getToken() {
   } catch (e) { return null }
 }
 
-function request({ url, method = 'GET', data = {} }) {
+function request({ url, method = 'GET', data = {}, contentType }) {
   const token = getToken()
   const base = getBase()
 
   // H5 环境 (浏览器预览): uni.request 不可用, 退化为原生 fetch
   // 检测方式: typeof uni.request !== 'function'
   if (typeof uni === 'undefined' || typeof uni.request !== 'function') {
-    return fetchRequest(base + url, method, data, token)
+    return fetchRequest(base + url, method, data, token, contentType)
   }
 
   // 真机/小程序环境: 用 uni.request
+  const header = { 'Authorization': token || '' }
+  if (contentType === 'json') header['Content-Type'] = 'application/json'
   return new Promise((resolve, reject) => {
     uni.request({
       url: base + url,
       method,
       data,
-      header: { 'Authorization': token || '' },
+      header,
       success: (res) => {
         const d = res.data
         if (d.code === 200) resolve(d.data)
@@ -116,8 +118,8 @@ export const api = {
   productPage: (params) => request({ url: '/base/product/page', data: params }),
   productAppSearch: (keyword) => request({ url: '/base/product/app-search', data: { keyword } }),
   productDetail: (id) => request({ url: '/base/product/' + id }),
-  productAdd: (data) => request({ url: '/base/product', method: 'POST', data }),
-  productUpdate: (id, data) => request({ url: '/base/product/' + id, method: 'PUT', data }),
+  productAdd: (data) => request({ url: '/base/product', method: 'POST', data, contentType: 'json' }),
+  productUpdate: (id, data) => request({ url: '/base/product/' + id, method: 'PUT', data, contentType: 'json' }),
   // 销售
   salesOrderPage: (params) => request({ url: '/sales/order/page', data: params }),
   salesOrderAdd: (data) => request({ url: '/sales/order', method: 'POST', data }),
@@ -132,8 +134,8 @@ export const api = {
   // 生产
   prdOrderPage: (params) => request({ url: '/production/order/page', data: params }),
   prdOrderDetail: (id) => request({ url: '/production/order/' + id }),
-  prdOrderAdd: (data) => request({ url: '/production/order', method: 'POST', data }),
-  prdOrderUpdate: (id, data) => request({ url: '/production/order/' + id, method: 'PUT', data }),
+  prdOrderAdd: (data) => request({ url: '/production/order', method: 'POST', data, contentType: 'json' }),
+  prdOrderUpdate: (id, data) => request({ url: '/production/order/' + id, method: 'PUT', data, contentType: 'json' }),
   // 报表
   dashboard: () => request({ url: '/report/dashboard' }),
   inventorySummary: () => request({ url: '/report/inventory/summary' }),
