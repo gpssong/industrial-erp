@@ -1,179 +1,222 @@
 package com.industrial.erp.modules.production.service;
 
+import cn.dev33.satoken.stp.StpUtil;
+import cn.hutool.core.exceptions.ExceptionUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.production.bill.BillLoader;
 import com.industrial.erp.modules.production.client.FeiePrintClient;
-import com.industrial.erp.modules.production.entity.PrdOrder;
-import com.industrial.erp.modules.production.entity.PrdRequisitionDetail;
-import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
-import com.industrial.erp.modules.production.mapper.PrdRequisitionDetailMapper;
+import com.industrial.erp.modules.system.entity.SysFeiePrintLog;
 import com.industrial.erp.modules.system.entity.SysFeiePrinterConfig;
 import com.industrial.erp.modules.system.mapper.SysFeiePrinterConfigMapper;
+import com.industrial.erp.modules.system.service.SysFeiePrintLogService;
 import freemarker.core.TemplateClassResolver;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.io.IOException;
 import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 飞鹅云打印服务
- * 负责: 聚合生产单数据 -> Freemarker 渲染 HTML -> 调用飞鹅 API 打印
+ * 飞鹅云打印服务 (通用)
+ *
+ * <p>负责:
+ * <ol>
+ *   <li>通过 {@link BillLoader} 加载任意 bizType 的单据</li>
+ *   <li>Freemarker 渲染飞鹅标签格式文本</li>
+ *   <li>调用飞鹅 API {@code Open_printMsg}</li>
+ *   <li>写 {@code sys_feie_print_log} 日志 (含失败回查)</li>
+ * </ol>
  */
 @Service
 public class FeiePrintService {
 
-    private final PrdOrderMapper orderMapper;
-    private final PrdRequisitionDetailMapper reqDetailMapper;
+    private static final Logger log = LoggerFactory.getLogger(FeiePrintService.class);
+
+    private final List<BillLoader> billLoaders;
     private final SysFeiePrinterConfigMapper configMapper;
+    private final SysFeiePrintLogService logService;
     private final FeiePrintClient feiePrintClient;
     private final Configuration freemarkerConfig;
 
-    public FeiePrintService(PrdOrderMapper orderMapper,
-                            PrdRequisitionDetailMapper reqDetailMapper,
+    public FeiePrintService(List<BillLoader> billLoaders,
                             SysFeiePrinterConfigMapper configMapper,
+                            SysFeiePrintLogService logService,
                             FeiePrintClient feiePrintClient,
-                            Configuration freemarkerConfig) {
-        this.orderMapper = orderMapper;
-        this.reqDetailMapper = reqDetailMapper;
+                            @Qualifier("feieFreemarkerConfig") Configuration freemarkerConfig) {
+        this.billLoaders = billLoaders;
         this.configMapper = configMapper;
+        this.logService = logService;
         this.feiePrintClient = feiePrintClient;
         this.freemarkerConfig = freemarkerConfig;
         this.freemarkerConfig.setNewBuiltinClassResolver(TemplateClassResolver.ALLOWS_NOTHING_RESOLVER);
     }
 
     /**
+     * 按 bizType 找 Loader
+     */
+    public BillLoader resolveLoader(String bizType) {
+        for (BillLoader l : billLoaders) {
+            if (l.bizType().equalsIgnoreCase(bizType)) return l;
+        }
+        throw BizException.of(400, "不支持的单据类型: " + bizType
+                + ", 已支持: " + billLoaders.stream().map(BillLoader::bizType).reduce((a, b) -> a + "," + b).orElse(""));
+    }
+
+    /**
+     * 渲染单据文本 (供预览/iframe)
+     */
+    public String renderText(String bizType, Long billId) {
+        BillLoader loader = resolveLoader(bizType);
+        Map<String, Object> model = loader.load(billId);
+        return renderTemplate(loader.templatePath(), model);
+    }
+
+    /**
+     * 发送到飞鹅云 (使用默认启用打印机)
+     */
+    public String print(String bizType, Long billId) {
+        SysFeiePrinterConfig config = getActiveConfig();
+        return doPrint(bizType, billId, config, null);
+    }
+
+    /**
+     * 发送到飞鹅云 (指定打印机)
+     */
+    public String printWithConfig(String bizType, Long billId, Long configId) {
+        SysFeiePrinterConfig config = configMapper.selectById(configId);
+        if (config == null) {
+            throw BizException.of("打印机配置不存在: id=" + configId);
+        }
+        return doPrint(bizType, billId, config, configId);
+    }
+
+    /**
+     * 核心打印逻辑 + 日志写入
+     */
+    private String doPrint(String bizType, Long billId, SysFeiePrinterConfig config, Long configId) {
+        BillLoader loader = resolveLoader(bizType);
+        Map<String, Object> model = loader.load(billId);
+        String content = renderTemplate(loader.templatePath(), model);
+        String contentHash = md5(content);
+        String billNo = loader.billNo(billId);
+
+        SysFeiePrintLog row = newLog(bizType, billId, billNo, config, configId, contentHash);
+        long start = System.currentTimeMillis();
+        try {
+            JSONObject result = feiePrintClient.printMsg(config.getUser(), config.getUkey(), config.getDeviceSn(), content, 1);
+            Integer ret = result.getInt("ret");
+            String msg = result.getStr("msg", "");
+            row.setRespCode(ret);
+            row.setRespMsg(truncate(msg, 500));
+            row.setCostMs((int) (System.currentTimeMillis() - start));
+            if (ret != null && ret == 0) {
+                row.setStatus(1); // 已下发
+                logService.save(row);
+                return "打印成功: " + msg;
+            }
+            row.setStatus(0); // 失败
+            logService.save(row);
+            throw BizException.of("飞鹅返回失败: ret=" + ret + ", msg=" + msg);
+        } catch (BizException e) {
+            row.setCostMs((int) (System.currentTimeMillis() - start));
+            row.setStatus(0);
+            row.setRespMsg(truncate(e.getMessage(), 500));
+            try { logService.save(row); } catch (Exception ignore) {}
+            throw e;
+        } catch (RuntimeException e) {
+            row.setCostMs((int) (System.currentTimeMillis() - start));
+            row.setStatus(0);
+            row.setRespMsg(truncate(ExceptionUtil.getRootCauseMessage(e), 500));
+            try { logService.save(row); } catch (Exception ignore) {}
+            throw BizException.of("飞鹅打印异常: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 测试打印机连接
+     */
+    public String testConnection(String ukey, String deviceSn) {
+        String now = LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String testContent = "<CB>测试打印</CB><BR>"
+                + "飞鹅云打印机工作正常<BR>"
+                + "时间: " + now + "<BR>";
+        SysFeiePrinterConfig cfg = new SysFeiePrinterConfig();
+        cfg.setUkey(ukey);
+        cfg.setDeviceSn(deviceSn);
+        try {
+            var result = feiePrintClient.printMsg("", ukey, deviceSn, testContent, 1);
+            return "测试成功: " + result.getStr("msg", "");
+        } catch (RuntimeException e) {
+            throw BizException.of("测试打印失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 获取当前启用的飞鹅打印机配置
      */
     public SysFeiePrinterConfig getActiveConfig() {
-        LambdaQueryWrapper<SysFeiePrinterConfig> w = new LambdaQueryWrapper<>();
-        w.eq(SysFeiePrinterConfig::getStatus, 1)
-         .last("LIMIT 1");
-        SysFeiePrinterConfig config = configMapper.selectOne(w);
+        SysFeiePrinterConfig config = configMapper.selectOne(new LambdaQueryWrapper<SysFeiePrinterConfig>()
+                .eq(SysFeiePrinterConfig::getStatus, 1)
+                .last("LIMIT 1"));
         if (config == null) {
             throw BizException.of("未配置启用的飞鹅打印机, 请先在系统设置中配置");
         }
         return config;
     }
 
-    /**
-     * 获取生产单详情 (含领料明细)
-     */
-    public PrdOrder getOrderWithDetails(Long orderId) {
-        PrdOrder order = orderMapper.selectById(orderId);
-        if (order == null) {
-            throw BizException.of("生产单不存在");
-        }
-        // 查询领料明细 (通过领料单ID, 可能为 null 如果尚未开工)
-        List<PrdRequisitionDetail> details = new ArrayList<>();
-        if (order.getSourceBillId() != null) {
-            LambdaQueryWrapper<PrdRequisitionDetail> w = new LambdaQueryWrapper<>();
-            w.eq(PrdRequisitionDetail::getRequisitionId, order.getSourceBillId());
-            details = reqDetailMapper.selectList(w);
-        }
-        order.setRequisitionDetails(details);
-        return order;
-    }
+    // ==================== 私有工具 ====================
 
-    /**
-     * 渲染生产单 HTML (用于预览)
-     */
-    public String renderHtml(Long orderId) {
-        PrdOrder order = getOrderWithDetails(orderId);
-        Map<String, Object> data = buildModel(order);
-        return renderTemplate("print/prd_order_feie.ftl", data);
-    }
-
-    /**
-     * 渲染并发送到飞鹅云打印
-     */
-    public String print(Long orderId) {
-        SysFeiePrinterConfig config = getActiveConfig();
-        String html = renderHtml(orderId);
-        return printHtml(config, html);
-    }
-
-    /**
-     * 用指定配置打印
-     */
-    public String printWithConfig(Long orderId, Long configId) {
-        SysFeiePrinterConfig config = configMapper.selectById(configId);
-        if (config == null) {
-            throw BizException.of("打印机配置不存在");
-        }
-        String html = renderHtml(orderId);
-        return printHtml(config, html);
-    }
-
-    /**
-     * 测试飞鹅打印机连接
-     */
-    public String testConnection(String ukey, String deviceSn) {
-        // 先获取设备列表验证 UKey 是否有效
-        JSONArray devices = feiePrintClient.listDevices(ukey);
-        if (devices == null || devices.isEmpty()) {
-            throw BizException.of("未找到已绑定的飞鹅设备, 请确认 UKey 是否正确且设备已在飞鹅云平台绑定");
-        }
-        // 如果有指定设备 SN, 验证设备在线
-        if (StrUtil.isNotBlank(deviceSn)) {
-            boolean found = false;
-            for (int i = 0; i < devices.size(); i++) {
-                JSONObject dev = devices.getJSONObject(i);
-                if (deviceSn.equals(dev.getStr("deviceSn"))) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                throw BizException.of("指定设备未找到, 请确认设备 SN 是否正确");
-            }
-        }
-        // 发送一条测试打印
-        String now = java.time.LocalDateTime.now()
-                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        String testHtml = "<html><body style=\"font-family:simsun;font-size:14px;padding:10px;\">"
-                + "<div style=\"text-align:center;font-size:18px;font-weight:bold;\">测试打印</div>"
-                + "<div style=\"text-align:center;margin-top:20px;\">飞鹅云打印机工作正常</div>"
-                + "<div style=\"text-align:center;margin-top:10px;\">时间: " + now + "</div>"
-                + "</body></html>";
-        SysFeiePrinterConfig cfg = new SysFeiePrinterConfig();
-        cfg.setUkey(ukey);
-        cfg.setDeviceSn(deviceSn);
-        return printHtml(cfg, testHtml);
-    }
-
-    private String printHtml(SysFeiePrinterConfig config, String html) {
+    private SysFeiePrintLog newLog(String bizType, Long billId, String billNo,
+                                   SysFeiePrinterConfig config, Long configId, String contentHash) {
+        SysFeiePrintLog row = new SysFeiePrintLog();
+        row.setBizType(bizType);
+        row.setBillId(billId);
+        row.setBillNo(billNo);
+        row.setConfigId(configId != null ? configId : config.getId());
+        row.setDeviceSn(config.getDeviceSn());
+        row.setContentHash(contentHash);
+        row.setCreateTime(LocalDateTime.now());
         try {
-            var result = feiePrintClient.printHtml(config.getUkey(), config.getDeviceSn(), html);
-            return result.getStr("msg", "打印成功");
-        } catch (BizException e) {
-            throw e;
-        } catch (Exception e) {
-            throw BizException.of("飞鹅打印失败: " + e.getMessage());
-        }
+            row.setUserId(StpUtil.getLoginId() == null ? null : Long.valueOf(StpUtil.getLoginId().toString()));
+            row.setUserName(StpUtil.getSession() == null ? null
+                    : (String) StpUtil.getSession().get(Constants.CURRENT_USER));
+        } catch (Exception ignore) {}
+        try {
+            ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attrs != null) {
+                HttpServletRequest req = attrs.getRequest();
+                row.setClientIp(clientIp(req));
+            }
+        } catch (Exception ignore) {}
+        return row;
     }
 
-    /**
-     * 构建 FreeMarker 数据模型
-     */
-    private Map<String, Object> buildModel(PrdOrder order) {
-        Map<String, Object> model = new HashMap<>();
-        model.put("order", order);
-        return model;
+    private String clientIp(HttpServletRequest req) {
+        if (req == null) return null;
+        String ip = req.getHeader("X-Forwarded-For");
+        if (StrUtil.isBlank(ip) || "unknown".equalsIgnoreCase(ip)) ip = req.getHeader("X-Real-IP");
+        if (StrUtil.isBlank(ip) || "unknown".equalsIgnoreCase(ip)) ip = req.getRemoteAddr();
+        return ip;
     }
 
-    /**
-     * 渲染 FreeMarker 模板
-     */
     private String renderTemplate(String templateName, Map<String, Object> data) {
         try {
             Template tpl = freemarkerConfig.getTemplate(templateName, "UTF-8");
@@ -181,7 +224,24 @@ public class FeiePrintService {
             tpl.process(data, writer);
             return writer.toString();
         } catch (IOException | TemplateException e) {
-            throw BizException.of("模板渲染失败: " + e.getMessage());
+            throw BizException.of("模板渲染失败 [" + templateName + "]: " + e.getMessage());
         }
+    }
+
+    private String md5(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] hash = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String truncate(String s, int max) {
+        if (s == null) return null;
+        return s.length() > max ? s.substring(0, max) : s;
     }
 }
