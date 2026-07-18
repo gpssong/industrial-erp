@@ -243,7 +243,9 @@ async function loadOrder(id) {
 async function loadProductList() {
   loading.value = true
   try {
-    productList.value = (await api.productPage({ pageNum: 1, pageSize: 9999 })) || []
+    const r = await api.productPage({ pageNum: 1, pageSize: 9999 })
+    // api.productPage 返回的是 PageResult 对象 {records, total}, 需要取 records 数组
+    productList.value = (r && r.records) || (Array.isArray(r) ? r : [])
   } catch (e) {
     productList.value = []
   } finally {
