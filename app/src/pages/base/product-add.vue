@@ -200,10 +200,10 @@ async function onSubmit() {
     if (!payload.remark) payload.remark = ''
 
     if (payload.id) {
-      await api.request({ url: '/base/product/' + payload.id, method: 'PUT', data: payload })
+      await request({ url: '/base/product/' + payload.id, method: 'PUT', data: payload })
       toast('修改成功')
     } else {
-      await api.request({ url: '/base/product', method: 'POST', data: payload })
+      await request({ url: '/base/product', method: 'POST', data: payload })
       toast('新增成功')
     }
     // 返回上一页
