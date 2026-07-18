@@ -116,6 +116,8 @@ export const api = {
   productPage: (params) => request({ url: '/base/product/page', data: params }),
   productAppSearch: (keyword) => request({ url: '/base/product/app-search', data: { keyword } }),
   productDetail: (id) => request({ url: '/base/product/' + id }),
+  productAdd: (data) => request({ url: '/base/product', method: 'POST', data }),
+  productUpdate: (id, data) => request({ url: '/base/product/' + id, method: 'PUT', data }),
   // 销售
   salesOrderPage: (params) => request({ url: '/sales/order/page', data: params }),
   salesOrderAdd: (data) => request({ url: '/sales/order', method: 'POST', data }),

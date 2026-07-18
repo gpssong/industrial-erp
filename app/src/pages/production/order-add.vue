@@ -311,57 +311,6 @@ async function onSubmit() {
     submitting.value = false
   }
 }
-
-// 工具函数: 获取 base URL
-function getBase() {
-  try {
-    const cached = typeof localStorage !== 'undefined' ? localStorage.getItem('erp_api_base') : null
-    if (cached) return cached
-    return typeof uni !== 'undefined' && uni.getStorageSync ? uni.getStorageSync('erp_api_base') : 'http://home.93gushi.com:8088/api'
-  } catch (e) { return 'http://home.93gushi.com:8088/api' }
-}
-
-function getToken() {
-  try {
-    if (typeof uni !== 'undefined' && uni.getStorageSync) return uni.getStorageSync('erp_token')
-    return localStorage.getItem('erp_token')
-  } catch (e) { return null }
-}
-
-async function requestWithAuth(url, method, token, body) {
-  if (typeof uni !== 'undefined' && uni.request) {
-    return new Promise((resolve, reject) => {
-      uni.request({
-        url, method, data: body,
-        header: { 'Authorization': token || '' },
-        success: (res) => {
-          const d = res.data
-          if (d.code === 200) resolve(d.data)
-          else if (d.code === 401) {
-            uni.reLaunch({ url: '/pages/login/index' })
-            reject(d)
-          } else {
-            uni.showToast({ title: d.msg || '请求失败', icon: 'none' })
-            reject(d)
-          }
-        },
-        fail: reject
-      })
-    })
-  } else {
-    const opts = { method, headers: { 'Content-Type': 'application/json', 'Authorization': token || '' } }
-    if (body && method !== 'GET') opts.body = JSON.stringify(body)
-    const r = await fetch(url, opts)
-    const d = await r.json()
-    if (d.code === 200) return d.data
-    if (d.code === 401) {
-      localStorage.removeItem('erp_token')
-      window.location.hash = '#/pages/login/index'
-      throw d
-    }
-    throw { msg: d.msg || '请求失败' }
-  }
-}
 </script>
 
 <style scoped>
