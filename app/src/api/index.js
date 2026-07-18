@@ -127,6 +127,11 @@ export const api = {
   // 采购
   purchaseOrderPage: (params) => request({ url: '/purchase/order/page', data: params }),
   purchaseReceiptAdd: (data) => request({ url: '/purchase/receipt', method: 'POST', data }),
+  // 生产
+  prdOrderPage: (params) => request({ url: '/production/order/page', data: params }),
+  prdOrderDetail: (id) => request({ url: '/production/order/' + id }),
+  prdOrderAdd: (data) => request({ url: '/production/order', method: 'POST', data }),
+  prdOrderUpdate: (id, data) => request({ url: '/production/order/' + id, method: 'PUT', data }),
   // 报表
   dashboard: () => request({ url: '/report/dashboard' }),
   inventorySummary: () => request({ url: '/report/inventory/summary' }),
