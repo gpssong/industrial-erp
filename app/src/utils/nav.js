@@ -3,11 +3,11 @@ export function isNative() {
   return typeof plus !== 'undefined'
 }
 
+// 实际 tabBar 页面 (与 pages.json 的 tabBar.list 保持一致)
 const TABBAR_PAGES = [
   '/pages/dashboard/index',
   '/pages/inventory/query',
-  '/pages/sales/quick',
-  '/pages/report/index',
+  '/pages/scan/in',
   '/pages/profile/index'
 ]
 

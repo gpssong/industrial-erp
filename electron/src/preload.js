@@ -18,8 +18,7 @@ try {
 
 contextBridge.exposeInMainWorld('erpDesktop', {
   print: {
-    salesDelivery: (id) => ipcRenderer.invoke('print:salesDelivery', id),
-    prdOrder: (id) => ipcRenderer.invoke('print:prdOrder', id),
+    // print:salesDelivery / print:prdOrder 已废弃 — 前端改用 myprint-design 客户端打印
     list: () => ipcRenderer.invoke('print:list')
   },
   settings: {

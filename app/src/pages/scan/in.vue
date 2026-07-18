@@ -1,5 +1,11 @@
 <template>
   <view class="container">
+    <!-- Loading 遮罩 -->
+    <view v-if="loading" class="loading-overlay">
+      <view class="loading-mask">
+        <text class="loading-text">加载中...</text>
+      </view>
+    </view>
     <view class="card">
       <text class="title">📥 扫码入库</text>
       <text class="muted">扫商品条码或输入编码后点"添加", 完成后点"确认入库"</text>
@@ -113,6 +119,7 @@ const qty = ref(1)
 const remark = ref('')
 const list = ref([])
 const submitted = ref(false)
+const loading = ref(false)
 const suppliers = ref([])
 const supplierIdx = ref(-1)
 const showSupplierModal = ref(false)
@@ -155,6 +162,7 @@ function toast(msg) {
 
 async function onSearch() {
   if (!code.value) return
+  loading.value = true
   try {
     const r = await api.productAppSearch(code.value)
     if (r && r.records && r.records.length > 0) {
@@ -168,7 +176,7 @@ async function onSearch() {
     }
   } catch (e) {
     toast('查询失败：' + (e.msg || e.message || '网络错误'))
-  }
+  } finally { loading.value = false }
 }
 
 function onScan() {
@@ -204,6 +212,7 @@ async function onSubmit() {
   if (list.value.length === 0) { toast('请先添加商品'); return }
   if (supplierIdx.value < 0) { toast('请先选择供应商'); return }
   if (!form.value.warehouseId) { toast('请先选择仓库'); return }
+  loading.value = true
   try {
     const selectedSupplier = suppliers.value[supplierIdx.value]
     const details = list.value.map(item => ({
@@ -233,12 +242,13 @@ async function onSubmit() {
   } catch (e) {
     console.error('提交入库失败:', e)
     toast('提交失败：' + (e.msg || (e && e.message) || '网络错误'))
-  }
+  } finally { loading.value = false }
 }
 
 async function loadSuppliers() {
-  console.log('[in.vue] loadSuppliers started')
+  loading.value = true
   try {
+    console.log('[in.vue] loadSuppliers started')
     // 直接用 fetch 而不是 api.supplierList, 避免 uni.request 在 Capacitor 下的兼容问题
     const base = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base')) || 'http://home.93gushi.com:8088/api'
     const token = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_token')) || ''
@@ -266,7 +276,7 @@ async function loadSuppliers() {
     }
   } catch (e) {
     console.error('[in.vue] loadSuppliers error:', e.message)
-  }
+  } finally { loading.value = false }
 }
 
 async function loadWarehouses() {
@@ -305,4 +315,9 @@ onUnmounted(() => { stopScan() })
 .modal-item { padding: 12px 8px; border-bottom: 1px solid #eee; font-size: 14px; }
 .modal-item:active { background: #f5f5f5; }
 .modal-close { padding: 12px; text-align: center; color: #c0392b; margin-top: 8px; border-top: 1px solid #eee; }
+
+/* Loading overlay */
+.loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
+.loading-mask { background: rgba(0,0,0,0.4); border-radius: 8px; padding: 20px 30px; }
+.loading-text { color: #fff; font-size: 14px; }
 </style>

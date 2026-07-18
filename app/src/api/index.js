@@ -45,8 +45,15 @@ function request({ url, method = 'GET', data = {} }) {
         const d = res.data
         if (d.code === 200) resolve(d.data)
         else if (d.code === 401) {
+          // 401: 清理所有登录相关缓存 (不只是 token, 还有用户信息/菜单/权限)
           try { uni.removeStorageSync('erp_token') } catch (e) {}
           try { localStorage.removeItem('erp_token') } catch (e) {}
+          try { uni.removeStorageSync('erp_user') } catch (e) {}
+          try { uni.removeStorageSync('erp_menus') } catch (e) {}
+          try { uni.removeStorageSync('erp_permissions') } catch (e) {}
+          try { localStorage.removeItem('erp_user') } catch (e) {}
+          try { localStorage.removeItem('erp_menus') } catch (e) {}
+          try { localStorage.removeItem('erp_permissions') } catch (e) {}
           uni.reLaunch({ url: '/pages/login/index' })
           reject(d)
         } else {
@@ -73,7 +80,11 @@ function fetchRequest(url, method, data, token) {
   .then(d => {
     if (d.code === 200) return d.data
     if (d.code === 401) {
+      // 401: 清理所有登录相关缓存
       try { localStorage.removeItem('erp_token') } catch (e) {}
+      try { localStorage.removeItem('erp_user') } catch (e) {}
+      try { localStorage.removeItem('erp_menus') } catch (e) {}
+      try { localStorage.removeItem('erp_permissions') } catch (e) {}
       if (typeof plus !== 'undefined' && typeof uni !== 'undefined') {
         uni.reLaunch({ url: '/pages/login/index' })
       } else if (typeof window !== 'undefined') {

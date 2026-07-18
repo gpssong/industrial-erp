@@ -8,7 +8,7 @@ EXPOSE 8080
 # 数据备份功能依赖 mysqldump / mysql 客户端 (基础镜像不含)
 # 持久化安装: 镜像构建时一次安装, 容器内随时可用
 RUN apt-get update \
- && apt-get install -y --no-install-recommends default-mysql-client \
+ && apt-get install -y --no-install-recommends default-mysql-client=1.1.1ubuntu2 \
  && rm -rf /var/lib/apt/lists/*
 ENV JAVA_OPTS="-Xms512m -Xmx2g -XX:+UseG1GC -Dfile.encoding=UTF-8 -Duser.timezone=GMT+8"
 ENV SPRING_PROFILES_ACTIVE=prod
