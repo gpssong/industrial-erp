@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.system.mapper.SysFeiePrintTemplateMapper">
+
+    <select id="selectDefault" resultType="com.industrial.erp.modules.system.entity.SysFeiePrintTemplate">
+        SELECT id, name, biz_type, printer_config_id, content, paper_width,
+               status, is_default, remark, create_by, create_time, update_by, update_time, deleted
+        FROM sys_feie_print_template
+        WHERE biz_type = #{bizType}
+          AND printer_config_id = #{printerConfigId}
+          AND is_default = 1
+          AND status = 1
+          AND deleted = 0
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+</mapper>

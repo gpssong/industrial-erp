@@ -12,6 +12,7 @@
     <el-table :data="list" border stripe v-loading="loading">
       <el-table-column type="index" width="50" />
       <el-table-column prop="printerName" label="配置名称" width="160" />
+      <el-table-column prop="user" label="USER" width="180" show-overflow-tooltip />
       <el-table-column prop="ukey" label="UKey" width="200" show-overflow-tooltip />
       <el-table-column prop="deviceSn" label="设备SN" width="200" show-overflow-tooltip />
       <el-table-column label="状态" width="80">
@@ -36,6 +37,9 @@
       <el-form :model="form" label-width="100px" ref="formRef">
         <el-form-item label="配置名称" required>
           <el-input v-model="form.printerName" placeholder="如: 车间打印机" />
+        </el-form-item>
+        <el-form-item label="USER" required>
+          <el-input v-model="form.user" placeholder="飞鹅云账号 (如 gpssong@163.com)" />
         </el-form-item>
         <el-form-item label="UKey" required>
           <el-input v-model="form.ukey" placeholder="飞鹅 UKey" />
@@ -66,7 +70,7 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref(null)
-const form = ref({ id: null, printerName: '', ukey: '', deviceSn: '', remark: '' })
+const form = ref({ id: null, printerName: '', user: '', ukey: '', deviceSn: '', remark: '' })
 
 async function loadData() {
   loading.value = true
@@ -81,7 +85,7 @@ async function loadData() {
 }
 
 function onAdd() {
-  form.value = { id: null, printerName: '', ukey: '', deviceSn: '', remark: '' }
+  form.value = { id: null, printerName: '', user: '', ukey: '', deviceSn: '', remark: '' }
   dialogVisible.value = true
 }
 

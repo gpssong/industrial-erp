@@ -168,12 +168,7 @@
     <!-- 飞鹅打印预览弹窗 -->
     <el-dialog v-model="previewVisible" :title="'飞鹅打印预览 - ' + (previewBillNo || '')" width="420px" destroy-on-close>
       <div v-loading="previewLoading" style="min-height:200px;">
-        <iframe
-          ref="previewFrame"
-          :srcdoc="previewHtml"
-          style="width:100%;height:500px;border:1px solid #dcdfe6;border-radius:4px;"
-          sandbox="allow-same-origin"
-        ></iframe>
+        <pre style="white-space:pre-wrap;font-family:SimSun,monospace;font-size:12px;background:#fafafa;padding:12px;border-radius:4px;max-height:500px;overflow:auto;margin:0;">{{ previewHtml }}</pre>
       </div>
       <template #footer>
         <el-button @click="previewVisible=false">关闭</el-button>
@@ -379,7 +374,7 @@ async function doFeiePreview(row) {
     previewLoading.value = true
     previewHtml.value = ''
     previewVisible.value = true
-    const htmlRes = await feiePrintApi.preview(row.id)
+    const htmlRes = await feiePrintApi.preview('PRD_ORDER', row.id)
     previewHtml.value = htmlRes.data || ''
   } catch (e) {
     ElMessage.error('预览失败: ' + (e.message || '未知错误'))
@@ -394,7 +389,7 @@ async function doFeieDirectPrint(row) {
     pendingPrintOrderId = row.id
     // 先渲染再打印
     previewLoading.value = true
-    const htmlRes = await feiePrintApi.preview(row.id)
+    const htmlRes = await feiePrintApi.preview('PRD_ORDER', row.id)
     previewHtml.value = htmlRes.data || ''
     previewVisible.value = true
     previewLoading.value = false
@@ -408,7 +403,7 @@ async function doFeiePrint() {
   if (!pendingPrintOrderId) return
   printing.value = true
   try {
-    await feiePrintApi.print(pendingPrintOrderId)
+    await feiePrintApi.print('PRD_ORDER', pendingPrintOrderId)
     previewVisible.value = false
   } catch (e) {
     ElMessage.error('打印失败: ' + (e.message || '未知错误'))

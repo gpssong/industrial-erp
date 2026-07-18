@@ -16,5 +16,13 @@ export const feiePrintApi = {
   testPrinter: (ukey, deviceSn) => request.post('/feie/printers/test', null, { params: { ukey, deviceSn } }),
 
   // 打印日志分页查询
-  logPage: (params) => request.get('/feie/log/page', { params })
+  logPage: (params) => request.get('/feie/log/page', { params }),
+
+  // 飞鹅打印模板 CRUD
+  templatePage: (params) => request.get('/feie/templates/page', { params }),
+  getTemplate: (id) => request.get(`/feie/templates/${id}`),
+  addTemplate: (data) => request.post('/feie/templates', data),
+  updateTemplate: (id, data) => request.put(`/feie/templates/${id}`, data),
+  deleteTemplate: (id) => request.delete(`/feie/templates/${id}`),
+  previewTemplate: (id) => request.post(`/feie/templates/${id}/preview`)
 }

@@ -11,9 +11,11 @@ import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.production.bill.BillLoader;
 import com.industrial.erp.modules.production.client.FeiePrintClient;
 import com.industrial.erp.modules.system.entity.SysFeiePrintLog;
+import com.industrial.erp.modules.system.entity.SysFeiePrintTemplate;
 import com.industrial.erp.modules.system.entity.SysFeiePrinterConfig;
 import com.industrial.erp.modules.system.mapper.SysFeiePrinterConfigMapper;
 import com.industrial.erp.modules.system.service.SysFeiePrintLogService;
+import com.industrial.erp.modules.system.service.SysFeiePrintTemplateService;
 import freemarker.core.TemplateClassResolver;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
@@ -27,6 +29,7 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.io.IOException;
+import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -53,17 +56,20 @@ public class FeiePrintService {
     private final List<BillLoader> billLoaders;
     private final SysFeiePrinterConfigMapper configMapper;
     private final SysFeiePrintLogService logService;
+    private final SysFeiePrintTemplateService templateService;
     private final FeiePrintClient feiePrintClient;
     private final Configuration freemarkerConfig;
 
     public FeiePrintService(List<BillLoader> billLoaders,
                             SysFeiePrinterConfigMapper configMapper,
                             SysFeiePrintLogService logService,
+                            SysFeiePrintTemplateService templateService,
                             FeiePrintClient feiePrintClient,
                             @Qualifier("feieFreemarkerConfig") Configuration freemarkerConfig) {
         this.billLoaders = billLoaders;
         this.configMapper = configMapper;
         this.logService = logService;
+        this.templateService = templateService;
         this.feiePrintClient = feiePrintClient;
         this.freemarkerConfig = freemarkerConfig;
         this.freemarkerConfig.setNewBuiltinClassResolver(TemplateClassResolver.ALLOWS_NOTHING_RESOLVER);
@@ -110,11 +116,17 @@ public class FeiePrintService {
 
     /**
      * 核心打印逻辑 + 日志写入
+     * <p>优先使用用户自定义模板 (sys_feie_print_template), 不存在则使用内置 ftl 模板
      */
     private String doPrint(String bizType, Long billId, SysFeiePrinterConfig config, Long configId) {
         BillLoader loader = resolveLoader(bizType);
         Map<String, Object> model = loader.load(billId);
-        String content = renderTemplate(loader.templatePath(), model);
+
+        // 优先加载用户自定义模板
+        String content = renderCustomContent(configId, bizType, model);
+        if (content == null) {
+            content = renderTemplate(loader.templatePath(), model);
+        }
         String contentHash = md5(content);
         String billNo = loader.billNo(billId);
 
@@ -225,6 +237,27 @@ public class FeiePrintService {
             return writer.toString();
         } catch (IOException | TemplateException e) {
             throw BizException.of("模板渲染失败 [" + templateName + "]: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 渲染用户自定义模板内容
+     *
+     * @param configId 打印机配置ID (传 null 时查所有打印机)
+     * @param bizType  单据类型
+     * @param data     Freemarker 数据模型
+     * @return 渲染后的飞鹅标签文本, 无自定义模板时返回 null
+     */
+    private String renderCustomContent(Long configId, String bizType, Map<String, Object> data) {
+        try {
+            SysFeiePrintTemplate tpl = templateService.findDefault(bizType, configId);
+            if (tpl == null) return null;
+            Template t = new Template("custom", new java.io.StringReader(tpl.getContent()), freemarkerConfig);
+            StringWriter w = new StringWriter();
+            t.process(data, w);
+            return w.toString();
+        } catch (IOException | TemplateException e) {
+            throw BizException.of("自定义模板渲染失败: " + e.getMessage());
         }
     }
 
