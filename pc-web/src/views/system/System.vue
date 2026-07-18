@@ -14,6 +14,7 @@
           </el-button>
         </div>
       </el-tab-pane>
+      <el-tab-pane label="飞鹅打印机" name="feie"><FeiePrinterConfig /></el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -23,6 +24,7 @@ import { useRouter } from 'vue-router'
 import Settings from './Settings.vue'
 import Backup from './Backup.vue'
 import OperationLog from './OperationLog.vue'
+import FeiePrinterConfig from './FeiePrinterConfig.vue'
 const activeTab = ref('config')
 const router = useRouter()
 function goPrint() { router.push('/system/print-template') }
