@@ -41,14 +41,16 @@ const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, 
 const today = new Date().toISOString().substring(0, 10)
 const greeting = ref('您好')
 
-// PC 端菜单路径 -> App 端页面映射 (v1.1.7+: 删除手机开单 + 销售订单, 扫码出库=PC 销售出库; v1.1.8+ 删除采购订单入口)
+// PC 端菜单路径 -> App 端页面映射 (v1.1.7+: 删除手机开单 + 销售订单, 扫码出库=PC 销售出库; v1.1.8+ 删除采购订单入口 + 新增商品/生产单)
 const PATH_TO_APP = {
-  '/sales/return': { path: '/pages/scan/out', title: '扫码出库', icon: '📤' },
-  '/purchase/receipt': { path: '/pages/scan/in', title: '扫码入库', icon: '📥' },
-  '/inventory/stock': { path: '/pages/inventory/query', title: '查库存', icon: '📦' },
-  '/inventory/ledger': { path: '/pages/inventory/query', title: '库存台账', icon: '📒' },
-  '/production/order': { path: '/pages/count/index', title: '外勤盘点', icon: '📋' },
-  '/report/dashboard': { path: '/pages/report/index', title: '经营简报', icon: '📊' }
+  '/base/product/add':     { path: '/pages/base/product-add', title: '新增商品', icon: '➕' },
+  '/sales/return':         { path: '/pages/scan/out', title: '扫码出库', icon: '📤' },
+  '/purchase/receipt':     { path: '/pages/scan/in', title: '扫码入库', icon: '📥' },
+  '/inventory/stock':      { path: '/pages/inventory/query', title: '查库存', icon: '📦' },
+  '/production/order/add': { path: '/pages/production/order-add', title: '生产加工单', icon: '🏭' },
+  '/production/order':     { path: '/pages/count/index', title: '外勤盘点', icon: '📋' },
+  '/report/dashboard':     { path: '/pages/report/index', title: '经营简报', icon: '📊' },
+  '/inventory/ledger':     { path: '/pages/inventory/query', title: '库存台账', icon: '📒' }
 }
 
 // 根据 PC 端分配的菜单权限, 动态生成可见的 App 端快捷功能
@@ -62,11 +64,13 @@ function getServerMenus() {
 }
 
 const visibleMenus = computed(() => {
-  // 管理员: 显示全部 App 端功能 (v1.1.8+ 移除采购订单)
+  // 管理员: 显示全部 App 端功能 (v1.1.8+ 新增商品 + 生产加工单, 移除采购订单)
   if (isAdmin()) {
     return [
+      PATH_TO_APP['/base/product/add'],
       PATH_TO_APP['/sales/return'],
       PATH_TO_APP['/purchase/receipt'],
+      PATH_TO_APP['/production/order/add'],
       PATH_TO_APP['/inventory/stock'],
       PATH_TO_APP['/production/order'],
       PATH_TO_APP['/report/dashboard'],
