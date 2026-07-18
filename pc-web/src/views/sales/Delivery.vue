@@ -45,7 +45,18 @@
             <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onEdit(row)">编辑</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
             <el-button v-if="row.billStatus==='DRAFT'" link type="success" @click="onCheck(row)">审核</el-button>
-            <el-button v-if="['DRAFT','CHECKED'].includes(row.billStatus)" link type="warning" @click="onPrint(row)">打印</el-button>
+            <el-dropdown v-if="['DRAFT','CHECKED'].includes(row.billStatus)" trigger="click" @command="(cmd) => onPrintCommand(cmd, row)">
+              <el-button link type="warning">
+                打印<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="browser">浏览器打印</el-dropdown-item>
+                  <el-dropdown-item command="feie-preview">飞鹅打印预览</el-dropdown-item>
+                  <el-dropdown-item command="feie-print" divided>飞鹅云打印</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button link type="primary" @click="onView(row)">详情</el-button>
           </template>
         </el-table-column>
@@ -186,6 +197,16 @@
         <el-button type="primary" @click="onSave" :loading="submitting">保存为草稿</el-button>
       </template>
     </el-dialog>
+    <!-- 飞鹅云打印预览弹窗 -->
+    <el-dialog v-model="feiePreviewVisible" title="飞鹅云打印预览" width="560px" destroy-on-close>
+      <div v-loading="feiePreviewLoading" style="min-height:200px;">
+        <pre style="white-space:pre-wrap;font-family:SimSun,monospace;font-size:12px;background:#fafafa;padding:12px;border-radius:4px;max-height:500px;overflow:auto;">{{ feiePreviewHtml }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="feiePreviewVisible=false">关闭</el-button>
+        <el-button type="primary" :loading="feiePrinting" :disabled="!feiePreviewHtml" @click="feieConfirmPrint">确认打印</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -196,6 +217,8 @@ import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
 import { stockApi } from '@/api/inventory'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
+import { feiePrintApi } from '@/api/feie'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // el-input-number 数字自动去尾 0 (v1.1.6 引入; v1.1.7 补到销售出库):
@@ -582,6 +605,60 @@ async function onPrint(row) {
     })
   } catch (e) {
     ElMessage.error(e.message || '打印失败')
+  }
+}
+
+// ==================== 飞鹅云打印 ====================
+const feiePreviewVisible = ref(false)
+const feiePreviewLoading = ref(false)
+const feiePreviewHtml = ref('')
+const feiePreviewBillNo = ref('')
+const feiePrinting = ref(false)
+let feiePendingBillId = null
+
+async function feiePreview(bizType, row) {
+  feiePreviewLoading.value = true
+  try {
+    feiePreviewBillNo.value = row.billNo || ''
+    feiePendingBillId = row.id
+    feiePreviewHtml.value = ''
+    feiePreviewVisible.value = true
+    const r = await feiePrintApi.preview(bizType, row.id)
+    feiePreviewHtml.value = r.data || ''
+  } catch (e) {
+    ElMessage.error('飞鹅预览失败: ' + (e.message || '未知错误'))
+    feiePreviewVisible.value = false
+  } finally {
+    feiePreviewLoading.value = false
+  }
+}
+
+async function feieDirectPrint(bizType, row) {
+  feiePreview(bizType, row) // 飞鹅预览弹窗 + 直送按钮
+}
+
+async function feieConfirmPrint() {
+  if (!feiePendingBillId) return
+  feiePrinting.value = true
+  try {
+    // preview 已拿到 bizType, 但用同一字段缓存
+    const res = await feiePrintApi.print(feieCurrentBizType.value, feiePendingBillId)
+    ElMessage.success(res.msg || '打印成功')
+    feiePreviewVisible.value = false
+  } catch (e) {
+    ElMessage.error('飞鹅打印失败: ' + (e.message || '未知错误'))
+  } finally {
+    feiePrinting.value = false
+  }
+}
+
+const feieCurrentBizType = ref('SAL_DELIVERY')
+
+function onPrintCommand(cmd, row) {
+  if (cmd === 'browser') return onPrint(row)
+  if (cmd === 'feie-preview' || cmd === 'feie-print') {
+    feieCurrentBizType.value = 'SAL_DELIVERY'
+    return cmd === 'feie-preview' ? feiePreview('SAL_DELIVERY', row) : feieDirectPrint('SAL_DELIVERY', row)
   }
 }
 
