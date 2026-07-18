@@ -6,19 +6,29 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.industrial.erp.common.R;
+import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.production.service.FeiePrintService;
 import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.entity.SysFeiePrintLog;
 import com.industrial.erp.modules.system.entity.SysFeiePrinterConfig;
+import com.industrial.erp.modules.system.entity.SysFeiePrintTemplate;
 import com.industrial.erp.modules.system.mapper.SysFeiePrinterConfigMapper;
 import com.industrial.erp.modules.system.service.SysFeiePrintLogService;
+import com.industrial.erp.modules.system.service.SysFeiePrintTemplateService;
+import freemarker.template.Configuration;
+import freemarker.template.Template;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 飞鹅云打印机接口 (通用)
@@ -35,13 +45,19 @@ public class FeiePrintController {
     private final FeiePrintService feiePrintService;
     private final SysFeiePrinterConfigMapper configMapper;
     private final SysFeiePrintLogService logService;
+    private final SysFeiePrintTemplateService templateService;
+    private final Configuration freemarkerConfig;
 
     public FeiePrintController(FeiePrintService feiePrintService,
                                SysFeiePrinterConfigMapper configMapper,
-                               SysFeiePrintLogService logService) {
+                               SysFeiePrintLogService logService,
+                               SysFeiePrintTemplateService templateService,
+                               @Qualifier("feieFreemarkerConfig") Configuration freemarkerConfig) {
         this.feiePrintService = feiePrintService;
         this.configMapper = configMapper;
         this.logService = logService;
+        this.templateService = templateService;
+        this.freemarkerConfig = freemarkerConfig;
     }
 
     // ==================== 通用单据打印 ====================
@@ -141,5 +157,85 @@ public class FeiePrintController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTime,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endTime) {
         return R.ok(logService.page(pageNum, pageSize, bizType, billId, status, startTime, endTime));
+    }
+
+    // ==================== 飞鹅打印模板 CRUD ====================
+
+    @Operation(summary = "飞鹅打印模板分页查询")
+    @GetMapping("/templates/page")
+    @SaCheckPermission("system:feie:template")
+    public R<IPage<SysFeiePrintTemplate>> pageTemplates(
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String bizType,
+            @RequestParam(required = false) Long printerConfigId) {
+        return R.ok(templateService.page(pageNum, pageSize, bizType, printerConfigId));
+    }
+
+    @Operation(summary = "飞鹅打印模板详情")
+    @GetMapping("/templates/{id}")
+    @SaCheckPermission("system:feie:template")
+    public R<SysFeiePrintTemplate> getTemplate(@PathVariable Long id) {
+        return R.ok(templateService.get(id));
+    }
+
+    @Operation(summary = "飞鹅打印模板新增")
+    @PostMapping("/templates")
+    @SaCheckPermission("system:feie:template")
+    @OperLog(module = "飞鹅打印模板", businessType = "ADD")
+    public R<Void> addTemplate(@RequestBody SysFeiePrintTemplate t) {
+        templateService.save(t);
+        return R.ok();
+    }
+
+    @Operation(summary = "飞鹅打印模板编辑")
+    @PutMapping("/templates/{id}")
+    @SaCheckPermission("system:feie:template")
+    @OperLog(module = "飞鹅打印模板", businessType = "EDIT")
+    public R<Void> updateTemplate(@PathVariable Long id, @RequestBody SysFeiePrintTemplate t) {
+        t.setId(id);
+        templateService.update(t);
+        return R.ok();
+    }
+
+    @Operation(summary = "飞鹅打印模板删除")
+    @DeleteMapping("/templates/{id}")
+    @SaCheckPermission("system:feie:template")
+    @OperLog(module = "飞鹅打印模板", businessType = "DELETE")
+    public R<Void> deleteTemplate(@PathVariable Long id) {
+        templateService.delete(id);
+        return R.ok();
+    }
+
+    @Operation(summary = "飞鹅打印模板预览 (用示例数据渲染)")
+    @PostMapping("/templates/{id}/preview")
+    @SaCheckPermission("system:feie:template")
+    public R<String> previewTemplate(@PathVariable Long id) {
+        SysFeiePrintTemplate tpl = templateService.get(id);
+        // 用模拟数据渲染模板
+        Map<String, Object> model = new HashMap<>();
+        model.put("bill", Map.of(
+            "billNo", "SO202607180001",
+            "billDate", "2026-07-18",
+            "customerName", "测试客户",
+            "customerPhone", "13800138000",
+            "warehouseName", "主仓库",
+            "totalQty", "100",
+            "totalAmount", "500.00",
+            "totalAmountTax", "565.00",
+            "remark", "测试备注"
+        ));
+        model.put("details", List.of(
+            Map.of("productName", "LDPE 2426H", "qty", "50", "price", "10.00", "amount", "500.00"),
+            Map.of("productName", "LLDPE 7050", "qty", "10", "price", "15.00", "amount", "150.00")
+        ));
+        try {
+            Template t = new Template("preview", new StringReader(tpl.getContent()), freemarkerConfig);
+            StringWriter w = new StringWriter();
+            t.process(model, w);
+            return R.ok(w.toString());
+        } catch (Exception e) {
+            throw BizException.of("预览渲染失败: " + e.getMessage());
+        }
     }
 }
