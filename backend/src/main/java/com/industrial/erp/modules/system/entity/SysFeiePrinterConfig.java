@@ -16,6 +16,7 @@ public class SysFeiePrinterConfig {
     private String printerName;
     private String ukey;
     private String deviceSn;
+    private String user; // 飞鹅云账号名 (用于签名)
     private Integer status; // 1=启用 0=停用
     private String remark;
     private Long createBy;
@@ -31,6 +32,8 @@ public class SysFeiePrinterConfig {
     public void setPrinterName(String printerName) { this.printerName = printerName; }
     public String getUkey() { return ukey; }
     public void setUkey(String ukey) { this.ukey = ukey; }
+    public String getUser() { return user; }
+    public void setUser(String user) { this.user = user; }
     public String getDeviceSn() { return deviceSn; }
     public void setDeviceSn(String deviceSn) { this.deviceSn = deviceSn; }
     public Integer getStatus() { return status; }
