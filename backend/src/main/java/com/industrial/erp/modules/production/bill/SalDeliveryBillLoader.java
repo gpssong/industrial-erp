@@ -1,6 +1,8 @@
 package com.industrial.erp.modules.production.bill;
 
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
@@ -21,13 +23,16 @@ public class SalDeliveryBillLoader implements BillLoader {
     private final SalDeliveryMapper mapper;
     private final SalDeliveryDetailMapper detailMapper;
     private final BaseWarehouseMapper warehouseMapper;
+    private final BaseProductMapper productMapper;
 
     public SalDeliveryBillLoader(SalDeliveryMapper mapper,
                                   SalDeliveryDetailMapper detailMapper,
-                                  BaseWarehouseMapper warehouseMapper) {
+                                  BaseWarehouseMapper warehouseMapper,
+                                  BaseProductMapper productMapper) {
         this.mapper = mapper;
         this.detailMapper = detailMapper;
         this.warehouseMapper = warehouseMapper;
+        this.productMapper = productMapper;
     }
 
     @Override public String bizType() { return "SAL_DELIVERY"; }
@@ -39,6 +44,13 @@ public class SalDeliveryBillLoader implements BillLoader {
         if (bill == null) throw BizException.of("销售出库单不存在: id=" + billId);
         injectTransient(bill);
         List<SalDeliveryDetail> details = detailMapper.selectByDeliveryId(billId);
+        // 注入明细行色号 (飞鹅打印模板用, 从 base_product.colorNo 取)
+        for (SalDeliveryDetail det : details) {
+            if (det.getProductId() != null) {
+                BaseProduct p = productMapper.selectById(det.getProductId());
+                if (p != null) det.setPColorNo(p.getColorNo());
+            }
+        }
 
         Map<String, Object> model = new HashMap<>();
         model.put("bill", bill);

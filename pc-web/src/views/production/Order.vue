@@ -97,6 +97,16 @@
               <el-input v-model="form.spec" readonly placeholder="-" />
             </el-form-item>
           </el-col>
+          <el-col :span="8">
+            <el-form-item label="型号">
+              <el-input v-model="form.model" readonly placeholder="-" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="色号">
+              <el-input v-model="form.colorNo" readonly placeholder="选择成品后自动带出" />
+            </el-form-item>
+          </el-col>
         </el-row>
         <el-row :gutter="12">
           <el-col :span="12">
@@ -276,7 +286,9 @@ async function onEdit(row) {
       endDate: d.endDate ? d.endDate.substring(0, 10) : '',
       remark: d.remark || '',
       thickness: d.thickness, width: d.width, density: d.density,
-      gramWeight: d.gramWeight, material: d.material
+      gramWeight: d.gramWeight, material: d.material,
+      model: d.model || '',
+      colorNo: d.colorNo || ''
     }
     await loadBomList(); await loadProductList(); await loadWarehouses()
     if (form.value.productId) await onProductChange(form.value.productId)
@@ -285,7 +297,7 @@ async function onEdit(row) {
 }
 
 async function onAdd() {
-  form.value = { bomId: null, productId: null, productName: '', productCode: '', spec: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' }
+  form.value = { bomId: null, productId: null, productName: '', productCode: '', spec: '', model: '', colorNo: '', unitId: null, unitName: '', planQty: 1, lossRate: 0, workshop: '', warehouseId: null, leader: '', startDate: '', endDate: '', remark: '', thickness: '', width: '', density: '', gramWeight: '', material: '' }
   await loadBomList(); await loadProductList(); await loadWarehouses()
   dialogVisible.value = true
 }
@@ -294,7 +306,7 @@ async function onProductChange(productId) {
   const product = productList.value.find(p => p.id === productId)
   if (!product) {
     form.value.bomId = null; form.value.bomName = ''; form.value.productName = ''
-    form.value.productCode = ''; form.value.spec = ''; form.value.unitId = null
+    form.value.productCode = ''; form.value.spec = ''; form.value.model = ''; form.value.colorNo = ''; form.value.unitId = null
     form.value.unitName = ''; form.value.lossRate = 0; form.value.thickness = ''
     form.value.width = ''; form.value.density = ''; form.value.gramWeight = ''
     form.value.material = ''; return
@@ -305,6 +317,8 @@ async function onProductChange(productId) {
   form.value.productName = product.productName
   form.value.productCode = product.productCode
   form.value.spec = product.spec || ''
+  form.value.model = product.model || ''
+  form.value.colorNo = product.colorNo || ''
   form.value.unitId = product.mainUnitId
   form.value.unitName = product.mainUnitName
   form.value.lossRate = bom?.lossRate || 0

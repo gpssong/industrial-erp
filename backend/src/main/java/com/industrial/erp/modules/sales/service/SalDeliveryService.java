@@ -8,8 +8,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
+import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.finance.service.FinArapService;
 import com.industrial.erp.modules.inventory.service.StockService;
@@ -40,7 +42,7 @@ import java.util.List;
 @Service
 public class SalDeliveryService {
 
-    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher) {
+    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher, BaseProductMapper productMapper) {
         this.deliveryMapper = deliveryMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
@@ -51,6 +53,7 @@ public class SalDeliveryService {
         this.permService = permService;
         this.orderDetailMapper = orderDetailMapper;
         this.operLogPublisher = operLogPublisher;
+        this.productMapper = productMapper;
     }
 
     private static final Logger log = LoggerFactory.getLogger(SalDeliveryService.class);
@@ -59,6 +62,7 @@ public class SalDeliveryService {
     private final SalDeliveryDetailMapper detailMapper;
     private final BaseCustomerMapper customerMapper;
     private final BaseWarehouseMapper warehouseMapper;
+    private final BaseProductMapper productMapper;
     private final SalOrderDetailMapper orderDetailMapper;
     private final BillNoGenerator billNoGenerator;
     private final StockService stockService;
@@ -88,6 +92,15 @@ public class SalDeliveryService {
     public SalDelivery detail(Long id) {
         SalDelivery d = deliveryMapper.selectById(id);
         if (d != null) d.setDetails(detailMapper.selectByDeliveryId(id));
+        // 注入商品色号 (打印模板用, 从 base_product.colorNo 取)
+        if (d != null && d.getDetails() != null) {
+            for (SalDeliveryDetail det : d.getDetails()) {
+                if (det.getProductId() != null) {
+                    BaseProduct p = productMapper.selectById(det.getProductId());
+                    if (p != null) det.setPColorNo(p.getColorNo());
+                }
+            }
+        }
         return d;
     }
 

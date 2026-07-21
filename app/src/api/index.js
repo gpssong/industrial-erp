@@ -136,6 +136,8 @@ export const api = {
   prdOrderDetail: (id) => request({ url: '/production/order/' + id }),
   prdOrderAdd: (data) => request({ url: '/production/order', method: 'POST', data, contentType: 'json' }),
   prdOrderUpdate: (id, data) => request({ url: '/production/order/' + id, method: 'PUT', data, contentType: 'json' }),
+  // 飞鹅云打印
+  feiePrint: (bizType, id) => request({ url: '/feie/print/' + bizType + '/' + id, method: 'POST' }),
   // 报表
   dashboard: () => request({ url: '/report/dashboard' }),
   inventorySummary: () => request({ url: '/report/inventory/summary' }),
@@ -147,6 +149,8 @@ export const api = {
   userDelete: (id) => request({ url: '/system/user/' + id, method: 'DELETE' }),
   userResetPwd: (id) => request({ url: '/system/user/' + id + '/resetPwd', method: 'POST' }),
   userGetRoles: (id) => request({ url: '/system/user/' + id + '/roles' }),
+  changeMyPassword: (data) => request({ url: '/system/user/me/password', method: 'PUT', data }),
+  changePassword: (data) => request({ url: '/system/user/me/password', method: 'PUT', data }),
   userAssignRoles: (id, roleIds) => request({ url: '/system/user/' + id + '/roles', method: 'PUT', data: roleIds }),
   // 角色管理
   rolePage: (params) => request({ url: '/system/role/page', data: params }),

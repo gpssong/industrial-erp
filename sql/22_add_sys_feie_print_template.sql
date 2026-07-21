@@ -21,7 +21,7 @@ CREATE TABLE `sys_feie_print_template` (
   `update_time`         DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `deleted`             TINYINT      DEFAULT 0,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_default_per_printer` (`biz_type`, `printer_config_id`, `is_default`, `deleted`),
+  UNIQUE KEY `uk_default_per_printer` (`biz_type`, `printer_config_id`, `is_default`),
   KEY `idx_biz_printer` (`biz_type`, `printer_config_id`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='飞鹅云打印模板 (飞鹅标签语言)';
 

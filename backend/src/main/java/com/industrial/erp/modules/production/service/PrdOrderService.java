@@ -90,6 +90,7 @@ public class PrdOrderService {
                     order.setPDensity(prod.getDensity());
                     order.setPGramWeight(prod.getGramWeight());
                     order.setPMaterial(prod.getMaterial());
+                    order.setPColorNo(prod.getColorNo());
                 }
             }
         });
@@ -107,6 +108,7 @@ public class PrdOrderService {
                 order.setPDensity(p.getDensity());
                 order.setPGramWeight(p.getGramWeight());
                 order.setPMaterial(p.getMaterial());
+                order.setPColorNo(p.getColorNo());
                 order.setModel(p.getModel());
             }
         }

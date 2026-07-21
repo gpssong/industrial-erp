@@ -130,6 +130,11 @@ function buildProviderElementList(bizType) {
     { type: 'Text', field: 'model', label: '型号', width: 40, height: 8 }
   )
 
+  // 通用: 色号 (所有业务类型都有, 来自 base_product.colorNo, 由 Service 在 detail() 时注入明细行)
+  list.push(
+    { type: 'Text', field: 'colorNo', label: '色号', width: 30, height: 8 }
+  )
+
   if (t === 'SAL_DELIVERY' || t === 'SAL_RETURN') {
     list.push(
       { type: 'Text', field: 'customerName', label: '客户名称', width: 60, height: 8 },
@@ -155,6 +160,7 @@ function buildProviderElementList(bizType) {
           { type: 'Text', field: 'productCode', label: '商品编码', width: 30, height: 8 },
           { type: 'Text', field: 'productName', label: '商品名称', width: 40, height: 8 },
           { type: 'Text', field: 'model', label: '型号', width: 35, height: 8 },
+          { type: 'Text', field: 'colorNo', label: '色号', width: 25, height: 8 },
           { type: 'Text', field: 'spec', label: '规格', width: 25, height: 8 },
           { type: 'Text', field: 'unitName', label: '单位', width: 15, height: 8 },
           { type: 'Text', field: 'qty', label: '数量', width: 20, height: 8 },
@@ -183,6 +189,7 @@ function buildProviderElementList(bizType) {
       { type: 'Text', field: 'density', label: '厚度', width: 30, height: 8 },
       { type: 'Text', field: 'gramWeight', label: '克重', width: 30, height: 8 },
       { type: 'Text', field: 'material', label: '材质', width: 30, height: 8 },
+      { type: 'Text', field: 'colorNo', label: '色号', width: 30, height: 8 },
       { type: 'Text', field: 'planQty', label: '计划数量', width: 30, height: 8 },
       { type: 'Text', field: 'actualQty', label: '实际数量', width: 30, height: 8 },
       { type: 'Text', field: 'goodQty', label: '良品数量', width: 30, height: 8 },
@@ -227,6 +234,7 @@ function buildSamplePreviewData(bizType) {
     productCode: opts.code || 'P0001',
     productName: opts.name || '示例塑料薄膜 28μ',
     model: opts.model || 'M-001',
+    colorNo: opts.colorNo || '01-透明',
     spec: opts.spec || '28*36*0.16',
     unitName: opts.unit || '卷',
     qty: opts.qty != null ? opts.qty : 50.5,
@@ -284,6 +292,7 @@ function buildSamplePreviewData(bizType) {
       density: 0.92,
       gramWeight: 28,
       material: 'PE',
+      colorNo: '01-透明',
       planQty: 1000,
       actualQty: 850,
       goodQty: 820,

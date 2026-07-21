@@ -73,12 +73,37 @@
           </el-col>
         </el-row>
         <el-form-item label="默认模板">
-          <el-switch v-model="form.isDefault" active-text="是" inactive-text="否" />
+          <el-switch v-model="form.isDefault" :active-value="1" :inactive-value="0" active-text="是" inactive-text="否" />
         </el-form-item>
         <el-form-item label="内容" required>
-          <div style="position:relative;">
-            <el-button size="small" type="primary" @click="insertTag('<CB>标题</CB>')" style="position:absolute;z-index:1;top:4px;right:4px;">插入标签</el-button>
-            <el-input v-model="form.content" type="textarea" :rows="18" placeholder="<CB>标题</CB><BR>单号: ${bill.billNo!''}<BR><BR>商品明细:<BR><#list bill.details as d>${d.productName!''}  数量:${d.qty!0}<BR></#list><CUT>" />
+          <div style="display:flex;gap:8px;">
+            <div style="flex:1;position:relative;">
+              <el-button size="small" type="primary" @click="insertTag('<CB>标题</CB>')" style="position:absolute;z-index:1;top:4px;right:4px;">插入标签</el-button>
+              <el-input v-model="form.content" type="textarea" :rows="18" placeholder="<CB>标题</CB><BR>单号: ${bill.billNo!''}<BR><BR>商品明细:<BR><#list bill.details as d>${d.productName!''}  数量:${d.qty!0}<BR></#list><CUT>" />
+            </div>
+            <div style="width:280px;border:1px solid #e4e7ed;border-radius:4px;background:#fafbfc;overflow:auto;max-height:380px;">
+              <div style="padding:8px 10px;background:#f0f2f5;font-weight:600;font-size:12px;border-bottom:1px solid #e4e7ed;">
+                📋 字段说明 ({{ BIZ_TYPE_MAP[form.bizType] || '请先选单据' }})
+              </div>
+              <div v-if="!form.bizType" style="padding:10px;color:#999;font-size:12px;">选择单据后显示字段</div>
+              <div v-else>
+                <div style="padding:6px 10px;background:#f0f9eb;color:#67c23a;font-size:11px;font-weight:600;">📌 主表字段 (${'${bill.xxx}'})</div>
+                <div v-for="f in (FIELD_DOC[form.bizType]?.main || [])" :key="'m-'+f.name" class="field-row" @click="insertField(bizPrefix + f.name)">
+                  <span class="field-name">{{ bizPrefix }}{{ f.name }}<span v-if="!form.bizType || form.bizType !== 'PRD_ORDER'">!''</span></span>
+                  <span class="field-desc">{{ f.desc }}</span>
+                </div>
+                <div v-if="form.bizType !== 'INV_CHECK'" style="padding:6px 10px;background:#fdf6ec;color:#e6a23c;font-size:11px;font-weight:600;">🔁 明细循环 (&lt;#list bill.details as d&gt;...)</div>
+                <div v-for="f in (FIELD_DOC[form.bizType]?.detail || [])" :key="'d-'+f.name" class="field-row" @click="insertField('d.' + f.name)">
+                  <span class="field-name">d.{{ f.name }}<span v-if="f.name === 'qty'">!0</span></span>
+                  <span class="field-desc">{{ f.desc }}</span>
+                </div>
+                <div style="padding:6px 10px;background:#f4f4f5;color:#909399;font-size:11px;">⏰ 系统字段</div>
+                <div class="field-row" @click="insertField(nowFieldExpr)">
+                  <span class="field-name">.now?string(...)</span>
+                  <span class="field-desc">当前时间</span>
+                </div>
+              </div>
+            </div>
           </div>
         </el-form-item>
         <el-form-item label="标签速查">
@@ -110,7 +135,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { feiePrintApi } from '@/api/feie'
@@ -127,6 +152,155 @@ const BIZ_TYPE_OPTIONS = [
 const BIZ_TYPE_MAP = {
   PRD_ORDER: '生产加工单', SAL_DELIVERY: '销售出库单', SAL_RETURN: '销售退货单',
   PUR_RECEIPT: '采购入库单', PUR_RETURN: '采购退货单', INV_CHECK: '库存盘点单'
+}
+
+// 字段说明: 按单据类型分组, 用于编辑器右侧字段树
+// 字段引用规则: 主表 ${bill.fieldName}, 明细 <#list bill.details as d>${d.fieldName}</#list>
+// PRD_ORDER 主表用 ${order.xxx}, INV_CHECK 主表用 ${bill.xxx} 也有
+const FIELD_DOC = {
+  PRD_ORDER: {
+    main: [
+      { name: 'billNo', desc: '生产单号' },
+      { name: 'billDate', desc: '单据日期' },
+      { name: 'productName', desc: '成品名称' },
+      { name: 'productCode', desc: '成品编码' },
+      { name: 'spec', desc: '规格' },
+      { name: 'model', desc: '型号' },
+      { name: 'colorNo', desc: '色号' },
+      { name: 'thickness', desc: '长度' },
+      { name: 'width', desc: '宽度' },
+      { name: 'density', desc: '厚度' },
+      { name: 'gramWeight', desc: '克重' },
+      { name: 'material', desc: '材质' },
+      { name: 'unitName', desc: '单位' },
+      { name: 'planQty', desc: '计划数量' },
+      { name: 'goodQty', desc: '良品数' },
+      { name: 'lossQty', desc: '损耗数' },
+      { name: 'lossRate', desc: '损耗率(%)' },
+      { name: 'workshop', desc: '车间' },
+      { name: 'leader', desc: '负责人' },
+      { name: 'startDate', desc: '开工日期' },
+      { name: 'endDate', desc: '完工日期' },
+      { name: 'bomName', desc: 'BOM名称' },
+      { name: 'remark', desc: '备注' }
+    ],
+    detail: [
+      { name: 'productName', desc: '物料名称' },
+      { name: 'productCode', desc: '物料编码' },
+      { name: 'qty', desc: '领料数量' },
+      { name: 'unitName', desc: '单位' },
+      { name: 'lineNo', desc: '行号' },
+      { name: 'batchNo', desc: '批次' }
+    ]
+  },
+  SAL_DELIVERY: {
+    main: [
+      { name: 'billNo', desc: '出库单号' },
+      { name: 'billDate', desc: '单据日期' },
+      { name: 'customerName', desc: '客户名称' },
+      { name: 'customerPhone', desc: '客户电话' },
+      { name: 'warehouseName', desc: '仓库' },
+      { name: 'salesUser', desc: '业务员' },
+      { name: 'totalQty', desc: '总数量' },
+      { name: 'totalAmount', desc: '总金额' },
+      { name: 'totalAmountTax', desc: '含税总额' },
+      { name: 'remark', desc: '备注' }
+    ],
+    detail: [
+      { name: 'productName', desc: '商品名称' },
+      { name: 'productCode', desc: '商品编码' },
+      { name: 'spec', desc: '规格' },
+      { name: 'colorNo', desc: '色号' },
+      { name: 'unitName', desc: '单位' },
+      { name: 'qty', desc: '数量' },
+      { name: 'price', desc: '单价' },
+      { name: 'amount', desc: '金额' },
+      { name: 'batchNo', desc: '批次' },
+      { name: 'locationName', desc: '货位' }
+    ]
+  },
+  SAL_RETURN: {
+    main: [
+      { name: 'billNo', desc: '退货单号' },
+      { name: 'billDate', desc: '单据日期' },
+      { name: 'customerName', desc: '客户名称' },
+      { name: 'warehouseName', desc: '仓库' },
+      { name: 'totalQty', desc: '总数量' },
+      { name: 'totalAmount', desc: '总金额' },
+      { name: 'remark', desc: '备注' }
+    ],
+    detail: [
+      { name: 'productName', desc: '商品名称' },
+      { name: 'productCode', desc: '商品编码' },
+      { name: 'qty', desc: '退货数量' },
+      { name: 'price', desc: '单价' },
+      { name: 'amount', desc: '金额' },
+      { name: 'batchNo', desc: '批次' }
+    ]
+  },
+  PUR_RECEIPT: {
+    main: [
+      { name: 'billNo', desc: '入库单号' },
+      { name: 'billDate', desc: '单据日期' },
+      { name: 'supplierName', desc: '供应商' },
+      { name: 'supplierPhone', desc: '供应商电话' },
+      { name: 'warehouseName', desc: '仓库' },
+      { name: 'purchaseUser', desc: '采购员' },
+      { name: 'totalQty', desc: '总数量' },
+      { name: 'totalAmount', desc: '总金额' },
+      { name: 'remark', desc: '备注' }
+    ],
+    detail: [
+      { name: 'productName', desc: '商品名称' },
+      { name: 'productCode', desc: '商品编码' },
+      { name: 'spec', desc: '规格' },
+      { name: 'colorNo', desc: '色号' },
+      { name: 'unitName', desc: '单位' },
+      { name: 'qty', desc: '入库数量' },
+      { name: 'price', desc: '单价' },
+      { name: 'amount', desc: '金额' },
+      { name: 'batchNo', desc: '批次' },
+      { name: 'productionDate', desc: '生产日期' },
+      { name: 'expireDate', desc: '过期日期' }
+    ]
+  },
+  PUR_RETURN: {
+    main: [
+      { name: 'billNo', desc: '退货单号' },
+      { name: 'billDate', desc: '单据日期' },
+      { name: 'supplierName', desc: '供应商' },
+      { name: 'warehouseName', desc: '仓库' },
+      { name: 'totalQty', desc: '总数量' },
+      { name: 'totalAmount', desc: '总金额' },
+      { name: 'remark', desc: '备注' }
+    ],
+    detail: [
+      { name: 'productName', desc: '商品名称' },
+      { name: 'productCode', desc: '商品编码' },
+      { name: 'qty', desc: '退货数量' },
+      { name: 'price', desc: '单价' },
+      { name: 'amount', desc: '金额' },
+      { name: 'batchNo', desc: '批次' }
+    ]
+  },
+  INV_CHECK: {
+    main: [
+      { name: 'billNo', desc: '盘点单号' },
+      { name: 'billDate', desc: '单据日期' },
+      { name: 'warehouseName', desc: '仓库' },
+      { name: 'checkType', desc: '盘点类型' },
+      { name: 'totalDiffAmount', desc: '差异金额合计' },
+      { name: 'remark', desc: '备注' }
+    ],
+    detail: [
+      { name: 'productName', desc: '商品名称' },
+      { name: 'productCode', desc: '商品编码' },
+      { name: 'bookQty', desc: '账面数量' },
+      { name: 'actualQty', desc: '实盘数量' },
+      { name: 'diffQty', desc: '差异数量' },
+      { name: 'diffAmount', desc: '差异金额' }
+    ]
+  }
 }
 
 // 标签速查
@@ -155,6 +329,14 @@ const previewContent = ref('')
 const previewForm = ref({})
 const filterBizType = ref('')
 const filterPrinterId = ref(null)
+
+// 预定义 .now 时间戳表达式 (避免在模板属性里写引号转义)
+const nowFieldExpr = '${.now?string("yyyy-MM-dd HH:mm:ss")}'
+
+// PRD_ORDER 主表变量是 order.xxx, 其余是 bill.xxx; 用于字段插入
+const bizPrefix = computed(() => {
+  return form.bizType === 'PRD_ORDER' ? 'order.' : 'bill.'
+})
 
 const form = reactive({
   id: null, name: '', bizType: '', printerConfigId: null,
@@ -204,11 +386,13 @@ async function onSubmit() {
   }
   submitting.value = true
   try {
+    // el-switch 返回 boolean, 后端 isDefault 期望 Integer (0/1)
+    const payload = { ...form, isDefault: form.isDefault ? 1 : 0, status: form.status ?? 1 }
     if (form.id) {
-      await feiePrintApi.updateTemplate(form.id, form)
+      await feiePrintApi.updateTemplate(form.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await feiePrintApi.addTemplate(form)
+      await feiePrintApi.addTemplate(payload)
       ElMessage.success('新增成功')
     }
     dialogVisible.value = false
@@ -228,8 +412,7 @@ async function onDelete(row) {
 }
 
 async function onSetDefault(row) {
-  row.isDefault = 1
-  await feiePrintApi.updateTemplate(row.id, row)
+  await feiePrintApi.updateTemplate(row.id, { ...row, isDefault: 1 })
   ElMessage.success('已设为默认')
   loadData()
 }
@@ -264,10 +447,28 @@ function insertTag(tag) {
   }
 }
 
+// 把字段插入到光标位置 (字段名带 . 后缀)
+function insertField(name) {
+  // 已是完整 Freemarker 表达式 (含 ${}) 直接插入
+  const text = name.startsWith('${') ? name : '${' + name + "!''}"
+  insertTag(text)
+}
+
 onMounted(() => { loadData(); loadPrinters() })
 </script>
 
 <style scoped>
 .toolbar { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }
 .pager { margin-top: 12px; text-align: right; }
+.field-row {
+  padding: 6px 10px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.field-row:hover { background: #ecf5ff; }
+.field-name { color: #409eff; font-family: monospace; }
+.field-desc { color: #999; }
 </style>

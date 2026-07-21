@@ -584,6 +584,7 @@ const SAL_DELIVERY_DETAIL_MAP = {
   productCode: 'productCode',
   productName: 'productName',
   model: 'model',
+  colorNo: 'colorNo',
   spec: 'spec',
   unitName: 'unitName',
   qty: 'qty',

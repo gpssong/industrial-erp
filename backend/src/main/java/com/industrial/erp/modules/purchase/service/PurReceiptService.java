@@ -8,8 +8,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.common.R;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseSupplier;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.finance.service.FinArapService;
@@ -42,7 +44,7 @@ import java.util.List;
 @Service
 public class PurReceiptService {
 
-    public PurReceiptService(PurReceiptMapper receiptMapper, PurReceiptDetailMapper receiptDetailMapper, PurOrderMapper orderMapper, PurOrderDetailMapper orderDetailMapper, BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, OperLogPublisher operLogPublisher) {
+    public PurReceiptService(PurReceiptMapper receiptMapper, PurReceiptDetailMapper receiptDetailMapper, PurOrderMapper orderMapper, PurOrderDetailMapper orderDetailMapper, BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, OperLogPublisher operLogPublisher, BaseProductMapper productMapper) {
         this.receiptMapper = receiptMapper;
         this.receiptDetailMapper = receiptDetailMapper;
         this.orderMapper = orderMapper;
@@ -54,6 +56,7 @@ public class PurReceiptService {
         this.arapService = arapService;
         this.permService = permService;
         this.operLogPublisher = operLogPublisher;
+        this.productMapper = productMapper;
     }
 
     private final PurReceiptMapper receiptMapper;
@@ -62,6 +65,7 @@ public class PurReceiptService {
     private final PurOrderDetailMapper orderDetailMapper;
     private final BaseSupplierMapper supplierMapper;
     private final BaseWarehouseMapper warehouseMapper;
+    private final BaseProductMapper productMapper;
     private final BillNoGenerator billNoGenerator;
     private final StockService stockService;
     private final FinArapService arapService;
@@ -89,6 +93,15 @@ public class PurReceiptService {
     public PurReceipt detail(Long id) {
         PurReceipt r = receiptMapper.selectById(id);
         if (r != null) r.setDetails(receiptDetailMapper.selectByReceiptId(id));
+        // 注入商品色号 (打印模板用, 从 base_product.colorNo 取)
+        if (r != null && r.getDetails() != null) {
+            for (PurReceiptDetail det : r.getDetails()) {
+                if (det.getProductId() != null) {
+                    BaseProduct p = productMapper.selectById(det.getProductId());
+                    if (p != null) det.setPColorNo(p.getColorNo());
+                }
+            }
+        }
         return r;
     }
 

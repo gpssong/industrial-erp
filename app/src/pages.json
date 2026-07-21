@@ -9,6 +9,7 @@
     { "path": "pages/report/index", "style": { "navigationBarTitleText": "经营简报" } },
     { "path": "pages/profile/index", "style": { "navigationBarTitleText": "我的" } },
     { "path": "pages/profile/settings", "style": { "navigationBarTitleText": "服务器设置" } },
+    { "path": "pages/profile/change-password", "style": { "navigationBarTitleText": "修改密码" } },
     { "path": "pages/system/users", "style": { "navigationBarTitleText": "用户管理" } },
     { "path": "pages/base/product-add", "style": { "navigationBarTitleText": "新增商品" } },
     { "path": "pages/production/order-add", "style": { "navigationBarTitleText": "新增生产单" } }

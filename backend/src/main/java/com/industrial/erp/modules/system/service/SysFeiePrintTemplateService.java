@@ -61,6 +61,8 @@ public class SysFeiePrintTemplateService {
         if (t.getIsDefault() != null && t.getIsDefault() == 1) {
             clearDefault(t.getBizType(), t.getPrinterConfigId(), t.getId());
         }
+        // 避免 updateById 更新 is_default 引发 UK 冲突 (clearDefault 已处理)
+        t.setIsDefault(null);
         mapper.updateById(t);
     }
 

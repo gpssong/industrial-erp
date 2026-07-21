@@ -25,6 +25,8 @@ public class PrdOrder {
     @TableField(exist = false)
     private transient String pMaterial;
     @TableField(exist = false)
+    private transient String pColorNo;
+    @TableField(exist = false)
     private transient String bomRemark;
 
     /** 领料明细 (打印用, JOIN prd_requisition + prd_requisition_detail 注入, 按 prd_order_id 汇总) */
@@ -159,6 +161,12 @@ public class PrdOrder {
     public void setPGramWeight(BigDecimal pGramWeight) { this.pGramWeight = pGramWeight; }
     public String getPMaterial() { return pMaterial; }
     public void setPMaterial(String pMaterial) { this.pMaterial = pMaterial; }
+    /** 色号, 从 base_product.colorNo JOIN 注入 (打印模板用) */
+    public String getPColorNo() { return pColorNo; }
+    public void setPColorNo(String pColorNo) { this.pColorNo = pColorNo; }
+    /** 模板字段: colorNo = 色号 */
+    public String getColorNo() { return pColorNo; }
+    public void setColorNo(String colorNo) { this.pColorNo = colorNo; }
     /** 模板字段: thickness = 长度 */
     public BigDecimal getThickness() { return pThickness; }
     public void setThickness(BigDecimal thickness) { this.pThickness = thickness; }

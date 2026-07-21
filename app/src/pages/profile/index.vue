@@ -22,6 +22,9 @@
     <!-- 通用功能 -->
     <div class="card">
       <div class="section-title">设置</div>
+      <div class="menu-item" @click="navigateTo('/pages/profile/change-password')">
+        <span>🔐 修改密码</span><span class="arrow">›</span>
+      </div>
       <div class="menu-item" @click="navigateTo('/pages/profile/settings')">
         <span>⚙️ 服务器设置</span><span class="arrow">›</span>
       </div>

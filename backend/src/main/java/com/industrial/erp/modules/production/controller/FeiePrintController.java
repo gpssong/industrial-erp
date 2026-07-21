@@ -138,9 +138,10 @@ public class FeiePrintController {
     @PostMapping("/printers/test")
     @SaCheckPermission("system:feie:test")
     @OperLog(module = "飞鹅云打印", businessType = "TEST")
-    public R<String> testPrinter(@RequestParam String ukey,
+    public R<String> testPrinter(@RequestParam(required = false) String user,
+                                 @RequestParam String ukey,
                                  @RequestParam(required = false) String deviceSn) {
-        return R.ok("ok", feiePrintService.testConnection(ukey, deviceSn));
+        return R.ok("ok", feiePrintService.testConnection(user, ukey, deviceSn));
     }
 
     // ==================== 打印日志 ====================
@@ -183,7 +184,26 @@ public class FeiePrintController {
     @PostMapping("/templates")
     @SaCheckPermission("system:feie:template")
     @OperLog(module = "飞鹅打印模板", businessType = "ADD")
-    public R<Void> addTemplate(@RequestBody SysFeiePrintTemplate t) {
+    public R<Void> addTemplate(@org.springframework.web.bind.annotation.RequestBody java.util.Map<String, Object> body) {
+        java.util.Map<String, Object> map = body == null ? new java.util.HashMap<>() : body;
+        SysFeiePrintTemplate t = new SysFeiePrintTemplate();
+        Object name = map.get("name");
+        if (name != null) t.setName(String.valueOf(name));
+        Object bizType = map.get("bizType");
+        if (bizType != null) t.setBizType(String.valueOf(bizType));
+        Object printerConfigId = map.get("printerConfigId");
+        if (printerConfigId != null) t.setPrinterConfigId(Long.valueOf(printerConfigId.toString()));
+        Object content = map.get("content");
+        if (content != null) t.setContent(String.valueOf(content));
+        Object paperWidth = map.get("paperWidth");
+        if (paperWidth != null) t.setPaperWidth(Integer.valueOf(paperWidth.toString()));
+        Object status = map.get("status");
+        if (status != null) t.setStatus(Integer.valueOf(status.toString()));
+        else t.setStatus(1);
+        Object isDefault = map.get("isDefault");
+        if (isDefault != null) t.setIsDefault(Integer.valueOf(isDefault.toString()));
+        Object remark = map.get("remark");
+        if (remark != null) t.setRemark(String.valueOf(remark));
         templateService.save(t);
         return R.ok();
     }
@@ -192,7 +212,27 @@ public class FeiePrintController {
     @PutMapping("/templates/{id}")
     @SaCheckPermission("system:feie:template")
     @OperLog(module = "飞鹅打印模板", businessType = "EDIT")
-    public R<Void> updateTemplate(@PathVariable Long id, @RequestBody SysFeiePrintTemplate t) {
+    public R<Void> updateTemplate(@PathVariable Long id, @org.springframework.web.bind.annotation.RequestBody java.util.Map<String, Object> body) {
+        java.util.Map<String, Object> map = body == null ? new java.util.HashMap<>() : body;
+        SysFeiePrintTemplate t = new SysFeiePrintTemplate();
+        Object name = map.get("name");
+        if (name != null) t.setName(String.valueOf(name));
+        Object user = map.get("user");
+        // user ignored (no field in entity)
+        Object bizType = map.get("bizType");
+        if (bizType != null) t.setBizType(String.valueOf(bizType));
+        Object printerConfigId = map.get("printerConfigId");
+        if (printerConfigId != null) t.setPrinterConfigId(Long.valueOf(printerConfigId.toString()));
+        Object content = map.get("content");
+        if (content != null) t.setContent(String.valueOf(content));
+        Object paperWidth = map.get("paperWidth");
+        if (paperWidth != null) t.setPaperWidth(Integer.valueOf(paperWidth.toString()));
+        Object status = map.get("status");
+        if (status != null) t.setStatus(Integer.valueOf(status.toString()));
+        Object isDefault = map.get("isDefault");
+        if (isDefault != null) t.setIsDefault(Integer.valueOf(isDefault.toString()));
+        Object remark = map.get("remark");
+        if (remark != null) t.setRemark(String.valueOf(remark));
         t.setId(id);
         templateService.update(t);
         return R.ok();
