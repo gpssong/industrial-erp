@@ -103,7 +103,11 @@
     <view v-if="!list.length" class="empty">暂无商品，请先扫描或搜索</view>
     <view class="btn btn-block" @click="onClear" v-if="list.length && !submitted" style="margin-top:10px;background:#95a5a6">清空列表</view>
     <view class="btn btn-block" @click="onSubmit" v-if="list.length && !submitted" style="margin-top:10px;background:var(--success)">确认入库 ({{ list.length }})</view>
-    <view v-if="submitted" class="card" style="background:#d4edda;color:#155724">✓ 已提交入库单</view>
+    <view v-if="submitted" class="card" style="background:#d4edda;color:#155724">
+      <view style="font-weight:bold;margin-bottom:4px">✓ 已提交入库单</view>
+      <view style="font-size:12px;margin-bottom:8px">{{ submittedBillNo }}</view>
+      <view class="btn btn-sm" @click="onFeiePrint" v-if="submittedBillNo">🖨️ 飞鹅云打印</view>
+    </view>
   </view>
 </template>
 
@@ -119,6 +123,7 @@ const qty = ref(1)
 const remark = ref('')
 const list = ref([])
 const submitted = ref(false)
+const submittedBillNo = ref('')
 const loading = ref(false)
 const suppliers = ref([])
 const supplierIdx = ref(-1)
@@ -236,6 +241,7 @@ async function onSubmit() {
     })
     console.log('[in.vue] purchaseReceiptAdd result:', JSON.stringify(r))
     const billNo = (r && r.billNo) || (r && r.data && r.data.billNo) || (r && r.data && typeof r.data === 'string' ? r.data : '') || ''
+    submittedBillNo.value = billNo || '入库成功'
     toast('入库单已提交：' + (billNo || '成功'))
     submitted.value = true
     list.value = []
@@ -243,6 +249,19 @@ async function onSubmit() {
     console.error('提交入库失败:', e)
     toast('提交失败：' + (e.msg || (e && e.message) || '网络错误'))
   } finally { loading.value = false }
+}
+
+async function onFeiePrint() {
+  if (!submittedBillNo.value || submittedBillNo.value === '入库成功') {
+    toast('暂无单据号，无法打印')
+    return
+  }
+  try {
+    await api.feiePrint('PUR_RECEIPT', submittedBillNo.value)
+    toast('飞鹅打印成功')
+  } catch (e) {
+    toast('飞鹅打印失败: ' + (e.msg || e.message || '网络错误'))
+  }
 }
 
 async function loadSuppliers() {

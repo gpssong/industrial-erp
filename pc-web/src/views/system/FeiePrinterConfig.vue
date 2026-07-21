@@ -126,7 +126,7 @@ async function onDelete(row) {
 
 async function onTest(row) {
   try {
-    const r = await feiePrintApi.testPrinter(row.ukey, row.deviceSn)
+    const r = await feiePrintApi.testPrinter(row.user, row.ukey, row.deviceSn)
     ElMessage.success(r.data || '测试成功')
   } catch (e) {
     ElMessage.error('测试失败: ' + (e.message || '未知错误'))

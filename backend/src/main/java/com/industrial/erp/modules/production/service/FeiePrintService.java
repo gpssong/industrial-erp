@@ -88,11 +88,19 @@ public class FeiePrintService {
 
     /**
      * 渲染单据文本 (供预览/iframe)
+     *
+     * <p>优先使用用户自定义模板 (与 print 一致)
      */
     public String renderText(String bizType, Long billId) {
         BillLoader loader = resolveLoader(bizType);
         Map<String, Object> model = loader.load(billId);
-        return renderTemplate(loader.templatePath(), model);
+        // 取当前启用的打印机配置 (优先第一个启用的)
+        SysFeiePrinterConfig cfg = getActiveConfig();
+        String content = renderCustomContent(cfg.getId(), bizType, model);
+        if (content == null) {
+            content = renderTemplate(loader.templatePath(), model);
+        }
+        return content;
     }
 
     /**
@@ -100,7 +108,7 @@ public class FeiePrintService {
      */
     public String print(String bizType, Long billId) {
         SysFeiePrinterConfig config = getActiveConfig();
-        return doPrint(bizType, billId, config, null);
+        return doPrint(bizType, billId, config, config.getId());
     }
 
     /**
@@ -165,16 +173,14 @@ public class FeiePrintService {
     /**
      * 测试打印机连接
      */
-    public String testConnection(String ukey, String deviceSn) {
+    public String testConnection(String user, String ukey, String deviceSn) {
+        if (user == null || user.isEmpty()) user = "gpssong@163.com";
         String now = LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String testContent = "<CB>测试打印</CB><BR>"
                 + "飞鹅云打印机工作正常<BR>"
                 + "时间: " + now + "<BR>";
-        SysFeiePrinterConfig cfg = new SysFeiePrinterConfig();
-        cfg.setUkey(ukey);
-        cfg.setDeviceSn(deviceSn);
         try {
-            var result = feiePrintClient.printMsg("", ukey, deviceSn, testContent, 1);
+            var result = feiePrintClient.printMsg(user, ukey, deviceSn, testContent, 1);
             return "测试成功: " + result.getStr("msg", "");
         } catch (RuntimeException e) {
             throw BizException.of("测试打印失败: " + e.getMessage());

@@ -15,6 +15,8 @@
         </div>
       </el-tab-pane>
       <el-tab-pane label="飞鹅打印机" name="feie"><FeiePrinterConfig /></el-tab-pane>
+      <el-tab-pane label="飞鹅打印模板" name="feie-template"><FeiePrintTemplate /></el-tab-pane>
+      <el-tab-pane label="飞鹅打印日志" name="feie-log"><FeiePrintLog /></el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -25,6 +27,8 @@ import Settings from './Settings.vue'
 import Backup from './Backup.vue'
 import OperationLog from './OperationLog.vue'
 import FeiePrinterConfig from './FeiePrinterConfig.vue'
+import FeiePrintTemplate from './FeiePrintTemplate.vue'
+import FeiePrintLog from './FeiePrintLog.vue'
 const activeTab = ref('config')
 const router = useRouter()
 function goPrint() { router.push('/system/print-template') }
