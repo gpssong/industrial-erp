@@ -105,6 +105,11 @@ export const api = {
   me: () => request({ url: '/auth/me' }),
   // 库存
   stockPage: (params) => request({ url: '/inventory/stock/page', data: params }),
+  // 库存盘点 (v1.0.8+ App 外勤盘点)
+  // - stockSnapshot: 列出仓库所有有库存商品的账面快照 (App 扫码前预加载, 避免盲盘)
+  // - invCheckSubmit: 提交盘点, 生成 DRAFT 盘点单 (PC 端审核后调库存)
+  stockSnapshot: (warehouseId) => request({ url: '/inventory/check/stock-snapshot/' + warehouseId }),
+  invCheckSubmit: (data) => request({ url: '/inventory/check/submit-from-app', method: 'POST', data, contentType: 'json' }),
   // 客户
   customerList: () => request({ url: '/base/customer/list' }),
   // 供应商

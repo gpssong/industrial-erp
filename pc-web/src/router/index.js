@@ -35,6 +35,7 @@ const routes = [
       // 库存
       { path: 'inventory/stock', name: 'InvStock', component: () => import('@/views/inventory/Stock.vue'), meta: { title: '库存查询', icon: 'Grid', perm: 'inventory:stock:list' } },
       { path: 'inventory/ledger', name: 'InvLedger', component: () => import('@/views/inventory/Ledger.vue'), meta: { title: '库存台账', icon: 'Notebook', perm: 'inventory:ledger:list' } },
+      { path: 'inventory/check', name: 'InvCheck', component: () => import('@/views/inventory/Check.vue'), meta: { title: '库存盘点', icon: 'Document', perm: 'inventory:check:list' } },
       // 生产
       { path: 'production/bom', name: 'PrdBom', component: () => import('@/views/production/Bom.vue'), meta: { title: 'BOM清单', icon: 'Files', perm: 'production:bom:list' } },
       { path: 'production/order', name: 'PrdOrder', component: () => import('@/views/production/Order.vue'), meta: { title: '生产加工单', icon: 'SetUp', perm: 'production:order:list' } },
