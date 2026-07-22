@@ -38,11 +38,13 @@ public class SysConfigService {
 
     public SysConfig detail(Long id) { return configMapper.selectById(id); }
 
+    @Transactional(rollbackFor = Exception.class)
     public void add(SysConfig c) {
         permService.requirePerm("system:config:add");
         configMapper.insert(c);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void update(SysConfig c) {
         permService.requirePerm("system:config:edit");
         configMapper.updateById(c);
@@ -64,6 +66,7 @@ public class SysConfigService {
         return c != null ? c.getConfigValue() : null;
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void updateValue(String key, String value) {
         LambdaQueryWrapper<SysConfig> w = new LambdaQueryWrapper<SysConfig>().eq(SysConfig::getConfigKey, key);
         SysConfig c = configMapper.selectOne(w);

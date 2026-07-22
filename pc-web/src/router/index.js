@@ -55,14 +55,16 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const user = useUserStore()
   if (to.meta.public) return next()
-  if (!user.token) return next('/login')
-  // 如果 userInfo 丢失 (页面刷新), 尝试从 localStorage 恢复或重新拉取
-  if (!user.userInfo) {
-    try { await user.fetchMe() } catch (e) { /* token 过期会走 401 拦截 */ }
+  // v1.0.5 cookie 改造后 user.token 永远是空 (cookie 由浏览器自动带, JS 读不到).
+  // 改用 userInfo 判断: 它在 loginAction 已持久化到 localStorage, F5 刷新会 rehydrate.
+  if (!user.userInfo) return next('/login')
+  // 如果 userInfo 缺失 (比如清缓存), 尝试重新拉取
+  if (!user.userInfo || !user.userInfo.id) {
+    try { await user.fetchMe() } catch (e) { return next('/login') }
   }
   // 简易权限
   if (to.meta.perm && !user.hasPerm(to.meta.perm)) {
-    console.warn('[router] 权限不足:', to.meta.perm, 'user=', user.userInfo)
+    console.warn('[router] 权限不足:', to.meta.perm)
     ElMessage.warning('无访问权限: ' + to.meta.perm)
     return next(false)
   }

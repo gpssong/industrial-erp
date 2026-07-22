@@ -77,34 +77,58 @@ public class BackupService {
             if (!dir.exists()) dir.mkdirs();
             String name = "erp_" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + "_" + IdUtil.fastSimpleUUID().substring(0, 4) + ".sql";
             File file = new File(dir, name);
-            // 实际: 通过 ProcessBuilder 调用 mysqldump (路径可通过 erp.backup.mysqldump-path 覆盖)
-            // 显式指定 -h / -P: Docker 部署下 MySQL 在另一容器, 默认 socket 连接会失败
-            ProcessBuilder pb = new ProcessBuilder(
-                    mysqldumpPath, "-h" + dbHost, "-P" + dbPort,
-                    "-u" + dbUser, "-p" + dbPwd,
-                    "--default-character-set=utf8mb4",
-                    "--single-transaction",
-                    "--routines", "--triggers",
-                    "industrial_erp"
-            );
-            pb.redirectOutput(file);
-            pb.redirectError(new File(dir, name + ".log"));
-            Process p = pb.start();
-            int exit = p.waitFor();
-            SysBackupRecord r = new SysBackupRecord();
-            r.setBackupName(name);
-            r.setFilePath(file.getAbsolutePath());
-            r.setFileSize(file.length());
-            r.setBackupType(type);
-            r.setStatus(exit == 0 ? 1 : 0);
-            r.setRemark(exit == 0 ? "成功" : "mysqldump 失败");
-            if (recordService != null) recordService.save(r);
-            cleanOld();
-            return name;
+            // 安全加固 (P1-4): 不再用 "-u<pwd>" 拼接命令行 (mysql client 会把含特殊字符的 pwd 误解析),
+            // 改用 --defaults-extra-file 写入临时文件, 进程结束后立即删除.
+            File defaultsFile = writeMysqlDefaultsFile();
+            try {
+                ProcessBuilder pb = new ProcessBuilder(
+                        mysqldumpPath,
+                        "--defaults-extra-file=" + defaultsFile.getAbsolutePath(),
+                        "-h" + dbHost, "-P" + dbPort,
+                        "--default-character-set=utf8mb4",
+                        "--single-transaction",
+                        "--routines", "--triggers",
+                        "industrial_erp"
+                );
+                pb.redirectOutput(file);
+                pb.redirectError(new File(dir, name + ".log"));
+                Process p = pb.start();
+                int exit = p.waitFor();
+                SysBackupRecord r = new SysBackupRecord();
+                r.setBackupName(name);
+                r.setFilePath(file.getAbsolutePath());
+                r.setFileSize(file.length());
+                r.setBackupType(type);
+                r.setStatus(exit == 0 ? 1 : 0);
+                r.setRemark(exit == 0 ? "成功" : "mysqldump 失败");
+                if (recordService != null) recordService.save(r);
+                cleanOld();
+                return name;
+            } finally {
+                // 临时文件无论成功失败都立即删除, 避免密码明文残留
+                if (defaultsFile.exists()) defaultsFile.delete();
+            }
         } catch (IOException | InterruptedException e) {
             log.error("备份失败", e);
             throw new com.industrial.erp.exception.BizException("备份失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 写一个 MySQL client 用的 defaults file (含 user/password).
+     * 临时文件 chown 0600, 进程结束后立即删除 — 避免密码以明文形式出现在命令行/进程列表中.
+     */
+    private File writeMysqlDefaultsFile() throws IOException {
+        File f = File.createTempFile("erp-mysql-", ".cnf");
+        f.setReadable(false, false);  // 0600
+        f.setReadable(true, true);
+        f.setWritable(false, false);
+        f.setWritable(true, true);
+        String content = "[client]\nuser=" + dbUser + "\npassword=\"" + dbPwd.replace("\\", "\\\\").replace("\"", "\\\"") + "\"\n";
+        java.nio.file.Files.writeString(f.toPath(), content,
+                java.nio.file.StandardOpenOption.WRITE,
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+        return f;
     }
 
     private void cleanOld() {
@@ -126,12 +150,13 @@ public class BackupService {
         }
         // 从 jdbcUrl 提取数据库名
         String dbName = "industrial_erp";
+        File defaultsFile = null;
         try {
+            defaultsFile = writeMysqlDefaultsFile();
             ProcessBuilder pb = new ProcessBuilder(
                     mysqlPath,
+                    "--defaults-extra-file=" + defaultsFile.getAbsolutePath(),
                     "-h" + dbHost, "-P" + dbPort,
-                    "-u" + dbUser,
-                    "-p" + dbPwd,
                     dbName
             );
             pb.redirectInput(sqlFile);
@@ -145,6 +170,8 @@ public class BackupService {
         } catch (IOException | InterruptedException e) {
             log.error("恢复失败", e);
             throw new com.industrial.erp.exception.BizException("恢复失败: " + e.getMessage());
+        } finally {
+            if (defaultsFile != null && defaultsFile.exists()) defaultsFile.delete();
         }
     }
 
@@ -169,18 +196,19 @@ public class BackupService {
             "09_seed_data.sql"
         };
         String dbName = "industrial_erp";
-        for (String script : scripts) {
-            File f = new File(sqlPath, script);
-            if (!f.exists()) {
-                log.warn("[FactoryReset] SQL脚本不存在: {}", f.getAbsolutePath());
-                continue;
-            }
-            try {
+        File defaultsFile = null;
+        try {
+            defaultsFile = writeMysqlDefaultsFile();
+            for (String script : scripts) {
+                File f = new File(sqlPath, script);
+                if (!f.exists()) {
+                    log.warn("[FactoryReset] SQL脚本不存在: {}", f.getAbsolutePath());
+                    continue;
+                }
                 ProcessBuilder pb = new ProcessBuilder(
                         mysqlPath,
+                        "--defaults-extra-file=" + defaultsFile.getAbsolutePath(),
                         "-h" + dbHost, "-P" + dbPort,
-                        "-u" + dbUser,
-                        "-p" + dbPwd,
                         dbName
                 );
                 pb.redirectInput(f);
@@ -191,12 +219,14 @@ public class BackupService {
                 if (exit != 0) {
                     throw new com.industrial.erp.exception.BizException("执行 " + script + " 失败，exit=" + exit);
                 }
-            } catch (IOException | InterruptedException e) {
-                log.error("恢复出厂设置失败: {}", script, e);
-                throw new com.industrial.erp.exception.BizException("恢复出厂设置失败: " + e.getMessage());
             }
+            log.info("[FactoryReset] 恢复出厂设置完成");
+        } catch (IOException | InterruptedException e) {
+            log.error("恢复出厂设置失败", e);
+            throw new com.industrial.erp.exception.BizException("恢复出厂设置失败: " + e.getMessage());
+        } finally {
+            if (defaultsFile != null && defaultsFile.exists()) defaultsFile.delete();
         }
-        log.info("[FactoryReset] 恢复出厂设置完成");
     }
 
     /** 选择性清空指定表数据（保留系统表） */

@@ -42,6 +42,7 @@ public class SysRoleService {
 
     public SysRole detail(Long id) { return roleMapper.selectById(id); }
 
+    @Transactional(rollbackFor = Exception.class)
     public void add(SysRole r) {
         permService.requirePerm("system:role:add");
         if (r.getStatus() == null) r.setStatus(1);
@@ -49,6 +50,7 @@ public class SysRoleService {
         roleMapper.insert(r);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void update(SysRole r) {
         permService.requirePerm("system:role:edit");
         roleMapper.updateById(r);
@@ -72,7 +74,7 @@ public class SysRoleService {
         return menuMapper.selectMenusByRoleId(roleId);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void grantMenus(Long roleId, List<Long> menuIds) {
         permService.requirePerm("system:role:edit");
         roleMapper.deleteRoleMenus(roleId);
@@ -85,7 +87,7 @@ public class SysRoleService {
         return roleMapper.selectUserIdsByRoleId(roleId);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void assignUsers(Long roleId, List<Long> userIds) {
         permService.requirePerm("system:role:edit");
         roleMapper.deleteUserRoles(roleId);

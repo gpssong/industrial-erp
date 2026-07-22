@@ -21,6 +21,11 @@ public class LoginVO {
     private List<String> permissions;
     private List<SysMenu> menus;
     private Integer isAdmin;
+    /**
+     * P1-8: 是否仍在使用 seed 默认密码.
+     * <p>true 表示用户使用了 seed 硬编码的 admin/admin123, 前端应弹出"请修改密码"对话框, 强制改密后才能正常使用.
+     */
+    private Boolean passwordExpired;
 
     public String getToken() { return token; }
     public void setToken(String token) { this.token = token; }
@@ -46,4 +51,6 @@ public class LoginVO {
     public void setMenus(List<SysMenu> menus) { this.menus = menus; }
     public Integer getIsAdmin() { return isAdmin; }
     public void setIsAdmin(Integer isAdmin) { this.isAdmin = isAdmin; }
+    public Boolean getPasswordExpired() { return passwordExpired; }
+    public void setPasswordExpired(Boolean passwordExpired) { this.passwordExpired = passwordExpired; }
 }

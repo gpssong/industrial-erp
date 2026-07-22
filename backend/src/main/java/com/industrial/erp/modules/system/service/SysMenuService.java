@@ -32,7 +32,9 @@ public class SysMenuService {
         return menuMapper.selectMenusByUserId(userId);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void add(SysMenu m) { permService.requirePerm("system:menu:add"); menuMapper.insert(m); }
+    @Transactional(rollbackFor = Exception.class)
     public void update(SysMenu m) { permService.requirePerm("system:menu:edit"); menuMapper.updateById(m); }
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {

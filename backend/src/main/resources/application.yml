@@ -2,7 +2,6 @@ server:
   port: 8080
   servlet:
     context-path: /api
-    # 强制所有响应 / 请求 Content-Type 带 charset=UTF-8, 防止 application/json 缺 charset 时浏览器按 GBK 解码中文
     encoding:
       charset: UTF-8
       force: true
@@ -11,18 +10,17 @@ server:
 spring:
   application:
     name: industrial-erp
+  # 默认 dev profile. 生产用 SPRING_PROFILES_ACTIVE=prod 切换 (docker-compose.yml 已设).
   profiles:
     active: dev
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: GMT+8
     default-property-inclusion: non_null
-    # Jackson 全局强制 UTF-8 (Spring Boot 3.x 直接通过 spring.mvc.servlet.encoding 控制即可)
   servlet:
     multipart:
       max-file-size: 100MB
       max-request-size: 100MB
-  # Spring MVC 的请求/响应编码 (Tomcat, Spring 3.2+)
   mvc:
     servlet:
       encoding:
@@ -33,23 +31,15 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${SPRING_DATASOURCE_HOST:127.0.0.1}:${SPRING_DATASOURCE_PORT:3306}/${SPRING_DATASOURCE_DB:industrial_erp}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${SPRING_DATASOURCE_USERNAME:root}
-    # ⚠️  不要写默认值. 启动时缺 SPRING_DATASOURCE_PASSWORD 会触发 'Failed to determine suitable jdbc url',
-    # 这是有意为之 — 防呆: 生产部署必须显式设置环境变量.
     password: ${SPRING_DATASOURCE_PASSWORD:}
     hikari:
       maximum-pool-size: 30
       minimum-idle: 3
-      # 空闲超时 (默认 600000 = 10 分钟). 超过此时间且池 > min-idle 时, 释放连接
       idle-timeout: 300000
-      # 连接最大生命周期 (默认 1800000 = 30 分钟). 缩短到 10 分钟, 强制回收陈旧连接
       max-lifetime: 600000
-      # 连接保活检测 (默认 0 = 关闭). 每隔 1 分钟 ping 一次数据库, 提前发现已被 MySQL 关闭的连接
       keepalive-time: 60000
-      # 获取连接超时 (默认 30000 = 30s). 缩短为 5s, 让前端能快速感知后端故障
       connection-timeout: 5000
-      # 连接测试查询 (MySQL 推荐: SELECT 1)
       connection-test-query: "SELECT 1"
-      # 泄漏检测: 超过 10 秒未关闭的连接视为泄漏, 打印警告日志
       leak-detection-threshold: 10000
       pool-name: erp-hikari
   data:
@@ -85,11 +75,6 @@ mybatis-plus:
       logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
-      # update-strategy: not_null (默认) — UPDATE 时跳过值为 null 的字段
-      # 这样 updateById(entity) 只会更新已显式 set 的字段, 避免部分更新时误清空其他字段
-      # 如需把字段更新为 null, 必须使用 UpdateWrapper 或 LambdaUpdateWrapper 显式 .set("field", null)
-      # 历史踩坑: SysUserService.updatePassword 必须只 set password + id, 不能 set 其他字段,
-      # 否则会被 not_null 策略下重新查询覆盖 (见 commit 3664898)
       update-strategy: not_null
 
 sa-token:
@@ -98,16 +83,10 @@ sa-token:
   is-concurrent: true
   is-share: true
   token-style: uuid
-  # Token 接收方式 (按优先级): header > cookie > query
-  # 配合 Response Cookie 写入 httpOnly, 避免 XSS 直接窃取 token.
   is-read-header: true
   is-read-cookie: true
   is-read-query: false
   jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:?SA_TOKEN_JWT_SECRET_KEY must be set (64+ chars random). Generate with: openssl rand -hex 32}
-  # Token Cookie 安全配置 (写到响应 Set-Cookie 头)
-  # httpOnly=true 防 XSS 直接 document.cookie 读取
-  # SameSite=Lax 防 CSRF 跨站携带
-  # Secure 留 false, 因为内网部署多用 http; 部署公网 HTTPS 时用 env override
   cookie:
     http-only: true
     secure: false
@@ -117,26 +96,21 @@ sa-token:
 erp:
   upload:
     path: ${ERP_UPLOAD_PATH:/opt/industrial-erp/upload}
-  # print.template-path 已删除 (打印模块移除)
-  # ⚠️  生产部署必须通过 ERP_CORS_ALLOWED_ORIGINS 环境变量覆盖 (见 .env.example),
-  # 默认值仅含 localhost 开发域; 不覆盖 = 浏览器跨域调用 API 失败 (有意为之, 防意外暴露).
   cors:
-    # Spring 的 allowedOrigins (因 allowCredentials=true) 不支持通配符, 必须列全具体 origin.
-    # 新加子域时同步修改 .env 的 ERP_CORS_ALLOWED_ORIGINS.
     allowed-origins: ${ERP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:8080}
   backup:
     path: ${ERP_BACKUP_PATH:${user.home}/erp-backup}
     sql-path: ${ERP_BACKUP_SQL_PATH:./sql}
     mysqldump-path: ${ERP_MYSQLDUMP:mysqldump}
     mysql-path: ${ERP_MYSQL:mysql}
-    # mysqldump 连接参数: Docker 部署下必须用容器网络名 mysql (不能用 localhost socket)
     db-host: ${ERP_DB_HOST:mysql}
     db-port: ${ERP_DB_PORT:3306}
     retention-days: ${ERP_BACKUP_RETENTION_DAYS:30}
 
+# ============ 默认 (dev) 配置 ============
 logging:
   level:
     root: INFO
-    com.industrial.erp: INFO
+    com.industrial.erp: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

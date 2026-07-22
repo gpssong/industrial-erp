@@ -263,28 +263,16 @@ async function onFeiePrint() {
 }
 
 async function loadSuppliers() {
-  loading.value = true
   try {
-    // 直接用 fetch 而不是 api.supplierList, 避免 uni.request 在 Capacitor 下的兼容问题
-    const base = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base')) || 'http://home.93gushi.com:8088/api'
-    const token = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_token')) || ''
-    const url = base + '/base/supplier/list'
-
-    const r = await fetch(url, {
-      method: 'GET',
-      headers: { 'Authorization': token }
-    })
-    const data = await r.json()
-
-    if (data && data.code === 200 && Array.isArray(data.data)) {
-      suppliers.value = data.data
-      if (suppliers.value.length > 0) {
-        supplierIdx.value = 0
-      }
+    // 走共享 api, 自动用 cookie (H5) 或兜底 token (原生 App)
+    const list = await api.supplierList()
+    suppliers.value = list || []
+    if (suppliers.value.length > 0) {
+      supplierIdx.value = 0
     }
   } catch (e) {
     // silently fail, keep empty list
-  } finally { loading.value = false }
+  }
 }
 
 async function loadWarehouses() {

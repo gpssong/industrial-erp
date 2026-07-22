@@ -74,20 +74,8 @@ public class SalDeliveryService {
     public IPage<SalDelivery> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus, String productName) {
         permService.requirePerm("sales:delivery:list");
         Page<SalDelivery> p = new Page<>(pageNum, pageSize);
-        QueryWrapper<SalDelivery> w = new QueryWrapper<>();
-        // 自定义 SQL 绕过 @TableLogic 自动过滤, 必须手动加 deleted=0
-        w.eq("d.deleted", 0);
-        if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
-        if (customerId != null) w.eq("customer_id", customerId);
-        if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);
-        // 按商品名称查询: 命中任一明细行即返回, 用 EXISTS 子查询避免 GROUP BY 性能问题
-        // 注: 主表别名是 d (SalDeliveryMapper), 故明细表必须用不同别名
-        if (StrUtil.isNotBlank(productName)) {
-            w.and(wq -> wq.apply("EXISTS (SELECT 1 FROM sal_delivery_detail dt LEFT JOIN base_product p ON p.id = dt.product_id " +
-                    "WHERE dt.delivery_id = d.id AND p.product_name LIKE CONCAT('%', {0}, '%'))", productName));
-        }
-        w.orderByDesc("id");
-        return deliveryMapper.selectPageWithProduct(p, w);
+        // productName EXISTS 子查询已下沉到 mapper XML, 避免 QueryWrapper.apply() 字符串拼接反模式 (P1-3)
+        return deliveryMapper.selectPageWithProduct(p, billNo, customerId, billStatus, productName);
     }
 
     public SalDelivery detail(Long id) {
