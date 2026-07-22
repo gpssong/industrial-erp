@@ -1,0 +1,49 @@
+# 生产环境配置 (SPRING_PROFILES_ACTIVE=prod 时加载)
+# 由 docker-compose.yml 自动激活. 本地开发时用 dev profile (默认).
+#
+# 关键差异 (vs application.yml 默认):
+# - 日志降级 (DEBUG → INFO/WARN), 减少磁盘 IO
+# - Spring Security 双防线在 SaTokenConfig 已配置 (denyAll 兜底)
+# - 不暴露 actuator 任何 web endpoint, 仅 health (具体端口由 docker-compose 控制)
+
+server:
+  # 生产走 docker 反代, 端口同 docker-compose.yml
+  port: 8080
+  # Tomcat 调优 (8G NAS): max-threads 限 100, accept-count 限 50, 避免 OOM
+  tomcat:
+    max-threads: 100
+    accept-count: 50
+    max-connections: 8192
+
+spring:
+  # 生产 multpart 限制: 商品图片 5MB (主流程), 大附件 100MB (单独接口控制)
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 100MB
+
+# Actuator 仅暴露 health (且 show-details=never, 避免泄露内部信息)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+
+logging:
+  level:
+    root: WARN
+    com.industrial.erp: INFO
+    # 框架默认 INFO 改为 WARN, 减少日志噪音
+    org.springframework: WARN
+    org.apache: WARN
+    com.baomidou.mybatisplus: WARN
+    cn.dev33.satoken: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+  file:
+    # 生产留空, 让 docker stdout/stderr 由 DSM 日志收集
+    name: ""

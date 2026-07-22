@@ -12,6 +12,7 @@ import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -45,6 +46,7 @@ public class BaseCustomerService {
     public BaseCustomer detail(Long id) { return mapper.selectById(id); }
 
     @OperLog(module="客户管理", businessType="ADD", saveParam=true)
+    @Transactional(rollbackFor = Exception.class)
     public void add(BaseCustomer c) {
         permService.requirePerm("base:customer:add");
         if (c.getStatus() == null) c.setStatus(1);
@@ -55,11 +57,13 @@ public class BaseCustomerService {
     }
 
     @OperLog(module="客户管理", businessType="EDIT", saveParam=true)
+    @Transactional(rollbackFor = Exception.class)
     public void update(BaseCustomer c) {
         permService.requirePerm("base:customer:edit");
         mapper.updateById(c);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("base:customer:delete");
         BaseCustomer c = mapper.selectById(id);

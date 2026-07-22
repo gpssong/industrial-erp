@@ -127,6 +127,7 @@ public class BaseProductService {
         saveUnits(p.getId(), units);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("base:product:delete");
         BaseProduct p = productMapper.selectById(id);

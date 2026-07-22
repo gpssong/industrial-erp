@@ -76,19 +76,8 @@ public class PurReceiptService {
     public IPage<PurReceipt> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus, String productName) {
         permService.requirePerm("purchase:receipt:list");
         Page<PurReceipt> p = new Page<>(pageNum, pageSize);
-        QueryWrapper<PurReceipt> w = new QueryWrapper<>();
-        // 自定义 SQL 绕过 @TableLogic 自动过滤, 必须手动加 deleted=0
-        w.eq("r.deleted", 0);
-        if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
-        if (supplierId != null) w.eq("supplier_id", supplierId);
-        if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);
-        // 按商品名称查询: 命中任一明细行即返回, 用 EXISTS 子查询避免 GROUP BY 性能问题
-        if (StrUtil.isNotBlank(productName)) {
-            w.and(wq -> wq.apply("EXISTS (SELECT 1 FROM pur_receipt_detail d LEFT JOIN base_product p ON p.id = d.product_id " +
-                    "WHERE d.receipt_id = r.id AND p.product_name LIKE CONCAT('%', {0}, '%'))", productName));
-        }
-        w.orderByDesc("id");
-        return receiptMapper.selectPageWithProduct(p, w);
+        // productName EXISTS 子查询已下沉到 mapper XML, 避免 QueryWrapper.apply() 字符串拼接反模式 (P1-3)
+        return receiptMapper.selectPageWithProduct(p, billNo, supplierId, billStatus, productName);
     }
 
     public PurReceipt detail(Long id) {

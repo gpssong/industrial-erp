@@ -4,7 +4,9 @@ import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -28,33 +30,71 @@ import java.util.List;
 @Configuration
 public class SaTokenConfig implements WebMvcConfigurer {
 
+    /**
+     * 业务拦截器: 默认拦截全部, 白名单 (登录/captcha/上传静态资源) 放行, 其余强制登录.
+     *
+     * <p>Knife4j / Swagger / Actuator 路径已从此白名单移除, 改由 {@link #knife4jAuthInterceptor()}
+     * 单独拦截 (要求登录 + 超级管理员), 防止公网暴露接口文档.
+     */
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new SaInterceptor(handle -> SaRouter
-                // 1. 默认拦截所有请求
                 .match("/**")
-                // 2. 白名单 (匿名访问): 注意无 /api 前缀 (context-path)
                 .notMatch(
-                        // 认证 (登录、登出由前端 store 处理，me 要求登录故不放行)
+                        // 认证 (登录、登出由前端 store 处理, me 要求登录故不放行)
                         // 注意: /auth/setpwd 已从白名单移除, 必须登录并是超管才能调用
                         "/auth/login",
                         "/auth/captcha",
                         // 上传文件 (上传 API 单独鉴权, 静态资源访问放行)
                         "/system/upload/**",
                         "/upload/**",
-                        // 文档/监控 (Knife4j / Actuator)
+                        // 静态资源与错误页 (Knife4j 改为登录后访问, 见 knife4jAuthInterceptor)
+                        "/favicon.ico",
+                        "/error"
+                )
+                .check(r -> StpUtil.checkLogin())
+        )).addPathPatterns("/**");
+
+        // Knife4j / Swagger / Actuator 单独拦截: 必须登录 + 超级管理员 (roles 包含 SUPER_ADMIN)
+        registry.addInterceptor(knife4jAuthInterceptor())
+                .addPathPatterns(
                         "/doc.html",
+                        "/v3/api-docs",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-resources/**",
                         "/webjars/**",
-                        // 静态资源与错误页
-                        "/favicon.ico",
-                        "/error"
-                )
-                // 3. 其余接口必须登录
-                .check(r -> StpUtil.checkLogin())
-        )).addPathPatterns("/**");
+                        "/actuator/**"
+                );
+    }
+
+    /**
+     * Knife4j / Swagger / Actuator 鉴权拦截器.
+     * <p>检查 session.roles 是否含 SUPER_ADMIN; 不通过返 401 JSON.
+     * <p>实现说明: 直接读 Sa-Token Session (登录时已写入 roles), 不查 DB, 性能 O(1).
+     */
+    @Bean
+    public HandlerInterceptor knife4jAuthInterceptor() {
+        return new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(jakarta.servlet.http.HttpServletRequest request,
+                                     jakarta.servlet.http.HttpServletResponse response,
+                                     Object handler) throws java.io.IOException {
+                if (StpUtil.isLogin()) {
+                    Object rolesObj = StpUtil.getSession().get("roles");
+                    if (rolesObj instanceof List<?> roles) {
+                        boolean isSuper = roles.stream()
+                                .anyMatch(r -> "SUPER_ADMIN".equals(String.valueOf(r)));
+                        if (isSuper) return true;
+                    }
+                }
+                response.setStatus(401);
+                response.setContentType("application/json;charset=UTF-8");
+                response.getWriter().write(
+                        "{\"code\":401,\"msg\":\"需要超级管理员权限才能访问 API 文档\",\"data\":null}");
+                return false;
+            }
+        };
     }
 
     /**

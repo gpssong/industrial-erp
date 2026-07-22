@@ -13,6 +13,7 @@ import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.entity.SalReturn;
 import com.industrial.erp.modules.sales.entity.SalReturnDetail;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -31,6 +32,7 @@ public class FinArapService {
     private final FinArapMapper arapMapper;
 
     /** 采购入库时生成 AP 应付 */
+    @Transactional(rollbackFor = Exception.class)
     public void createApForPurchase(PurReceipt receipt, List<PurReceiptDetail> details) {
         FinArap ap = new FinArap();
         ap.setBillType("AP");
@@ -49,6 +51,7 @@ public class FinArapService {
     }
 
     /** 销售出库时生成 AR 应收 */
+    @Transactional(rollbackFor = Exception.class)
     public void createArForSales(SalDelivery delivery, List<SalDeliveryDetail> details) {
         FinArap ar = new FinArap();
         ar.setBillType("AR");
@@ -67,6 +70,7 @@ public class FinArapService {
     }
 
     /** 采购退货 -> 反向 AP (负数, 冲减对供应商的应付) */
+    @Transactional(rollbackFor = Exception.class)
     public void reverseApForReturn(PurReturn ret) {
         FinArap ap = new FinArap();
         ap.setBillType("AP");
@@ -86,6 +90,7 @@ public class FinArapService {
     }
 
     /** 销售退货 -> 反向 AR (负数, 冲减对客户的应收) */
+    @Transactional(rollbackFor = Exception.class)
     public void reverseArForReturn(SalReturn ret) {
         FinArap ar = new FinArap();
         ar.setBillType("AR");
@@ -105,6 +110,7 @@ public class FinArapService {
 
     /** 核销: 收/付款单 -> 应收/应付 */
     @OperLog(module="应收应付", businessType="EDIT", saveParam=true)
+    @Transactional(rollbackFor = Exception.class)
     public void writeoff(Long arapId, BigDecimal amount) {
         FinArap origin = arapMapper.selectById(arapId);
         if (origin == null) throw new com.industrial.erp.exception.BizException("应收/应付单不存在");

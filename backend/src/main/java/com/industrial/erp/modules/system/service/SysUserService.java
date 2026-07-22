@@ -44,6 +44,7 @@ public class SysUserService {
         return userMapper.selectById(id);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void add(SysUser user) {
         permService.requirePerm("system:user:add");
         if (userMapper.selectByUsername(user.getUsername()) != null) {
@@ -58,6 +59,7 @@ public class SysUserService {
         userMapper.insert(user);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void update(SysUser user) {
         permService.requirePerm("system:user:edit");
         // 只更新基本信息，密码由 resetPassword 单独处理
@@ -72,11 +74,36 @@ public class SysUserService {
         userMapper.updateById(u);
     }
 
-    public void updatePassword(Long userId, String password) {
+    /**
+     * 修改指定用户的密码 (管理端). 鉴权: 仅超管或本人.
+     * <p>原实现仅校验 system:user:edit 权限, 任意用户都能改他人密码 — 严重 IDOR.
+     * 现增加本人或超管判断, 非本人必须传 oldPassword 校验.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void updatePassword(Long userId, String newPassword, String oldPassword) {
         permService.requirePerm("system:user:edit");
+        Long currentUid = com.industrial.erp.security.SecurityContext.getUserId();
+        boolean isSuperAdmin = com.industrial.erp.security.SecurityContext.isSuperAdmin();
+        boolean isSelf = currentUid != null && currentUid.equals(userId);
+        if (!isSelf && !isSuperAdmin) {
+            throw new com.industrial.erp.exception.BizException(
+                    403, "仅本人或超级管理员可重置其他用户密码");
+        }
+        // 非本人必须校验旧密码
+        if (!isSelf && isSuperAdmin) {
+            if (StrUtil.isBlank(oldPassword)) {
+                throw new com.industrial.erp.exception.BizException(
+                        400, "重置他人密码需传入目标用户的 oldPassword 二次校验");
+            }
+            SysUser target = userMapper.selectById(userId);
+            if (target == null) throw new com.industrial.erp.exception.BizException("用户不存在");
+            if (!ENCODER.matches(oldPassword, target.getPassword())) {
+                throw new com.industrial.erp.exception.BizException("旧密码校验失败");
+            }
+        }
         SysUser u = new SysUser();
         u.setId(userId);
-        u.setPassword(ENCODER.encode(password));
+        u.setPassword(ENCODER.encode(newPassword));
         userMapper.updateById(u);
     }
 
@@ -84,6 +111,7 @@ public class SysUserService {
      * 用户改自己的密码 — 校验旧密码, 不需任何权限.
      * 不知道旧密码的用户必须联系超管重置 (AuthService.setPassword).
      */
+    @Transactional(rollbackFor = Exception.class)
     public void changeOwnPassword(String oldPwd, String newPwd) {
         if (StrUtil.isBlank(oldPwd) || StrUtil.isBlank(newPwd)) {
             throw new com.industrial.erp.exception.BizException("原密码和新密码均不能为空");
@@ -114,6 +142,7 @@ public class SysUserService {
         operLogPublisher.publishDeleteSnapshot("用户管理", String.valueOf(id), u, null);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void resetPassword(Long id, String password) {
         permService.requireSuperAdmin();
         SysUser user = new SysUser();
@@ -126,6 +155,7 @@ public class SysUserService {
         return userMapper.selectRoleIdsByUserId(userId);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void assignRoles(Long userId, List<Long> roleIds) {
         permService.requirePerm("system:user:edit");
         userMapper.deleteUserRoles(userId);

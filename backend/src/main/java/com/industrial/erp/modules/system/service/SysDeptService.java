@@ -8,6 +8,7 @@ import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -34,8 +35,11 @@ public class SysDeptService {
         return deptMapper.selectList(null);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void add(SysDept d) { permService.requirePerm("system:dept:add"); if (d.getStatus()==null) d.setStatus(1); deptMapper.insert(d); }
+    @Transactional(rollbackFor = Exception.class)
     public void update(SysDept d) { permService.requirePerm("system:dept:edit"); deptMapper.updateById(d); }
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("system:dept:delete");
         SysDept d = deptMapper.selectById(id);

@@ -73,14 +73,16 @@ onMounted(() => {})
 async function onLogin() {
   try {
     const r = await api.login(form)
-    // v1.1.8+: 用 uni.setStorageSync 持久化 (原生 App 端: 内部存储, 杀进程后保留)
-    // 同时写 localStorage 兜底 H5 端
+    // v1.1.8+ 兼容模式: 后端同时返回 Bearer token + Set-Cookie (httpOnly).
+    // - Web/H5: 用 cookie (浏览器自动管理, 跨页面持久化更稳)
+    // - 原生 App (Capacitor/HBuilderX): 用 Bearer token, 因为 WebView 跨域 cookie 在某些 Android 版本下不稳
+    // 因此保留 erp_token 写入 (H5 cookie 模式不读它), 但**只用于原生 App 兜底**
     const persist = (k, v) => {
       const s = typeof v === 'string' ? v : JSON.stringify(v)
       try { if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync(k, v) } catch (e) {}
       try { localStorage.setItem(k, s) } catch (e) {}
     }
-    persist('erp_token', r.token)
+    persist('erp_token', r.token || '')
     persist('erp_user', r)
     persist('erp_permissions', r.permissions || [])
     persist('erp_menus', r.menus || [])

@@ -1,6 +1,8 @@
 services:
   mysql:
-    image: mysql:8.0
+    # 锁定 SHA256 digest (来自 NAS 实际拉取的镜像, 2026-07-22).
+    # 防止上游更新镜像引入意外变更; 升级时先 `docker pull mysql:8.0` 拿新 digest 替换.
+    image: mysql:8.0@sha256:7dcddc01f13bab2f15cde676d44d01f61fc9f99fe7785e86196dfc07d358ae2b
     container_name: erp-mysql
     restart: unless-stopped
     # NAS 部署: 不暴露 3306 到主机, 仅容器网络 erp-net 内可见.
@@ -37,7 +39,8 @@ services:
       start_period: 60s
 
   redis:
-    image: redis:7-alpine
+    # 锁定 SHA256 digest (来自 NAS 实际拉取的镜像, 2026-07-22).
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: erp-redis
     restart: unless-stopped
     # NAS 部署: 不暴露 6379 到主机, 仅容器网络 erp-net 内可见.
@@ -45,6 +48,13 @@ services:
     volumes:
       - redis-data:/data
     networks: [erp-net]
+    # 加 HEALTHCHECK + 改 backend depends_on 为 service_healthy (P1-5)
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     deploy:
       resources:
         limits:
@@ -57,8 +67,9 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      # P1-5: redis 也要等 healthy, 避免 backend 启动时 Redis 未就绪导致连接失败
       redis:
-        condition: service_started
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: prod
       # ⚠️ Spring Boot DataSource 读 spring.datasource.*, 这三个必须用 SPRING_DATASOURCE_*, 不要自定义 ERP_DB_*

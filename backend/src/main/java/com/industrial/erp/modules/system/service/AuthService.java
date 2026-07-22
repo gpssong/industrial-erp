@@ -59,6 +59,12 @@ public class AuthService {
 
     private static final BCryptPasswordEncoder ENCODER = new BCryptPasswordEncoder();
 
+    /**
+     * 默认种子密码 (sql/09_seed_data.sql). 首次登录检测到使用此密码时, 强制要求修改.
+     * <p>注意: BCrypt 同一明文每次 hash 不同 (salt), 因此不能直接比对 hash, 只能比对 ENCODER.matches.
+     */
+    private static final String DEFAULT_SEED_PASSWORD = "admin123";
+
     public Object generateCaptcha() {
         LineCaptcha captcha = CaptchaUtil.createLineCaptcha(120, 40, 4, 20);
         String key = IdUtil.fastSimpleUUID();
@@ -151,8 +157,16 @@ public class AuthService {
             vo.setMenus(menuMapper.selectMenusByUserId(user.getId()));
             vo.setIsAdmin(user.getIsAdmin());
 
+            // P1-8: 检测默认密码 — 强制要求首次登录修改密码才能继续
+            // 不能直接比对 hash (BCrypt salt 随机), 必须用 ENCODER.matches 校验
+            boolean isDefaultPwd = ENCODER.matches(DEFAULT_SEED_PASSWORD, user.getPassword());
+            vo.setPasswordExpired(isDefaultPwd);
+            if (isDefaultPwd) {
+                log.warn("[Auth] 用户 {} 仍使用默认 seed 密码, 强制改密", user.getUsername());
+            }
+
             // 记录登录成功日志
-            recordLogin(dto.getUsername(), 1, "登录成功", ip, browser, os);
+            recordLogin(dto.getUsername(), 1, isDefaultPwd ? "登录成功 (默认密码, 待修改)" : "登录成功", ip, browser, os);
             log.info("用户登录: userId={}, username={}", user.getId(), user.getUsername());
             return vo;
         } catch (BizException e) {
