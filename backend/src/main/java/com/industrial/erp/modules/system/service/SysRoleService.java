@@ -54,6 +54,7 @@ public class SysRoleService {
         roleMapper.updateById(r);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("system:role:delete");
         SysRole r = roleMapper.selectById(id);

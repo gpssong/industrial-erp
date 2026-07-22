@@ -127,6 +127,7 @@ public class PrdRequisitionService {
         reqMapper.update(null, w);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("production:requisition:delete");
         PrdRequisition req = reqMapper.selectById(id);

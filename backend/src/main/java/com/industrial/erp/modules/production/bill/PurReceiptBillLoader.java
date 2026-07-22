@@ -4,6 +4,7 @@ import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
+import com.industrial.erp.modules.base.service.ProductAttrInjector;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.entity.PurReceiptDetail;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
@@ -47,12 +48,13 @@ public class PurReceiptBillLoader implements BillLoader {
             if (w != null) bill.setWarehouseName(w.getWarehouseName());
         }
         List<PurReceiptDetail> details = detailMapper.selectByReceiptId(billId);
-        // 注入明细行色号 (飞鹅打印模板用, 从 base_product.colorNo 取)
-        for (PurReceiptDetail det : details) {
-            if (det.getProductId() != null) {
-                BaseProduct p = productMapper.selectById(det.getProductId());
-                if (p != null) det.setPColorNo(p.getColorNo());
-            }
+        // 批量注入商品色号 (避免 N+1)
+        if (!details.isEmpty()) {
+            @SuppressWarnings("unchecked")
+            List rows = (List) details;
+            ProductAttrInjector.injectColorNo(productMapper, rows,
+                    d -> ((PurReceiptDetail) d).getProductId(),
+                    (d, v) -> ((PurReceiptDetail) d).setPColorNo(v));
         }
 
         Map<String, Object> model = new HashMap<>();

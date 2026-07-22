@@ -95,3 +95,57 @@ FreeMarker 访问 order.colorNo 时:
   ```
 - 默认 API 地址: `http://home.93gushi.com:8088/api` (可被 localStorage `erp_api_base` 覆盖)
 - 路由: `app/src/pages.json`
+
+## 安全与性能优化 (v1.0.5 变更日志)
+
+### P0 — 关键安全修复
+| # | 项目 | 修改 |
+|---|---|---|
+| #58 | JWT 密钥 | 从硬编码挪入环境变量 `SA_TOKEN_JWT_SECRET_KEY` (`application.yml`, `docker-compose.yml`, `.env.example`) |
+| #59 | delete 事务保护 | 9 个 service 的 `delete()` 方法加 `@Transactional(rollbackFor=Exception.class)` |
+| #60 | Capacitor cleartext | 移除全局 cleartext 白名单，仅放行 3 个内网域名 (HTTPS)；`usesCleartextTraffic=false` |
+
+### P1 — 重要改进
+| # | 项目 | 说明 |
+|---|---|---|
+| #61 | Token → HttpOnly Cookie | Sa-Token cookie `httpOnly=true, secure=false, sameSite=Lax`; pc-web 和 app 端都已改为 cookie 自动携带 token |
+| #62 | N+1 查询批量优化 | 新建 `ProductAttrInjector.java` 工具类，用 `selectBatchIds` 替代逐行查询；5 个位置已迁移 (`PrdOrderService`, `SalDeliveryService`, `PurReceiptService`, `SalDeliveryBillLoader`, `PurReceiptBillLoader`) |
+| #63 | 单元测试 | pom.xml 加 `h2` + `embedded-redis`; `PrdOrderServiceTest` 5 个测试全部通过 (总 14 测试) |
+| #64 | 路由懒加载 | 全部 36 条路由均为 `() => import()` |
+
+### P2 — 中等优先级
+| # | 项目 | 说明 |
+|---|---|---|
+| #66 | App API 统一 | `getToken()` 返回空字符串（HttpOnly cookie 自动携带）；`fetchRequest` 用 `credentials: 'include'` |
+| #67 | 控制器防御性注解 | `AuthController.setpwd` + `SysBackupController` 5 个端点加 `@SaCheckLogin` + `@SaCheckRole("admin")` |
+| #68 | barcode-scanner 动态导入 | `@capacitor-community/barcode-scanner` 改为 `await import()` 懒加载，H5 产物减少 ~140KB |
+
+### P3 — 低优先级 / 工程优化
+| # | 项目 | 说明 |
+|---|---|---|
+| #69 | 清理调试日志 | 删掉 `in.vue` 10+ 条、`login/index.vue` 5 条 console.log |
+| #70 | Dockerfile 安全加固 | backend `USER erp` (非 root); pc-web `USER nginx`; `JAVA_OPTS` 统一到 docker-compose.yml; 创建 `.dockerignore`; pc-web/nginx 镜像 sha256 digest 锁定 (`FROM nginx:1.27-alpine@sha256:65645c7bb6a...`) |
+| #71 | Android release minify | `build.gradle` release block 设 `minifyEnabled true` + `shrinkResources true` |
+| #72 | 卸载死依赖 | pc-web: 删除 `@neutralinojs/lib`; app: 删除 `@capacitor/camera`, `html5-qrcode`, `vue-i18n` |
+
+## 环境变量要求
+
+部署前必改 `.env`:
+```bash
+# 1. MySQL 密码
+MYSQL_ROOT_PASSWORD=<你的强密码>
+SPRING_DATASOURCE_PASSWORD=<同上>
+
+# 2. JWT 签名密钥 (启动时强制要求非空)
+openssl rand -hex 32  # 生成一个随机密钥
+SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
+```
+
+## 部署前验证清单
+
+- [ ] `.env` 已设置 `MYSQL_ROOT_PASSWORD` + `SA_TOKEN_JWT_SECRET_KEY`
+- [ ] 后端 jar 已本地 `mvn package -DskipTests` 构建
+- [ ] PC Web dist 已本地 `npm run build` 构建
+- [ ] `docker compose up -d --build` 构建成功
+- [ ] 浏览器访问 `http://NAS-IP:18080` 正常
+- [ ] 登录测试: `admin` / `admin123`

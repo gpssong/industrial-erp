@@ -14,6 +14,7 @@ import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
+import com.industrial.erp.modules.base.service.ProductAttrInjector;
 import com.industrial.erp.modules.finance.service.FinArapService;
 import com.industrial.erp.modules.inventory.service.StockService;
 import com.industrial.erp.modules.purchase.entity.PurOrder;
@@ -93,14 +94,11 @@ public class PurReceiptService {
     public PurReceipt detail(Long id) {
         PurReceipt r = receiptMapper.selectById(id);
         if (r != null) r.setDetails(receiptDetailMapper.selectByReceiptId(id));
-        // 注入商品色号 (打印模板用, 从 base_product.colorNo 取)
+        // 批量注入商品色号 (避免 N+1)
         if (r != null && r.getDetails() != null) {
-            for (PurReceiptDetail det : r.getDetails()) {
-                if (det.getProductId() != null) {
-                    BaseProduct p = productMapper.selectById(det.getProductId());
-                    if (p != null) det.setPColorNo(p.getColorNo());
-                }
-            }
+            ProductAttrInjector.injectColorNo(productMapper, r.getDetails(),
+                    row -> ((PurReceiptDetail) row).getProductId(),
+                    (row, v) -> ((PurReceiptDetail) row).setPColorNo(v));
         }
         return r;
     }

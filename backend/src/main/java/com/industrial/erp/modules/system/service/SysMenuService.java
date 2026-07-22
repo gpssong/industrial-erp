@@ -7,6 +7,7 @@ import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -33,6 +34,7 @@ public class SysMenuService {
 
     public void add(SysMenu m) { permService.requirePerm("system:menu:add"); menuMapper.insert(m); }
     public void update(SysMenu m) { permService.requirePerm("system:menu:edit"); menuMapper.updateById(m); }
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("system:menu:delete");
         SysMenu m = menuMapper.selectById(id);

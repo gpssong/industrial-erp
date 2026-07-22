@@ -32,8 +32,10 @@ const service = axios.create({
 // 请求拦截
 service.interceptors.request.use(config => {
   NProgress.start()
+  // 不再显式带 Authorization header, 由浏览器自动附带 httpOnly Cookie (Sa-Token cookie)
+  // 若需要兼容老会话 (用户在旧的 header 模式登录), 仍带 header 但不影响 cookie 模式登录
   const user = useUserStore()
-  if (user.token) config.headers['Authorization'] = user.token  // Sa-Token 直接取值，不加 Bearer 前缀
+  if (user.token) config.headers['Authorization'] = user.token
   return config
 }, err => Promise.reject(err))
 

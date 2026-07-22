@@ -13,6 +13,7 @@ import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
+import com.industrial.erp.modules.base.service.ProductAttrInjector;
 import com.industrial.erp.modules.finance.service.FinArapService;
 import com.industrial.erp.modules.inventory.service.StockService;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
@@ -92,14 +93,11 @@ public class SalDeliveryService {
     public SalDelivery detail(Long id) {
         SalDelivery d = deliveryMapper.selectById(id);
         if (d != null) d.setDetails(detailMapper.selectByDeliveryId(id));
-        // 注入商品色号 (打印模板用, 从 base_product.colorNo 取)
+        // 批量注入商品色号 (避免 N+1 查询: 之前每行 selectById, 现在 selectBatchIds)
         if (d != null && d.getDetails() != null) {
-            for (SalDeliveryDetail det : d.getDetails()) {
-                if (det.getProductId() != null) {
-                    BaseProduct p = productMapper.selectById(det.getProductId());
-                    if (p != null) det.setPColorNo(p.getColorNo());
-                }
-            }
+            ProductAttrInjector.injectColorNo(productMapper, d.getDetails(),
+                    r -> ((SalDeliveryDetail) r).getProductId(),
+                    (r, v) -> ((SalDeliveryDetail) r).setPColorNo(v));
         }
         return d;
     }

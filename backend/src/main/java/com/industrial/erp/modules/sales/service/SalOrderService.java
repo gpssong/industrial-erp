@@ -109,6 +109,7 @@ public class SalOrderService {
         }
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("sales:order:delete");
         SalOrder order = orderMapper.selectById(id);

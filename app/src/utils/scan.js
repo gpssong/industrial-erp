@@ -4,18 +4,33 @@
 //   1. NativeScanner (本项目自定义) - 直接 launch CaptureActivity 全屏扫码, 100% 不被 WebView 遮挡
 //   2. BarcodeScanner (@capacitor-community) - 有 WebView 叠加 bug, 兜底
 //   3. prompt - 最低降级
+//
+// 注意: Capacitor 和 barcode-scanner 依赖只在 H5 以外环境才加载,
+//       通过动态 import()/registerPlugin 实现 tree-shaking,
+//       避免 H5 产物白浪费 ~140KB。
 import { registerPlugin } from '@capacitor/core'
-import { BarcodeScanner } from '@capacitor-community/barcode-scanner'
 
-// 注册本地原生插件 (对应 com.pengcheng.erp.NativeScannerPlugin)
 const NativeScanner = registerPlugin('NativeScanner')
+
+let BarcodeScanner = null // lazy-loaded below
+let _capacitor = null // lazy-cached Capacitor global
 
 export function isH5() {
   return typeof window !== 'undefined' && typeof document !== 'undefined'
 }
 
 export function isCapacitor() {
-  return typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform()
+  if (typeof Capacitor === 'undefined') return false
+  return Capacitor.isNativePlatform && Capacitor.isNativePlatform()
+}
+
+// 懒加载 @capacitor-community/barcode-scanner
+async function getBarcodeScanner() {
+  if (!BarcodeScanner) {
+    const mod = await import('@capacitor-community/barcode-scanner')
+    BarcodeScanner = mod.BarcodeScanner
+  }
+  return BarcodeScanner
 }
 
 export function uniScanCodeAvailable() {
@@ -26,8 +41,10 @@ export function uniScanCodeAvailable() {
 // 强制关闭摄像头 (页面切换/退出时调用, 仅对 BarcodeScanner 插件有效)
 export async function stopScan() {
   if (isCapacitor()) {
-    try { await BarcodeScanner.stopScan() } catch (e) {}
-    try { await BarcodeScanner.showBackground() } catch (e) {}
+    try {
+      const BS = await getBarcodeScanner()
+      if (BS) { await BS.stopScan(); await BS.showBackground() }
+    } catch (e) {}
   }
 }
 
@@ -47,9 +64,7 @@ export async function doScan(opts) {
   // Capacitor: 优先用本地原生 ZXing (v1.1.8+)
   if (isCapacitor()) {
     try {
-      console.log('[scan] calling NativeScanner.startScan()')
       const result = await NativeScanner.startScan()
-      console.log('[scan] NativeScanner result:', JSON.stringify(result))
       if (result && result.hasContent && result.content) {
         opts.onResult && opts.onResult(result.content)
       } else {

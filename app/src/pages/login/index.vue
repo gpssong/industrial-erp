@@ -68,15 +68,11 @@ function onResetServer() {
   alert('已恢复默认')
 }
 
-onMounted(() => {
-  console.log('[LOGIN] 页面已挂载, form=', JSON.stringify(form))
-})
+onMounted(() => {})
 
 async function onLogin() {
-  console.log('[LOGIN] 点击登录, form=', JSON.stringify(form))
   try {
     const r = await api.login(form)
-    console.log('[LOGIN] 登录成功:', r)
     // v1.1.8+: 用 uni.setStorageSync 持久化 (原生 App 端: 内部存储, 杀进程后保留)
     // 同时写 localStorage 兜底 H5 端
     const persist = (k, v) => {

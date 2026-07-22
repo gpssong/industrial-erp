@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext (HTTP) is only allowed for the three specific hosts below.
+  Everything else is HTTPS-only (enforced by Android 9+ default).
+  Remove base-config so the global default is HTTPS-only.
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
-        <trust-anchors>
-            <certificates src="system" />
-        </trust-anchors>
-    </base-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">home.93gushi.com</domain>
         <domain includeSubdomains="true">192.168.0.150</domain>

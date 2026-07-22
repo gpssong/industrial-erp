@@ -4,7 +4,6 @@
   "webDir": "dist/build/h5",
   "server": {
     "androidScheme": "http",
-    "cleartext": true,
     "allowNavigation": ["home.93gushi.com", "192.168.0.150"]
   },
   "plugins": {
@@ -13,7 +12,7 @@
     }
   },
   "android": {
-    "allowMixedContent": true
+    "allowMixedContent": false
   },
   "includePlugins": ["NativeScanner"]
 }

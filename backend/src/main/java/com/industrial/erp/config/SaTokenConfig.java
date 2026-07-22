@@ -21,6 +21,9 @@ import java.util.List;
  *
  * <p>白名单采用 <code>match("/**").notMatch(...)</code> 的规范写法,
  * 避免之前 <code>match(path, r-&gt;{})</code> 这种"action 但仍触发 check"的写法。
+ *
+ * <p>Cookie 安全配置 (httpOnly/Secure/SameSite) 在 application.yml 的 {@code sa-token.cookie} 节点声明,
+ * 由 sa-token-spring-boot-starter 自动绑定.
  */
 @Configuration
 public class SaTokenConfig implements WebMvcConfigurer {

@@ -239,14 +239,12 @@ async function onSubmit() {
       details: details,
       remark: 'App 扫码入库'
     })
-    console.log('[in.vue] purchaseReceiptAdd result:', JSON.stringify(r))
     const billNo = (r && r.billNo) || (r && r.data && r.data.billNo) || (r && r.data && typeof r.data === 'string' ? r.data : '') || ''
     submittedBillNo.value = billNo || '入库成功'
     toast('入库单已提交：' + (billNo || '成功'))
     submitted.value = true
     list.value = []
   } catch (e) {
-    console.error('提交入库失败:', e)
     toast('提交失败：' + (e.msg || (e && e.message) || '网络错误'))
   } finally { loading.value = false }
 }
@@ -267,34 +265,25 @@ async function onFeiePrint() {
 async function loadSuppliers() {
   loading.value = true
   try {
-    console.log('[in.vue] loadSuppliers started')
     // 直接用 fetch 而不是 api.supplierList, 避免 uni.request 在 Capacitor 下的兼容问题
     const base = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base')) || 'http://home.93gushi.com:8088/api'
     const token = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_token')) || ''
     const url = base + '/base/supplier/list'
-    console.log('[in.vue] fetching:', url, 'token:', token.substring(0, 20))
 
     const r = await fetch(url, {
       method: 'GET',
       headers: { 'Authorization': token }
     })
-    console.log('[in.vue] response status:', r.status)
     const data = await r.json()
-    console.log('[in.vue] response data:', JSON.stringify(data).substring(0, 200))
 
     if (data && data.code === 200 && Array.isArray(data.data)) {
       suppliers.value = data.data
       if (suppliers.value.length > 0) {
         supplierIdx.value = 0
-        console.log('[in.vue] loaded', suppliers.value.length, 'suppliers, first:', suppliers.value[0].supplierName)
-      } else {
-        console.warn('[in.vue] supplier list is empty')
       }
-    } else {
-      console.error('[in.vue] invalid response:', data)
     }
   } catch (e) {
-    console.error('[in.vue] loadSuppliers error:', e.message)
+    // silently fail, keep empty list
   } finally { loading.value = false }
 }
 
@@ -302,9 +291,7 @@ async function loadWarehouses() {
   try {
     const list = await api.warehouseList()
     warehouses.value = list || []
-    console.log('[in.vue] loaded warehouses:', warehouses.value.length)
   } catch (e) {
-    console.error('[in.vue] loadWarehouses error:', e)
     warehouses.value = []
   }
 }
