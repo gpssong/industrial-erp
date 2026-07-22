@@ -64,7 +64,8 @@ router.beforeEach(async (to, from, next) => {
   }
   // 简易权限
   if (to.meta.perm && !user.hasPerm(to.meta.perm)) {
-    console.warn('[router] 权限不足:', to.meta.perm)
+    // P1-5: 不打印 user.userInfo (生产可能含敏感字段), 仅记录路径和权限名
+    if (import.meta.env.DEV) console.warn('[router] 权限不足:', to.meta.perm)
     ElMessage.warning('无访问权限: ' + to.meta.perm)
     return next(false)
   }

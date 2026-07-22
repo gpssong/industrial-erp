@@ -42,8 +42,8 @@
         <el-table-column prop="after_qty" label="操作后" width="90" align="right" />
         <el-table-column prop="after_avg_cost" label="平均成本" width="100" align="right" />
       </el-table>
-      <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
+      <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" @size-change="loadData" :page-sizes="[10,20,50,100]" />
     </div>
   </div>
 </template>

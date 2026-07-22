@@ -266,8 +266,8 @@ function onReset() {
   query.pageNum = 1
   loadData()
 }
-async function loadBomList() { if (bomList.value.length === 0) bomList.value = (await bomApi.page({ pageNum: 1, pageSize: 999 })).data?.records || [] }
-async function loadProductList() { if (productList.value.length === 0) { const r = await productApi.page({ pageNum: 1, pageSize: 9999 }); productList.value = r.data?.records || [] } }
+async function loadBomList() { if (bomList.value.length === 0) bomList.value = (await bomApi.page({ pageNum: 1, pageSize: 200 })).data?.records || [] }
+async function loadProductList() { if (productList.value.length === 0) { const r = await productApi.page({ pageNum: 1, pageSize: 200 }); productList.value = r.data?.records || [] } }
 async function loadWarehouses() { if (warehouses.value.length === 0) warehouses.value = (await warehouseApi.list()).data || [] }
 
 async function onEdit(row) {
@@ -341,6 +341,13 @@ async function onSubmit() {
 }
 
 async function onRelease(row) {
+  // P1-6: 开工会自动展开 BOM 生成领料单, 关键操作必须二次确认
+  try {
+    await ElMessageBox.confirm(
+      `确认开工生产单 ${row.billNo}?\n\n开工后将:\n• 自动展开 BOM 生成领料单\n• 单据状态变为生产中, 不可再修改\n`,
+      '开工确认', { type: 'warning', confirmButtonText: '确认开工', cancelButtonText: '取消' }
+    )
+  } catch { return }
   await prdOrderApi.release(row.id)
   ElMessage.success('已开工, 自动生成领料单')
   loadData()

@@ -243,7 +243,8 @@ async function loadOrder(id) {
 async function loadProductList() {
   loading.value = true
   try {
-    const r = await api.productPage({ pageNum: 1, pageSize: 9999 })
+    // P1-9: 后端 maxLimit=200, 传 9999 会被截断. 改 200 + 用户搜索时再远程拉
+    const r = await api.productPage({ pageNum: 1, pageSize: 200 })
     // api.productPage 返回的是 PageResult 对象 {records, total}, 需要取 records 数组
     productList.value = (r && r.records) || (Array.isArray(r) ? r : [])
   } catch (e) {

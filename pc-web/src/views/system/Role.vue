@@ -88,7 +88,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import { roleApi, menuApi } from '@/api/system'
 import { userApi } from '@/api/system'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const query = reactive({ pageNum: 1, pageSize: 20, roleName: '' })
 const data = ref({ records: [], total: 0 })
@@ -164,6 +164,25 @@ async function submitForm() {
 }
 
 async function handleDelete(row) {
+  // P1-7: 角色删除影响该角色下所有用户的权限, 必须二次确认
+  const userCount = row.userCount || 0
+  const warnText = userCount > 0
+    ? `确认删除角色 "${row.roleName}"?\n\n该角色下当前有 ${userCount} 个用户, 删除后这些用户的权限将被取消.`
+    : `确认删除角色 "${row.roleName}"?`
+  try {
+    await ElMessageBox.confirm(warnText, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      // 用户多时要求输入角色名二次确认
+      ...(userCount > 0 ? {
+        inputValue: '',
+        inputPlaceholder: `请输入角色名 "${row.roleName}" 以确认`,
+        inputValidator: (val) => val === row.roleName || '角色名不正确',
+        inputErrorMessage: '角色名不正确'
+      } : {})
+    })
+  } catch { return }
   try {
     await roleApi.delete(row.id)
     ElMessage.success('删除成功')
@@ -192,7 +211,7 @@ async function openPermDialog(row) {
 
   // 加载所有用户
   if (allUsers.value.length === 0) {
-    const r = await userApi.page({ pageNum: 1, pageSize: 999 })
+    const r = await userApi.page({ pageNum: 1, pageSize: 200 })
     allUsers.value = (r.data?.records || [])
   }
 

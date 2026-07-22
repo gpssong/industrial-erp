@@ -58,7 +58,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <el-pagination class="pager" background layout="total, prev, pager, next"
+          <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
             :total="Number(operData.total)" v-model:current-page="operQuery.pageNum"
             v-model:page-size="operQuery.pageSize" @current-change="loadOperLog" />
         </div>
@@ -105,7 +105,7 @@
             <el-table-column prop="msg" label="消息" show-overflow-tooltip />
             <el-table-column prop="loginTime" label="登录时间" width="160" />
           </el-table>
-          <el-pagination class="pager" background layout="total, prev, pager, next"
+          <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
             :total="Number(loginData.total)" v-model:current-page="loginQuery.pageNum"
             v-model:page-size="loginQuery.pageSize" @current-change="loadLoginLog" />
         </div>

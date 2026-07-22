@@ -102,10 +102,22 @@ function onClear() {
 }
 
 function onSubmit() {
-  const confirm = (typeof uni !== 'undefined' && uni.showModal)
-    ? new Promise(resolve => uni.showModal({ title: '提交盘点', content: '将在服务器端生成盘点单', success: r => resolve(r.confirm) }))
-    : Promise.resolve(window.confirm('确定提交盘点?'))
-  confirm.then(ok => { if (ok) { toast('已提交'); list.value = [] } })
+  // P0-5: 之前直接 toast('已提交') + 清空 list, 但**没有调任何 API**, 操作员以为盘点已入账, 数据被本地丢弃.
+  // 现说明此功能未接入后端, 防止误以为已完成.
+  const tip = typeof uni !== 'undefined' && uni.showModal
+    ? new Promise(resolve => uni.showModal({
+        title: '盘点功能暂未上线',
+        content: '当前版本盘点未对接后端 API, 点击确认仅清空本地列表, 数据不会保存到服务器.\n如需使用盘点功能, 请联系开发对接 /api/inventory/check 接口.',
+        showCancel: false,
+        success: r => resolve(r.confirm)
+      }))
+    : Promise.resolve(window.confirm('盘点功能暂未上线, 当前仅清空本地列表, 数据不会保存. 是否继续?'))
+  tip.then(ok => {
+    if (ok) {
+      toast('已清空本地盘点列表 (未上传服务器)')
+      list.value = []
+    }
+  })
 }
 
 // 退出页面时关闭摄像头

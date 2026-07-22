@@ -128,7 +128,9 @@ async function onLogin() {
       router.replace('/dashboard')
     }
   } catch (e) {
-    console.error(e)
+    // P1-5: 生产环境不打印完整 AxiosError (含请求体 = 登录用户名密码)
+    if (import.meta.env.DEV) console.error('[LOGIN_ERR]', e)
+    // 业务错误由 request.js 拦截器弹 ElMessage.error, 此处无需重复
   } finally {
     loading.value = false
   }

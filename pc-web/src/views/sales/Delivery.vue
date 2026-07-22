@@ -274,7 +274,7 @@ const { taxSeparation, loadTaxSeparation } = useTaxSeparation()
 
 async function loadCustomers() {
   if (customers.value.length === 0) {
-    customers.value = (await customerApi.page({ pageNum: 1, pageSize: 500 })).data.records
+    customers.value = (await customerApi.page({ pageNum: 1, pageSize: 200 })).data.records
   }
 }
 
@@ -329,9 +329,22 @@ function addLine() {
   }
 }
 
+// P2-2: 远程商品搜索加 250ms debounce + 序号校验, 防止连续按键产生多次请求 / 旧响应覆盖新结果
+let searchProductTimer = null
+let productSearchSeq = 0
 async function searchProduct(kw) {
-  const r = await productApi.page({ pageNum: 1, pageSize: 20, keyword: kw })
-  productList.value = r.data.records
+  if (searchProductTimer) clearTimeout(searchProductTimer)
+  searchProductTimer = setTimeout(async () => {
+    const mySeq = ++productSearchSeq
+    try {
+      const r = await productApi.page({ pageNum: 1, pageSize: 20, keyword: kw })
+      // 序号校验: 期间用户又输入了新关键词, 丢弃这次响应
+      if (mySeq !== productSearchSeq) return
+      productList.value = r.data.records || []
+    } catch (e) {
+      if (mySeq === productSearchSeq) productList.value = []
+    }
+  }, 250)
 }
 
 async function onProductChange(row, v) {
@@ -561,6 +574,13 @@ async function onDelete(row) {
 }
 
 async function onCheck(row) {
+  // P1-6: 审核会扣减库存并生成应收, 关键操作必须二次确认
+  try {
+    await ElMessageBox.confirm(
+      `确认审核出库单 ${row.billNo}?\n\n审核后将:\n• 扣减库存\n• 生成应收 (AP → 客户)\n• 单据不可再修改\n`,
+      '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' }
+    )
+  } catch { return }  // 用户取消
   await salDeliveryApi.check(row.id)
   ElMessage.success('审核成功, 已扣减库存 / 生成应收')
   loadData()

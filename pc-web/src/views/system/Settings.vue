@@ -63,8 +63,8 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
+      <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" @size-change="loadData" :page-sizes="[10,20,50,100]" />
     </div>
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑配置' : '新增配置'" width="500px" destroy-on-close>

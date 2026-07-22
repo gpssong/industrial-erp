@@ -160,7 +160,7 @@ const { taxSeparation, loadTaxSeparation } = useTaxSeparation()
 
 async function loadSuppliers() {
   if (suppliers.value.length === 0) {
-    suppliers.value = (await supplierApi.page({ pageNum: 1, pageSize: 500 })).data.records
+    suppliers.value = (await supplierApi.page({ pageNum: 1, pageSize: 200 })).data.records
   }
 }
 
@@ -188,7 +188,7 @@ async function onAdd() {
   form.id = null; form.details = []
   await loadSuppliers()
   warehouses.value = (await warehouseApi.list()).data
-  products.value = (await productApi.page({ pageNum: 1, pageSize: 100 })).data.records
+  products.value = (await productApi.page({ pageNum: 1, pageSize: 200 })).data.records
   supplierHistory.value = []   // v1.1.7+ 重置历史采购
   dialogVisible.value = true
 }
@@ -292,7 +292,7 @@ async function onSave() {
 async function onEdit(row) {
   await loadSuppliers()
   warehouses.value = (await warehouseApi.list()).data
-  products.value = (await productApi.page({ pageNum: 1, pageSize: 100 })).data.records
+  products.value = (await productApi.page({ pageNum: 1, pageSize: 200 })).data.records
   const detail = await purReceiptApi.detail(row.id)
   // 把后台返回的对象合并进 form, 保留响应式
   Object.assign(form, detail.data)
@@ -312,6 +312,13 @@ async function onDelete(row) {
 }
 
 async function onCheck(row) {
+  // P1-6: 采购入库审核会增加库存和成本, 关键操作必须二次确认
+  try {
+    await ElMessageBox.confirm(
+      `确认审核采购入库单 ${row.billNo}?\n\n审核后将:\n• 增加库存\n• 更新商品成本\n• 生成应付 (AP → 供应商)\n`,
+      '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' }
+    )
+  } catch { return }
   try {
     await purReceiptApi.check(row.id); ElMessage.success('审核成功, 库存+成本已更新'); loadData()
   } catch (e) {

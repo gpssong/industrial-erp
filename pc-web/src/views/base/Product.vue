@@ -188,7 +188,7 @@ const formRef = ref()
 const bomList = ref([])
 const loadBomList = async () => {
   try {
-    const r = await bomApi.page({ pageNum: 1, pageSize: 9999 })
+    const r = await bomApi.page({ pageNum: 1, pageSize: 200 })
     bomList.value = (r.data && r.data.records) || []
   } catch (e) { /* 静默 */ }
 }
