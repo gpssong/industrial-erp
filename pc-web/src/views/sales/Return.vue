@@ -118,9 +118,9 @@ async function loadData() {
 async function onAdd() {
   loadTaxSeparation()
   form.id = null; form.details = []
-  customers.value = (await customerApi.page({ pageNum: 1, pageSize: 500 })).data.records
+  customers.value = (await customerApi.page({ pageNum: 1, pageSize: 200 })).data.records
   warehouses.value = (await warehouseApi.list()).data
-  products.value = (await productApi.page({ pageNum: 1, pageSize: 100 })).data.records
+  products.value = (await productApi.page({ pageNum: 1, pageSize: 200 })).data.records
   dialogVisible.value = true
 }
 
@@ -157,6 +157,13 @@ async function onSave() {
 }
 
 async function onCheck(row) {
+  // P1-6: 销售退货审核会回滚库存并冲减应收, 关键操作必须二次确认
+  try {
+    await ElMessageBox.confirm(
+      `确认审核销售退货单 ${row.billNo}?\n\n审核后将:\n• 库存回滚 (退回到仓库)\n• 冲减该客户的应收余额\n`,
+      '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' }
+    )
+  } catch { return }
   try {
     await salReturnApi.check(row.id); ElMessage.success('审核成功, 库存已回滚并冲减应收'); loadData()
   } catch (e) {

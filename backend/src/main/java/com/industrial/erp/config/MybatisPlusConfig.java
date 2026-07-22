@@ -24,9 +24,10 @@ public class MybatisPlusConfig {
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        // 分页
+        // 分页 — P1-9: maxLimit=200 (之前 500). 防止前端误用 9999 一次拉所有数据导致 OOM.
+        // overflow=false: 超出 pageSize * maxLimit 直接报错, 不再静默 offset 到最后
         PaginationInnerInterceptor pagination = new PaginationInnerInterceptor(DbType.MYSQL);
-        pagination.setMaxLimit(500L);
+        pagination.setMaxLimit(200L);
         pagination.setOverflow(false);
         interceptor.addInnerInterceptor(pagination);
         // 乐观锁

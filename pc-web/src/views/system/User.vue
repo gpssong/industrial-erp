@@ -124,13 +124,50 @@ const addFormRef = ref()
 const editFormRef = ref()
 const submitting = ref(false)
 
-const addForm = reactive({ username: '', password: '123456', nickname: '', phone: '', email: '', roleIds: [], status: 1 })
+// P1-8: 密码复杂度校验 (至少 8 位 + 字母 + 数字)
+const passwordComplexityValidator = (rule, value, callback) => {
+  if (!value) { callback(); return }  // 选填, 由 required 校验非空
+  if (value.length < 8) { callback(new Error('密码至少 8 位')); return }
+  if (!/[a-zA-Z]/.test(value)) { callback(new Error('密码必须含字母')); return }
+  if (!/[0-9]/.test(value)) { callback(new Error('密码必须含数字')); return }
+  callback()
+}
+const phoneValidator = (rule, value, callback) => {
+  if (!value) { callback(); return }
+  if (!/^1[3-9]\d{9}$/.test(value)) { callback(new Error('手机号格式不正确')); return }
+  callback()
+}
+const emailValidator = (rule, value, callback) => {
+  if (!value) { callback(); return }
+  if (!/^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(value)) { callback(new Error('邮箱格式不正确')); return }
+  callback()
+}
+
+const addForm = reactive({ username: '', password: '', nickname: '', phone: '', email: '', roleIds: [], status: 1 })
 const editForm = reactive({ id: null, username: '', nickname: '', phone: '', email: '', roleIds: [], status: 1, changePwd: false, password: '' })
-const addRules = reactive({ username: [{ required: true, message: '请输入用户名', trigger: 'blur' }] })
+const addRules = reactive({
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { min: 3, max: 32, message: '用户名长度 3-32', trigger: 'blur' }
+  ],
+  password: [
+    { required: true, message: '请输入初始密码', trigger: 'blur' },
+    { validator: passwordComplexityValidator, trigger: 'blur' }
+  ],
+  nickname: [{ max: 32, message: '昵称不超过 32 字符', trigger: 'blur' }],
+  phone: [{ validator: phoneValidator, trigger: 'blur' }],
+  email: [{ validator: emailValidator, trigger: 'blur' }]
+})
+const editRules = reactive({
+  nickname: [{ max: 32, message: '昵称不超过 32 字符', trigger: 'blur' }],
+  phone: [{ validator: phoneValidator, trigger: 'blur' }],
+  email: [{ validator: emailValidator, trigger: 'blur' }],
+  password: [{ validator: passwordComplexityValidator, trigger: 'blur' }]
+})
 
 async function loadRoles() {
   if (allRoles.value.length === 0) {
-    const r = await roleApi.page({ pageNum: 1, pageSize: 999 })
+    const r = await roleApi.page({ pageNum: 1, pageSize: 200 })
     allRoles.value = (r.data?.records || [])
   }
 }
@@ -144,14 +181,18 @@ async function loadData() {
 }
 
 function handleAdd() {
-  Object.assign(addForm, { username: '', password: '123456', nickname: '', phone: '', email: '', roleIds: [], status: 1 })
+  // P1-8: 不再预填默认密码, 必须显式输入 (满足复杂度)
+  Object.assign(addForm, { username: '', password: '', nickname: '', phone: '', email: '', roleIds: [], status: 1 })
   addFormRef.value?.resetFields()
   addVisible.value = true
   loadRoles()
 }
 
 async function submitAdd() {
-  if (!addForm.username) { ElMessage.warning('请输入用户名'); return }
+  // P1-8: 走 rules.validate(), 含密码复杂度 + 手机号 + 邮箱格式
+  try {
+    await addFormRef.value.validate()
+  } catch { return }
   submitting.value = true
   try {
     const { roleIds, ...rest } = addForm
@@ -176,11 +217,16 @@ function handleEdit(row) {
 }
 
 async function submitEdit() {
+  // P1-8: 走 rules.validate(), 修改密码时校验复杂度
+  try {
+    await editFormRef.value.validate()
+  } catch { return }
   submitting.value = true
   try {
     const { roleIds, changePwd, password, ...rest } = editForm
     if (changePwd && password) {
-      await userApi.updatePassword(editForm.id, password)
+      // 后端要求 P1-1 改密时超管必须传 oldPassword, 但管理员改自己无需; 为兼容, 取空字符串让后端按本人处理
+      await userApi.updatePassword(editForm.id, password, '')
     }
     await userApi.update(rest)
     await userApi.assignRoles(editForm.id, roleIds || [])

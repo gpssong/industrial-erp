@@ -118,9 +118,9 @@ async function loadData() {
 async function onAdd() {
   loadTaxSeparation()
   form.id = null; form.details = []
-  suppliers.value = (await supplierApi.page({ pageNum: 1, pageSize: 500 })).data.records
+  suppliers.value = (await supplierApi.page({ pageNum: 1, pageSize: 200 })).data.records
   warehouses.value = (await warehouseApi.list()).data
-  products.value = (await productApi.page({ pageNum: 1, pageSize: 100 })).data.records
+  products.value = (await productApi.page({ pageNum: 1, pageSize: 200 })).data.records
   dialogVisible.value = true
 }
 
@@ -157,6 +157,13 @@ async function onSave() {
 }
 
 async function onCheck(row) {
+  // P1-6: 采购退货审核会扣减库存并冲减应付, 关键操作必须二次确认
+  try {
+    await ElMessageBox.confirm(
+      `确认审核采购退货单 ${row.billNo}?\n\n审核后将:\n• 扣减库存\n• 冲减该供应商的应付余额\n`,
+      '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' }
+    )
+  } catch { return }
   try {
     await purReturnApi.check(row.id); ElMessage.success('审核成功, 库存已扣减并冲减应付'); loadData()
   } catch (e) {

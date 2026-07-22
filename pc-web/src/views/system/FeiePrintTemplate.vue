@@ -346,7 +346,7 @@ const form = reactive({
 async function loadData() {
   loading.value = true
   try {
-    const params = { pageNum: 1, pageSize: 9999 }
+    const params = { pageNum: 1, pageSize: 200 }
     if (filterBizType.value) params.bizType = filterBizType.value
     if (filterPrinterId.value) params.printerConfigId = filterPrinterId.value
     const r = await feiePrintApi.templatePage(params)

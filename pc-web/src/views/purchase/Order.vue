@@ -123,7 +123,7 @@ async function loadData() {
 async function loadOptions() {
   if (suppliers.value.length === 0) suppliers.value = (await supplierApi.list()).data || []
   if (warehouses.value.length === 0) warehouses.value = (await warehouseApi.list()).data || []
-  if (products.value.length === 0) products.value = (await productApi.page({ pageNum: 1, pageSize: 999 })).data?.records || []
+  if (products.value.length === 0) products.value = (await productApi.page({ pageNum: 1, pageSize: 200 })).data?.records || []
 }
 
 function onAdd() {

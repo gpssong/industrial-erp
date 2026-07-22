@@ -21,8 +21,8 @@
         <el-table-column prop="totalCost" label="总成本" width="120" align="right" />
         <el-table-column prop="lastInDate" label="最后入库" width="110" />
       </el-table>
-      <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
+      <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
+        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" @size-change="loadData" :page-sizes="[10,20,50,100]" />
     </div>
   </div>
 </template>

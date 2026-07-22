@@ -26,7 +26,10 @@ if (_resolvedBase !== apiBase) {
 
 const service = axios.create({
   baseURL: apiBase,
-  timeout: 30000
+  timeout: 30000,
+  // P1-2: 允许跨域请求带 Cookie (httpOnly SameSite=Lax)
+  // 同源部署 (反代 /api) 时此参数无影响; 用户在登录页配置远程 API 时才真正需要
+  withCredentials: true
 })
 
 // 请求拦截
@@ -71,13 +74,15 @@ service.interceptors.response.use(res => {
     handle401()
     return Promise.reject(err)
   }
-  // HTTP 层 403/500 等: 把完整 URL / status / 后端 R.msg 都打到 console,
-  // 便于排查 "Failed to load resource" 类的纯浏览器原生错误 (例如反代层 403)
+  // P1-5: 错误日志脱敏 — 生产环境仅记错误码/HTTP/请求路径, 不打请求体/userInfo/cookie
   if (err.response) {
-    const url = (err.config?.baseURL || '') + (err.config?.url || '')
-    const code = err.response.data?.code
-    const msg = err.response.data?.msg || err.response.data?.message
-    console.error('[HTTP_ERR]', err.response.status, url, '| code:', code, '| msg:', msg)
+    if (import.meta.env.DEV) {
+      const url = (err.config?.baseURL || '') + (err.config?.url || '')
+      const code = err.response.data?.code
+      const msg = err.response.data?.msg || err.response.data?.message
+      console.error('[HTTP_ERR]', err.response.status, url, '| code:', code, '| msg:', msg)
+    }
+    // 生产环境只记录最小信息到 Sentry/后端日志, 不暴露请求细节
   }
   ElMessage.error(
     err.code === 'ERR_NETWORK' ? '无法连接服务器, 请在登录页底部「服务器连接设置」中检查 API 地址'

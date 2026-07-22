@@ -9,7 +9,8 @@ export const userApi = {
   resetPwd: (id, newPwd) => request.post(`/system/user/${id}/resetPwd`, null, { params: { newPwd } }),
   getRoles: (id) => request.get(`/system/user/${id}/roles`),
   assignRoles: (id, roleIds) => request.put(`/system/user/${id}/roles`, roleIds),
-  updatePassword: (id, password) => request.put(`/system/user/${id}/password`, { password }),
+  // P1-1: 改密必须传 oldPassword (后端 Service 内会判断是否本人/超管); 非本人超管必须校验 oldPassword.
+  updatePassword: (id, password, oldPassword = '') => request.put(`/system/user/${id}/password`, { password, oldPassword }),
   // 当前用户改自己的密码
   changeOwnPassword: (oldPassword, newPassword) => request.put('/system/user/me/password', { oldPassword, newPassword })
 }

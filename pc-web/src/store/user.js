@@ -26,25 +26,54 @@ export const useUserStore = defineStore('user', {
   actions: {
     async loginAction(data) {
       const r = await login(data)
-      // token 由后端 Set-Cookie 写入, 此处不再保存 to localStorage
+      // token 由后端 Set-Cookie 写入, 此处不再保存到 localStorage
       this.token = ''
-      this.userInfo = r.data
-      this.permissions = r.data.permissions || []
-      this.menus = r.data.menus || []
-      localStorage.setItem('erp_user_info', JSON.stringify(r.data))
-      localStorage.setItem('erp_permissions', JSON.stringify(this.permissions))
-      localStorage.setItem('erp_menus', JSON.stringify(this.menus))
-      return r.data
+      // P0-2: 仅持久化必要字段, **不存 token/tokenName/password** — 防止 XSS/扩展/本机读取窃取会话
+      const safeUser = {
+        userId: r.data.userId,
+        username: r.data.username,
+        nickname: r.data.nickname,
+        avatar: r.data.avatar,
+        deptId: r.data.deptId,
+        deptName: r.data.deptName,
+        roles: r.data.roles || [],
+        permissions: r.data.permissions || [],
+        menus: r.data.menus || [],
+        isAdmin: r.data.isAdmin,
+        passwordExpired: r.data.passwordExpired || false  // P1-8 默认密码标志
+      }
+      this.userInfo = safeUser
+      this.permissions = safeUser.permissions
+      this.menus = safeUser.menus
+      localStorage.setItem('erp_user_info', JSON.stringify(safeUser))
+      localStorage.setItem('erp_permissions', JSON.stringify(safeUser.permissions))
+      localStorage.setItem('erp_menus', JSON.stringify(safeUser.menus))
+      return safeUser
     },
     async fetchMe() {
       const r = await me()
-      this.userInfo = r.data
-      this.permissions = r.data.permissions || []
-      this.menus = r.data.menus || []
-      localStorage.setItem('erp_user_info', JSON.stringify(r.data))
-      localStorage.setItem('erp_permissions', JSON.stringify(this.permissions))
-      localStorage.setItem('erp_menus', JSON.stringify(this.menus))
-      return r.data
+      // /me 返回的是完整 userInfo (含 passwordExpired); 同样按白名单字段持久化
+      const d = r.data || r
+      const safeUser = {
+        userId: d.userId,
+        username: d.username,
+        nickname: d.nickname,
+        avatar: d.avatar,
+        deptId: d.deptId,
+        deptName: d.deptName,
+        roles: d.roles || [],
+        permissions: d.permissions || [],
+        menus: d.menus || [],
+        isAdmin: d.isAdmin,
+        passwordExpired: d.passwordExpired || false
+      }
+      this.userInfo = safeUser
+      this.permissions = safeUser.permissions
+      this.menus = safeUser.menus
+      localStorage.setItem('erp_user_info', JSON.stringify(safeUser))
+      localStorage.setItem('erp_permissions', JSON.stringify(safeUser.permissions))
+      localStorage.setItem('erp_menus', JSON.stringify(safeUser.menus))
+      return safeUser
     },
     async logoutAction() {
       try { await logout() } catch (e) {}
