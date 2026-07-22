@@ -1,0 +1,19 @@
+# pc-web Docker ignore
+node_modules/
+dist/
+.env
+*.md
+.git/
+.gitignore
+.vscode/
+.idea/
+*.iml
+.DS_Store
+src/
+*.config.js
+*.config.ts
+vite.config.js
+package.json
+package-lock.json
+README.md
+.dockerignore

@@ -18,10 +18,9 @@ function getBase() {
 }
 
 function getToken() {
-  try {
-    if (typeof uni !== 'undefined' && uni.getStorageSync) return uni.getStorageSync('erp_token')
-    return localStorage.getItem('erp_token')
-  } catch (e) { return null }
+  // v1.1.8+: Token 由后端 Set-Cookie (httpOnly, SameSite=Lax) 自动管理.
+  // uni.request 和 fetch 在同源场景下自动附带 cookie, 此处不再从 storage 读 token.
+  return ''
 }
 
 function request({ url, method = 'GET', data = {}, contentType }) {
@@ -31,11 +30,12 @@ function request({ url, method = 'GET', data = {}, contentType }) {
   // H5 环境 (浏览器预览): uni.request 不可用, 退化为原生 fetch
   // 检测方式: typeof uni.request !== 'function'
   if (typeof uni === 'undefined' || typeof uni.request !== 'function') {
-    return fetchRequest(base + url, method, data, token, contentType)
+    return fetchRequest(base + url, method, data)
   }
 
   // 真机/小程序环境: 用 uni.request
-  const header = { 'Authorization': token || '' }
+  // 不显式带 Authorization header, 由浏览器/Capacitor WebView 自动附带 httpOnly cookie.
+  const header = {}
   if (contentType === 'json') header['Content-Type'] = 'application/json'
   return new Promise((resolve, reject) => {
     uni.request({
@@ -43,13 +43,13 @@ function request({ url, method = 'GET', data = {}, contentType }) {
       method,
       data,
       header,
+      // 跨域请求时也允许带 cookie (httpOnly SameSite=Lax cookie)
+      withCredentials: true,
       success: (res) => {
         const d = res.data
         if (d.code === 200) resolve(d.data)
         else if (d.code === 401) {
-          // 401: 清理所有登录相关缓存 (不只是 token, 还有用户信息/菜单/权限)
-          try { uni.removeStorageSync('erp_token') } catch (e) {}
-          try { localStorage.removeItem('erp_token') } catch (e) {}
+          // 401: 清理用户信息/菜单/权限缓存 (token 由 cookie 管理, 不在 JS 端)
           try { uni.removeStorageSync('erp_user') } catch (e) {}
           try { uni.removeStorageSync('erp_menus') } catch (e) {}
           try { uni.removeStorageSync('erp_permissions') } catch (e) {}
@@ -69,21 +69,18 @@ function request({ url, method = 'GET', data = {}, contentType }) {
 }
 
 // H5 (浏览器) 环境的 fetch 实现, 与 uni.request 行为一致
-function fetchRequest(url, method, data, token) {
+function fetchRequest(url, method, data) {
   return fetch(url, {
     method,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': token || ''
-    },
+    credentials: 'include',  // httpOnly cookie
+    headers: { 'Content-Type': 'application/json' },
     body: data && method !== 'GET' ? JSON.stringify(data) : undefined
   })
   .then(r => r.json())
   .then(d => {
     if (d.code === 200) return d.data
     if (d.code === 401) {
-      // 401: 清理所有登录相关缓存
-      try { localStorage.removeItem('erp_token') } catch (e) {}
+      // 401: 清理用户信息/菜单/权限缓存 (token 由 cookie 管理)
       try { localStorage.removeItem('erp_user') } catch (e) {}
       try { localStorage.removeItem('erp_menus') } catch (e) {}
       try { localStorage.removeItem('erp_permissions') } catch (e) {}

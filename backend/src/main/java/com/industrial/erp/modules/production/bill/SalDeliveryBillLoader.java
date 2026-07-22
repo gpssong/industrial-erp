@@ -4,6 +4,7 @@ import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
+import com.industrial.erp.modules.base.service.ProductAttrInjector;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
@@ -44,12 +45,13 @@ public class SalDeliveryBillLoader implements BillLoader {
         if (bill == null) throw BizException.of("销售出库单不存在: id=" + billId);
         injectTransient(bill);
         List<SalDeliveryDetail> details = detailMapper.selectByDeliveryId(billId);
-        // 注入明细行色号 (飞鹅打印模板用, 从 base_product.colorNo 取)
-        for (SalDeliveryDetail det : details) {
-            if (det.getProductId() != null) {
-                BaseProduct p = productMapper.selectById(det.getProductId());
-                if (p != null) det.setPColorNo(p.getColorNo());
-            }
+        // 批量注入商品色号 (避免 N+1)
+        if (!details.isEmpty()) {
+            @SuppressWarnings("unchecked")
+            List rows = (List) details;
+            ProductAttrInjector.injectColorNo(productMapper, rows,
+                    d -> ((SalDeliveryDetail) d).getProductId(),
+                    (d, v) -> ((SalDeliveryDetail) d).setPColorNo(v));
         }
 
         Map<String, Object> model = new HashMap<>();

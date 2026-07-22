@@ -89,6 +89,7 @@ public class SysPrintTemplateService {
         mapper.updateById(t);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("system:print:delete");
         SysPrintTemplate t = mapper.selectById(id);

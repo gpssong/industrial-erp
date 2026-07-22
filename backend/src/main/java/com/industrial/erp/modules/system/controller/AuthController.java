@@ -4,6 +4,8 @@ import com.industrial.erp.common.R;
 import com.industrial.erp.modules.system.dto.LoginDTO;
 import com.industrial.erp.modules.system.service.AuthService;
 import com.industrial.erp.modules.system.vo.LoginVO;
+import cn.dev33.satoken.annotation.SaCheckLogin;
+import cn.dev33.satoken.annotation.SaCheckRole;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,8 +48,13 @@ public class AuthController {
         return R.ok(authService.generateCaptcha());
     }
 
+    /**
+     * 设置密码 (临时接口, 仅限 admin 角色使用).
+     */
     @Operation(summary = "设置密码(临时)")
     @PostMapping("/setpwd")
+    @SaCheckLogin
+    @SaCheckRole("admin")
     public R<Void> setpwd(@RequestBody LoginDTO dto) {
         authService.setPassword(dto.getUsername(), dto.getPassword());
         return R.ok();

@@ -104,6 +104,7 @@ public class SysUserService {
         userMapper.updateById(upd);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("system:user:del");
         SysUser u = userMapper.selectById(id);

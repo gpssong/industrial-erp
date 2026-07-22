@@ -11,6 +11,7 @@ import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SysConfigService {
@@ -47,6 +48,7 @@ public class SysConfigService {
         configMapper.updateById(c);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("system:config:delete");
         SysConfig c = configMapper.selectById(id);

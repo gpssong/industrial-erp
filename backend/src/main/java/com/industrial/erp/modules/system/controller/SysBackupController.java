@@ -35,14 +35,24 @@ public class SysBackupController {
         return R.ok(PageResult.of(p));
     }
 
+    /**
+     * 执行备份（仅限超级管理员）.
+     */
     @PostMapping("/manual")
+    @SaCheckLogin
+    @SaCheckRole("admin")
     public R<String> manualBackup() {
         permService.requireSuperAdmin();
         String name = backupService.backup(2);
         return R.ok(name);
     }
 
+    /**
+     * 恢复备份数据（仅限超级管理员）.
+     */
     @PostMapping("/restore/{id}")
+    @SaCheckLogin
+    @SaCheckRole("admin")
     public R<Void> restore(@PathVariable Long id) {
         permService.requireSuperAdmin();
         SysBackupRecord r = recordService.getById(id);
@@ -51,7 +61,12 @@ public class SysBackupController {
         return R.ok();
     }
 
+    /**
+     * 删除备份文件（仅限超级管理员）.
+     */
     @DeleteMapping("/{id}")
+    @SaCheckLogin
+    @SaCheckRole("admin")
     public R<Void> delete(@PathVariable Long id) {
         permService.requireSuperAdmin();
         SysBackupRecord r = recordService.getById(id);
@@ -62,14 +77,24 @@ public class SysBackupController {
         return R.ok();
     }
 
+    /**
+     * 恢复出厂设置（仅限超级管理员）.
+     */
     @PostMapping("/factory-reset")
+    @SaCheckLogin
+    @SaCheckRole("admin")
     public R<Void> factoryReset() {
         permService.requireSuperAdmin();
         backupService.factoryReset();
         return R.ok();
     }
 
+    /**
+     * 清空指定表数据（仅限超级管理员）.
+     */
     @PostMapping("/clear")
+    @SaCheckLogin
+    @SaCheckRole("admin")
     public R<Void> clearData(@RequestBody java.util.List<String> tables) {
         permService.requireSuperAdmin();
         backupService.clearData(tables);

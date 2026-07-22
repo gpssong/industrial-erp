@@ -32,7 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 生产加工单服务
@@ -80,20 +83,26 @@ public class PrdOrderService {
         }
         w.orderByDesc(PrdOrder::getId);
         IPage<PrdOrder> res = orderMapper.selectPage(p, w);
-        // 注入商品规格属性 (供前端表格 + 打印使用)
-        res.getRecords().forEach(order -> {
-            if (order.getProductId() != null) {
-                BaseProduct prod = productMapper.selectById(order.getProductId());
-                if (prod != null) {
-                    order.setPThickness(prod.getThickness());
-                    order.setPWidth(prod.getWidth());
-                    order.setPDensity(prod.getDensity());
-                    order.setPGramWeight(prod.getGramWeight());
-                    order.setPMaterial(prod.getMaterial());
-                    order.setPColorNo(prod.getColorNo());
-                }
+        // 批量注入商品规格属性 (N+1 优化: 之前每行 selectById, 现在 selectBatchIds 一次)
+        Set<Long> productIds = new HashSet<>();
+        for (PrdOrder order : res.getRecords()) {
+            if (order.getProductId() != null) productIds.add(order.getProductId());
+        }
+        Map<Long, BaseProduct> prodById = productIds.isEmpty() ? java.util.Collections.emptyMap()
+                : productMapper.selectBatchIds(productIds).stream()
+                        .filter(prod2 -> prod2 != null)
+                        .collect(java.util.stream.Collectors.toMap(BaseProduct::getId, prod2 -> prod2, (a, b) -> a));
+        for (PrdOrder order : res.getRecords()) {
+            BaseProduct prod = order.getProductId() == null ? null : prodById.get(order.getProductId());
+            if (prod != null) {
+                order.setPThickness(prod.getThickness());
+                order.setPWidth(prod.getWidth());
+                order.setPDensity(prod.getDensity());
+                order.setPGramWeight(prod.getGramWeight());
+                order.setPMaterial(prod.getMaterial());
+                order.setPColorNo(prod.getColorNo());
             }
-        });
+        }
         return res;
     }
 

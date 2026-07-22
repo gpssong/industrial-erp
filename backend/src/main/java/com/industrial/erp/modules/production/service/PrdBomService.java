@@ -111,6 +111,7 @@ public class PrdBomService {
         saveDetails(bom.getId(), bom.getDetails());
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         permService.requirePerm("production:bom:delete");
         PrdBom bom = bomMapper.selectById(id);

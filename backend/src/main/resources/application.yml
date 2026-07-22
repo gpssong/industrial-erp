@@ -98,10 +98,21 @@ sa-token:
   is-concurrent: true
   is-share: true
   token-style: uuid
+  # Token 接收方式 (按优先级): header > cookie > query
+  # 配合 Response Cookie 写入 httpOnly, 避免 XSS 直接窃取 token.
   is-read-header: true
-  is-read-cookie: false
-  is-read-query: true
-  jwt-secret-key: industrial-erp-jwt-secret-key-2026-must-be-long-enough
+  is-read-cookie: true
+  is-read-query: false
+  jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:?SA_TOKEN_JWT_SECRET_KEY must be set (64+ chars random). Generate with: openssl rand -hex 32}
+  # Token Cookie 安全配置 (写到响应 Set-Cookie 头)
+  # httpOnly=true 防 XSS 直接 document.cookie 读取
+  # SameSite=Lax 防 CSRF 跨站携带
+  # Secure 留 false, 因为内网部署多用 http; 部署公网 HTTPS 时用 env override
+  cookie:
+    http-only: true
+    secure: false
+    same-site: Lax
+    path: /
 
 erp:
   upload:
