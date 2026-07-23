@@ -14,6 +14,37 @@
       </el-form>
     </div>
 
+    <!-- 系统信息 (只读, 包含版本号) -->
+    <div class="page-card" style="margin-bottom:16px">
+      <div class="section-title">ℹ️ 系统信息</div>
+      <el-descriptions :column="3" border size="small" style="max-width:900px">
+        <el-descriptions-item label="前端版本">{{ frontendVersion }}</el-descriptions-item>
+        <el-descriptions-item label="后端版本">{{ backendInfo.version || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="构建时间">{{ frontendBuildTime }}</el-descriptions-item>
+        <el-descriptions-item label="后端启动时间">{{ backendInfo.startTime || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="Java 版本">{{ backendInfo.java || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="运行环境">
+          <el-tag size="small" :type="backendInfo.profiles === 'prod' ? 'danger' : 'warning'" v-if="backendInfo.profiles">
+            {{ backendInfo.profiles }}
+          </el-tag>
+          <span v-else>—</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="数据库">
+          {{ backendInfo.db || '—' }}
+        </el-descriptions-item>
+        <el-descriptions-item label="Redis">
+          <el-tag :type="backendInfo.redis ? 'success' : 'info'" size="small">
+            {{ backendInfo.redis ? '已连接' : '未连接' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="用户协议">
+          <a href="javascript:void(0)" @click="onRefreshInfo">
+            <el-icon><Refresh /></el-icon> 刷新
+          </a>
+        </el-descriptions-item>
+      </el-descriptions>
+    </div>
+
     <!-- 服务器连接设置已迁移至登录页面 (登录前可配置, 更直观) -->
 
     <!-- 原有配置列表 -->
@@ -102,6 +133,14 @@ import { configApi } from '@/api/system'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { useSystemName } from '@/composables/useSystemName'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
+
+// 前端版本 (vite.config.js 用 define 注入, 构建时替换)
+// 类型定义为全局常量, 避免 TS 报错
+/* global __APP_VERSION__, __BUILD_TIME__ */
+const frontendVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'
+const frontendBuildTime = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : '—'
+
 const query = reactive({ pageNum: 1, pageSize: 20, configName: '', configType: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
@@ -110,6 +149,23 @@ const submitting = ref(false)
 const form = ref({ id: null, configName: '', configKey: '', configValue: '', configType: 1, remark: '' })
 const { taxSeparation, loadTaxSeparation, saveTaxSeparation } = useTaxSeparation()
 const { systemName, loadSystemName, saveSystemName } = useSystemName()
+
+// 后端版本信息 (启动时由 SystemVersionInitializer 写入 sys_config 表)
+const backendInfo = ref({})
+
+async function loadBackendInfo() {
+  try {
+    const r = await configApi.getByKey('SYSTEM_VERSION_INFO')
+    if (r?.data) backendInfo.value = JSON.parse(r.data)
+  } catch {
+    // 端点不存在或值缺失时静默忽略
+  }
+}
+
+function onRefreshInfo() {
+  loadBackendInfo()
+  ElMessage.success('已刷新系统信息')
+}
 
 // 列表中排除价税分离配置（由顶部开关独占）
 const filteredRecords = computed(() => data.value.records.filter(r => r.configKey !== 'PRICE_TAX_SEPARATION'))
@@ -156,7 +212,7 @@ async function onDelete(row) {
   ElMessage.success('删除成功')
   loadData()
 }
-onMounted(() => { loadData(); loadTaxSeparation(); loadSystemName() })
+onMounted(() => { loadData(); loadTaxSeparation(); loadSystemName(); loadBackendInfo() })
 </script>
 <style scoped>
 .toolbar { margin-bottom: 12px; }
