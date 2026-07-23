@@ -2,6 +2,7 @@ package com.industrial.erp.modules.inventory.entity;
 import com.industrial.erp.modules.inventory.entity.InvCheckDetail;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -31,6 +32,10 @@ public class InvCheck {
     @TableLogic
     private Integer deleted = 0;
 
+    // P0 fix: 必须用 @TableField(exist=false) 标记为非表字段, 否则 BaseMapper.insert 会把整个 List
+    // 当作单字段尝试 set 到 SQL 参数里, 报 "Type handler was null on parameter mapping for
+    // property 'details'" 错.
+    @TableField(exist = false)
     private List<InvCheckDetail> details;
 
     public Long getId() { return id; }

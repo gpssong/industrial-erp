@@ -105,10 +105,15 @@ public class InvCheckService {
         BaseWarehouse wh = warehouseMapper.selectById(check.getWarehouseId());
         if (wh != null) check.setWarehouseName(wh.getWarehouseName());
 
+        // P0 fix: BaseMapper.insert 会扫描 transient details 字段, 报 "Type handler was null" 错
+        // 保存前先清空 details (明细走独立 insert), 这里只插入主表
+        List<InvCheckDetail> details = check.getDetails();
+        check.setDetails(null);
+
         // 自动计算差异
         BigDecimal totalDiffQty = BigDecimal.ZERO;
         BigDecimal totalDiffAmount = BigDecimal.ZERO;
-        for (InvCheckDetail d : check.getDetails()) {
+        for (InvCheckDetail d : details) {
             BigDecimal book = d.getBookQty() == null ? BigDecimal.ZERO : d.getBookQty();
             BigDecimal actual = d.getActualQty() == null ? BigDecimal.ZERO : d.getActualQty();
             d.setDiffQty(actual.subtract(book));
@@ -125,7 +130,7 @@ public class InvCheckService {
         check.setTotalDiffAmount(totalDiffAmount);
         checkMapper.insert(check);
 
-        for (InvCheckDetail d : check.getDetails()) {
+        for (InvCheckDetail d : details) {
             d.setId(null);
             d.setCheckId(check.getId());
             checkDetailMapper.insert(d);
