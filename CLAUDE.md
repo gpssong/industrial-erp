@@ -1,5 +1,7 @@
 # 工业 ERP 系统 (industrial-erp)
 
+**当前版本**: v1.0.9 (系统参数页显示版本号 + Android 打包修复)
+
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
 部署在 Synology DS918+ 容器内: 后端 8080 / PC Web 18080 / App H5 18090 / 统一反代 8088
@@ -95,6 +97,100 @@ FreeMarker 访问 order.colorNo 时:
   ```
 - 默认 API 地址: `http://home.93gushi.com:8088/api` (可被 localStorage `erp_api_base` 覆盖)
 - 路由: `app/src/pages.json`
+
+## 安全与性能优化 (v1.0.7 变更日志)
+
+### P0 — 前端 P0/P1 收尾
+| # | 项目 | 修改 |
+|---|---|---|
+| #86 | PC 登录 token 落盘 | `loginAction` 过滤 r.data, 不存 token/password 到 localStorage (P0-2) |
+| #87 | App 盘点假提交 | 显式提示功能未上线, 防止误以为已完成 (P0-5) |
+| #88 | PC Axios withCredentials | H5 用 cookie 自动带, 原生 App 走共享 request() (P1-2) |
+| #89 | PC Login.vue/router dev/prod 日志脱敏 | 仅 dev 打完整, prod 静默 (P1-5) |
+| #90 | 5 个单据审核/开工二次确认 | ElMessageBox.confirm + 影响提示 (P1-6) |
+| #91 | 角色删除确认 | 关联用户>0 时要求输入角色名 (P1-7) |
+| #92 | 默认密码 + 复杂度 | 8位+字母+数字, 手机号邮箱格式校验 (P1-8) |
+
+### App P1/P2 — 移动端
+| # | 项目 | 修改 |
+|---|---|---|
+| #93 | order-add.vue 商品 9999 改 200 | (P1-9) |
+| #94 | AndroidManifest allowBackup=false | + backup_rules.xml + data_extraction_rules.xml (P1-11) |
+| #95 | App utils/permission.js 扩 PAGE_PERMS | 默认拒绝未声明的敏感页面 (P1-3) |
+| #96 | FeiePrinterConfig.vue UKey 脱敏 | mask ****xxxx, password 类型 (P1-4) |
+
+### 后端加固
+| # | 项目 | 修改 |
+|---|---|---|
+| #97 | MybatisPlusConfig maxLimit=200 | 防止前端传 9999 撑爆内存 (P1-9) |
+
+### 前端 UX
+| # | 项目 | 修改 |
+|---|---|---|
+| #98 | Delivery.vue searchProduct 加 250ms debounce | + 序号校验 (P2-2) |
+| #99 | utils/error.js StandardError 工具类 | (P2-10) |
+| #100 | 4 个分页器补 :page-sizes + @size-change | (P2-12) |
+
+### 死代码清理
+| # | 项目 | 修改 |
+|---|---|---|
+| #101 | PageTemplate.vue + useFeiePrint.js 已删除 | (P3-3) |
+
+构建: jar 86MB, 18/18 测试通过
+
+## 功能 (v1.0.8 变更日志)
+
+### 库存盘点管理 (PC 端)
+- 新建 `pc-web/src/views/inventory/Check.vue`: 盘点单列表 + 详情审核 + 新增
+  - 差异自动着色 (盘盈绿/盘亏红)
+  - "从仓库账面预填" 快捷按钮 (调 `/inventory/check/stock-snapshot/{whId}`)
+  - 二次确认审核 (ElMessageBox.confirm + 影响提示)
+  - 商品搜索 debounce (250ms)
+
+### App 外勤盘点 (uni-app)
+- `app/src/pages/count/index.vue` (重写):
+  - 加仓库选择 (picker)
+  - "从账面预填" 按钮
+  - 真实提交 → 调 `/inventory/check/submit-from-app` → 弹单号 + 清空
+  - 行差异实时着色 + 汇总 footer
+- `app/src/api/index.js` 新增 `stockSnapshot` / `invCheckSubmit`
+
+### 后端 (5 改 + 4 新)
+- `dto/AppCheckSubmitDTO.java` (新) — App 提交 DTO
+- `vo/AppCheckSubmitVO.java` (新) — 返回单号 + 差异汇总
+- `vo/WarehouseStockSnapshotVO.java` (新) — 仓库账面快照
+- `InvCheckService` — 新增 `submitFromApp` / `listStockSnapshot` / `delete`; page 扩展 billStatus/warehouseId
+- `InvCheckController` — 新增 4 端点
+- `InvStockMapper` — 新增 `sumQtyByWarehouseAndProduct`
+
+### 数据库
+- `sql/21_add_inv_check_menu.sql` (新) — 菜单 603 + 3 个按钮权限点 + 角色授权
+
+### Bug 修复
+- **Type handler null**: `InvCheck.details` 字段加 `@TableField(exist = false)` 注解
+- **菜单乱码**: 菜单 603 名称被错误编码, UPDATE 修正
+- **前端硬编码缺菜单**: `MainLayout.vue` 库存管理 children 补 `/inventory/check` 路径
+- **后端 SecurityConfig 误拦截**: `denyAll()` 改回 `permitAll()` (双防线由 knife4j 独立拦截器承担)
+- **Dockerfile COPY 通配符失败**: 改 staging 目录 + `find -exec mv` 显式重命名
+- **YAML 解析错**: SA_TOKEN 默认值去空格
+
+构建: 18/18 测试通过 (StockServiceTest 9 + InvCheckServiceTest 4 + PrdOrderServiceTest 5)
+
+## 功能 (v1.0.9 变更日志)
+
+### 系统参数页显示版本号
+- 后端 `SystemVersionInitializer.java` (新) — 启动时把版本信息写入 `sys_config` 表 (key=`SYSTEM_VERSION_INFO`)
+  - 信息含: `version`, `startTime`, `java`, `os`, `profiles`, `db`, `redis`
+  - `Order=HIGHEST_PRECEDENCE` 确保最早执行, upsert 不重复报错
+- 前端 `Settings.vue` 加「系统信息」只读卡 (el-descriptions):
+  - 前端版本: `vite.config.js` 用 `define` 注入 `__APP_VERSION__` / `__BUILD_TIME__`
+  - 后端版本/启动时间/Profile/DB/Redis: onMounted 调 `configApi.getByKey('SYSTEM_VERSION_INFO')`
+  - 含刷新按钮
+- `vite.config.js` 加 `define` 注入版本号, 避免 Rollup 不支持 `import package.json`
+
+### App 打包
+- `AndroidManifest.xml` 加 `tools:replace="android:usesCleartextTraffic"` 解决 manifest 合并冲突
+- debug APK 输出到 `~/Desktop/鹏程ERP-debug.apk` (4.4MB)
 
 ## 安全与性能优化 (v1.0.6 变更日志)
 
