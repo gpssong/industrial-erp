@@ -52,6 +52,11 @@ export default defineConfig({
     }
   },
   base: './', // 相对路径, 兼容 file:// 协议 (Electron 本地模式) 和 http:// (远端模式)
+  define: {
+    // 注入版本号 (构建时替换, 运行时可直接用)
+    __APP_VERSION__: JSON.stringify(require('./package.json').version),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString().slice(0, 10))
+  },
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 1500
