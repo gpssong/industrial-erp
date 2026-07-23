@@ -86,7 +86,7 @@ sa-token:
   is-read-header: true
   is-read-cookie: true
   is-read-query: false
-  jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:?SA_TOKEN_JWT_SECRET_KEY must be set (64+ chars random). Generate with: openssl rand -hex 32}
+  jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:?SA_TOKEN_JWT_SECRET_KEY_must_be_set_64+_chars_random_Generate_with_openssl_rand_hex_32}
   cookie:
     http-only: true
     secure: false

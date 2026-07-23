@@ -13,7 +13,7 @@ server:
   tomcat:
     max-threads: 100
     accept-count: 50
-    max-connections: 8192
+    max-connections: 8192  # YAML 数字太大会被解析为字符串, 显式 int
 
 spring:
   # 生产 multpart 限制: 商品图片 5MB (主流程), 大附件 100MB (单独接口控制)
