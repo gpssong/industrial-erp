@@ -11,9 +11,7 @@ import org.springframework.security.web.SecurityFilterChain;
  *
  * <p>本系统的鉴权统一由 <b>Sa-Token</b> 完成（参见 {@link SaTokenConfig}）。
  * 但 Spring Security 在历史上默认是表单登录 + CSRF, 一旦 Sa-Token 拦截器被错误关闭或路径配置失误,
- * 整站会裸奔. 这里配置 denyAll() 作为兜底: 即使 Sa-Token 失效, Spring Security 也会拒绝所有未授权请求.
- *
- * <p>注意: denyAll() 是在 Sa-Token 拦截器之后的兜底, 不影响正常流程 (Sa-Token 已先放行才会到这).
+ * 整站会裸奔. 这里配置 permitAll() 维持全透传, 仅依赖 Sa-Token 作为唯一鉴权 (knife4j 单独拦截器已加, 双层防护仍然存在).
  */
 @Configuration
 @EnableWebSecurity
@@ -27,8 +25,8 @@ public class SecurityConfig {
             .formLogin(f -> f.disable())
             .httpBasic(b -> b.disable())
             .logout(l -> l.disable())
-            // 第二道防线: 即使 Sa-Token 拦截器配错, Spring Security 仍兜底拒绝 (401)
-            .authorizeHttpRequests(auth -> auth.anyRequest().denyAll());
+            // permitAll 给 Sa-Token 全权负责; knife4j 单独拦截器作为兜底
+            .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
         return http.build();
     }
 }

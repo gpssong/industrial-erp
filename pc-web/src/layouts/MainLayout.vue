@@ -169,7 +169,8 @@ const menuTree = computed(() => {
       path: '/inventory', title: '库存管理', icon: 'Grid',
       children: [
         { path: '/inventory/stock', title: '库存查询', icon: 'Grid' },
-        { path: '/inventory/ledger', title: '库存台账', icon: 'Notebook' }
+        { path: '/inventory/ledger', title: '库存台账', icon: 'Notebook' },
+        { path: '/inventory/check', title: '库存盘点', icon: 'Document' }
       ]
     },
     {
