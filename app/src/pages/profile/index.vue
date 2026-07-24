@@ -28,6 +28,10 @@
       <div class="menu-item" @click="navigateTo('/pages/profile/settings')">
         <span>⚙️ 服务器设置</span><span class="arrow">›</span>
       </div>
+      <div class="menu-item" @click="onRefreshPerms" style="color:#1e6091">
+        <span>🔄 刷新权限菜单</span>
+        <span class="muted" style="font-size:11px;margin-left:auto">tabBar 缺失时点</span>
+      </div>
     </div>
 
     <div class="card" @click="onLogout" style="cursor:pointer;text-align:center">
@@ -79,6 +83,37 @@ function onLogout() {
     localStorage.removeItem('erp_permissions')
     localStorage.removeItem('erp_menus')
     navigateTo('/pages/login/index')
+  }
+}
+
+// v1.0.10: 强制刷新权限菜单 — 用于 tabBar 缺失/异常场景
+// 原因: 旧版登录 (v1.0.5/6 之前) 把 token 模式下的 perms 写入 storage, 升级后
+//       残留数据导致 tabBar 判定错误. 手动调 /me 重新拉取覆盖.
+import api from '../../api/index.js'
+async function onRefreshPerms() {
+  try {
+    if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '刷新中...' })
+    const r = await api.me()
+    const userObj = r.data || r
+    const persist = (k, v) => {
+      const s = typeof v === 'string' ? v : JSON.stringify(v)
+      try { if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync(k, v) } catch (e) {}
+      try { localStorage.setItem(k, s) } catch (e) {}
+    }
+    persist('erp_user', userObj)
+    persist('erp_menus', userObj.menus || [])
+    persist('erp_permissions', userObj.permissions || [])
+    // 重新渲染 tabBar
+    applyTabBar()
+    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: '权限已刷新', icon: 'success' })
+    }
+  } catch (e) {
+    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: '刷新失败, 请重新登录', icon: 'none' })
+    }
   }
 }
 

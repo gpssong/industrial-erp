@@ -112,6 +112,18 @@ onMounted(async () => {
   greeting.value = h < 6 ? '凌晨好' : h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好'
   try { kpi.value = await api.dashboard() } catch (e) {}
   applyTabBar()
+  // v1.0.10+: perms 缺失或空时, 主动调 /me 修复 (兼容老版本残留)
+  try {
+    const cachedPerms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+    if (!Array.isArray(cachedPerms) || cachedPerms.length === 0) {
+      const r = await api.me()
+      const userObj = r.data || r
+      localStorage.setItem('erp_permissions', JSON.stringify(userObj.permissions || []))
+      localStorage.setItem('erp_menus', JSON.stringify(userObj.menus || []))
+      localStorage.setItem('erp_user', JSON.stringify(userObj))
+      applyTabBar()
+    }
+  } catch (e) { /* 忽略 */ }
 })
 </script>
 <style scoped>

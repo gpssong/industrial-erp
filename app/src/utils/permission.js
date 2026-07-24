@@ -97,9 +97,13 @@ export function applyTabBar() {
   const admin = isAdmin()
   const perms = getPermissions()
 
+  // P0 诊断: 输出当前用户实际权限, 便于排查 "菜单不显示" 问题
+  console.log('[applyTabBar] user.isAdmin=', admin, ' perms=', perms)
+
   tabs.forEach(t => {
     let show = admin
     if (!show) show = !t.perm || perms.includes(t.perm)
+    console.log('[applyTabBar] tab', t.idx, t.path, 'perm=', t.perm, 'show=', show)
     if (show) {
       uni.showTabBarItem({ index: t.idx })
     } else {
