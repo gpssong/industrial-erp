@@ -10,6 +10,10 @@ RUN mkdir -p ./staging
 COPY industrial-erp-*.jar ./staging/
 RUN find ./staging -name 'industrial-erp-*.jar' -exec mv {} ./app.jar \; && rm -rf ./staging
 
+# v1.1.11+: PDF 分享用中文字体 (WenQuanYi Micro Hei, 5MB, GPL v3 with font exception)
+# 不走 apt fonts-wqy-microhei (镜像源里有时装不上), 直接 COPY 本地 .ttc
+COPY fonts/wqy-microhei.ttc /opt/app/fonts/wqy-microhei.ttc
+
 # 数据备份功能依赖 mysqldump / mysql 客户端 (基础镜像不含)
 # 持久化安装: 镜像构建时一次安装, 容器内随时可用
 # ⚠️ 必须在 USER erp 之前执行, apt 需要 root 权限

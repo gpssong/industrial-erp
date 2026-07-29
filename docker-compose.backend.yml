@@ -68,6 +68,8 @@ services:
         condition: service_started
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      # v1.0.10+: CORS 白名单必须包含实际访问域名的 origin (含端口)
+      ERP_CORS_ALLOWED_ORIGINS: ${ERP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:8080,http://home.93gushi.com:8088}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/industrial_erp?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-erp_root_pwd}

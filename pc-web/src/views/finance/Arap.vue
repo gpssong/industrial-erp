@@ -8,32 +8,65 @@
             <el-option label="应付" value="AP" />
           </el-select>
         </el-form-item>
-        <el-form-item><el-button type="primary" @click="loadData">查询</el-button></el-form-item>
+        <el-form-item label="结算状态">
+          <el-select v-model="query.billStatus" style="width:120px" clearable>
+            <el-option label="未结清" value="UNPAID" />
+            <el-option label="部分" value="PARTIAL" />
+            <el-option label="已结清" value="PAID" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="开票状态">
+          <el-select v-model="query.invoiceStatus" style="width:140px" clearable>
+            <el-option label="未开票" value="UNINVOICED" />
+            <el-option label="部分开票" value="PARTIAL_INVOICED" />
+            <el-option label="已开票" value="FULL_INVOICED" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="关键字">
+          <el-input v-model="query.keyword" placeholder="客户/单号" clearable style="width:200px" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="loadData">查询</el-button>
+          <el-button type="success" @click="goInvoiceCreate">申请开票</el-button>
+        </el-form-item>
       </el-form>
     </div>
     <div class="page-card">
       <el-table :data="data.records" border stripe v-loading="loading">
-        <el-table-column prop="sourceBillNo" label="来源单号" width="180" />
-        <el-table-column prop="bizDate" label="日期" width="120" />
+        <el-table-column prop="sourceBillNo" label="来源单号" width="170" />
+        <el-table-column prop="bizDate" label="日期" width="110" />
         <el-table-column prop="customerName" label="客户/供应商" />
         <el-table-column prop="amount" label="发生金额" width="120" align="right" />
-        <el-table-column prop="paidAmount" label="已收/付" width="120" align="right" />
-        <el-table-column prop="balance" label="未结" width="120" align="right" />
-        <el-table-column label="状态" width="100">
+        <el-table-column prop="invoicedAmount" label="已开票" width="110" align="right" />
+        <el-table-column prop="uninvoicedAmount" label="未开票" width="110" align="right" />
+        <el-table-column label="开票状态" width="100">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.invoiceStatus==='FULL_INVOICED'?'success':row.invoiceStatus==='PARTIAL_INVOICED'?'warning':'danger'">
+              {{ ({UNINVOICED:'未开票',PARTIAL_INVOICED:'部分开票',FULL_INVOICED:'已开票'})[row.invoiceStatus] }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="paidAmount" label="已收/付" width="110" align="right" />
+        <el-table-column prop="balance" label="未结" width="110" align="right" />
+        <el-table-column label="结算状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.billStatus==='PAID'?'success':row.billStatus==='PARTIAL'?'warning':'danger'">{{ ({UNPAID:'未结清',PARTIAL:'部分',PAID:'已结清'})[row.billStatus] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.balance>0" link type="primary" @click="onPay(row)">{{ row.billType==='AR'?'收款':'付款' }}</el-button>
+            <el-button v-if="row.balance>0" link type="primary" @click="onPay(row)">{{ row.billType==='AR'?'按单收款':'按单付款' }}</el-button>
+            <el-button v-if="row.uninvoicedAmount>0" link type="success" @click="onInvoiceOne(row)">申请开票</el-button>
+            <el-button v-if="row.balance>0 && row.invoiceStatus==='FULL_INVOICED'" link type="warning" @click="onPayByInvoice(row)">按发票收</el-button>
           </template>
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
         :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
     </div>
-    <el-dialog v-model="payVisible" :title="form.billType==='AR'?'收款单':'付款单'" width="500px">
+
+    <!-- 按单收/付款弹窗 (原场景: 不开票客户) -->
+    <el-dialog v-model="payVisible" :title="form.billType==='RECEIPT'?'收款单 (按单)':'付款单 (按单)'" width="500px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="收/付日期"><el-date-picker v-model="form.billDate" type="date" value-format="YYYY-MM-DD" style="width:100%" /></el-form-item>
         <el-form-item label="收/付金额"><el-input-number v-model="form.amount" :precision="2" :step-strictly="false" :min="0" /></el-form-item>
@@ -52,33 +85,129 @@
         <el-button type="primary" @click="doPay">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 按发票收/付款弹窗 (开票客户) -->
+    <el-dialog v-model="invoicePayVisible" title="按发票收/付款" width="600px">
+      <el-form :model="invoicePayForm" label-width="100px">
+        <el-form-item label="关联单据">
+          <el-input :model-value="invoicePayForm.sourceBillNo" disabled />
+        </el-form-item>
+        <el-form-item label="客户/供应商">
+          <el-input :model-value="invoicePayForm.partnerName" disabled />
+        </el-form-item>
+        <el-form-item label="选择发票">
+          <el-select v-model="invoicePayForm.invoiceId" filterable placeholder="选择发票" style="width:100%">
+            <el-option v-for="inv in invoiceOptions" :key="inv.id" :label="`${inv.billNo} (¥${inv.balance} 未收)`" :value="inv.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="本次收款">
+          <el-input-number v-model="invoicePayForm.amount" :min="0.01" :precision="2" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="收/付方式">
+          <el-select v-model="invoicePayForm.payType" style="width:100%">
+            <el-option label="银行转账" value="BANK" />
+            <el-option label="现金" value="CASH" />
+            <el-option label="微信" value="WECHAT" />
+            <el-option label="支付宝" value="ALIPAY" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="invoicePayForm.remark" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="invoicePayVisible=false">取消</el-button>
+        <el-button type="primary" @click="doPayByInvoice">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
-import { arapApi } from '@/api/finance'
+import { useRouter } from 'vue-router'
+import { arapApi, invoiceApi } from '@/api/finance'
 import { ElMessage } from 'element-plus'
-const query = reactive({ pageNum: 1, pageSize: 20, billType: 'AR' })
+
+const router = useRouter()
+const query = reactive({ pageNum: 1, pageSize: 20, billType: 'AR', billStatus: '', invoiceStatus: '', keyword: '' })
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const payVisible = ref(false)
 const form = reactive({ id: null, billType: 'RECEIPT', billDate: new Date().toISOString().substring(0,10), amount: 0, payType: 'BANK', sourceBillId: null, remark: '' })
-async function loadData() { loading.value = true; try { data.value = (await arapApi.page(query)).data } finally { loading.value = false } }
+
+const invoicePayVisible = ref(false)
+const invoiceOptions = ref([])
+const invoicePayForm = reactive({ invoiceId: null, sourceBillId: null, sourceBillNo: '', partnerName: '', amount: 0, payType: 'BANK', remark: '' })
+
+async function loadData() {
+  loading.value = true
+  try { data.value = (await arapApi.page(query)).data }
+  finally { loading.value = false }
+}
+
 function onPay(row) {
   form.id = row.id; form.sourceBillId = row.id
   form.billType = row.billType === 'AR' ? 'RECEIPT' : 'PAYMENT'
-  form.amount = row.balance; form.payType = 'BANK'; form.remark = ''
+  form.amount = Number(row.balance); form.payType = 'BANK'; form.remark = ''
   payVisible.value = true
 }
+
 async function doPay() {
-  const { id, ...payload } = form
   try {
-    await arapApi.cash(payload)
+    await arapApi.cash({ ...form })
     ElMessage.success('收/付款成功'); payVisible.value = false; loadData()
   } catch (e) {
     ElMessage.error(e.message || '收/付款失败')
   }
 }
+
+function onInvoiceOne(row) {
+  // 跳到开票选单界面, 预选当前行
+  router.push({ path: '/finance/invoice/create', query: { arapId: row.id } })
+}
+
+function goInvoiceCreate() { router.push('/finance/invoice/create') }
+
+async function onPayByInvoice(row) {
+  // 加载该 AR 单关联的所有发票
+  try {
+    const r = await invoiceApi.byArap(row.id)
+    invoiceOptions.value = (r.data || []).filter(inv => Number(inv.balance) > 0 && inv.invoiceStatus !== 'VOID')
+    if (invoiceOptions.value.length === 0) {
+      ElMessage.warning('该单据没有可用的未收款发票, 请先开票')
+      return
+    }
+    invoicePayForm.invoiceId = null
+    invoicePayForm.sourceBillId = row.id
+    invoicePayForm.sourceBillNo = row.sourceBillNo
+    invoicePayForm.partnerName = row.customerName || row.supplierName
+    invoicePayForm.amount = 0
+    invoicePayForm.payType = 'BANK'
+    invoicePayForm.remark = ''
+    invoicePayVisible.value = true
+  } catch (e) {
+    ElMessage.error(e.message || '加载发票失败')
+  }
+}
+
+async function doPayByInvoice() {
+  if (!invoicePayForm.invoiceId) { ElMessage.warning('请选择发票'); return }
+  try {
+    await arapApi.cash({
+      billType: 'RECEIPT',
+      amount: invoicePayForm.amount,
+      payType: invoicePayForm.payType,
+      invoiceId: invoicePayForm.invoiceId,
+      remark: invoicePayForm.remark
+    })
+    ElMessage.success('按发票收款成功')
+    invoicePayVisible.value = false
+    loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '收款失败')
+  }
+}
+
 onMounted(loadData)
 </script>
 <style scoped>.pager { margin-top: 12px; text-align: right; }</style>

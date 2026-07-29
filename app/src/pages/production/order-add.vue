@@ -106,6 +106,8 @@
     <!-- 提交按钮 -->
     <view style="padding: 16px;">
       <button class="btn btn-block" @click="onSubmit" :loading="submitting">确定</button>
+      <!-- v1.1.11+: 编辑 DRAFT 状态时显示删除按钮 -->
+      <button v-if="form.id && form.billStatus === 'DRAFT'" class="btn btn-danger btn-block" style="margin-top:10px" @click="onDelete">删除生产单</button>
     </view>
 
     <!-- 成品选择弹窗 -->
@@ -166,6 +168,7 @@ const warehouseList = ref([])
 
 const form = reactive({
   id: null,
+  billStatus: '',  // v1.1.11+: 编辑时载入, 用于判断 DRAFT 显隐删除按钮
   productId: null,
   productName: '',
   productCode: '',
@@ -214,6 +217,7 @@ async function loadOrder(id) {
     const r = await api.prdOrderDetail(id)
     if (r) {
       form.id = r.id
+      form.billStatus = r.billStatus || 'DRAFT'
       form.productId = r.productId
       form.productName = r.productName || ''
       form.productCode = r.productCode || ''
@@ -295,13 +299,26 @@ async function onSubmit() {
   submitting.value = true
   try {
     const payload = { ...form }
+    let newOrderId = null
     if (payload.id) {
       await api.prdOrderUpdate(payload.id, payload)
       toast('修改成功')
+      newOrderId = payload.id
     } else {
-      await api.prdOrderAdd(payload)
+      // v1.1.9+: 后端 add() 返回新生成的单据 ID, 用于飞鹅打印
+      newOrderId = await api.prdOrderAdd(payload)
       toast('新增成功')
     }
+
+    // v1.1.9+: 提交成功后, 弹飞鹅云打印提示 (仅新增场景, 编辑后打印用列表页"飞鹅打印"按钮)
+    // 权限检查: erp_permissions 含 production:order:feie-print
+    if (!payload.id && newOrderId && hasFeiePrintPerm()) {
+      const ok = await askFeiePrint()
+      if (ok) {
+        await doFeiePrint(newOrderId)
+      }
+    }
+
     const pages = getCurrentPages()
     if (pages.length > 1) {
       uni.navigateBack()
@@ -312,6 +329,69 @@ async function onSubmit() {
     toast('提交失败: ' + (e.msg || e.message || '网络错误'))
   } finally {
     submitting.value = false
+  }
+}
+
+// v1.1.11+: 编辑 DRAFT 状态时删除生产单
+async function onDelete() {
+  if (!form.id) return
+  if (typeof uni === 'undefined' || !uni.showModal) return
+  const ok = await new Promise((resolve) => {
+    uni.showModal({
+      title: '删除',
+      content: '确定删除该生产单? 此操作不可恢复',
+      success: (res) => resolve(res.confirm),
+      fail: () => resolve(false)
+    })
+  })
+  if (!ok) return
+  try {
+    await api.prdOrderDelete(form.id)
+    uni.showToast({ title: '已删除', icon: 'success' })
+    setTimeout(() => uni.reLaunch({ url: '/pages/production/order-list' }), 800)
+  } catch (e) {
+    uni.showToast({ title: e.message || '删除失败', icon: 'none' })
+  }
+}
+
+// v1.1.9+: 检查是否拥有飞鹅云打印权限 (production:order:feie-print)
+function hasFeiePrintPerm() {
+  try {
+    const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+    return Array.isArray(perms) && perms.includes('production:order:feie-print')
+  } catch { return false }
+}
+
+// v1.1.9+: 弹窗询问是否飞鹅云打印
+function askFeiePrint() {
+  return new Promise((resolve) => {
+    if (typeof uni === 'undefined' || typeof uni.showModal !== 'function') {
+      resolve(false)
+      return
+    }
+    uni.showModal({
+      title: '飞鹅云打印',
+      content: '生产单已保存, 是否立即发送到飞鹅云打印机?',
+      confirmText: '打印',
+      cancelText: '暂不',
+      success: (res) => resolve(res.confirm),
+      fail: () => resolve(false)
+    })
+  })
+}
+
+// v1.1.9+: 实际调用飞鹅云打印 (POST /api/feie/print/PRD_ORDER/{id})
+async function doFeiePrint(orderId) {
+  if (!orderId) return
+  uni.showLoading({ title: '正在发送打印...', mask: true })
+  try {
+    await api.feiePrint('PRD_ORDER', orderId)
+    uni.hideLoading()
+    uni.showToast({ title: '打印已发送', icon: 'success' })
+  } catch (e) {
+    uni.hideLoading()
+    // 失败不阻塞主流程, 已在 api.request 的 success 分支统一提示过, 这里只记日志
+    console.warn('[feie] 飞鹅打印失败:', e)
   }
 }
 </script>

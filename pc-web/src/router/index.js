@@ -41,6 +41,9 @@ const routes = [
       { path: 'production/order', name: 'PrdOrder', component: () => import('@/views/production/Order.vue'), meta: { title: '生产加工单', icon: 'SetUp', perm: 'production:order:list' } },
       // 财务
       { path: 'finance/arap', name: 'FinArap', component: () => import('@/views/finance/Arap.vue'), meta: { title: '应收应付', icon: 'Money', perm: 'finance:arap:list' } },
+      // v1.1.10+: 发票管理 (开票 / 发票列表 / 跨单合并开票)
+      { path: 'finance/invoice', name: 'FinInvoice', component: () => import('@/views/finance/Invoice.vue'), meta: { title: '发票管理', icon: 'Tickets', perm: 'finance:invoice:list' } },
+      { path: 'finance/invoice/create', name: 'FinInvoiceCreate', component: () => import('@/views/finance/InvoiceCreate.vue'), meta: { title: '申请开票', icon: 'Plus', perm: 'finance:invoice:add' } },
       // 报表
       { path: 'report/sales', name: 'ReportSales', component: () => import('@/views/report/Sales.vue'), meta: { title: '销售报表', icon: 'TrendCharts' } },
       { path: 'report/inventory', name: 'ReportInventory', component: () => import('@/views/report/Inventory.vue'), meta: { title: '库存报表', icon: 'PieChart' } }

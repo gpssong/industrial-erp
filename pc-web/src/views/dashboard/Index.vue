@@ -103,12 +103,21 @@ const chartOption = computed(() => ({
 }))
 
 onMounted(async () => {
-  const r = await reportApi.dashboard()
-  const d = r.data || {}
-  kpis.value[0].value = (d.todaySales || 0).toFixed(2)
-  kpis.value[1].value = (d.totalSales || 0).toFixed(2)
-  kpis.value[2].value = (d.todayPurchase || 0).toFixed(2)
-  kpis.value[3].value = (d.arBalance || 0).toFixed(2)
+  // v1.1.11+: 无 report:view 权限时整个 dashboard 静默, 不调接口 (避免 403 干扰)
+  const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+  const userObj = JSON.parse(localStorage.getItem('erp_user') || '{}')
+  const isSuper = (userObj && (userObj.userId === 1 || userObj.isAdmin === 1 || userObj.userId === '1' || userObj.isAdmin === true))
+  const canView = isSuper || (Array.isArray(perms) && perms.includes('report:view'))
+  if (!canView) return
+
+  try {
+    const r = await reportApi.dashboard()
+    const d = r.data || {}
+    kpis.value[0].value = (d.todaySales || 0).toFixed(2)
+    kpis.value[1].value = (d.totalSales || 0).toFixed(2)
+    kpis.value[2].value = (d.todayPurchase || 0).toFixed(2)
+    kpis.value[3].value = (d.arBalance || 0).toFixed(2)
+  } catch (e) { /* 静默 — request.js 也会处理 401/403 不弹 toast */ }
 
   // 销售趋势
   const end = dayjs().format('YYYY-MM-DD')

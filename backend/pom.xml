@@ -145,6 +145,19 @@
             <version>${knife4j.version}</version>
         </dependency>
 
+        <!-- v1.1.11+: OpenPDF — 生产单分享用 PDF 生成 (A4, 中文字体子集化) -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>2.0.2</version>
+        </dependency>
+        <!-- v1.1.11+: flying-saucer — HTML/CSS → PDF 渲染 (OpenPDF 上层) -->
+        <dependency>
+            <groupId>org.xhtmlrenderer</groupId>
+            <artifactId>flying-saucer-pdf</artifactId>
+            <version>9.1.22</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

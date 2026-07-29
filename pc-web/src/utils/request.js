@@ -84,6 +84,10 @@ service.interceptors.response.use(res => {
     }
     // 生产环境只记录最小信息到 Sentry/后端日志, 不暴露请求细节
   }
+  // v1.1.11+: 401 (未登录) / 403 (无权限) 静默 — 让路由守卫和上游组件各自处理, 不弹红条
+  if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+    return Promise.reject(err)
+  }
   ElMessage.error(
     err.code === 'ERR_NETWORK' ? '无法连接服务器, 请在登录页底部「服务器连接设置」中检查 API 地址'
     : err.code === 'ECONNABORTED' ? '请求超时, 请重试'
