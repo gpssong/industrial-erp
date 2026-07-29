@@ -30,9 +30,10 @@
         </el-table-column>
         <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onEdit(row)">编辑</el-button>
-            <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
-            <el-button v-if="row.billStatus==='DRAFT'" link type="success" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('purchase:receipt:edit')" link type="primary" @click="onEdit(row)">编辑</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('purchase:receipt:delete')" link type="danger" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('purchase:receipt:check')" link type="success" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('purchase:receipt:uncheck')" link type="warning" @click="onUncheck(row)">反审核</el-button>
             <el-dropdown v-if="['DRAFT','CHECKED'].includes(row.billStatus)" trigger="click" @command="(cmd) => onPrintCommand(cmd, row)">
               <el-button link type="warning">
                 打印<el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -138,8 +139,11 @@ import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { useStripZero } from '@/composables/useStripZero'
 import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { feiePrintApi } from '@/api/feie'
+import { useUserStore } from '@/store/user'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+const userStore = useUserStore()
 
 const { stripZeroFormat, stripZeroParse, stripTrailingZero2, stripTrailingZero4 } = useStripZero()
 
@@ -326,6 +330,21 @@ async function onCheck(row) {
   }
 }
 
+// v1.1.11+ 反审核 (status-only, 不回退库存/账务, 需走后继红冲单)
+async function onUncheck(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认反审核采购入库单 ${row.billNo}?\n\n此操作仅回退单据状态至「草稿」, 不会自动回退已增加的库存或应付账款. 如需调整, 请走后继红冲单.\n`,
+      '反审核确认', { type: 'warning', confirmButtonText: '确认反审核', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  try {
+    await purReceiptApi.uncheck(row.id); ElMessage.success('反审核成功'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '反审核失败')
+  }
+}
+
 // 打印
 const { doPrint } = usePrint()
 const PUR_RECEIPT_HEADER_MAP = {
@@ -414,3 +433,5 @@ function onPrintCommand(cmd, row) {
 onMounted(async () => { await loadSuppliers(); loadData() })
 </script>
 <style scoped>.pager { margin-top: 12px; text-align: right; }</style>
+
+<!-- v1.1.11+ force rebuild for cache busting 1785230987 -->

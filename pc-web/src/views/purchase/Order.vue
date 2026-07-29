@@ -27,10 +27,12 @@
         <el-table-column label="状态" width="80">
           <template #default="{ row }"><el-tag :type="row.billStatus==='DRAFT'?'info':'success'">{{ row.billStatus }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
-            <el-button link type="danger" size="small" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('purchase:order:edit')" link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('purchase:order:delete')" link type="danger" size="small" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('purchase:order:check')" link type="success" size="small" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('purchase:order:uncheck')" link type="warning" size="small" @click="onUncheck(row)">反审核</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -98,11 +100,14 @@
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
 import { purOrderApi } from '@/api/purchase'
+import { useUserStore } from '@/store/user'
 import { supplierApi } from '@/api/base'
 import { warehouseApi } from '@/api/base'
 import { productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+const userStore = useUserStore()
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '' })
 const data = ref({ records: [], total: 0 })
@@ -149,6 +154,29 @@ async function onDelete(row) {
     loadData()
   } catch (e) {
     ElMessage.error(e.message || '删除失败')
+  }
+}
+
+// v1.1.11+ 审核 (status-only)
+async function onCheck(row) {
+  try {
+    await ElMessageBox.confirm(`确认审核订单 ${row.billNo}?`, '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' })
+  } catch { return }
+  try {
+    await purOrderApi.check(row.id); ElMessage.success('审核成功'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '审核失败')
+  }
+}
+
+async function onUncheck(row) {
+  try {
+    await ElMessageBox.confirm(`确认反审核订单 ${row.billNo}? 单据状态将回到「草稿」.`, '反审核确认', { type: 'warning', confirmButtonText: '确认反审核', cancelButtonText: '取消' })
+  } catch { return }
+  try {
+    await purOrderApi.uncheck(row.id); ElMessage.success('反审核成功'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '反审核失败')
   }
 }
 

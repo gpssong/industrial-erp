@@ -64,8 +64,9 @@
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="onView(row)">详情</el-button>
-            <el-button v-if="row.billStatus === 'DRAFT'" link type="success" size="small" @click="onCheck(row)">审核</el-button>
-            <el-button v-if="row.billStatus === 'DRAFT'" link type="danger" size="small" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="row.billStatus === 'DRAFT' && userStore.hasPerm('inventory:check:check')" link type="success" size="small" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus === 'CHECKED' && userStore.hasPerm('inventory:check:uncheck')" link type="warning" size="small" @click="onUncheck(row)">反审核</el-button>
+            <el-button v-if="row.billStatus === 'DRAFT' && userStore.hasPerm('inventory:check:delete')" link type="danger" size="small" @click="onDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -144,7 +145,7 @@
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button v-if="current && current.billStatus === 'DRAFT'" type="success" @click="onCheck(current); detailVisible = false;">审核</el-button>
+        <el-button v-if="current && current.billStatus === 'DRAFT' && userStore.hasPerm('inventory:check:check')" type="success" @click="onCheck(current); detailVisible = false;">审核</el-button>
       </template>
     </el-dialog>
 
@@ -230,7 +231,10 @@ import { reactive, ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
 import { invCheckApi } from '@/api/inventory'
+import { useUserStore } from '@/store/user'
 import { warehouseApi, productApi } from '@/api/base'
+
+const userStore = useUserStore()
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', billStatus: '', warehouseId: null })
 const data = ref({ records: [], total: 0 })
@@ -329,6 +333,23 @@ async function onDelete(row) {
     loadData()
   } catch (e) {
     ElMessage.error(e.message || '删除失败')
+  }
+}
+
+// v1.1.11+ 反审核 (CHECKED→DRAFT, status-only)
+async function onUncheck(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认反审核盘点单 ${row.billNo}?\n\n此操作仅回退单据状态至「草稿」, 不会自动回退已调整的库存. 如需修正, 请走新盘点单.\n`,
+      '反审核确认', { type: 'warning', confirmButtonText: '确认反审核', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  try {
+    await invCheckApi.uncheck(row.id)
+    ElMessage.success('反审核成功')
+    loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '反审核失败')
   }
 }
 

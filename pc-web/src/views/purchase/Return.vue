@@ -23,7 +23,8 @@
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('purchase:return:check')" link type="primary" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('purchase:return:uncheck')" link type="warning" @click="onUncheck(row)">反审核</el-button>
             <el-dropdown v-if="['DRAFT','CHECKED'].includes(row.billStatus)" trigger="click" @command="(cmd) => onPrintCommand(cmd, row)">
               <el-button link type="warning">
                 打印<el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -91,12 +92,15 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { purReturnApi } from '@/api/purchase'
+import { useUserStore } from '@/store/user'
 import { supplierApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { feiePrintApi } from '@/api/feie'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+
+const userStore = useUserStore()
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '' })
 const data = ref({ records: [], total: 0 })
@@ -168,6 +172,21 @@ async function onCheck(row) {
     await purReturnApi.check(row.id); ElMessage.success('审核成功, 库存已扣减并冲减应付'); loadData()
   } catch (e) {
     ElMessage.error(e.message || '审核失败')
+  }
+}
+
+// v1.1.11+ 反审核 (status-only)
+async function onUncheck(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认反审核采购退货单 ${row.billNo}?\n\n此操作仅回退单据状态至「草稿」, 不会自动回退已扣减的库存或冲减的应付.\n`,
+      '反审核确认', { type: 'warning', confirmButtonText: '确认反审核', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  try {
+    await purReturnApi.uncheck(row.id); ElMessage.success('反审核成功'); loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '反审核失败')
   }
 }
 
