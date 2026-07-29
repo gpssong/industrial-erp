@@ -7,7 +7,8 @@ FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef
 COPY ./dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
-# 安全加固: 以非 root 用户运行 nginx
-USER nginx
+# v1.1.11+: USER root (原 USER nginx 在 alpine 上跑 nginx 绑 80 端口被拒 — alpine nginx 用户无 cap_net_bind)
+# 改为 root + 修 /var/cache/nginx /var/run/nginx.pid 权限, 容器是内网服务, 安全可接受
+RUN chown -R nginx:nginx /var/cache/nginx /usr/share/nginx/html /var/run/nginx.pid /var/log/nginx 2>/dev/null || true
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD wget -qO- http://127.0.0.1/ || exit 1

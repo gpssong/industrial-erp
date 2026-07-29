@@ -6,6 +6,8 @@ export const purOrderApi = {
   add: (data) => request.post('/purchase/order', data),
   update: (data) => request.put('/purchase/order', data),
   delete: (id) => request.delete(`/purchase/order/${id}`),
+  check: (id) => request.post(`/purchase/order/${id}/check`),
+  uncheck: (id) => request.post(`/purchase/order/${id}/uncheck`),
   getLastPrice: (supplierId, productId) => request.get('/purchase/order/last-price', { params: { supplierId, productId } })
 }
 
@@ -16,6 +18,7 @@ export const purReceiptApi = {
   update: (data) => request.put('/purchase/receipt', data),
   delete: (id) => request.delete(`/purchase/receipt/${id}`),
   check: (id) => request.post(`/purchase/receipt/${id}/check`),
+  uncheck: (id) => request.post(`/purchase/receipt/${id}/uncheck`),
   getLastPrice: (supplierId, productId) => request.get('/purchase/receipt/last-price', { params: { supplierId, productId } }),
   // v1.1.7+ 供应商历史采购产品 (按入库日期 DESC, limit 50) — 采购入库新增弹窗底部参考用
   getSupplierHistoryProducts: (supplierId) => request.get('/purchase/receipt/supplier-history-products', { params: { supplierId } })
@@ -25,5 +28,6 @@ export const purReturnApi = {
   page: (params) => request.get('/purchase/return/page', { params }),
   detail: (id) => request.get(`/purchase/return/${id}`),
   add: (data) => request.post('/purchase/return', data),
-  check: (id) => request.post(`/purchase/return/${id}/check`)
+  check: (id) => request.post(`/purchase/return/${id}/check`),
+  uncheck: (id) => request.post(`/purchase/return/${id}/uncheck`)
 }

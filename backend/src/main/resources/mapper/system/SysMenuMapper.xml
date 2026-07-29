@@ -13,6 +13,8 @@
         <result column="sort_no" property="sortNo"/>
         <result column="is_visible" property="isVisible"/>
         <result column="status" property="status"/>
+        <result column="dashboard_perm" property="dashboardPerm"/>
+        <result column="client_type" property="clientType"/>
     </resultMap>
     <select id="selectMenusByUserId" resultMap="MenuMap">
         SELECT DISTINCT m.*
@@ -22,11 +24,29 @@
         WHERE ur.user_id = #{userId} AND m.status = 1
         ORDER BY m.sort_no, m.id
     </select>
+    <!-- v1.0.10+: 按客户端类型过滤菜单 (client_type=BOTH 或指定 PC/APP) -->
+    <select id="selectMenusByUserIdAndClient" resultMap="MenuMap">
+        SELECT DISTINCT m.*
+        FROM sys_user_role ur
+        INNER JOIN sys_role_menu rm ON rm.role_id = ur.role_id AND rm.client_type IN ('BOTH', #{clientType})
+        INNER JOIN sys_menu m ON m.id = rm.menu_id AND m.deleted = 0
+        WHERE ur.user_id = #{userId} AND m.status = 1
+        ORDER BY m.sort_no, m.id
+    </select>
+    <!-- v1.0.10+: 查询角色已分配的菜单 (含 client_type) -->
     <select id="selectMenusByRoleId" resultMap="MenuMap">
-        SELECT m.*
+        SELECT m.*, rm.client_type AS client_type
         FROM sys_role_menu rm
         INNER JOIN sys_menu m ON m.id = rm.menu_id AND m.deleted = 0
         WHERE rm.role_id = #{roleId} AND m.status = 1
+        ORDER BY m.sort_no, m.id
+    </select>
+    <!-- v1.0.10+: 按客户端类型查询角色已分配的菜单 -->
+    <select id="selectMenusByRoleIdAndClient" resultMap="MenuMap">
+        SELECT DISTINCT m.*
+        FROM sys_role_menu rm
+        INNER JOIN sys_menu m ON m.id = rm.menu_id AND m.deleted = 0
+        WHERE rm.role_id = #{roleId} AND rm.client_type IN ('BOTH', #{clientType}) AND m.status = 1
         ORDER BY m.sort_no, m.id
     </select>
 </mapper>

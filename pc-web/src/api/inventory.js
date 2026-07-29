@@ -21,6 +21,7 @@ export const invCheckApi = {
   detail: (id) => request.get(`/inventory/check/${id}`),
   add: (data) => request.post('/inventory/check', data),
   check: (id) => request.post(`/inventory/check/${id}/check`),
+  uncheck: (id) => request.post(`/inventory/check/${id}/uncheck`),
   delete: (id) => request.delete(`/inventory/check/${id}`),
 
   // App 外勤盘点对接

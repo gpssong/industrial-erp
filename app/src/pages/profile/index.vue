@@ -101,7 +101,8 @@ async function onRefreshPerms() {
       try { localStorage.setItem(k, s) } catch (e) {}
     }
     persist('erp_user', userObj)
-    persist('erp_menus', userObj.menus || [])
+    // v1.0.10+: App 端优先用 appMenus
+    persist('erp_menus', userObj.appMenus || userObj.menus || [])
     persist('erp_permissions', userObj.permissions || [])
     // 重新渲染 tabBar
     applyTabBar()
@@ -111,8 +112,12 @@ async function onRefreshPerms() {
     }
   } catch (e) {
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    // 诊断: 区分 401 (登录失效) vs 其他错误, 给出针对性提示
+    const code = e && e.code
+    console.warn('[onRefreshPerms] 失败, code=', code, 'err=', e)
+    const msg = code === 401 ? '登录已过期, 请重新登录' : '刷新失败, 请稍后重试'
     if (typeof uni !== 'undefined' && uni.showToast) {
-      uni.showToast({ title: '刷新失败, 请重新登录', icon: 'none' })
+      uni.showToast({ title: msg, icon: 'none' })
     }
   }
 }

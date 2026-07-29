@@ -12,7 +12,9 @@
     }
   },
   "android": {
-    "allowMixedContent": false
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": true
   },
-  "includePlugins": ["NativeScanner"]
+  "includePlugins": ["NativeScanner", "Share"]
 }

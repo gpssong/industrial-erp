@@ -23,6 +23,10 @@ export const roleApi = {
   delete: (id) => request.delete(`/system/role/${id}`),
   menus: (id) => request.get(`/system/role/${id}/menus`),
   grantMenus: (id, menuIds) => request.put(`/system/role/${id}/menus`, menuIds),
+  /** v1.0.10+: 按客户端类型查询已分配菜单 */
+  menusByClient: (id) => request.get(`/system/role/${id}/menus/client`),
+  /** v1.0.10+: 按客户端类型分配菜单权限 */
+  grantMenusByClient: (id, clientType, menuIds) => request.put(`/system/role/${id}/menus/client?clientType=${clientType}`, menuIds),
   users: (id) => request.get(`/system/role/${id}/users`),
   assignUsers: (id, userIds) => request.put(`/system/role/${id}/users`, userIds)
 }

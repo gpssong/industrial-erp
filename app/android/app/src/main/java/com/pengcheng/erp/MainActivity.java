@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import androidx.core.app.ActivityCompat;
@@ -35,29 +36,14 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeScannerPlugin.class);
         super.onCreate(savedInstanceState);
 
-        // Request camera permission
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
-        }
-    }
-
-    @Override
-    public void onResume() {
-        super.onResume();
-        // Enable camera in WebView
+        // Fix: HTTPS page + HTTP API → Android WebView blocks mixed content by default.
+        // Allow cleartext traffic for the domain used by this ERP.
         WebView webView = getBridge().getWebView();
         if (webView != null) {
-            webView.setWebChromeClient(new WebChromeClient() {
-                @Override
-                public void onPermissionRequest(final PermissionRequest request) {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            request.grant(request.getResources());
-                        }
-                    });
-                }
-            });
+            WebSettings settings = webView.getSettings();
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            settings.setAllowUniversalAccessFromFileURLs(true);
+            settings.setMediaPlaybackRequiresUserGesture(false);
         }
     }
 }

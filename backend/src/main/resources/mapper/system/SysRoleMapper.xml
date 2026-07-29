@@ -20,14 +20,145 @@
     </select>
 
     <insert id="insertRoleMenuBatch">
-        INSERT INTO sys_role_menu (role_id, menu_id) VALUES
+        INSERT INTO sys_role_menu (role_id, menu_id, client_type) VALUES
         <foreach collection="menuIds" item="mid" separator=",">
-            (#{roleId}, #{mid})
+            (#{roleId}, #{mid}, 'PC')
         </foreach>
     </insert>
 
-    <delete id="deleteRoleMenus">
-        DELETE FROM sys_role_menu WHERE role_id = #{roleId}
+    <!-- v1.0.10+: 按客户端类型批量授权 -->
+    <insert id="insertRoleMenuBatchByClient">
+        INSERT INTO sys_role_menu (role_id, menu_id, client_type) VALUES
+        <foreach collection="entries" item="entry" separator=",">
+            (#{roleId}, #{entry.menuId}, #{entry.clientType})
+        </foreach>
+    </insert>
+
+    <!-- v1.0.10+: 按客户端类型删除角色菜单授权 -->
+    <delete id="deleteRoleMenusByClient">
+        DELETE FROM sys_role_menu WHERE role_id = #{roleId} AND client_type IN
+        <foreach collection="clientTypes" item="ct" open="(" separator="," close=")">
+            #{ct}
+        </foreach>
+    </delete>
+
+    <!-- v1.1.8+: 按客户端类型 + 菜单 ID 列表删除角色菜单授权
+         用于 App/PC Tab 提交时, 在指定 clientTypes (含 BOTH) + 指定 menuIds 范围内删除,
+         避免清空该角色所有其它菜单的 BOTH 记录 -->
+    <delete id="deleteRoleMenusByClientAndMenuIds">
+        DELETE FROM sys_role_menu WHERE role_id = #{roleId} AND client_type IN
+        <foreach collection="clientTypes" item="ct" open="(" separator="," close=")">
+            #{ct}
+        </foreach>
+        <if test="menuIds != null and menuIds.size() > 0">
+            AND menu_id IN
+            <foreach collection="menuIds" item="mid" open="(" separator="," close=")">
+                #{mid}
+            </foreach>
+        </if>
+    </delete>
+
+    <!-- v1.1.8+: 迁移 BOTH 记录
+         规则 (见 SysRoleService.grantMenusByClient):
+         - 仅处理 client_type=BOTH 且 menu_id 不在本次 menuIds 的记录
+         - 若该 role 已有 menu_id + 对端 client_type 独立记录 → 删 BOTH
+         - 若只有 BOTH 记录 → 升级为对端 client_type (其它端仍可用)
+
+         用一条 SQL 完成 (UPDATE + DELETE), 通过子查询判断是否要升级/删除 -->
+    <update id="migrateRoleMenuBOTH">
+        <!-- 第一步: 把不在 menuIds 的 BOTH 记录中, 对端 client_type 没有独立记录的, 升级为对端 client_type
+             MySQL 限制不能 UPDATE 同时 SELECT 同一表, 用中间临时别名 tmp 包一层 -->
+        UPDATE sys_role_menu
+        SET client_type = #{otherCt}
+        WHERE id IN (
+            SELECT * FROM (
+                SELECT a.id FROM sys_role_menu a
+                WHERE a.role_id = #{roleId}
+                  AND a.client_type = 'BOTH'
+                  <if test="menuIds != null and menuIds.size() > 0">
+                      AND a.menu_id NOT IN
+                      <foreach collection="menuIds" item="mid" open="(" separator="," close=")">
+                          #{mid}
+                      </foreach>
+                  </if>
+                  AND NOT EXISTS (
+                      SELECT 1 FROM sys_role_menu b
+                      WHERE b.role_id = a.role_id AND b.menu_id = a.menu_id AND b.client_type = #{otherCt}
+                  )
+            ) AS tmp
+        );
+    </update>
+
+    <!-- v1.1.8 简化版: 把不在 menuIds 的 BOTH 记录全部升级为 otherCt (不考虑对端是否已有独立记录) -->
+    <update id="upgradeBOTHToOtherCt">
+        UPDATE sys_role_menu
+        SET client_type = #{otherCt}
+        WHERE role_id = #{roleId}
+          AND client_type = 'BOTH'
+          AND menu_id NOT IN
+          <foreach collection="menuIds" item="mid" open="(" separator="," close=")">
+              #{mid}
+          </foreach>
+    </update>
+
+    <!-- v1.1.8: 升级前清理: 删 role 全部 otherCt 记录 (会让 BOTH 升级时 PK 冲突) -->
+    <delete id="deleteOtherCtBeforeUpgrade">
+        DELETE FROM sys_role_menu
+        WHERE role_id = #{roleId}
+          AND client_type = #{otherCt}
+          AND menu_id NOT IN
+          <foreach collection="menuIds" item="mid" open="(" separator="," close=")">
+              #{mid}
+          </foreach>
+    </delete>
+
+    <!-- v1.1.8: 查询 BOTH 记录中 menu_id 不在 menuIds 的 menu_id 列表 -->
+    <select id="selectBOTHMenuIdsNotIn" resultType="Long">
+        SELECT menu_id FROM sys_role_menu
+        WHERE role_id = #{roleId} AND client_type = 'BOTH'
+        <if test="menuIds != null and menuIds.size() > 0">
+            AND menu_id NOT IN
+            <foreach collection="menuIds" item="mid" open="(" separator="," close=")">
+                #{mid}
+            </foreach>
+        </if>
+    </select>
+
+    <!-- v1.1.8: 查 role 的同 (role, menu) + 对端 client_type 记录数 -->
+    <select id="countByRoleAndMenuAndClient" resultType="int">
+        SELECT COUNT(*) FROM sys_role_menu
+        WHERE role_id = #{roleId} AND menu_id = #{menuId} AND client_type = #{clientType}
+    </select>
+
+    <!-- v1.1.8: 升级单条 BOTH → otherCt (单条 UPDATE, 无 self-SELECT 问题) -->
+    <update id="upgradeSingleBOTHToOtherCt">
+        UPDATE sys_role_menu
+        SET client_type = #{otherCt}
+        WHERE role_id = #{roleId} AND menu_id = #{menuId} AND client_type = 'BOTH'
+    </update>
+
+    <!-- v1.1.8: 清空 Tab 时, 把 role 全部 BOTH 升级为 otherCt -->
+    <update id="upgradeAllBOTHToOtherCt">
+        UPDATE sys_role_menu
+        SET client_type = #{otherCt}
+        WHERE role_id = #{roleId}
+          AND client_type = 'BOTH'
+    </update>
+
+    <delete id="deleteRoleMenusBOTHNotIn">
+        <!-- 第二步: 把不在 menuIds 的 BOTH 记录中, 对端 client_type 已有独立记录的, 删除 BOTH (避免重复) -->
+        DELETE FROM sys_role_menu
+        WHERE role_id = #{roleId} AND client_type = 'BOTH'
+        <if test="menuIds != null and menuIds.size() > 0">
+            AND menu_id NOT IN
+            <foreach collection="menuIds" item="mid" open="(" separator="," close=")">
+                #{mid}
+            </foreach>
+        </if>
+        AND EXISTS (
+            SELECT 1 FROM sys_role_menu t2
+            WHERE t2.role_id = #{roleId} AND t2.menu_id = sys_role_menu.menu_id AND t2.client_type = #{otherCt}
+        );
     </delete>
 
     <insert id="insertUserRoleBatch">
@@ -46,5 +177,12 @@
         FROM sys_user_role ur
         INNER JOIN sys_role r ON r.id = ur.role_id AND r.deleted = 0
         WHERE ur.user_id = #{userId} AND r.status = 1 AND r.data_scope IS NOT NULL
+    </select>
+    <!-- v1.0.10+: 取用户所有角色的 client_scope -->
+    <select id="selectClientScopesByUserId" resultType="java.lang.String">
+        SELECT DISTINCT r.client_scope
+        FROM sys_user_role ur
+        INNER JOIN sys_role r ON r.id = ur.role_id AND r.deleted = 0
+        WHERE ur.user_id = #{userId} AND r.status = 1 AND r.client_scope IS NOT NULL
     </select>
 </mapper>
