@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.finance.mapper.FinInvoiceApplyMapper">
+    <select id="selectByInvoiceId" resultType="com.industrial.erp.modules.finance.entity.FinInvoiceApply">
+        SELECT * FROM fin_invoice_apply
+        WHERE invoice_id = #{invoiceId} AND deleted = 0
+        ORDER BY id ASC
+    </select>
+    <select id="selectByArapId" resultType="com.industrial.erp.modules.finance.entity.FinInvoiceApply">
+        SELECT * FROM fin_invoice_apply
+        WHERE arap_id = #{arapId} AND deleted = 0
+        ORDER BY id ASC
+    </select>
+    <!-- 作废发票: 软删 (deleted = 1) -->
+    <update id="softDeleteByInvoiceId">
+        UPDATE fin_invoice_apply SET deleted = 1 WHERE invoice_id = #{invoiceId} AND deleted = 0
+    </update>
+</mapper>

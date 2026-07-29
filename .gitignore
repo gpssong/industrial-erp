@@ -57,6 +57,13 @@ app/node_modules/
 app/dist/
 app/android/      # Capacitor 自动生成, 重新 cap add android 即可
 
+# ===== Backend build artifacts + 大体积字体 =====
+backend/control.tar.zst
+backend/data.tar.zst
+backend/debian-binary
+backend/fonts/
+backend/src/main/resources/fonts/
+
 # ===== 本地运行配置(密码、缓存、日志) =====
 .local-logs/
 .local-config/
