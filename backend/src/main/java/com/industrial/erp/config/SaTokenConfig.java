@@ -6,13 +6,18 @@ import cn.dev33.satoken.stp.StpUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.filter.CorsFilter;
 import org.springframework.web.servlet.HandlerInterceptor;
+import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Sa-Token 路由拦截器配置。
@@ -42,7 +47,6 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 .match("/**")
                 .notMatch(
                         // 认证 (登录、登出由前端 store 处理, me 要求登录故不放行)
-                        // 注意: /auth/setpwd 已从白名单移除, 必须登录并是超管才能调用
                         "/auth/login",
                         "/auth/captcha",
                         // 上传文件 (上传 API 单独鉴权, 静态资源访问放行)
@@ -70,8 +74,6 @@ public class SaTokenConfig implements WebMvcConfigurer {
 
     /**
      * Knife4j / Swagger / Actuator 鉴权拦截器.
-     * <p>检查 session.roles 是否含 SUPER_ADMIN; 不通过返 401 JSON.
-     * <p>实现说明: 直接读 Sa-Token Session (登录时已写入 roles), 不查 DB, 性能 O(1).
      */
     @Bean
     public HandlerInterceptor knife4jAuthInterceptor() {
@@ -99,8 +101,8 @@ public class SaTokenConfig implements WebMvcConfigurer {
 
     /**
      * 跨域白名单 (来自 application.yml 的 erp.cors.allowed-origins).
-     * <p>原写法用 {@code allowedOriginPatterns("*")} 是通配, 任何域都能调 API, 存在 CSRF 风险.
-     * 现限定到白名单, 默认包含生产域名 + 本地开发地址, 通过环境变量 ERP_CORS_ALLOWED_ORIGINS 覆盖.
+     * 除了精确匹配 env 中的白名单, 还额外支持 http://localhost/* 和 http://127.0.0.1/*
+     * — 适配 Capacitor WebView 内部 HTTP server (http://localhost:[随机端口]).
      */
     @Value("${erp.cors.allowed-origins}")
     private String allowedOriginsRaw;
@@ -115,12 +117,39 @@ public class SaTokenConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         List<String> origins = allowedOrigins();
+        
+        // 合并 env 精确匹配 + localhost/127.0.0.1 通配来源
+        Set<String> allOrigins = new HashSet<>(origins);
+        allOrigins.add("http://localhost");
+        allOrigins.add("http://127.0.0.1");
+        
         registry.addMapping("/**")
-                .allowedOrigins(origins.toArray(new String[0]))
+                .allowedOriginPatterns(allOrigins.toArray(new String[0]))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                 .allowedHeaders("*")
                 .exposedHeaders("Authorization", "Content-Disposition")
                 .allowCredentials(true)
                 .maxAge(3600);
+    }
+
+    /**
+     * 兜底 CORS Filter: 处理 Capacitor WebView 内部 HTTP server.
+     * Capacitor Android WebView 以 http://localhost:[随机端口] 加载页面,
+     * Spring MVC CorsRegistry 不支持端口 pattern, 所以用 Web Filter 做 pattern 匹配兜底.
+     * 
+     * 允许 Origin: http://localhost:* / http://127.0.0.1:* / http://home.93gushi.com:8088
+     */
+    @Bean
+    public CorsFilter corsFilter() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowCredentials(true);
+        config.addAllowedMethod("*");
+        config.addAllowedOriginPattern("http://localhost:*");
+        config.addAllowedOriginPattern("http://127.0.0.1:*");
+        config.addAllowedOriginPattern("http://home.93gushi.com:8088");
+        config.addAllowedHeader("*");
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", config);
+        return new CorsFilter(source);
     }
 }

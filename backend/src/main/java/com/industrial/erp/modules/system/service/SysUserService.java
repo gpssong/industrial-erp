@@ -75,9 +75,12 @@ public class SysUserService {
     }
 
     /**
-     * 修改指定用户的密码 (管理端). 鉴权: 仅超管或本人.
-     * <p>原实现仅校验 system:user:edit 权限, 任意用户都能改他人密码 — 严重 IDOR.
-     * 现增加本人或超管判断, 非本人必须传 oldPassword 校验.
+     * 修改指定用户的密码 (管理端). 鉴权规则:
+     * <ul>
+     *   <li>本人改自己: 必须传 oldPassword 校验 (防会话劫持)</li>
+     *   <li>超管改他人: 不需要 oldPassword (这是超管的核心职责, 用户请求 v1.1.10+ 调整)</li>
+     *   <li>非超管改他人: 拒绝</li>
+     * </ul>
      */
     @Transactional(rollbackFor = Exception.class)
     public void updatePassword(Long userId, String newPassword, String oldPassword) {
@@ -89,18 +92,19 @@ public class SysUserService {
             throw new com.industrial.erp.exception.BizException(
                     403, "仅本人或超级管理员可重置其他用户密码");
         }
-        // 非本人必须校验旧密码
-        if (!isSelf && isSuperAdmin) {
+        // 本人改自己: 必须校验旧密码
+        if (isSelf) {
             if (StrUtil.isBlank(oldPassword)) {
                 throw new com.industrial.erp.exception.BizException(
-                        400, "重置他人密码需传入目标用户的 oldPassword 二次校验");
+                        400, "修改本人密码需传入 oldPassword 校验");
             }
-            SysUser target = userMapper.selectById(userId);
-            if (target == null) throw new com.industrial.erp.exception.BizException("用户不存在");
-            if (!ENCODER.matches(oldPassword, target.getPassword())) {
+            SysUser self = userMapper.selectById(userId);
+            if (self == null) throw new com.industrial.erp.exception.BizException("用户不存在");
+            if (!ENCODER.matches(oldPassword, self.getPassword())) {
                 throw new com.industrial.erp.exception.BizException("旧密码校验失败");
             }
         }
+        // 超管改他人: 直接跳过 oldPassword 校验 (v1.1.10+ 用户要求)
         SysUser u = new SysUser();
         u.setId(userId);
         u.setPassword(ENCODER.encode(newPassword));

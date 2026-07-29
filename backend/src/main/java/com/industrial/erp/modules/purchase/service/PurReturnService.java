@@ -161,4 +161,22 @@ public class PurReturnService {
 
         log.info("采购退货审核: billNo={}, amount={}", r.getBillNo(), r.getTotalAmountTax());
     }
+
+    /**
+     * 反审核采购退货 (v1.1.11+): status-only (CHECKED→DRAFT).
+     * 库存账已出库 + 应付已冲减, 反审核不会自动回退; 需走红冲或人工修正
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void uncheck(Long id) {
+        permService.requirePerm("purchase:return:uncheck");
+        PurReturn r = returnMapper.selectById(id);
+        if (r == null) throw BizException.of("退货单不存在");
+        if (!Constants.STATUS_CHECKED.equals(r.getBillStatus())) {
+            throw BizException.of("只有已审核状态可反审核");
+        }
+        PurReturn upd = new PurReturn();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_DRAFT);
+        returnMapper.updateById(upd);
+    }
 }

@@ -294,4 +294,20 @@ public class InvCheckService {
         permService.requirePerm("inventory:check:list");
         return checkMapper.selectStockSnapshotByWarehouse(warehouseId);
     }
+
+    /** v1.1.11+ 反审核盘点单 (CHECKED→DRAFT, status-only).
+     *  库存账已写入实际库存调整 (盘盈盘亏), 反审核不会自动回退; 需走新盘点单修复 */
+    @Transactional(rollbackFor = Exception.class)
+    public void uncheck(Long id) {
+        permService.requirePerm("inventory:check:uncheck");
+        InvCheck c = checkMapper.selectById(id);
+        if (c == null) throw BizException.of("盘点单不存在");
+        if (!Constants.STATUS_CHECKED.equals(c.getBillStatus())) {
+            throw BizException.of("只有已审核状态可反审核");
+        }
+        InvCheck upd = new InvCheck();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_DRAFT);
+        checkMapper.updateById(upd);
+    }
 }

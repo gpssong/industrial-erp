@@ -141,7 +141,7 @@ public class PrdOrderService {
 
     @Transactional(rollbackFor = Exception.class)
     @OperLog(module="生产加工单", businessType="ADD", saveParam=true)
-    public void add(PrdOrder order) {
+    public Long add(PrdOrder order) {
         permService.requirePerm("production:order:add");
         if (order.getBillDate() == null) order.setBillDate(LocalDate.now());
         if (StrUtil.isBlank(order.getBillNo())) {
@@ -179,7 +179,7 @@ public class PrdOrderService {
             }
         }
         orderMapper.insert(order);
-
+        return order.getId();
     }
 
     @Transactional(rollbackFor = Exception.class)

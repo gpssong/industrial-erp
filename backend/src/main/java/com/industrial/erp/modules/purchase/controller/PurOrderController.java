@@ -40,6 +40,13 @@ public class PurOrderController {
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
 
+    /** v1.1.11+ 审核流程 */
+    @PostMapping("/{id}/check")
+    public R<Void> check(@PathVariable Long id) { service.check(id); return R.ok(); }
+
+    @PostMapping("/{id}/uncheck")
+    public R<Void> uncheck(@PathVariable Long id) { service.uncheck(id); return R.ok(); }
+
     /** 查询指定供应商+商品的上次入库单价 */
     @GetMapping("/last-price")
     public R<BigDecimal> lastPrice(@RequestParam Long supplierId, @RequestParam Long productId) {

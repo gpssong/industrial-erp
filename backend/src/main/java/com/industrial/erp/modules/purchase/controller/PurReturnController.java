@@ -41,4 +41,11 @@ public class PurReturnController {
         service.check(id);
         return R.ok();
     }
+
+    /** v1.1.11+ 反审核 */
+    @PostMapping("/{id}/uncheck")
+    public R<Void> uncheck(@PathVariable Long id) {
+        service.uncheck(id);
+        return R.ok();
+    }
 }

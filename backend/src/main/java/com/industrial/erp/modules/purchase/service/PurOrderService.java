@@ -165,4 +165,39 @@ public class PurOrderService {
             detailMapper.insert(d);
         }
     }
+
+    /**
+     * 审核采购订单 (v1.1.11+): 仅状态机 DRAFT→CHECKED; 不动库存 (库存事务在下游入库单)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void check(Long id) {
+        permService.requirePerm("purchase:order:check");
+        PurOrder order = orderMapper.selectById(id);
+        if (order == null) throw BizException.of("订单不存在");
+        if (!Constants.STATUS_DRAFT.equals(order.getBillStatus())) {
+            throw BizException.of("只有草稿状态可审核");
+        }
+        PurOrder upd = new PurOrder();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_CHECKED);
+        orderMapper.updateById(upd);
+    }
+
+    /**
+     * 反审核采购订单 (v1.1.11+): CHECKED→DRAFT (status-only);
+     * 注意: 若下游已生成入库单, 需先删入库单再反审核, 否则会导致库存账错位
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void uncheck(Long id) {
+        permService.requirePerm("purchase:order:uncheck");
+        PurOrder order = orderMapper.selectById(id);
+        if (order == null) throw BizException.of("订单不存在");
+        if (!Constants.STATUS_CHECKED.equals(order.getBillStatus())) {
+            throw BizException.of("只有已审核状态可反审核");
+        }
+        PurOrder upd = new PurOrder();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_DRAFT);
+        orderMapper.updateById(upd);
+    }
 }

@@ -11,6 +11,7 @@ import com.industrial.erp.modules.finance.entity.FinCashFlow;
 import com.industrial.erp.modules.finance.mapper.FinArapMapper;
 import com.industrial.erp.modules.finance.mapper.FinCashFlowMapper;
 import com.industrial.erp.modules.finance.service.FinArapService;
+import com.industrial.erp.modules.finance.service.FinInvoiceService;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.common.Constants;
@@ -20,16 +21,21 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
 
 @Tag(name = "财务应收应付")
 @RestController
 @RequestMapping("/finance/arap")
 public class FinArapController {
 
-    public FinArapController(FinArapMapper arapMapper, FinCashFlowMapper cashFlowMapper, FinArapService arapService, BillNoGenerator billNoGenerator, PermissionService permService) {
+    public FinArapController(FinArapMapper arapMapper, FinCashFlowMapper cashFlowMapper,
+                             FinArapService arapService, FinInvoiceService invoiceService,
+                             BillNoGenerator billNoGenerator, PermissionService permService) {
         this.arapMapper = arapMapper;
         this.cashFlowMapper = cashFlowMapper;
         this.arapService = arapService;
+        this.invoiceService = invoiceService;
         this.billNoGenerator = billNoGenerator;
         this.permService = permService;
     }
@@ -37,6 +43,7 @@ public class FinArapController {
     private final FinArapMapper arapMapper;
     private final FinCashFlowMapper cashFlowMapper;
     private final FinArapService arapService;
+    private final FinInvoiceService invoiceService;
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
 
@@ -45,12 +52,14 @@ public class FinArapController {
                                        @RequestParam(defaultValue = "20") Integer pageSize,
                                        @RequestParam(required = false) String billType,
                                        @RequestParam(required = false) String billStatus,
+                                       @RequestParam(required = false) String invoiceStatus,
                                        @RequestParam(required = false) String keyword) {
         permService.requirePerm("finance:arap:list");
         Page<FinArap> p = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<FinArap> w = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(billType)) w.eq(FinArap::getBillType, billType);
         if (StrUtil.isNotBlank(billStatus)) w.eq(FinArap::getBillStatus, billStatus);
+        if (StrUtil.isNotBlank(invoiceStatus)) w.eq(FinArap::getInvoiceStatus, invoiceStatus);
         if (StrUtil.isNotBlank(keyword)) {
             w.and(q -> q.like(FinArap::getCustomerName, keyword).or().like(FinArap::getSupplierName, keyword).or().like(FinArap::getSourceBillNo, keyword));
         }
@@ -60,10 +69,13 @@ public class FinArapController {
 
     /**
      * 收款 / 付款
+     *
+     * <p>v1.1.10+ 支持按发票核销: 当 request.invoiceId 不为空时,
+     * 调用 FinInvoiceService.writeoffByInvoice, 联动更新 AR/AP 单.
      */
     @Transactional(rollbackFor = Exception.class)
     @PostMapping("/cash")
-    public R<Void> cash(@RequestBody FinCashFlow flow) {
+    public R<Object> cash(@RequestBody FinCashFlow flow) {
         if ("RECEIPT".equals(flow.getBillType())) permService.requirePerm("finance:receipt:add");
         else permService.requirePerm("finance:payment:add");
         if (flow.getBillDate() == null) flow.setBillDate(LocalDate.now());
@@ -71,11 +83,44 @@ public class FinArapController {
             flow.setBillNo(billNoGenerator.generate("RECEIPT".equals(flow.getBillType()) ? Constants.BILL_SK : Constants.BILL_FK));
         }
         if (StrUtil.isBlank(flow.getBillStatus())) flow.setBillStatus(Constants.STATUS_CHECKED);
-        cashFlowMapper.insert(flow);
-        // 核销
-        if (flow.getSourceBillId() != null) {
-            arapService.writeoff(flow.getSourceBillId(), flow.getAmount());
+
+        if (flow.getInvoiceId() != null) {
+            // v1.1.10+: 按发票核销
+            Map<String, Object> result = invoiceService.writeoffByInvoice(flow.getInvoiceId(), flow.getAmount());
+            // 现金流水也写一份 (记录), invoice_id 已设
+            cashFlowMapper.insert(flow);
+            return R.ok(result);
+        } else {
+            // 原有逻辑: 按 AR/AP 单核销
+            cashFlowMapper.insert(flow);
+            if (flow.getSourceBillId() != null) {
+                arapService.writeoff(flow.getSourceBillId(), flow.getAmount());
+            }
+            return R.ok();
         }
-        return R.ok();
+    }
+
+    /**
+     * v1.1.10+: 列出客户/供应商"未开票"的 AR/AP 单 (开票选单界面)
+     */
+    @GetMapping("/uninvoiced")
+    public R<List<FinArap>> listUninvoiced(
+            @RequestParam(required = false) String partnerType,
+            @RequestParam(required = false) Long customerId,
+            @RequestParam(required = false) Long supplierId) {
+        permService.requirePerm("finance:invoice:uninvoiced");
+        // 兼容 partnerType/customerId/supplierId
+        String pt = partnerType;
+        Long pid;
+        if ("CUSTOMER".equals(pt) || customerId != null) {
+            pt = "CUSTOMER";
+            pid = customerId;
+        } else if ("SUPPLIER".equals(pt) || supplierId != null) {
+            pt = "SUPPLIER";
+            pid = supplierId;
+        } else {
+            throw new com.industrial.erp.exception.BizException("需指定 partnerType + customerId 或 supplierId");
+        }
+        return R.ok(invoiceService.listUninvoiced(pt, pid));
     }
 }

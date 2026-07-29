@@ -14,6 +14,11 @@ public class SysRole {
     private String roleCode;
     private String roleName;
     private Integer dataScope;
+    /**
+     * v1.0.10+ 允许登录的客户端: BOTH/PC/APP
+     * <p>默认 BOTH. 制袋工这类生产一线角色应设为 APP 避免误用 PC.
+     */
+    private String clientScope;
     private Integer sortNo;
     private Integer status;
     private String remark;
@@ -32,6 +37,8 @@ public class SysRole {
     public void setRoleName(String roleName) { this.roleName = roleName; }
     public Integer getDataScope() { return dataScope; }
     public void setDataScope(Integer dataScope) { this.dataScope = dataScope; }
+    public String getClientScope() { return clientScope; }
+    public void setClientScope(String clientScope) { this.clientScope = clientScope; }
     public Integer getSortNo() { return sortNo; }
     public void setSortNo(Integer sortNo) { this.sortNo = sortNo; }
     public Integer getStatus() { return status; }

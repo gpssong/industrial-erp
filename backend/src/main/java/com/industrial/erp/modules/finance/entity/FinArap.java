@@ -28,6 +28,11 @@ public class FinArap {
     private String billStatus;
     private LocalDate dueDate;
     private Integer overdueDays;
+    // v1.1.10+: 发票跟踪字段
+    private java.math.BigDecimal invoicedAmount;
+    private java.math.BigDecimal uninvoicedAmount;
+    private String invoiceStatus;
+    private LocalDate lastInvoiceDate;
     private String remark;
     private Long createBy;
     private LocalDateTime createTime;
@@ -68,6 +73,15 @@ public class FinArap {
     public void setDueDate(LocalDate dueDate) { this.dueDate = dueDate; }
     public Integer getOverdueDays() { return overdueDays; }
     public void setOverdueDays(Integer overdueDays) { this.overdueDays = overdueDays; }
+    // v1.1.10+ 发票跟踪字段 getter/setter
+    public java.math.BigDecimal getInvoicedAmount() { return invoicedAmount; }
+    public void setInvoicedAmount(java.math.BigDecimal invoicedAmount) { this.invoicedAmount = invoicedAmount; }
+    public java.math.BigDecimal getUninvoicedAmount() { return uninvoicedAmount; }
+    public void setUninvoicedAmount(java.math.BigDecimal uninvoicedAmount) { this.uninvoicedAmount = uninvoicedAmount; }
+    public String getInvoiceStatus() { return invoiceStatus; }
+    public void setInvoiceStatus(String invoiceStatus) { this.invoiceStatus = invoiceStatus; }
+    public LocalDate getLastInvoiceDate() { return lastInvoiceDate; }
+    public void setLastInvoiceDate(LocalDate lastInvoiceDate) { this.lastInvoiceDate = lastInvoiceDate; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
     public Long getCreateBy() { return createBy; }

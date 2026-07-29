@@ -282,5 +282,23 @@ public class PurReceiptService {
         log.info("采购入库审核: billNo={}, amount={}", r.getBillNo(), r.getTotalAmountTax());
     }
 
+    /**
+     * 反审核入库单 (v1.1.11+): status-only (CHECKED→DRAFT).
+     * 注意: 库存账已实增 + 应付台账已生成, 反审核不会自动回退; 需走红冲单或人工修正
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void uncheck(Long id) {
+        permService.requirePerm("purchase:receipt:uncheck");
+        PurReceipt r = receiptMapper.selectById(id);
+        if (r == null) throw BizException.of("入库单不存在");
+        if (!Constants.STATUS_CHECKED.equals(r.getBillStatus())) {
+            throw BizException.of("只有已审核状态可反审核");
+        }
+        PurReceipt upd = new PurReceipt();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_DRAFT);
+        receiptMapper.updateById(upd);
+    }
+
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PurReceiptService.class);
 }

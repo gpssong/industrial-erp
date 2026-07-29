@@ -26,6 +26,8 @@ public class FinCashFlow {
     private BigDecimal amount;
     private Long sourceBillId;
     private String sourceBillNo;
+    // v1.1.10+: 关联发票 (按发票核销时记录)
+    private Long invoiceId;
     private String billStatus;
     private String remark;
     private Long createBy;
@@ -61,6 +63,9 @@ public class FinCashFlow {
     public void setSourceBillId(Long sourceBillId) { this.sourceBillId = sourceBillId; }
     public String getSourceBillNo() { return sourceBillNo; }
     public void setSourceBillNo(String sourceBillNo) { this.sourceBillNo = sourceBillNo; }
+    // v1.1.10+ 发票关联字段
+    public Long getInvoiceId() { return invoiceId; }
+    public void setInvoiceId(Long invoiceId) { this.invoiceId = invoiceId; }
     public String getBillStatus() { return billStatus; }
     public void setBillStatus(String billStatus) { this.billStatus = billStatus; }
     public String getRemark() { return remark; }
