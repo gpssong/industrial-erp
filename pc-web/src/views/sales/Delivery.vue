@@ -42,9 +42,10 @@
         </el-table-column>
         <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.billStatus==='DRAFT'" link type="primary" @click="onEdit(row)">编辑</el-button>
-            <el-button v-if="row.billStatus==='DRAFT'" link type="danger" @click="onDelete(row)">删除</el-button>
-            <el-button v-if="row.billStatus==='DRAFT'" link type="success" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('sales:delivery:edit')" link type="primary" @click="onEdit(row)">编辑</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('sales:delivery:delete')" link type="danger" @click="onDelete(row)">删除</el-button>
+            <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('sales:delivery:check')" link type="success" @click="onCheck(row)">审核</el-button>
+            <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('sales:delivery:uncheck')" link type="warning" @click="onUncheck(row)">反审核</el-button>
             <el-dropdown v-if="['DRAFT','CHECKED'].includes(row.billStatus)" trigger="click" @command="(cmd) => onPrintCommand(cmd, row)">
               <el-button link type="warning">
                 打印<el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -213,6 +214,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { salDeliveryApi } from '@/api/sales'
+import { useUserStore } from '@/store/user'
 import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
 import { stockApi } from '@/api/inventory'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
@@ -246,6 +248,8 @@ const stripTrailingZero2 = (v) => {
   const n = Number(v)
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '')
 }
+
+const userStore = useUserStore()
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', customerId: null, billStatus: '', productName: '' })
 const data = ref({ records: [], total: 0 })
@@ -583,6 +587,19 @@ async function onCheck(row) {
   } catch { return }  // 用户取消
   await salDeliveryApi.check(row.id)
   ElMessage.success('审核成功, 已扣减库存 / 生成应收')
+  loadData()
+}
+
+// v1.1.11+ 反审核 (status-only, 不回退库存/账务)
+async function onUncheck(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认反审核出库单 ${row.billNo}?\n\n此操作仅回退单据状态至「草稿」, 不会自动回退已扣减的库存或生成的应收. 如需调整, 请走销售退货单红冲.\n`,
+      '反审核确认', { type: 'warning', confirmButtonText: '确认反审核', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  await salDeliveryApi.uncheck(row.id)
+  ElMessage.success('反审核成功')
   loadData()
 }
 
