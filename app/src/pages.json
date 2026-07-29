@@ -12,7 +12,9 @@
     { "path": "pages/profile/change-password", "style": { "navigationBarTitleText": "修改密码" } },
     { "path": "pages/system/users", "style": { "navigationBarTitleText": "用户管理" } },
     { "path": "pages/base/product-add", "style": { "navigationBarTitleText": "新增商品" } },
-    { "path": "pages/production/order-add", "style": { "navigationBarTitleText": "新增生产单" } }
+    { "path": "pages/production/order-add", "style": { "navigationBarTitleText": "新增生产单" } },
+    { "path": "pages/production/order-list", "style": { "navigationBarTitleText": "生产加工单" } },
+    { "path": "pages/production/order-detail", "style": { "navigationBarTitleText": "生产单详情" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",

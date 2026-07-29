@@ -1,20 +1,9 @@
-// 原生 App 默认后端地址 (H5 用相对路径 /api, 原生必须用绝对路径)
-const NATIVE_DEFAULT_API = 'http://home.93gushi.com:8088/api'
-
-function isNative() {
-  // 原生 App 环境: HBuilderX (plus对象) 或 Capacitor (Capacitor对象)
-  return typeof plus !== 'undefined' || (typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform && Capacitor.isNativePlatform())
-}
+// App 端 API 基地址 — 永远使用绝对路径, 不读 localStorage 缓存
+const DEFAULT_API = 'http://home.93gushi.com:8088/api'
 
 function getBase() {
-  // 优先级: 本地缓存 > 原生默认地址 > H5 相对路径
-  try {
-    const cached = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base'))
-    if (cached) return cached
-    return isNative() ? NATIVE_DEFAULT_API : '/api'
-  } catch (e) {
-    return isNative() ? NATIVE_DEFAULT_API : '/api'
-  }
+  // 硬编码直接返回, 避免 Capacitor WebView 环境中 localStorage 缓存导致的问题
+  return DEFAULT_API
 }
 
 function getToken() {
@@ -26,11 +15,17 @@ function getToken() {
 function request({ url, method = 'GET', data = {}, contentType }) {
   const token = getToken()
   const base = getBase()
+  const fullUrl = base + url
+
+  console.log('[api] DEBUG base:', base)
+  console.log('[api] DEBUG fullUrl:', fullUrl)
+  console.log('[api] DEBUG uni.request type:', typeof uni, typeof uni?.request)
 
   // H5 环境 (浏览器预览): uni.request 不可用, 退化为原生 fetch
   // 检测方式: typeof uni.request !== 'function'
   if (typeof uni === 'undefined' || typeof uni.request !== 'function') {
-    return fetchRequest(base + url, method, data)
+    console.log('[api] → using fetch for:', fullUrl)
+    return fetchRequest(fullUrl, method, data)
   }
 
   // 真机/小程序环境: 用 uni.request
@@ -46,6 +41,31 @@ function request({ url, method = 'GET', data = {}, contentType }) {
       // 跨域请求时也允许带 cookie (httpOnly SameSite=Lax cookie)
       withCredentials: true,
       success: (res) => {
+        // 兼容: nginx / 反代可能返回 HTML 错误页 (例如 502 Bad Gateway)
+        // uni.request 在不同平台 header 字段大小写不一致 (H5 小写, App 首字母大写),
+        // 容错: 同时取 Content-Type / content-type, 再降级到 typeof 判断
+        const rawCt = (res.header && (res.header['Content-Type'] || res.header['content-type'])) || ''
+        const ct = typeof rawCt === 'string' ? rawCt : ''
+        const looksLikeJson = ct.indexOf('application/json') >= 0
+        const dataIsObject = res.data !== null && typeof res.data === 'object'
+        if (!dataIsObject || (!looksLikeJson && ct !== '')) {
+          // 非 JSON 响应 — 通常是反代错误页或 502/504
+          console.warn('[api] 非 JSON 响应:', url, 'status=', res.statusCode, 'ct=', ct, 'data=', res.data)
+          // 智能错误提示: 如果请求打到 localhost, 提示用户改服务器设置
+          let msg = '服务暂不可用, 请稍后重试'
+          try {
+            const cached = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base'))
+            if (cached && (cached.includes('localhost') || cached === '/api')) {
+              msg = '服务器地址错误, 请在"我的→服务器设置"中改回 http://home.93gushi.com:8088/api'
+            }
+          } catch (e) {}
+          const err = { code: res.statusCode || 500, msg, data: null }
+          if (typeof uni !== 'undefined' && uni.showToast) {
+            uni.showToast({ title: msg, icon: 'none', duration: 3000 })
+          }
+          reject(err)
+          return
+        }
         const d = res.data
         if (d.code === 200) resolve(d.data)
         else if (d.code === 401) {
@@ -56,27 +76,45 @@ function request({ url, method = 'GET', data = {}, contentType }) {
           try { localStorage.removeItem('erp_user') } catch (e) {}
           try { localStorage.removeItem('erp_menus') } catch (e) {}
           try { localStorage.removeItem('erp_permissions') } catch (e) {}
-          uni.reLaunch({ url: '/pages/login/index' })
-          reject(d)
+          // v1.0.10+: 用 reLaunch 之前先 reject, 让调用方处理 UI 反馈
+          reject(Object.assign(d, { needRelogin: true }))
+          // 异步跳转 (用 setTimeout 避免阻塞 reject)
+          setTimeout(() => {
+            try { uni.reLaunch({ url: '/pages/login/index' }) } catch (e) {}
+          }, 100)
         } else {
-          uni.showToast({ title: d.msg || '请求失败', icon: 'none' })
+          if (typeof uni !== 'undefined' && uni.showToast) {
+            uni.showToast({ title: d.msg || '请求失败', icon: 'none' })
+          }
           reject(d)
         }
       },
-      fail: reject
+      fail: (err) => {
+        // 网络层失败 (无网络 / DNS 失败 / 超时)
+        console.warn('[api] uni.request 网络失败:', url, err)
+        const e = { code: 0, msg: '网络连接失败, 请检查网络', data: null }
+        if (typeof uni !== 'undefined' && uni.showToast) {
+          uni.showToast({ title: e.msg, icon: 'none' })
+        }
+        reject(e)
+      }
     })
   })
 }
 
 // H5 (浏览器) 环境的 fetch 实现, 与 uni.request 行为一致
 function fetchRequest(url, method, data) {
+  console.log('[api] fetchRequest called, url:', url, 'method:', method)
   return fetch(url, {
     method,
     credentials: 'include',  // httpOnly cookie
     headers: { 'Content-Type': 'application/json' },
     body: data && method !== 'GET' ? JSON.stringify(data) : undefined
   })
-  .then(r => r.json())
+  .then(r => {
+    console.log('[api] fetchResponse status:', r.status, 'url:', url)
+    return r.json()
+  })
   .then(d => {
     if (d.code === 200) return d.data
     if (d.code === 401) {
@@ -84,12 +122,15 @@ function fetchRequest(url, method, data) {
       try { localStorage.removeItem('erp_user') } catch (e) {}
       try { localStorage.removeItem('erp_menus') } catch (e) {}
       try { localStorage.removeItem('erp_permissions') } catch (e) {}
-      if (typeof plus !== 'undefined' && typeof uni !== 'undefined') {
-        uni.reLaunch({ url: '/pages/login/index' })
-      } else if (typeof window !== 'undefined') {
-        window.location.hash = '#/pages/login/index'
-      }
-      throw d
+      // 异步跳转, 让调用方先处理 UI
+      setTimeout(() => {
+        if (typeof plus !== 'undefined' && typeof uni !== 'undefined') {
+          uni.reLaunch({ url: '/pages/login/index' })
+        } else if (typeof window !== 'undefined') {
+          window.location.hash = '#/pages/login/index'
+        }
+      }, 100)
+      throw Object.assign(d, { needRelogin: true })
     }
     if (typeof uni !== 'undefined' && uni.showToast) {
       uni.showToast({ title: d.msg || '请求失败', icon: 'none' })
@@ -138,6 +179,15 @@ export const api = {
   prdOrderDetail: (id) => request({ url: '/production/order/' + id }),
   prdOrderAdd: (data) => request({ url: '/production/order', method: 'POST', data, contentType: 'json' }),
   prdOrderUpdate: (id, data) => request({ url: '/production/order/' + id, method: 'PUT', data, contentType: 'json' }),
+  prdOrderRelease: (id) => request({ url: '/production/order/' + id + '/release', method: 'POST' }),
+  prdOrderDelete: (id) => request({ url: '/production/order/' + id, method: 'DELETE' }),
+  // v1.1.11+: 分享 PDF (返回完整 URL, 配合 baseURL, 给 uni.downloadFile 用)
+  prdOrderPdfUrl: (id) => {
+    let base = ''
+    try { base = (localStorage.getItem('erp_api_base') || '').replace(/\/$/, '') } catch (e) {}
+    if (!base) base = 'http://home.93gushi.com:8088/api'
+    return base + '/production/order/' + id + '/pdf'
+  },
   // 飞鹅云打印
   feiePrint: (bizType, id) => request({ url: '/feie/print/' + bizType + '/' + id, method: 'POST' }),
   // 报表

@@ -9,7 +9,7 @@
         <text class="badge">{{ user?.deptName || user?.roles?.[0] || '' }}</text>
       </view>
     </view>
-    <view class="grid-4" style="margin-bottom:10px">
+    <view class="grid-4" style="margin-bottom:10px" v-if="kpiVisible">
       <view class="kpi"><text class="kpi-value">¥{{ kpi.todaySales || 0 }}</text><text class="kpi-label">今日销售</text></view>
       <view class="kpi"><text class="kpi-value">¥{{ kpi.totalSales || 0 }}</text><text class="kpi-label">累计销售</text></view>
       <view class="kpi"><text class="kpi-value">¥{{ kpi.arBalance || 0 }}</text><text class="kpi-label">应收余额</text></view>
@@ -36,22 +36,61 @@ import api from '../../api/index.js'
 import { navigateTo } from '../../utils/nav.js'
 import { applyTabBar, isAdmin } from '../../utils/permission.js'
 
+// v1.1.8+: KPI 区块按 App 端"经营简报"权限控制 (整体显示/隐藏)
+// 检查顺序: erp_permissions 包含 report:view (PC 端白名单已用此 perm 接入 id=951 报表查看按钮) → 管理员豁免
+// 注意: 此处返回 ref, 模板中用 kpiVisible 引用, 不要再写 v-if="hasKpiPerm" (那是函数引用永远 true)
+const kpiVisible = ref(false)
+function recomputeKpiVisible() {
+  if (isAdmin()) { kpiVisible.value = true; return }
+  try {
+    const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+    kpiVisible.value = Array.isArray(perms) && perms.includes('report:view')
+  } catch { kpiVisible.value = false }
+}
+
+// v1.1.8+: 经营简报快捷入口也按 report:view perm 控制
+const reportEntryVisible = ref(false)
+function recomputeReportEntryVisible() {
+  if (isAdmin()) { reportEntryVisible.value = true; return }
+  try {
+    const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+    reportEntryVisible.value = Array.isArray(perms) && perms.includes('report:view')
+  } catch { reportEntryVisible.value = false }
+}
+
 const user = ref({})
 const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, warningCount: 0 })
 const today = new Date().toISOString().substring(0, 10)
 const greeting = ref('您好')
 
-// PC 端菜单路径 -> App 端页面映射 (v1.1.7+: 删除手机开单 + 销售订单, 扫码出库=PC 销售出库; v1.1.8+ 删除采购订单入口 + 新增商品/生产单)
+// v1.0.10+: PC 端菜单路径 -> App 端页面映射 (兼容老版本)
 const PATH_TO_APP = {
   '/base/product/add':     { path: '/pages/base/product-add', title: '新增商品', icon: '➕' },
   '/sales/return':         { path: '/pages/scan/out', title: '扫码出库', icon: '📤' },
   '/purchase/receipt':     { path: '/pages/scan/in', title: '扫码入库', icon: '📥' },
   '/inventory/stock':      { path: '/pages/inventory/query', title: '查库存', icon: '📦' },
-  '/production/order/add': { path: '/pages/production/order-add', title: '生产加工单', icon: '🏭' },
-  '/production/order':     { path: '/pages/count/index', title: '外勤盘点', icon: '📋' },
-  '/report/dashboard':     { path: '/pages/report/index', title: '经营简报', icon: '📊' },
-  '/inventory/ledger':     { path: '/pages/inventory/query', title: '库存台账', icon: '📒' }
+  '/inventory/ledger':     { path: '/pages/inventory/query', title: '库存台账', icon: '📒' },
+  '/production/order':     { path: '/pages/production/order-list', title: '生产加工单', icon: '🏭' },
+  '/inventory/check':      { path: '/pages/count/index', title: '外勤盘点', icon: '📋' },
+  '/report':               { path: '/pages/report/index', title: '经营简报', icon: '📊' },
+  '/_report_kpi':          { path: '/pages/report/index', title: '经营简报', icon: '📊' }
 }
+
+// v1.1.12+: App 端业务快捷映射白名单 — 与 PC 端 Role.vue APP_MENU_WHITELIST 严格对齐.
+// 这里按 sys_menu.perms 匹配 (不是 path), 因为 PC 端白名单 perms 映射到的 sys_menu.path 可能没在 PATH_TO_APP 里.
+// 同时支持"外勤盘点" / "生产加工单(新增)" 共用同一 sys_menu 但要不同 App 入口:
+// 用特殊 sys_menu.path 前缀区分 (/inventory/check 是盘点, /production/order 是生产单).
+const APP_MENU_TO_PAGE = [
+  { perms: 'base:product:list',      path: '/base/product',         page: { path: '/pages/base/product-add', title: '新增商品', icon: '➕' } },
+  { perms: 'purchase:receipt:list',  path: '/purchase/receipt',     page: { path: '/pages/scan/in', title: '扫码入库', icon: '📥' } },
+  { perms: 'sales:return:list',      path: '/sales/return',         page: { path: '/pages/scan/out', title: '扫码出库', icon: '📤' } },
+  { perms: 'inventory:stock:list',   path: '/inventory/stock',      page: { path: '/pages/inventory/query', title: '查库存', icon: '📦' } },
+  { perms: 'inventory:ledger:list',  path: '/inventory/ledger',     page: { path: '/pages/inventory/query', title: '库存台账', icon: '📒' } },
+  // 生产管理两条独立 sys_menu (外勤盘点=603, 生产加工单=702)
+  { perms: 'inventory:check:list',   path: '/inventory/check',      page: { path: '/pages/count/index', title: '外勤盘点', icon: '📋' } },
+  { perms: 'production:order:list',  path: '/production/order',     page: { path: '/pages/production/order-list', title: '生产加工单', icon: '🏭' } },
+  { perms: 'report:view',            path: '/_report_kpi',          page: { path: '/pages/report/index', title: '经营简报', icon: '📊' } }
+]
 
 // 根据 PC 端分配的菜单权限, 动态生成可见的 App 端快捷功能
 function getServerMenus() {
@@ -69,27 +108,39 @@ const visibleMenus = computed(() => {
     return [
       PATH_TO_APP['/base/product/add'],
       PATH_TO_APP['/sales/return'],
-      PATH_TO_APP['/purchase/receipt'],
-      PATH_TO_APP['/production/order/add'],
+      PATH_TO_APP['/purchase/receipt'],  // v1.1.11+: 去 /production/order/add (重复, 走列表页 ➕)
       PATH_TO_APP['/inventory/stock'],
       PATH_TO_APP['/production/order'],
-      PATH_TO_APP['/report/dashboard'],
-      PATH_TO_APP['/inventory/ledger']
+      PATH_TO_APP['/_report_kpi'],
+      PATH_TO_APP['/inventory/check']
     ]
   }
   // 普通用户: 从 PC 端已分配的菜单中, 映射出 App 端可用功能
+  // v1.1.12+: 按 (perms + path) 双匹配 — sys_menu.perms 决定"用户是否有此权限",
+  // 但同一 perms 可能对应多个 App 入口 (外勤盘点/生产加工单共用 702), 所以 path 必须匹配.
   const serverMenus = getServerMenus()
-  const paths = new Set(serverMenus.map(m => m.path).filter(Boolean))
   const seen = new Set()
   const result = []
   for (const m of serverMenus) {
-    if (!m.path) continue
-    const app = PATH_TO_APP[m.path]
-    if (app && !seen.has(app.path)) {
-      seen.add(app.path)
-      result.push(app)
+    if (!m.perms && !m.path) continue
+    const perms = String(m.perms || '').split(',').map(p => p.trim()).filter(Boolean)
+    const match = APP_MENU_TO_PAGE.find(entry =>
+      perms.includes(entry.perms) && entry.path === m.path
+    )
+    if (match && !seen.has(match.page.path)) {
+      seen.add(match.page.path)
+      result.push(match.page)
     }
   }
+  // 经营简报: PC 端白名单 APP_MENU_WHITELIST 用 perms='report:view' 接入 id=951 按钮,
+  // 但 sys_menu 报表查看 id=951 的 path 为空, 不会进入 appMenus 路径匹配, 所以这里按 perm 补一个入口
+  try {
+    const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+    if (Array.isArray(perms) && perms.includes('report:view') && !seen.has('/pages/report/index')) {
+      seen.add('/pages/report/index')
+      result.push(PATH_TO_APP['/_report_kpi'])
+    }
+  } catch (e) {}
   return result
 })
 
@@ -110,7 +161,18 @@ onMounted(async () => {
   loadUser()
   const h = new Date().getHours()
   greeting.value = h < 6 ? '凌晨好' : h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好'
-  try { kpi.value = await api.dashboard() } catch (e) {}
+  // v1.1.8+: 计算 KPI 区块显隐 + 经营简报入口显隐
+  recomputeKpiVisible()
+  recomputeReportEntryVisible()
+  // v1.1.11+: 有 KPI 权限才请求数据 + 失败时主动隐藏 KPI 区块 (兼容老版本残留 + perm 时序错位)
+  if (kpiVisible.value) {
+    try {
+      kpi.value = await api.dashboard()
+    } catch (e) {
+      // 403 (无权限) / 网络错: 静默, 并隐藏 KPI 区块避免后续空数据报错
+      kpiVisible.value = false
+    }
+  }
   applyTabBar()
   // v1.0.10+: perms 缺失或空时, 主动调 /me 修复 (兼容老版本残留)
   try {
@@ -119,7 +181,8 @@ onMounted(async () => {
       const r = await api.me()
       const userObj = r.data || r
       localStorage.setItem('erp_permissions', JSON.stringify(userObj.permissions || []))
-      localStorage.setItem('erp_menus', JSON.stringify(userObj.menus || []))
+      // App 端优先用 appMenus
+      localStorage.setItem('erp_menus', JSON.stringify(userObj.appMenus || userObj.menus || []))
       localStorage.setItem('erp_user', JSON.stringify(userObj))
       applyTabBar()
     }
