@@ -158,4 +158,19 @@ public class SalReturnService {
 
         log.info("销售退货审核: billNo={}, amount={}", r.getBillNo(), r.getTotalAmountTax());
     }
+
+    /** v1.1.11+ 反审核 (CHECKED→DRAFT, status-only) */
+    @Transactional(rollbackFor = Exception.class)
+    public void uncheck(Long id) {
+        permService.requirePerm("sales:return:uncheck");
+        SalReturn r = returnMapper.selectById(id);
+        if (r == null) throw BizException.of("退货单不存在");
+        if (!Constants.STATUS_CHECKED.equals(r.getBillStatus())) {
+            throw BizException.of("只有已审核状态可反审核");
+        }
+        SalReturn upd = new SalReturn();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_DRAFT);
+        returnMapper.updateById(upd);
+    }
 }

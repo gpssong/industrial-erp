@@ -57,6 +57,13 @@ public class SalDeliveryController {
         return R.ok();
     }
 
+    /** v1.1.11+ 反审核 */
+    @PostMapping("/{id}/uncheck")
+    public R<Void> uncheck(@PathVariable Long id) {
+        service.uncheck(id);
+        return R.ok();
+    }
+
     /** 查询指定客户+商品的上次订单单价 */
     @GetMapping("/last-price")
     public R<BigDecimal> lastPrice(@RequestParam Long customerId, @RequestParam Long productId) {

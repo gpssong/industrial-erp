@@ -46,6 +46,10 @@ public class InvCheckController {
     @PostMapping("/{id}/check")
     public R<Void> check(@PathVariable Long id) { service.check(id); return R.ok(); }
 
+    /** v1.1.11+ 反审核 (status-only) */
+    @PostMapping("/{id}/uncheck")
+    public R<Void> uncheck(@PathVariable Long id) { service.uncheck(id); return R.ok(); }
+
     @Operation(summary = "删除盘点单")
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }

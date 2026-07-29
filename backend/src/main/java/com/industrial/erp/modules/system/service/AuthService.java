@@ -32,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -154,7 +155,25 @@ public class AuthService {
             }
             vo.setRoles(userMapper.selectRoleCodesByUserId(user.getId()));
             vo.setPermissions(userMapper.selectPermsByUserId(user.getId()));
-            vo.setMenus(menuMapper.selectMenusByUserId(user.getId()));
+            // v1.0.10+: 分离 PC 和 App 菜单权限
+            vo.setPcMenus(menuMapper.selectMenusByUserIdAndClient(user.getId(), "PC"));
+            vo.setAppMenus(menuMapper.selectMenusByUserIdAndClient(user.getId(), "APP"));
+            vo.setMenus(vo.getPcMenus()); // keep backwards compat for /me
+            // clientScope: 检查角色允许的端, 决定能否 App 登录
+            List<String> clientScopes = roleMapper.selectClientScopesByUserId(user.getId());
+            if (clientScopes != null && !clientScopes.isEmpty()) {
+                boolean hasBoth = clientScopes.contains("BOTH");
+                boolean hasApp = clientScopes.contains("APP");
+                if (hasBoth) {
+                    vo.setClientScope("BOTH");
+                } else if (hasApp) {
+                    vo.setClientScope("APP");
+                } else {
+                    vo.setClientScope("PC"); // 仅 PC 角色
+                }
+            } else {
+                vo.setClientScope("BOTH");
+            }
             vo.setIsAdmin(user.getIsAdmin());
 
             // P1-8: 检测默认密码 — 强制要求首次登录修改密码才能继续
@@ -246,7 +265,19 @@ public class AuthService {
         BeanUtil.copyProperties(user, vo, "password");
         vo.setRoles(userMapper.selectRoleCodesByUserId(uid));
         vo.setPermissions(userMapper.selectPermsByUserId(uid));
-        vo.setMenus(menuMapper.selectMenusByUserId(uid));
+        // v1.0.10+: 分离 PC/App 菜单
+        vo.setPcMenus(menuMapper.selectMenusByUserIdAndClient(uid, "PC"));
+        vo.setAppMenus(menuMapper.selectMenusByUserIdAndClient(uid, "APP"));
+        vo.setMenus(vo.getPcMenus()); // keep backwards compat
+        // clientScope
+        List<String> clientScopes = roleMapper.selectClientScopesByUserId(uid);
+        if (clientScopes != null && !clientScopes.isEmpty()) {
+            boolean hasBoth = clientScopes.contains("BOTH");
+            boolean hasApp = clientScopes.contains("APP");
+            vo.setClientScope(hasBoth ? "BOTH" : (hasApp ? "APP" : "PC"));
+        } else {
+            vo.setClientScope("BOTH");
+        }
         return vo;
     }
 

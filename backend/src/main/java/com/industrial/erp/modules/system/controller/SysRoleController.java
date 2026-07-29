@@ -10,6 +10,7 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "角色管理")
 @RestController
@@ -50,6 +51,21 @@ public class SysRoleController {
     public R<Void> grantMenus(@PathVariable Long id, @RequestBody List<Long> menuIds) {
         service.grantMenus(id, menuIds);
         return R.ok();
+    }
+
+    /** v1.0.10+: 按客户端类型分配菜单权限 */
+    @PutMapping("/{id}/menus/client")
+    public R<Void> grantMenusByClient(@PathVariable Long id,
+                                       @RequestParam String clientType,
+                                       @RequestBody List<Long> menuIds) {
+        service.grantMenusByClient(id, clientType, menuIds);
+        return R.ok();
+    }
+
+    /** v1.0.10+: 查询角色已分配的客户端分类菜单 */
+    @GetMapping("/{id}/menus/client")
+    public R<Map<String, List<SysMenu>>> roleMenusByClient(@PathVariable Long id) {
+        return R.ok(service.getMenuByClientType(id));
     }
 
     @GetMapping("/{id}/users")

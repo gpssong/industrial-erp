@@ -1,11 +1,13 @@
 package com.industrial.erp.modules.system.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @TableName("sys_menu")
 public class SysMenu {
@@ -21,6 +23,14 @@ public class SysMenu {
     private Integer sortNo;
     private Integer isVisible;
     private Integer status;
+    /**
+     * v1.0.10+ 工作台 KPI 鉴权标识: 1=需要 dashboard:view 权限才能看 KPI 数据
+     * (前端 dashboard.vue 按此字段决定是否调用 /report/dashboard 接口)
+     */
+    private Integer dashboardPerm;
+    /** v1.0.10+: 角色-菜单关联的 client_type (来自 sys_role_menu, 非主表列) */
+    @TableField(exist = false)
+    private String clientType;
     private Long createBy;
     private LocalDateTime createTime;
     private Long updateBy;
@@ -50,6 +60,8 @@ public class SysMenu {
     public void setIsVisible(Integer isVisible) { this.isVisible = isVisible; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
+    public Integer getDashboardPerm() { return dashboardPerm; }
+    public void setDashboardPerm(Integer dashboardPerm) { this.dashboardPerm = dashboardPerm; }
     public Long getCreateBy() { return createBy; }
     public void setCreateBy(Long createBy) { this.createBy = createBy; }
     public LocalDateTime getCreateTime() { return createTime; }
@@ -60,4 +72,6 @@ public class SysMenu {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+    public String getClientType() { return clientType; }
+    public void setClientType(String clientType) { this.clientType = clientType; }
 }

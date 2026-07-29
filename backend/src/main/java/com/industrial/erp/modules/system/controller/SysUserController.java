@@ -56,7 +56,7 @@ public class SysUserController {
     @PutMapping("/{id}/password")
     public R<Void> updatePassword(@PathVariable Long id,
                                   @RequestBody java.util.Map<String, String> body) {
-        // 鉴权在 Service 内: 仅本人或超管 (超管重置他人密码必须传 oldPassword)
+        // v1.1.10+ 调整鉴权: 本人改自己需 oldPassword; 超管改他人不需要 (v1.0.6 反模式已修复)
         userService.updatePassword(id, body.get("password"), body.get("oldPassword"));
         return R.ok();
     }

@@ -19,8 +19,14 @@ public class LoginVO {
     private String deptName;
     private List<String> roles;
     private List<String> permissions;
+    /** @deprecated v1.0.10+ 使用 pcMenus/appMenus 替代 */
+    @Deprecated
     private List<SysMenu> menus;
+    private List<SysMenu> pcMenus;
+    private List<SysMenu> appMenus;
     private Integer isAdmin;
+    /** v1.0.10+: 允许登录的端 (BOTH/PC/APP) */
+    private String clientScope;
     /**
      * P1-8: 是否仍在使用 seed 默认密码.
      * <p>true 表示用户使用了 seed 硬编码的 admin/admin123, 前端应弹出"请修改密码"对话框, 强制改密后才能正常使用.
@@ -53,4 +59,10 @@ public class LoginVO {
     public void setIsAdmin(Integer isAdmin) { this.isAdmin = isAdmin; }
     public Boolean getPasswordExpired() { return passwordExpired; }
     public void setPasswordExpired(Boolean passwordExpired) { this.passwordExpired = passwordExpired; }
+    public List<SysMenu> getPcMenus() { return pcMenus; }
+    public void setPcMenus(List<SysMenu> pcMenus) { this.pcMenus = pcMenus; }
+    public List<SysMenu> getAppMenus() { return appMenus; }
+    public void setAppMenus(List<SysMenu> appMenus) { this.appMenus = appMenus; }
+    public String getClientScope() { return clientScope; }
+    public void setClientScope(String clientScope) { this.clientScope = clientScope; }
 }

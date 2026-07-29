@@ -165,4 +165,34 @@ public class SalOrderService {
             detailMapper.insert(d);
         }
     }
+
+    /** v1.1.11+ 审核销售订单 (status-only, 下游出库单触发库存账) */
+    @Transactional(rollbackFor = Exception.class)
+    public void check(Long id) {
+        permService.requirePerm("sales:order:check");
+        SalOrder order = orderMapper.selectById(id);
+        if (order == null) throw BizException.of("订单不存在");
+        if (!Constants.STATUS_DRAFT.equals(order.getBillStatus())) {
+            throw BizException.of("只有草稿状态可审核");
+        }
+        SalOrder upd = new SalOrder();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_CHECKED);
+        orderMapper.updateById(upd);
+    }
+
+    /** v1.1.11+ 反审核销售订单 (CHECKED→DRAFT) */
+    @Transactional(rollbackFor = Exception.class)
+    public void uncheck(Long id) {
+        permService.requirePerm("sales:order:uncheck");
+        SalOrder order = orderMapper.selectById(id);
+        if (order == null) throw BizException.of("订单不存在");
+        if (!Constants.STATUS_CHECKED.equals(order.getBillStatus())) {
+            throw BizException.of("只有已审核状态可反审核");
+        }
+        SalOrder upd = new SalOrder();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_DRAFT);
+        orderMapper.updateById(upd);
+    }
 }

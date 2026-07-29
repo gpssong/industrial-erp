@@ -46,6 +46,10 @@ public class FinArapService {
         ap.setPaidAmount(BigDecimal.ZERO);
         ap.setBalance(receipt.getTotalAmountTax());
         ap.setBillStatus(Constants.STATUS_UNPAID);
+        // v1.1.10+: 默认未开票 (进项发票未到)
+        ap.setInvoicedAmount(BigDecimal.ZERO);
+        ap.setUninvoicedAmount(receipt.getTotalAmountTax());
+        ap.setInvoiceStatus("UNINVOICED");
         ap.setRemark("采购入库自动生成");
         arapMapper.insert(ap);
     }
@@ -65,6 +69,10 @@ public class FinArapService {
         ar.setPaidAmount(BigDecimal.ZERO);
         ar.setBalance(delivery.getTotalAmountTax());
         ar.setBillStatus(Constants.STATUS_UNPAID);
+        // v1.1.10+: 默认未开票
+        ar.setInvoicedAmount(BigDecimal.ZERO);
+        ar.setUninvoicedAmount(delivery.getTotalAmountTax());
+        ar.setInvoiceStatus("UNINVOICED");
         ar.setRemark("销售出库自动生成");
         arapMapper.insert(ar);
     }
@@ -108,7 +116,10 @@ public class FinArapService {
         arapMapper.insert(ar);
     }
 
-    /** 核销: 收/付款单 -> 应收/应付 */
+    /**
+     * 按 AR/AP 单核销 (原逻辑, 不开票场景)
+     * 注意: v1.1.10+ 推荐使用 FinInvoiceService.writeoffByInvoice (按发票核销)
+     */
     @OperLog(module="应收应付", businessType="EDIT", saveParam=true)
     @Transactional(rollbackFor = Exception.class)
     public void writeoff(Long arapId, BigDecimal amount) {

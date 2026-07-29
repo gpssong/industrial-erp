@@ -304,4 +304,20 @@ public class SalDeliveryService {
         log.info("销售出库审核: billNo={}, amount={}, cost={}, profit={}",
                 d.getBillNo(), d.getTotalAmount(), totalCost, profit);
     }
+
+    /** v1.1.11+ 反审核销售出库 (CHECKED→DRAFT, status-only).
+     *  库存账已扣减 + 应收已生成, 反审核不会自动回退; 需走红冲销售退货单 */
+    @Transactional(rollbackFor = Exception.class)
+    public void uncheck(Long id) {
+        permService.requirePerm("sales:delivery:uncheck");
+        SalDelivery d = deliveryMapper.selectById(id);
+        if (d == null) throw BizException.of("出库单不存在");
+        if (!Constants.STATUS_CHECKED.equals(d.getBillStatus())) {
+            throw BizException.of("只有已审核状态可反审核");
+        }
+        SalDelivery upd = new SalDelivery();
+        upd.setId(id);
+        upd.setBillStatus(Constants.STATUS_DRAFT);
+        deliveryMapper.updateById(upd);
+    }
 }
