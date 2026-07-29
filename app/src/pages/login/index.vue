@@ -17,6 +17,7 @@
       <button class="btn btn-block" @click="onLogin">登 录</button>
     </div>
     <div class="muted" style="text-align:center;margin-top:20px">默认 admin / admin123</div>
+    <div class="muted" style="text-align:center;margin-top:6px;font-size:11px">v1.0.10+ PC/App端权限分离</div>
     <!-- 服务器设置(折叠) -->
     <div class="card server-section">
       <div class="server-toggle" @click="showServer = !showServer">
@@ -27,7 +28,7 @@
       <div v-show="showServer" class="server-body">
         <div class="form-item">
           <label class="label">API 地址</label>
-          <input class="input" type="text" v-model="apiBase" placeholder="留空使用默认: /api" />
+          <input class="input" type="text" v-model="apiBase" :placeholder="isNativePlatform ? '留空使用默认: ' + nativeDefault : '留空使用默认: /api'" />
         </div>
         <div class="btn-row">
           <button class="btn btn-sm" @click="onSaveServer">保存</button>
@@ -47,25 +48,14 @@ const form = reactive({ username: '', password: '' })
 // 服务器设置
 const showServer = ref(false)
 const nativeDefault = 'http://home.93gushi.com:8088/api'
-const defaultLabel = typeof plus !== 'undefined' ? nativeDefault + ' (默认)' : '/api (默认)'
-const apiBase = ref(localStorage.getItem('erp_api_base') || '')
-const currentDisplay = ref(localStorage.getItem('erp_api_base') || defaultLabel)
+const apiBase = ref('')
+const currentDisplay = ref('')
 
 function onSaveServer() {
-  const val = apiBase.value.trim()
-  if (val) {
-    localStorage.setItem('erp_api_base', val)
-    currentDisplay.value = val
-    alert('已保存: ' + val + '\n重新登录后生效')
-  } else {
-    onResetServer()
-  }
+  // 已停用: API 地址硬编码, 不再读取 localStorage
 }
 function onResetServer() {
-  localStorage.removeItem('erp_api_base')
-  apiBase.value = ''
-  currentDisplay.value = defaultLabel
-  alert('已恢复默认')
+  // 已停用
 }
 
 onMounted(() => {})
@@ -73,10 +63,7 @@ onMounted(() => {})
 async function onLogin() {
   try {
     const r = await api.login(form)
-    // v1.1.8+ 兼容模式: 后端同时返回 Bearer token + Set-Cookie (httpOnly).
-    // - Web/H5: 用 cookie (浏览器自动管理, 跨页面持久化更稳)
-    // - 原生 App (Capacitor/HBuilderX): 用 Bearer token, 因为 WebView 跨域 cookie 在某些 Android 版本下不稳
-    // 因此保留 erp_token 写入 (H5 cookie 模式不读它), 但**只用于原生 App 兜底**
+    // v1.0.10+: 分离 PC/App 菜单 — App 端只使用 appMenus
     const persist = (k, v) => {
       const s = typeof v === 'string' ? v : JSON.stringify(v)
       try { if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync(k, v) } catch (e) {}
@@ -85,13 +72,24 @@ async function onLogin() {
     persist('erp_token', r.token || '')
     persist('erp_user', r)
     persist('erp_permissions', r.permissions || [])
-    persist('erp_menus', r.menus || [])
+    // v1.0.10+: 优先使用 appMenus, 兼容旧版 menus 字段
+    persist('erp_menus', r.appMenus || r.menus || [])
+    persist('erp_client_scope', r.clientScope || 'BOTH')
+
+    // v1.0.10+: clientScope 检查 — 如果角色被限制为仅 PC, 不允许 App 登录
+    const scope = r.clientScope || 'BOTH'
+    if (scope === 'PC') {
+      alert('该账号仅限 PC 端登录, 请使用电脑浏览器访问')
+      return
+    }
+
     // 二次拉取 /me 确保菜单数据最新 (兼容老登录)
     try {
       const me = await api.me()
       const userObj = me.data || me
       persist('erp_user', userObj)
-      persist('erp_menus', userObj.menus || r.menus || [])
+      // App 端: /me 也取 appMenus
+      persist('erp_menus', userObj.appMenus || userObj.menus || r.appMenus || r.menus || [])
       persist('erp_permissions', userObj.permissions || r.permissions || [])
     } catch (e) { /* 忽略, 使用登录返回数据 */ }
     navigateTo('/pages/dashboard/index')
