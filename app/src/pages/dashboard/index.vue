@@ -175,18 +175,27 @@ onMounted(async () => {
   }
   applyTabBar()
   // v1.0.10+: perms 缺失或空时, 主动调 /me 修复 (兼容老版本残留)
+  // v1.1.12+: 同时调 /me 时拿到最新 appMenus + permissions, 即使缓存非空也覆盖一次
+  // (解决用户在 PC 端改了授权但 App 端不显示的 bug)
   try {
-    const cachedPerms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
-    if (!Array.isArray(cachedPerms) || cachedPerms.length === 0) {
-      const r = await api.me()
-      const userObj = r.data || r
-      localStorage.setItem('erp_permissions', JSON.stringify(userObj.permissions || []))
-      // App 端优先用 appMenus
-      localStorage.setItem('erp_menus', JSON.stringify(userObj.appMenus || userObj.menus || []))
-      localStorage.setItem('erp_user', JSON.stringify(userObj))
-      applyTabBar()
+    const r = await api.me()
+    const userObj = r.data || r
+    localStorage.setItem('erp_permissions', JSON.stringify(userObj.permissions || []))
+    // App 端优先用 appMenus
+    localStorage.setItem('erp_menus', JSON.stringify(userObj.appMenus || userObj.menus || []))
+    localStorage.setItem('erp_user', JSON.stringify(userObj))
+    // 无变化不需强制刷新 (computed 自动响应, 因为 storage 不是响应式, 但 localStorage 是同步写)
+    // 注意: visibleMenus 是 computed, 依赖 erp_menus storage.
+    // uni 环境下 localStorage 写入不触发 vue 响应式 → 需手动 re-launch
+    // 但重复 re-launch 会闪烁. 仅在菜单实际变化时 re-launch
+    const cachedKeys = uni.getStorageSync('erp_menus_keys') || ''
+    const newKeys = (userObj.appMenus || userObj.menus || []).map(m => m.id).sort().join(',')
+    if (cachedKeys !== newKeys) {
+      uni.setStorageSync('erp_menus_keys', newKeys)
+      // 强制重载 dashboard 让 visibleMenus 重新计算
+      uni.reLaunch({ url: '/pages/dashboard/index' })
     }
-  } catch (e) { /* 忽略 */ }
+  } catch (e) { /* 忽略 — 不阻塞 UI */ }
 })
 </script>
 <style scoped>
