@@ -10,6 +10,11 @@ import java.time.LocalDateTime;
 
 @TableName("sal_order_detail")
 public class SalOrderDetail {
+    // ===== 商品规格属性 (transient, JOIN 注入) =====
+    // v1.1.12+: 打印模板"型号"列需要 pModel 字段, 加 transient getter/setter
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private transient String pModel;
+
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private Long orderId;
@@ -85,4 +90,11 @@ public class SalOrderDetail {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+
+    // ===== pModel (transient, JOIN 注入) =====
+    public String getPModel() { return pModel; }
+    public void setPModel(String pModel) { this.pModel = pModel; }
+    /** 模板字段: model = 型号 */
+    public String getModel() { return pModel; }
+    public void setModel(String model) { this.pModel = model; }
 }

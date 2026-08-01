@@ -81,11 +81,16 @@ public class SalDeliveryService {
     public SalDelivery detail(Long id) {
         SalDelivery d = deliveryMapper.selectById(id);
         if (d != null) d.setDetails(detailMapper.selectByDeliveryId(id));
-        // 批量注入商品色号 (避免 N+1 查询: 之前每行 selectById, 现在 selectBatchIds)
+        // 批量注入商品色号 + 型号 (避免 N+1 查询: 之前每行 selectById, 现在 selectBatchIds)
+        // v1.1.12+: 同时注入 model (型号) — 打印模板"型号"列需要此字段, 否则渲染为空
         if (d != null && d.getDetails() != null) {
             ProductAttrInjector.injectColorNo(productMapper, d.getDetails(),
                     r -> ((SalDeliveryDetail) r).getProductId(),
                     (r, v) -> ((SalDeliveryDetail) r).setPColorNo(v));
+            ProductAttrInjector.inject(productMapper, d.getDetails(),
+                    r -> ((SalDeliveryDetail) r).getProductId(),
+                    (r, v) -> ((SalDeliveryDetail) r).setPModel(v),
+                    p -> p.getModel());
         }
         return d;
     }
