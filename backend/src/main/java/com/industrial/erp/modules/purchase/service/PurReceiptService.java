@@ -83,11 +83,16 @@ public class PurReceiptService {
     public PurReceipt detail(Long id) {
         PurReceipt r = receiptMapper.selectById(id);
         if (r != null) r.setDetails(receiptDetailMapper.selectByReceiptId(id));
-        // 批量注入商品色号 (避免 N+1)
+        // 批量注入商品色号 + 型号 (避免 N+1)
+        // v1.1.12+: 同时注入 model (型号) — 打印模板"型号"列需要此字段
         if (r != null && r.getDetails() != null) {
             ProductAttrInjector.injectColorNo(productMapper, r.getDetails(),
                     row -> ((PurReceiptDetail) row).getProductId(),
                     (row, v) -> ((PurReceiptDetail) row).setPColorNo(v));
+            ProductAttrInjector.inject(productMapper, r.getDetails(),
+                    row -> ((PurReceiptDetail) row).getProductId(),
+                    (row, v) -> ((PurReceiptDetail) row).setPModel(v),
+                    p -> p.getModel());
         }
         return r;
     }

@@ -29,7 +29,7 @@ import java.util.List;
 @Service
 public class PurOrderService {
 
-    public PurOrderService(PurOrderMapper orderMapper, PurOrderDetailMapper detailMapper, BaseSupplierMapper supplierMapper, BillNoGenerator billNoGenerator, PermissionService permService, PurReceiptDetailMapper receiptDetailMapper, OperLogPublisher operLogPublisher) {
+    public PurOrderService(PurOrderMapper orderMapper, PurOrderDetailMapper detailMapper, BaseSupplierMapper supplierMapper, BillNoGenerator billNoGenerator, PermissionService permService, PurReceiptDetailMapper receiptDetailMapper, OperLogPublisher operLogPublisher, com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper) {
         this.orderMapper = orderMapper;
         this.detailMapper = detailMapper;
         this.supplierMapper = supplierMapper;
@@ -37,6 +37,7 @@ public class PurOrderService {
         this.permService = permService;
         this.receiptDetailMapper = receiptDetailMapper;
         this.operLogPublisher = operLogPublisher;
+        this.productMapper = productMapper;
     }
     private final PurOrderMapper orderMapper;
     private final PurOrderDetailMapper detailMapper;
@@ -45,6 +46,7 @@ public class PurOrderService {
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    private final com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper;
 
     public IPage<PurOrder> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus) {
         permService.requirePerm("purchase:order:list");
@@ -60,6 +62,13 @@ public class PurOrderService {
     public PurOrder detail(Long id) {
         PurOrder o = orderMapper.selectById(id);
         if (o != null) o.setDetails(detailMapper.selectByOrderId(id));
+        // v1.1.12+: 注入 model 字段 (打印模板"型号"列)
+        if (o != null && o.getDetails() != null) {
+            com.industrial.erp.modules.base.service.ProductAttrInjector.inject(productMapper, o.getDetails(),
+                    r -> ((PurOrderDetail) r).getProductId(),
+                    (r, v) -> ((PurOrderDetail) r).setPModel(v),
+                    p -> p.getModel());
+        }
         return o;
     }
 

@@ -28,7 +28,7 @@ import java.util.List;
 @Service
 public class SalOrderService {
 
-    public SalOrderService(SalOrderMapper orderMapper, SalOrderDetailMapper detailMapper, BaseCustomerMapper customerMapper, BillNoGenerator billNoGenerator, PermissionService permService, SalDeliveryDetailMapper deliveryDetailMapper, OperLogPublisher operLogPublisher) {
+    public SalOrderService(SalOrderMapper orderMapper, SalOrderDetailMapper detailMapper, BaseCustomerMapper customerMapper, BillNoGenerator billNoGenerator, PermissionService permService, SalDeliveryDetailMapper deliveryDetailMapper, OperLogPublisher operLogPublisher, com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper) {
         this.orderMapper = orderMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
@@ -36,6 +36,7 @@ public class SalOrderService {
         this.permService = permService;
         this.deliveryDetailMapper = deliveryDetailMapper;
         this.operLogPublisher = operLogPublisher;
+        this.productMapper = productMapper;
     }
 
     private final SalOrderMapper orderMapper;
@@ -45,6 +46,7 @@ public class SalOrderService {
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    private final com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper;
 
     public IPage<SalOrder> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus) {
         permService.requirePerm("sales:order:list");
@@ -60,6 +62,13 @@ public class SalOrderService {
     public SalOrder detail(Long id) {
         SalOrder o = orderMapper.selectById(id);
         if (o != null) o.setDetails(detailMapper.selectByOrderId(id));
+        // v1.1.12+: 注入 model 字段 (打印模板"型号"列)
+        if (o != null && o.getDetails() != null) {
+            com.industrial.erp.modules.base.service.ProductAttrInjector.inject(productMapper, o.getDetails(),
+                    r -> ((SalOrderDetail) r).getProductId(),
+                    (r, v) -> ((SalOrderDetail) r).setPModel(v),
+                    p -> p.getModel());
+        }
         return o;
     }
 

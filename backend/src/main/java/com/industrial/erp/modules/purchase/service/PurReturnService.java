@@ -46,11 +46,13 @@ public class PurReturnService {
     private final StockService stockService;
     private final FinArapService arapService;
     private final PermissionService permService;
+    private final com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper;
 
     public PurReturnService(PurReturnMapper returnMapper, PurReturnDetailMapper returnDetailMapper,
                             BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper,
                             BillNoGenerator billNoGenerator, StockService stockService,
-                            FinArapService arapService, PermissionService permService) {
+                            FinArapService arapService, PermissionService permService,
+                            com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper) {
         this.returnMapper = returnMapper;
         this.returnDetailMapper = returnDetailMapper;
         this.supplierMapper = supplierMapper;
@@ -59,6 +61,7 @@ public class PurReturnService {
         this.stockService = stockService;
         this.arapService = arapService;
         this.permService = permService;
+        this.productMapper = productMapper;
     }
 
     public IPage<PurReturn> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus) {
@@ -75,6 +78,13 @@ public class PurReturnService {
     public PurReturn detail(Long id) {
         PurReturn r = returnMapper.selectById(id);
         if (r != null) r.setDetails(returnDetailMapper.selectByReturnId(id));
+        // v1.1.12+: 注入 model 字段 (打印模板"型号"列)
+        if (r != null && r.getDetails() != null) {
+            com.industrial.erp.modules.base.service.ProductAttrInjector.inject(productMapper, r.getDetails(),
+                    row -> ((PurReturnDetail) row).getProductId(),
+                    (row, v) -> ((PurReturnDetail) row).setPModel(v),
+                    p -> p.getModel());
+        }
         return r;
     }
 

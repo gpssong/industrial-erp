@@ -46,11 +46,13 @@ public class SalReturnService {
     private final StockService stockService;
     private final FinArapService arapService;
     private final PermissionService permService;
+    private final com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper;
 
     public SalReturnService(SalReturnMapper returnMapper, SalReturnDetailMapper returnDetailMapper,
                             BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper,
                             BillNoGenerator billNoGenerator, StockService stockService,
-                            FinArapService arapService, PermissionService permService) {
+                            FinArapService arapService, PermissionService permService,
+                            com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper) {
         this.returnMapper = returnMapper;
         this.returnDetailMapper = returnDetailMapper;
         this.customerMapper = customerMapper;
@@ -59,6 +61,7 @@ public class SalReturnService {
         this.stockService = stockService;
         this.arapService = arapService;
         this.permService = permService;
+        this.productMapper = productMapper;
     }
 
     public IPage<SalReturn> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus) {
@@ -75,6 +78,13 @@ public class SalReturnService {
     public SalReturn detail(Long id) {
         SalReturn r = returnMapper.selectById(id);
         if (r != null) r.setDetails(returnDetailMapper.selectByReturnId(id));
+        // v1.1.12+: 注入 model 字段 (打印模板"型号"列)
+        if (r != null && r.getDetails() != null) {
+            com.industrial.erp.modules.base.service.ProductAttrInjector.inject(productMapper, r.getDetails(),
+                    row -> ((SalReturnDetail) row).getProductId(),
+                    (row, v) -> ((SalReturnDetail) row).setPModel(v),
+                    p -> p.getModel());
+        }
         return r;
     }
 

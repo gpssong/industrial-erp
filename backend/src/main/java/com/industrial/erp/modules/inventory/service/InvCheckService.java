@@ -92,6 +92,13 @@ public class InvCheckService {
     public InvCheck detail(Long id) {
         InvCheck c = checkMapper.selectById(id);
         if (c != null) c.setDetails(checkDetailMapper.selectByCheckId(id));
+        // v1.1.12+: 注入 model 字段 (打印模板"型号"列)
+        if (c != null && c.getDetails() != null) {
+            com.industrial.erp.modules.base.service.ProductAttrInjector.inject(productMapper, c.getDetails(),
+                    r -> ((InvCheckDetail) r).getProductId(),
+                    (r, v) -> ((InvCheckDetail) r).setPModel(v),
+                    p -> p.getModel());
+        }
         return c;
     }
 
