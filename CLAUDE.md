@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.12+ (角色管理父子联动修复 + App 业务快捷授权对齐 + 单据页按钮权限过滤 + 生产加工单 App 端完整功能 + bpmn-designer 集成准备)
+**当前版本**: v1.1.13 (打印模板"型号"列注入 + App 端业务快捷授权对齐 + 单据页按钮权限过滤 + 角色管理父子联动修复)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -270,6 +270,15 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - [ ] 登录测试: `admin` / `admin123`
 
 ## 变更日志 (v1.0.10 ~ v1.1.12+)
+
+### v1.1.13 (2026-08-01)
+
+#### 打印模板 — 型号字段注入
+
+| # | 项目 | 修改 |
+|---|---|---|
+| #220 | 销售送货单 / 采购入库等 7 个单据的"型号"列在打印预览中空白, 但商品有 model 字段. 原因: `SalOrderDetail` / `PurOrderDetail` / `InvCheckDetail` 实体缺 `pModel` transient 字段, 且各 Service detail() 只注入 colorNo 不注入 model | (1) 3 个 Detail 实体加 `pModel` + getter/setter (transient, 不入库); (2) 7 个 Service `detail()` 加 `ProductAttrInjector.inject(productMapper, ..., setPModel, ::getModel)` 注入; (3) SalOrderService / PurOrderService / SalReturnService / PurReturnService 加 productMapper 依赖 |
+| #221 | `SalDeliveryBillLoader` / `PurReceiptBillLoader` 飞鹅打印模板读 `d.model`, 但 `model` 没注入 | 通过 Service 注入 model 后, 飞鹅 ftl 模板 `${d.model}` 也能正常渲染 (BillLoader 不需要单独再注入) |
 
 ### v1.1.12+ (2026-07-29)
 
