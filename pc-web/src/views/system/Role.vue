@@ -124,10 +124,16 @@ const APP_MENU_WHITELIST = [
     { name: '新增商品 (商品库)', perms: 'base:product:list', idApp: 'app-301-add' }
   ]},
   { name: '采购管理', children: [
-    { name: '扫码入库', perms: 'purchase:receipt:list', idApp: 'app-402-receipt' }
+    { name: '扫码入库', perms: 'purchase:receipt:list', idApp: 'app-402-receipt' },
+    // v1.1.15+: 采购入库单查询 (sys_menu id=402 path=/purchase/receipt perms=purchase:receipt:list)
+    // 注意: 与"扫码入库"复用同一 perms, 但 idApp 不同 (app-402-receipt-query)
+    // buildAppMenuTree 按 perms 去重时会跳过重复项, 这里用不同 idApp 确保都能显示
+    { name: '采购入库单查询', perms: 'purchase:receipt:list', idApp: 'app-402-receipt-query' }
   ]},
   { name: '销售管理', children: [
-    { name: '扫码出库', perms: 'sales:return:list', idApp: 'app-503-return' }
+    { name: '扫码出库', perms: 'sales:return:list', idApp: 'app-503-return' },
+    // v1.1.14+: 销售出库单查询 (sys_menu id=502 path=/sales/delivery perms=sales:delivery:list)
+    { name: '销售出库单查询', perms: 'sales:delivery:list', idApp: 'app-502-delivery' }
   ]},
   { name: '库存管理', children: [
     { name: '查库存',   perms: 'inventory:stock:list',  idApp: 'app-601-stock' },

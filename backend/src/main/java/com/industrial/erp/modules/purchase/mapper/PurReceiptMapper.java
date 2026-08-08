@@ -17,10 +17,14 @@ public interface PurReceiptMapper extends BaseMapper<PurReceipt> {
      */
     @Select("<script>" +
             "SELECT r.*, " +
+            // v1.1.15+: 仿 SalDeliveryMapper.java:23, 注入仓库名供 App 列表展示
+            "w.warehouse_name AS warehouseName, " +
             "(SELECT GROUP_CONCAT(p.product_name ORDER BY dtl.line_no SEPARATOR ', ') " +
             " FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
             " WHERE dtl.receipt_id = r.id LIMIT 1) AS firstProductName " +
             " FROM pur_receipt r " +
+            // v1.1.15+: LEFT JOIN 仓库表注入 warehouseName
+            "LEFT JOIN base_warehouse w ON w.id = r.warehouse_id AND w.deleted = 0 " +
             "<where>" +
             "  r.deleted = 0 " +
             "  <if test=\"billNo != null and billNo != ''\">AND r.bill_no LIKE CONCAT('%', #{billNo}, '%')</if>" +

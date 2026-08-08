@@ -171,9 +171,14 @@ export const api = {
   customerHistoryProducts: (customerId) => request({ url: '/sales/delivery/customer-history-products', data: { customerId } }),
   // v1.1.7+ App 扫码出库提交后,跳转到 PC 端审查 — 供前端提交后获取单据 ID
   salesDeliveryDetail: (id) => request({ url: '/sales/delivery/' + id }),
+  // v1.1.14+: App 端销售出库单查询列表
+  salesDeliveryPage: (params) => request({ url: '/sales/delivery/page', data: params }),
   // 采购
   purchaseOrderPage: (params) => request({ url: '/purchase/order/page', data: params }),
   purchaseReceiptAdd: (data) => request({ url: '/purchase/receipt', method: 'POST', data }),
+  // v1.1.15+: App 端采购入库单查询列表
+  purchaseReceiptPage: (params) => request({ url: '/purchase/receipt/page', data: params }),
+  purchaseReceiptDetail: (id) => request({ url: '/purchase/receipt/' + id }),
   // 生产
   prdOrderPage: (params) => request({ url: '/production/order/page', data: params }),
   prdOrderDetail: (id) => request({ url: '/production/order/' + id }),
