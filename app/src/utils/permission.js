@@ -28,7 +28,13 @@ const SENSITIVE_PAGES = new Set([
   '/pages/inventory/query',
   '/pages/dashboard/index',
   '/pages/profile/index',
-  '/pages/report/index'
+  '/pages/report/index',
+  // v1.1.14+: 销售出库单查询 (列表/详情共用 sales:delivery:list)
+  '/pages/sales/delivery-list',
+  '/pages/sales/delivery-detail',
+  // v1.1.15+: 采购入库单查询 (列表/详情共用 purchase:receipt:list)
+  '/pages/purchase/receipt-list',
+  '/pages/purchase/receipt-detail'
 ])
 const PAGE_PERMS = {
   '/pages/scan/out': 'sales:delivery:list',
@@ -42,7 +48,13 @@ const PAGE_PERMS = {
   '/pages/base/products': 'base:product:list',
   '/pages/change-password': 'system:user:edit',         // 改自己的密码
   '/pages/profile/change-password': 'system:user:edit',
-  '/pages/report/index': 'report:view'
+  '/pages/report/index': 'report:view',
+  // v1.1.14+: 销售出库单查询 (仅读, 列表/详情共用 sales:delivery:list)
+  '/pages/sales/delivery-list': 'sales:delivery:list',
+  '/pages/sales/delivery-detail': 'sales:delivery:list',
+  // v1.1.15+: 采购入库单查询 (仅读, 列表/详情共用 purchase:receipt:list, 与扫码入库共用同一 perm)
+  '/pages/purchase/receipt-list': 'purchase:receipt:list',
+  '/pages/purchase/receipt-detail': 'purchase:receipt:list'
 }
 
 // 是否为管理员

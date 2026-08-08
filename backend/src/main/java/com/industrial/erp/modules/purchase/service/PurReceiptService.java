@@ -37,6 +37,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 采购入库服务
@@ -77,12 +78,37 @@ public class PurReceiptService {
         permService.requirePerm("purchase:receipt:list");
         Page<PurReceipt> p = new Page<>(pageNum, pageSize);
         // productName EXISTS 子查询已下沉到 mapper XML, 避免 QueryWrapper.apply() 字符串拼接反模式 (P1-3)
-        return receiptMapper.selectPageWithProduct(p, billNo, supplierId, billStatus, productName);
+        IPage<PurReceipt> result = receiptMapper.selectPageWithProduct(p, billNo, supplierId, billStatus, productName);
+        // v1.1.15+: MP IPage 不会自动映射 @TableField(exist=false) 字段, 需 Service 层批量注入 warehouseName
+        List<PurReceipt> records = result.getRecords();
+        if (records != null && !records.isEmpty()) {
+            List<Long> whIds = records.stream()
+                    .map(PurReceipt::getWarehouseId)
+                    .filter(id -> id != null)
+                    .distinct()
+                    .collect(java.util.stream.Collectors.toList());
+            if (!whIds.isEmpty()) {
+                Map<Long, BaseWarehouse> whMap = warehouseMapper.selectBatchIds(whIds)
+                        .stream().collect(java.util.stream.Collectors.toMap(BaseWarehouse::getId, w -> w));
+                records.forEach(r -> {
+                    if (r.getWarehouseId() != null) {
+                        BaseWarehouse wh = whMap.get(r.getWarehouseId());
+                        if (wh != null) r.setWarehouseName(wh.getWarehouseName());
+                    }
+                });
+            }
+        }
+        return result;
     }
 
     public PurReceipt detail(Long id) {
         PurReceipt r = receiptMapper.selectById(id);
         if (r != null) r.setDetails(receiptDetailMapper.selectByReceiptId(id));
+        // v1.1.15+: 注入仓库名 (detail 场景单次查询, 无需批量)
+        if (r != null && r.getWarehouseId() != null) {
+            BaseWarehouse wh = warehouseMapper.selectById(r.getWarehouseId());
+            if (wh != null) r.setWarehouseName(wh.getWarehouseName());
+        }
         // 批量注入商品色号 + 型号 (避免 N+1)
         // v1.1.12+: 同时注入 model (型号) — 打印模板"型号"列需要此字段
         if (r != null && r.getDetails() != null) {

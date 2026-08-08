@@ -14,7 +14,11 @@
     { "path": "pages/base/product-add", "style": { "navigationBarTitleText": "新增商品" } },
     { "path": "pages/production/order-add", "style": { "navigationBarTitleText": "新增生产单" } },
     { "path": "pages/production/order-list", "style": { "navigationBarTitleText": "生产加工单" } },
-    { "path": "pages/production/order-detail", "style": { "navigationBarTitleText": "生产单详情" } }
+    { "path": "pages/production/order-detail", "style": { "navigationBarTitleText": "生产单详情" } },
+    { "path": "pages/sales/delivery-list", "style": { "navigationBarTitleText": "销售出库单" } },
+    { "path": "pages/sales/delivery-detail", "style": { "navigationBarTitleText": "出库单详情" } },
+    { "path": "pages/purchase/receipt-list", "style": { "navigationBarTitleText": "采购入库单" } },
+    { "path": "pages/purchase/receipt-detail", "style": { "navigationBarTitleText": "入库单详情" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",

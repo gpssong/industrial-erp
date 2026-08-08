@@ -89,7 +89,11 @@ const APP_MENU_TO_PAGE = [
   // 生产管理两条独立 sys_menu (外勤盘点=603, 生产加工单=702)
   { perms: 'inventory:check:list',   path: '/inventory/check',      page: { path: '/pages/count/index', title: '外勤盘点', icon: '📋' } },
   { perms: 'production:order:list',  path: '/production/order',     page: { path: '/pages/production/order-list', title: '生产加工单', icon: '🏭' } },
-  { perms: 'report:view',            path: '/_report_kpi',          page: { path: '/pages/report/index', title: '经营简报', icon: '📊' } }
+  { perms: 'report:view',            path: '/_report_kpi',          page: { path: '/pages/report/index', title: '经营简报', icon: '📊' } },
+  // v1.1.14+: 销售出库单查询 (sys_menu id=502 path=/sales/delivery)
+  { perms: 'sales:delivery:list',    path: '/sales/delivery',       page: { path: '/pages/sales/delivery-list', title: '销售出库单', icon: '📋' } },
+  // v1.1.15+: 采购入库单查询 (sys_menu id=402 path=/purchase/receipt perms=purchase:receipt:list)
+  { perms: 'purchase:receipt:list',  path: '/purchase/receipt',     page: { path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' } }
 ]
 
 // 根据 PC 端分配的菜单权限, 动态生成可见的 App 端快捷功能
@@ -112,7 +116,11 @@ const visibleMenus = computed(() => {
       PATH_TO_APP['/inventory/stock'],
       PATH_TO_APP['/production/order'],
       PATH_TO_APP['/_report_kpi'],
-      PATH_TO_APP['/inventory/check']
+      PATH_TO_APP['/inventory/check'],
+      // v1.1.14+: 销售出库单查询 (管理员 hardcoded 列表也加, 保持对称)
+      { path: '/pages/sales/delivery-list', title: '销售出库单', icon: '📋' },
+      // v1.1.15+: 采购入库单查询 (管理员 hardcoded 列表也加)
+      { path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' }
     ]
   }
   // 普通用户: 从 PC 端已分配的菜单中, 映射出 App 端可用功能
