@@ -174,7 +174,7 @@ public class PurReturnService {
 
     /**
      * 反审核采购退货 (v1.1.11+): status-only (CHECKED→DRAFT).
-     * 库存账已出库 + 应付已冲减, 反审核不会自动回退; 需走红冲或人工修正
+     * v1.1.18+: 同步回退: 库存入库 (采购退货是出库, 反审核要入库冲掉) + 删除负数 AP.
      */
     @Transactional(rollbackFor = Exception.class)
     public void uncheck(Long id) {
@@ -184,6 +184,21 @@ public class PurReturnService {
         if (!Constants.STATUS_CHECKED.equals(r.getBillStatus())) {
             throw BizException.of("只有已审核状态可反审核");
         }
+
+        List<PurReturnDetail> details = returnDetailMapper.selectByReturnId(id);
+        BaseWarehouse wh = r.getWarehouseId() == null ? null : warehouseMapper.selectById(r.getWarehouseId());
+        for (PurReturnDetail d : details) {
+            stockService.inStock(
+                    Constants.LEDGER_PUR_RETURN, r.getId(), r.getBillNo(), d.getId(),
+                    r.getWarehouseId(), wh == null ? null : wh.getWarehouseName(), null, null,
+                    d.getProductId(), d.getUnitId(), d.getUnitName(), d.getBatchNo(),
+                    d.getQty(), null, r.getBillNo(),
+                    r.getSupplierId(), null, "反审核采购退货 " + r.getBillNo()
+            );
+        }
+
+        arapService.requireCancelableAndDelete(Constants.LEDGER_PUR_RETURN, r.getId());
+
         PurReturn upd = new PurReturn();
         upd.setId(id);
         upd.setBillStatus(Constants.STATUS_DRAFT);

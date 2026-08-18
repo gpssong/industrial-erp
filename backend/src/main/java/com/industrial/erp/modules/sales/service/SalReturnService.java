@@ -169,7 +169,8 @@ public class SalReturnService {
         log.info("销售退货审核: billNo={}, amount={}", r.getBillNo(), r.getTotalAmountTax());
     }
 
-    /** v1.1.11+ 反审核 (CHECKED→DRAFT, status-only) */
+    /** v1.1.18+: 反审核 (CHECKED→DRAFT).
+     *  同步回退: 库存出库 (销售退货是入库, 反审核要出库冲掉) + 删除负数 AR. */
     @Transactional(rollbackFor = Exception.class)
     public void uncheck(Long id) {
         permService.requirePerm("sales:return:uncheck");
@@ -178,6 +179,22 @@ public class SalReturnService {
         if (!Constants.STATUS_CHECKED.equals(r.getBillStatus())) {
             throw BizException.of("只有已审核状态可反审核");
         }
+
+        List<SalReturnDetail> details = returnDetailMapper.selectByReturnId(id);
+        BaseWarehouse wh = r.getWarehouseId() == null ? null : warehouseMapper.selectById(r.getWarehouseId());
+        for (SalReturnDetail d : details) {
+            stockService.outStock(
+                    Constants.LEDGER_SAL_RETURN, r.getId(), r.getBillNo(), d.getId(),
+                    r.getWarehouseId(), wh == null ? null : wh.getWarehouseName(), null, null,
+                    d.getProductId(), d.getUnitId(), d.getUnitName(), d.getBatchNo(),
+                    d.getQty(), null, r.getBillNo(),
+                    null, r.getCustomerId(), "反审核销售退货 " + r.getBillNo()
+            );
+        }
+
+        // 删除负数 AR (reverseArForReturn 写入)
+        arapService.requireCancelableAndDelete(Constants.LEDGER_SAL_RETURN, r.getId());
+
         SalReturn upd = new SalReturn();
         upd.setId(id);
         upd.setBillStatus(Constants.STATUS_DRAFT);

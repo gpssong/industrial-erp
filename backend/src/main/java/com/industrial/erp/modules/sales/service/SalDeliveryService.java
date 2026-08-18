@@ -310,8 +310,11 @@ public class SalDeliveryService {
                 d.getBillNo(), d.getTotalAmount(), totalCost, profit);
     }
 
-    /** v1.1.11+ 反审核销售出库 (CHECKED→DRAFT, status-only).
-     *  库存账已扣减 + 应收已生成, 反审核不会自动回退; 需走红冲销售退货单 */
+    /** v1.1.18+: 反审核销售出库 (CHECKED→DRAFT).
+     *  同步回退: 库存入库 + 客户信用额度 + 删除原应收 AR.
+     *  - 库存入库: 每行按 conversion_rate 折算到主单位 (v1.1.17+ 语义)
+     *  - 信用回退: GREATEST(0, used - amount), 防御性防负
+     *  - AR 删除: 校验 paidAmount/invoicedAmount 为 0, 否则抛错让用户先平账 */
     @Transactional(rollbackFor = Exception.class)
     public void uncheck(Long id) {
         permService.requirePerm("sales:delivery:uncheck");
@@ -320,9 +323,36 @@ public class SalDeliveryService {
         if (!Constants.STATUS_CHECKED.equals(d.getBillStatus())) {
             throw BizException.of("只有已审核状态可反审核");
         }
+
+        // 1. 库存入库 (每行调 stockService.inStock, qty 自动折算到主单位)
+        List<SalDeliveryDetail> details = detailMapper.selectByDeliveryId(id);
+        BaseWarehouse wh = d.getWarehouseId() == null ? null : warehouseMapper.selectById(d.getWarehouseId());
+        for (SalDeliveryDetail det : details) {
+            stockService.inStock(
+                    Constants.LEDGER_SAL_DELIVERY, d.getId(), d.getBillNo(), det.getId(),
+                    d.getWarehouseId(), wh == null ? null : wh.getWarehouseName(),
+                    det.getLocationId(), det.getLocationName(),
+                    det.getProductId(), det.getUnitId(), det.getUnitName(), det.getBatchNo(),
+                    det.getQty(), det.getCostPrice(), d.getBillNo(),
+                    null, d.getCustomerId(), "反审核销售出库 " + d.getBillNo()
+            );
+        }
+
+        // 2. 客户信用额度回退
+        if (d.getCustomerId() != null && d.getTotalAmountTax() != null
+                && d.getTotalAmountTax().compareTo(BigDecimal.ZERO) > 0) {
+            customerMapper.decrCreditUsed(d.getCustomerId(), d.getTotalAmountTax());
+        }
+
+        // 3. 删除原应收 AR (已核销/已开票则抛错)
+        arapService.requireCancelableAndDelete(Constants.LEDGER_SAL_DELIVERY, d.getId());
+
+        // 4. 主表状态 + 清零成本/毛利
         SalDelivery upd = new SalDelivery();
         upd.setId(id);
         upd.setBillStatus(Constants.STATUS_DRAFT);
+        upd.setCostAmount(BigDecimal.ZERO);
+        upd.setProfitAmount(BigDecimal.ZERO);
         deliveryMapper.updateById(upd);
     }
 }
