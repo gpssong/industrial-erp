@@ -317,6 +317,8 @@ public class PurReceiptService {
      * 反审核入库单 (v1.1.11+): status-only (CHECKED→DRAFT).
      * 注意: 库存账已实增 + 应付台账已生成, 反审核不会自动回退; 需走红冲单或人工修正
      */
+    /** v1.1.18+: 反审核 (CHECKED→DRAFT).
+     *  同步回退: 库存出库 (采购入库是入库, 反审核要出库冲掉) + 删除正 AP. */
     @Transactional(rollbackFor = Exception.class)
     public void uncheck(Long id) {
         permService.requirePerm("purchase:receipt:uncheck");
@@ -325,6 +327,22 @@ public class PurReceiptService {
         if (!Constants.STATUS_CHECKED.equals(r.getBillStatus())) {
             throw BizException.of("只有已审核状态可反审核");
         }
+
+        List<PurReceiptDetail> details = receiptDetailMapper.selectByReceiptId(id);
+        BaseWarehouse wh = r.getWarehouseId() == null ? null : warehouseMapper.selectById(r.getWarehouseId());
+        for (PurReceiptDetail d : details) {
+            stockService.outStock(
+                    Constants.LEDGER_PUR_RECEIPT, r.getId(), r.getBillNo(), d.getId(),
+                    r.getWarehouseId(), wh == null ? null : wh.getWarehouseName(),
+                    d.getLocationId(), d.getLocationName(),
+                    d.getProductId(), d.getUnitId(), d.getUnitName(), d.getBatchNo(),
+                    d.getQty(), null, r.getBillNo(),
+                    r.getSupplierId(), null, "反审核采购入库 " + r.getBillNo()
+            );
+        }
+
+        arapService.requireCancelableAndDelete(Constants.LEDGER_PUR_RECEIPT, r.getId());
+
         PurReceipt upd = new PurReceipt();
         upd.setId(id);
         upd.setBillStatus(Constants.STATUS_DRAFT);

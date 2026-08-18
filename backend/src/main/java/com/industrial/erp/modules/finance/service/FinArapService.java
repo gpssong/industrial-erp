@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.finance.service;
 
 import com.industrial.erp.common.Constants;
+import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.finance.entity.FinArap;
 import com.industrial.erp.modules.finance.mapper.FinArapMapper;
 import com.industrial.erp.modules.system.annotation.OperLog;
@@ -12,6 +13,7 @@ import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.entity.SalReturn;
 import com.industrial.erp.modules.sales.entity.SalReturnDetail;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -135,5 +137,30 @@ public class FinArapService {
                 ? Constants.STATUS_PAID
                 : Constants.STATUS_PARTIAL);
         arapMapper.updateById(upd);
+    }
+
+    /** v1.1.18+: 反审核单据时, 按 sourceBillType + sourceBillId 查 AR/AP 列表,
+     *  校验未被核销 (paidAmount=0) 且未开票 (invoicedAmount=0), 否则抛 BizException.
+     *  校验通过则硬删 (deleteById), 让账目干净. */
+    @Transactional(rollbackFor = Exception.class)
+    public void requireCancelableAndDelete(String sourceBillType, Long sourceBillId) {
+        List<FinArap> ars = arapMapper.selectList(
+                new LambdaQueryWrapper<FinArap>()
+                        .eq(FinArap::getSourceBillType, sourceBillType)
+                        .eq(FinArap::getSourceBillId, sourceBillId)
+                        .eq(FinArap::getDeleted, 0)
+        );
+        if (ars == null || ars.isEmpty()) return;  // 历史无 AR/AP 记录 (可能来自早期版本)
+        for (FinArap ar : ars) {
+            if (ar.getPaidAmount() != null && ar.getPaidAmount().compareTo(BigDecimal.ZERO) > 0) {
+                throw BizException.of("应收/应付单(ID=" + ar.getId() + ") 已被核销 (paidAmount="
+                        + ar.getPaidAmount() + "), 无法反审核");
+            }
+            if (ar.getInvoicedAmount() != null && ar.getInvoicedAmount().compareTo(BigDecimal.ZERO) > 0) {
+                throw BizException.of("应收/应付单(ID=" + ar.getId() + ") 已开票 (invoicedAmount="
+                        + ar.getInvoicedAmount() + "), 无法反审核");
+            }
+            arapMapper.deleteById(ar.getId());
+        }
     }
 }

@@ -4,4 +4,7 @@
     <update id="incrCreditUsed">
         UPDATE base_customer SET credit_used = credit_used + #{delta}, update_time = NOW() WHERE id = #{id}
     </update>
+    <update id="decrCreditUsed">
+        UPDATE base_customer SET credit_used = GREATEST(IFNULL(credit_used, 0) - #{delta}, 0), update_time = NOW() WHERE id = #{id}
+    </update>
 </mapper>

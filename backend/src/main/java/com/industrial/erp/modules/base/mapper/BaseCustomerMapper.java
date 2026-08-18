@@ -10,4 +10,6 @@ import java.math.BigDecimal;
 @Mapper
 public interface BaseCustomerMapper extends BaseMapper<BaseCustomer> {
     int incrCreditUsed(@Param("id") Long id, @Param("delta") BigDecimal delta);
+    /** v1.1.18+: 反审核销售出库时回退信用占用. GREATEST 防止负数. */
+    int decrCreditUsed(@Param("id") Long id, @Param("delta") BigDecimal delta);
 }
