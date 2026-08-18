@@ -3,7 +3,9 @@ package com.industrial.erp.modules.inventory.service;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.entity.BaseProductUnit;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
+import com.industrial.erp.modules.base.mapper.BaseProductUnitMapper;
 import com.industrial.erp.modules.inventory.entity.InvLedger;
 import com.industrial.erp.modules.inventory.entity.InvStock;
 import com.industrial.erp.modules.inventory.mapper.InvLedgerMapper;
@@ -24,16 +26,18 @@ import java.util.List;
 @Service
 public class StockService {
 
-    public StockService(InvStockMapper stockMapper, InvLedgerMapper ledgerMapper, BaseProductMapper productMapper, RedisLock redisLock) {
+    public StockService(InvStockMapper stockMapper, InvLedgerMapper ledgerMapper, BaseProductMapper productMapper, BaseProductUnitMapper unitMapper, RedisLock redisLock) {
         this.stockMapper = stockMapper;
         this.ledgerMapper = ledgerMapper;
         this.productMapper = productMapper;
+        this.unitMapper = unitMapper;
         this.redisLock = redisLock;
     }
 
     private final InvStockMapper stockMapper;
     private final InvLedgerMapper ledgerMapper;
     private final BaseProductMapper productMapper;
+    private final BaseProductUnitMapper unitMapper;
     private final RedisLock redisLock;
 
     @Transactional(rollbackFor = Exception.class)
@@ -47,7 +51,15 @@ public class StockService {
         }
         BaseProduct product = productMapper.selectById(productId);
         if (product == null) throw BizException.of("商品不存在: " + productId);
-        BigDecimal amount = price == null ? BigDecimal.ZERO : price.multiply(qty).setScale(4, RoundingMode.HALF_UP);
+
+        // v1.1.17+: 副单位录入 → 主单位折算 (1副单位 = conversion_rate 主单位).
+        // 库存与台账内部统一按主单位存. 单据明细 (SalDeliveryDetail 等) 的 qty/unitName 保持原值不变.
+        BaseProductUnit mainUnit = unitMapper.selectMainUnit(productId);
+        Long mainUnitId = mainUnit == null ? unitId : mainUnit.getUnitId();
+        String mainUnitName = mainUnit == null ? unitName : mainUnit.getUnitName();
+        BigDecimal mainQty = convertToMain(productId, unitId, qty, mainUnit);
+
+        BigDecimal amount = price == null ? BigDecimal.ZERO : price.multiply(mainQty).setScale(4, RoundingMode.HALF_UP);
 
         // v1.1.7+: 空串统一归一为 null, 避免前端 "" 与 后端 null OGNL 行为不一致.
         String bn = (batchNo == null || batchNo.isEmpty()) ? null : batchNo;
@@ -69,11 +81,11 @@ public class StockService {
                 s.setProductCode(product.getProductCode());
                 s.setProductName(product.getProductName());
                 s.setSpec(product.getSpec());
-                s.setUnitId(unitId);
-                s.setUnitName(unitName);
+                s.setUnitId(mainUnitId);
+                s.setUnitName(mainUnitName);
                 s.setBatchNo(bn);
-                s.setQty(qty);
-                s.setAvailableQty(qty);
+                s.setQty(mainQty);
+                s.setAvailableQty(mainQty);
                 s.setAvgCost(price != null ? price : BigDecimal.ZERO);
                 s.setTotalCost(amount);
                 s.setLastInDate(LocalDate.now());
@@ -85,7 +97,7 @@ public class StockService {
             } else {
                 // 更新现有库存: 移动加权平均
                 BigDecimal newTotalCost = (cur.getTotalCost() == null ? BigDecimal.ZERO : cur.getTotalCost()).add(amount);
-                BigDecimal newQty = (cur.getQty() == null ? BigDecimal.ZERO : cur.getQty()).add(qty);
+                BigDecimal newQty = (cur.getQty() == null ? BigDecimal.ZERO : cur.getQty()).add(mainQty);
                 BigDecimal newAvgCost = newQty.compareTo(BigDecimal.ZERO) > 0 ? newTotalCost.divide(newQty, 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
                 cur.setQty(newQty);
                 cur.setAvailableQty(newQty);
@@ -110,10 +122,10 @@ public class StockService {
             ledger.setProductId(productId);
             ledger.setProductCode(product.getProductCode());
             ledger.setProductName(product.getProductName());
-            ledger.setUnitId(unitId);
-            ledger.setUnitName(unitName);
+            ledger.setUnitId(mainUnitId);
+            ledger.setUnitName(mainUnitName);
             ledger.setBatchNo(bn);
-            ledger.setQty(qty);
+            ledger.setQty(mainQty);
             ledger.setPrice(price);
             ledger.setAmount(amount);
             // 修复: 这里曾直接读 cur.getQty()/getAvgCost(), 但上方已 setQty/setAvgCost 把 cur 改成新值,
@@ -162,6 +174,12 @@ public class StockService {
         BaseProduct product = productMapper.selectById(productId);
         if (product == null) throw BizException.of("商品不存在: " + productId);
 
+        // v1.1.17+: 副单位录入 → 主单位折算 (1副单位 = conversion_rate 主单位).
+        BaseProductUnit mainUnit = unitMapper.selectMainUnit(productId);
+        Long mainUnitId = mainUnit == null ? unitId : mainUnit.getUnitId();
+        String mainUnitName = mainUnit == null ? unitName : mainUnit.getUnitName();
+        BigDecimal mainQty = convertToMain(productId, unitId, qty, mainUnit);
+
         // v1.1.7+: 空串统一归一为 null, 避免前端 "" 与 后端 null OGNL 行为不一致.
         String bn = (batchNo == null || batchNo.isEmpty()) ? null : batchNo;
 
@@ -184,13 +202,13 @@ public class StockService {
                     product.getProductName(), productId, warehouseName, warehouseId,
                     bn == null ? "<无>" : bn, detail));
             }
-            if (stock.getQty().compareTo(qty) < 0) {
-                throw BizException.of("库存不足, 商品=" + product.getProductName() + ", 当前库存=" + stock.getQty() + ", 需要=" + qty);
+            if (stock.getQty().compareTo(mainQty) < 0) {
+                throw BizException.of("库存不足, 商品=" + product.getProductName() + ", 当前库存=" + stock.getQty() + ", 需要=" + mainQty);
             }
             BigDecimal beforeQty = stock.getQty();
             BigDecimal beforeAvgCost = stock.getAvgCost() == null ? BigDecimal.ZERO : stock.getAvgCost();
-            BigDecimal outCost = beforeAvgCost.multiply(qty).setScale(4, RoundingMode.HALF_UP);
-            BigDecimal afterQty = beforeQty.subtract(qty);
+            BigDecimal outCost = beforeAvgCost.multiply(mainQty).setScale(4, RoundingMode.HALF_UP);
+            BigDecimal afterQty = beforeQty.subtract(mainQty);
             BigDecimal afterTotalCost = beforeAvgCost.multiply(afterQty).setScale(4, RoundingMode.HALF_UP);
 
             stock.setQty(afterQty);
@@ -214,10 +232,10 @@ public class StockService {
             ledger.setProductId(productId);
             ledger.setProductCode(product.getProductCode());
             ledger.setProductName(product.getProductName());
-            ledger.setUnitId(unitId);
-            ledger.setUnitName(unitName);
+            ledger.setUnitId(mainUnitId);
+            ledger.setUnitName(mainUnitName);
             ledger.setBatchNo(bn);
-            ledger.setQty(qty);
+            ledger.setQty(mainQty);
             ledger.setPrice(beforeAvgCost);
             ledger.setAmount(outCost);
             ledger.setBeforeQty(beforeQty);
@@ -234,5 +252,19 @@ public class StockService {
 
             return outCost;
         });
+    }
+
+    /** v1.1.17+: 副单位 → 主单位折算 (qty_主 = qty_从 * conversion_rate).
+     *  主单位时直接返回 qty; 找不到单位时返回 qty (兜底, 保持历史行为不变 — 不让脏数据 throw 中断业务).
+     *  接收已查好的 mainUnit 以避免在循环中重复 selectMainUnit. */
+    private BigDecimal convertToMain(Long productId, Long unitId, BigDecimal qty, BaseProductUnit mainUnit) {
+        if (qty == null) return BigDecimal.ZERO;
+        if (unitId == null) return qty;
+        if (mainUnit == null) return qty;
+        if (mainUnit.getUnitId().equals(unitId)) return qty;
+        BaseProductUnit source = unitMapper.selectByProductId(productId).stream()
+                .filter(x -> x.getUnitId().equals(unitId)).findFirst().orElse(null);
+        if (source == null) return qty;
+        return qty.multiply(source.getConversionRate()).setScale(4, RoundingMode.HALF_UP);
     }
 }

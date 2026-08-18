@@ -2,7 +2,9 @@ package com.industrial.erp.modules.inventory.service;
 
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.entity.BaseProductUnit;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
+import com.industrial.erp.modules.base.mapper.BaseProductUnitMapper;
 import com.industrial.erp.modules.inventory.entity.InvLedger;
 import com.industrial.erp.modules.inventory.entity.InvStock;
 import com.industrial.erp.modules.inventory.mapper.InvLedgerMapper;
@@ -56,6 +58,7 @@ class StockServiceTest {
     @Mock private InvStockMapper stockMapper;
     @Mock private InvLedgerMapper ledgerMapper;
     @Mock private BaseProductMapper productMapper;
+    @Mock private BaseProductUnitMapper unitMapper;
     @Mock private RedisLock redisLock;
 
     @InjectMocks private StockService stockService;
@@ -324,5 +327,154 @@ class StockServiceTest {
         verify(stockMapper).updateById(captor.capture());
         assertThat(captor.getValue().getQty()).isEqualByComparingTo("0");
         assertThat(captor.getValue().getAvailableQty()).isEqualByComparingTo("0");
+    }
+
+    // ==================== v1.1.17+ 副单位 → 主单位折算测试 ====================
+
+    /** 主单位 = 卷 (unitId=1, conversionRate=1), 副单位 = 箱 (unitId=2, conversionRate=60) */
+    private void mockUnitsForConversion(Long mainUnitId, String mainName, Long subUnitId, BigDecimal subRate) {
+        BaseProductUnit mainUnit = new BaseProductUnit();
+        mainUnit.setUnitId(mainUnitId);
+        mainUnit.setUnitName(mainName);
+        mainUnit.setIsMain(1);
+        mainUnit.setConversionRate(BigDecimal.ONE);
+        lenient().when(unitMapper.selectMainUnit(PRODUCT_ID)).thenReturn(mainUnit);
+        BaseProductUnit subUnit = new BaseProductUnit();
+        subUnit.setUnitId(subUnitId);
+        subUnit.setUnitName("箱");
+        subUnit.setIsMain(0);
+        subUnit.setConversionRate(subRate);
+        lenient().when(unitMapper.selectByProductId(PRODUCT_ID))
+                .thenReturn(java.util.Arrays.asList(mainUnit, subUnit));
+    }
+
+    @Test
+    @DisplayName("入库 - 副单位录入1箱(conv=60) → 库存按主单位加60")
+    void inStock_convertsSubUnitToMain() {
+        mockUnitsForConversion(1L, "卷", 2L, new BigDecimal("60"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(mockProduct());
+        when(stockMapper.selectForUpdate(WAREHOUSE_ID, PRODUCT_ID, BATCH_NO)).thenReturn(null);
+
+        stockService.inStock(
+                "PUR_RECEIPT", 1L, "R", 1L,
+                WAREHOUSE_ID, "主仓", null, null,
+                PRODUCT_ID, 2L, "箱", BATCH_NO,
+                new BigDecimal("1"), new BigDecimal("2.5"), null,
+                1L, null, "test");
+
+        ArgumentCaptor<InvStock> stockCap = ArgumentCaptor.forClass(InvStock.class);
+        verify(stockMapper).insert(stockCap.capture());
+        assertThat(stockCap.getValue().getQty()).isEqualByComparingTo("60");
+        assertThat(stockCap.getValue().getUnitName()).isEqualTo("卷");
+        assertThat(stockCap.getValue().getUnitId()).isEqualTo(1L);
+        // amount = price * mainQty = 2.5 * 60 = 150
+        assertThat(stockCap.getValue().getTotalCost()).isEqualByComparingTo("150.0000");
+
+        ArgumentCaptor<InvLedger> ledgerCap = ArgumentCaptor.forClass(InvLedger.class);
+        verify(ledgerMapper).insert(ledgerCap.capture());
+        assertThat(ledgerCap.getValue().getQty()).isEqualByComparingTo("60");
+        assertThat(ledgerCap.getValue().getUnitName()).isEqualTo("卷");
+    }
+
+    @Test
+    @DisplayName("入库 - 主单位录入60卷 → 库存加60 (与副单位录1箱等价)")
+    void inStock_mainUnitNoConversion() {
+        mockUnitsForConversion(1L, "卷", 2L, new BigDecimal("60"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(mockProduct());
+        when(stockMapper.selectForUpdate(WAREHOUSE_ID, PRODUCT_ID, BATCH_NO)).thenReturn(null);
+
+        stockService.inStock(
+                "PUR_RECEIPT", 1L, "R", 1L,
+                WAREHOUSE_ID, "主仓", null, null,
+                PRODUCT_ID, 1L, "卷", BATCH_NO,
+                new BigDecimal("60"), new BigDecimal("2.5"), null,
+                1L, null, "test");
+
+        ArgumentCaptor<InvStock> stockCap = ArgumentCaptor.forClass(InvStock.class);
+        verify(stockMapper).insert(stockCap.capture());
+        assertThat(stockCap.getValue().getQty()).isEqualByComparingTo("60");
+    }
+
+    @Test
+    @DisplayName("出库 - 副单位录入1箱(conv=60) → 库存按主单位减60")
+    void outStock_convertsSubUnitToMain() {
+        mockUnitsForConversion(1L, "卷", 2L, new BigDecimal("60"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(mockProduct());
+        InvStock existing = new InvStock();
+        existing.setId(1L);
+        existing.setWarehouseId(WAREHOUSE_ID);
+        existing.setProductId(PRODUCT_ID);
+        existing.setQty(new BigDecimal("200"));
+        existing.setAvailableQty(new BigDecimal("200"));
+        existing.setAvgCost(new BigDecimal("5"));
+        existing.setTotalCost(new BigDecimal("1000"));
+        when(stockMapper.selectForUpdate(WAREHOUSE_ID, PRODUCT_ID, BATCH_NO)).thenReturn(existing);
+
+        // 录 1箱 (=60卷), 库存 200 → 减 60 → 剩 140
+        BigDecimal outCost = stockService.outStock(
+                "SAL_DELIVERY", 1L, "X", 1L,
+                WAREHOUSE_ID, "主仓", null, null,
+                PRODUCT_ID, 2L, "箱", BATCH_NO,
+                new BigDecimal("1"), null, null,
+                null, 1L, null);
+
+        // outCost = avgCost(5) * 60 = 300
+        assertThat(outCost).isEqualByComparingTo("300.0000");
+        ArgumentCaptor<InvStock> stockCap = ArgumentCaptor.forClass(InvStock.class);
+        verify(stockMapper).updateById(stockCap.capture());
+        assertThat(stockCap.getValue().getQty()).isEqualByComparingTo("140");
+        // 注: outStock 不修改 stock 的 unitName/unitId (保留原库存快照), 仅台账写主单位
+
+        ArgumentCaptor<InvLedger> ledgerCap = ArgumentCaptor.forClass(InvLedger.class);
+        verify(ledgerMapper).insert(ledgerCap.capture());
+        assertThat(ledgerCap.getValue().getQty()).isEqualByComparingTo("60");
+        assertThat(ledgerCap.getValue().getUnitName()).isEqualTo("卷");
+    }
+
+    @Test
+    @DisplayName("出库 - 副单位录1箱但库存不足60卷 → 抛业务异常")
+    void outStock_subUnitInsufficientStock() {
+        mockUnitsForConversion(1L, "卷", 2L, new BigDecimal("60"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(mockProduct());
+        InvStock existing = new InvStock();
+        existing.setId(1L);
+        existing.setWarehouseId(WAREHOUSE_ID);
+        existing.setProductId(PRODUCT_ID);
+        existing.setQty(new BigDecimal("30"));  // 只有30卷, 不够60卷
+        existing.setAvailableQty(new BigDecimal("30"));
+        existing.setAvgCost(new BigDecimal("5"));
+        existing.setTotalCost(new BigDecimal("150"));
+        when(stockMapper.selectForUpdate(WAREHOUSE_ID, PRODUCT_ID, BATCH_NO)).thenReturn(existing);
+
+        assertThatThrownBy(() -> stockService.outStock(
+                "SAL_DELIVERY", 1L, "X", 1L,
+                WAREHOUSE_ID, "主仓", null, null,
+                PRODUCT_ID, 2L, "箱", BATCH_NO,
+                new BigDecimal("1"), null, null,
+                null, 1L, null))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("库存不足")
+                .hasMessageContaining("需要=60");  // 错误信息显示折算后的需求
+    }
+
+    @Test
+    @DisplayName("入库 - 找不到单位(脏数据兜底) → 不抛, 按 qty 直入")
+    void inStock_missingUnitFallback() {
+        // 不调 mockUnitsForConversion, selectMainUnit 返回 null → 走兜底
+        lenient().when(unitMapper.selectMainUnit(PRODUCT_ID)).thenReturn(null);
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(mockProduct());
+        when(stockMapper.selectForUpdate(WAREHOUSE_ID, PRODUCT_ID, BATCH_NO)).thenReturn(null);
+
+        stockService.inStock(
+                "PUR_RECEIPT", 1L, "R", 1L,
+                WAREHOUSE_ID, "主仓", null, null,
+                PRODUCT_ID, 99L, "未知单位", BATCH_NO,
+                new BigDecimal("1"), new BigDecimal("10"), null,
+                1L, null, "test");
+
+        ArgumentCaptor<InvStock> stockCap = ArgumentCaptor.forClass(InvStock.class);
+        verify(stockMapper).insert(stockCap.capture());
+        // 兜底: qty 原值
+        assertThat(stockCap.getValue().getQty()).isEqualByComparingTo("1");
     }
 }
