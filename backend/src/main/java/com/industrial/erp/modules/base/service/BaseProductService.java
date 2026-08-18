@@ -165,14 +165,16 @@ public class BaseProductService {
         }
     }
 
-    /** 单位换算: qty(从单位) -> 主单位 */
+    /** 单位换算: qty(从单位) -> 主单位.
+     *  公式: qty_主 = qty_从 * conversion_rate (1副单位 = conversion_rate 主单位)
+     *  例: 1箱=60卷, 录入1箱 → 60卷.
+     *  v1.1.17+ 由 ÷ 改为 × (历史 ÷ 算法方向错误, 实际业务含义是 1副单位=N主单位) */
     public BigDecimal convertToMain(Long productId, Long unitId, BigDecimal qty) {
         BaseProductUnit u = unitMapper.selectMainUnit(productId);
         if (u == null || u.getUnitId().equals(unitId)) return qty;
         BaseProductUnit source = unitMapper.selectByProductId(productId).stream()
                 .filter(x -> x.getUnitId().equals(unitId)).findFirst().orElse(null);
         if (source == null) throw BizException.of("未找到对应单位");
-        // qty 主 = qty_从 / conversionRate
-        return qty.divide(source.getConversionRate(), 4, java.math.RoundingMode.HALF_UP);
+        return qty.multiply(source.getConversionRate()).setScale(4, java.math.RoundingMode.HALF_UP);
     }
 }

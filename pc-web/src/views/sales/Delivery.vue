@@ -118,7 +118,7 @@
               <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
             </el-table-column>
             <el-table-column label="单价(含税)" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" @change="() => row._priceFromUnit = false" /></template>
             </el-table-column>
             <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ stripTrailingZero4(row.qty * row.price) }}</span></template></el-table-column>
             <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80">
@@ -358,17 +358,18 @@ async function onProductChange(row, v) {
   row.productId = p.id; row.productCode = p.productCode; row.productName = p.productName
   row.spec = p.spec
   // 加载该商品的所有单位, 默认选主单位
-  row._units = (detail.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain }))
+  row._units = (detail.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain, salesPrice: u.salesPrice }))
   const mainUnit = row._units.find(u => u.isMain) || row._units[0]
   row.unitId = mainUnit ? mainUnit.unitId : p.mainUnitId
   row.unitName = mainUnit ? mainUnit.unitName : '主单位'
+  row._priceFromUnit = true  // 标记单价由单位带出, onUnitChange 可覆盖
   // 加载该商品在该仓库下所有可用批次 (供销售出库选 batchNo, 避免审核时"库存不存在")
   await loadBatchOptionsForRow(row)
-  // 优先取该客户对此商品的上次订单单价
+  // 优先取该客户对此商品的上次订单单价 (覆盖默认带出价)
   if (form.customerId && row.productId) {
     try {
       const res = await salDeliveryApi.getLastPrice(form.customerId, row.productId)
-      if (res.data > 0) { row.price = res.data; return }
+      if (res.data > 0) { row.price = res.data; row._priceFromUnit = false; return }
     } catch (e) { /* ignore */ }
   }
   // 根据客户价格等级自动选价
@@ -377,10 +378,11 @@ async function onProductChange(row, v) {
     if (c) {
       if (c.priceLevel === 'VIP') row.price = +p.vipPrice
       else if (c.priceLevel === 'WHOLESALE') row.price = +p.wholesalePrice
-      else row.price = +p.salesPrice
+      else row.price = +(mainUnit?.salesPrice ?? p.salesPrice)  // 主单位 salesPrice, 不是冗余的 p.salesPrice
+      row._priceFromUnit = false  // 客户等级价覆盖, 不再随单位切换
     }
   } else {
-    row.price = +p.salesPrice
+    row.price = +(mainUnit?.salesPrice ?? p.salesPrice)
   }
 }
 
@@ -405,8 +407,16 @@ async function loadBatchOptionsForRow(row) {
 }
 
 function onUnitChange(row, unitId) {
-  const u = (row._units || []).find(x => x.unitId === unitId)
-  if (u) row.unitName = u.unitName
+  // 容错 (2026-08-18): == 而非 ===, 防 Long vs String 不匹配
+  // 历史 bug: base_product_unit.unit_id 全为 0, el-select 无法切换
+  const u = (row._units || []).find(x => x.unitId == unitId)
+  if (!u) return
+  row.unitName = u.unitName
+  // 同步单价: 仅在单价"由单位带出"时覆盖 (用户手动改过则保留)
+  // 触发条件: onProductChange 自动设置, 或切回"无客户历史单价"状态
+  if (row._priceFromUnit) {
+    row.price = +u.salesPrice || 0
+  }
 }
 
 /**
@@ -561,7 +571,8 @@ async function onEdit(row) {
             productList.value.push(pd.product)
           }
           // 加载单位
-          det._units = (pd.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain }))
+          det._units = (pd.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain, salesPrice: u.salesPrice }))
+          det._priceFromUnit = false  // 编辑旧单: 单价已存档, 不覆盖
         }
       } catch (e) { /* ignore */ }
     }
@@ -709,8 +720,9 @@ async function onView(row) {
   await Promise.all((form.details || []).map(async d => {
     if (d.productId) {
       const detail = (await productApi.detail(d.productId)).data
-      d._units = (detail.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain }))
-      const u = d._units.find(x => x.unitId === d.unitId)
+      d._units = (detail.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain, salesPrice: u.salesPrice }))
+      d._priceFromUnit = false  // 编辑旧单: 单价已存档, 不覆盖
+      const u = d._units.find(x => x.unitId == d.unitId)
       if (u) d.unitName = u.unitName
     }
   }))

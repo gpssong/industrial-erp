@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper">
+    <!--
+        v1.1.16+ 修复: JOIN base_unit 用 unit_id 重写 unit_name 返回.
+        历史上 unit_name 是冗余快照, 一旦录入后不再与 base_unit 同步, 改商品单位后历史单据显示错.
+        现在用 unit_id JOIN 实时取名字, 保证打印/查询/飞鹅模板单位一致.
+        注意: LEFT JOIN (不要 INNER) — 兼容历史脏数据 unit_id=0/不存在的单位.
+    -->
     <select id="selectByDeliveryId" resultType="com.industrial.erp.modules.sales.entity.SalDeliveryDetail">
-        SELECT * FROM sal_delivery_detail WHERE delivery_id = #{deliveryId} AND deleted = 0 ORDER BY line_no
+        SELECT d.*, COALESCE(u.unit_name, d.unit_name) AS unit_name
+        FROM sal_delivery_detail d
+        LEFT JOIN base_unit u ON u.id = d.unit_id AND u.deleted = 0
+        WHERE d.delivery_id = #{deliveryId} AND d.deleted = 0
+        ORDER BY d.line_no
     </select>
     <select id="selectLastPriceByCustomerAndProduct" resultType="java.math.BigDecimal">
         SELECT d.price FROM sal_delivery_detail d
