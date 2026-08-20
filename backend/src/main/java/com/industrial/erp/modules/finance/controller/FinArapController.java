@@ -53,13 +53,20 @@ public class FinArapController {
                                        @RequestParam(required = false) String billType,
                                        @RequestParam(required = false) String billStatus,
                                        @RequestParam(required = false) String invoiceStatus,
+                                       @RequestParam(required = false) String invoiceStatuses,
                                        @RequestParam(required = false) String keyword) {
         permService.requirePerm("finance:arap:list");
         Page<FinArap> p = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<FinArap> w = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(billType)) w.eq(FinArap::getBillType, billType);
         if (StrUtil.isNotBlank(billStatus)) w.eq(FinArap::getBillStatus, billStatus);
-        if (StrUtil.isNotBlank(invoiceStatus)) w.eq(FinArap::getInvoiceStatus, invoiceStatus);
+        if (StrUtil.isNotBlank(invoiceStatuses)) {
+            // 多状态查询 (逗号分隔): "FULL_INVOICED,PARTIAL_INVOICED"
+            String[] statuses = invoiceStatuses.split(",");
+            w.in(FinArap::getInvoiceStatus, (Object[]) statuses);
+        } else if (StrUtil.isNotBlank(invoiceStatus)) {
+            w.eq(FinArap::getInvoiceStatus, invoiceStatus);
+        }
         if (StrUtil.isNotBlank(keyword)) {
             w.and(q -> q.like(FinArap::getCustomerName, keyword).or().like(FinArap::getSupplierName, keyword).or().like(FinArap::getSourceBillNo, keyword));
         }
