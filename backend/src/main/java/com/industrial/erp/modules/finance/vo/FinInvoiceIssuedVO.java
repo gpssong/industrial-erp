@@ -3,18 +3,11 @@ package com.industrial.erp.modules.finance.vo;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-/**
- * 已开发票列表 VO (v1.1.19+)
- *
- * <p>展示 fin_invoice + 关联的 fin_invoice_apply + fin_arap 信息
- */
 public class FinInvoiceIssuedVO {
     private Long id;
     private String billNo;
     private String externalNo;
-    /** AR_SALE / AP_PURCHASE */
     private String invoiceType;
-    /** CUSTOMER / SUPPLIER */
     private String partnerType;
     private Long partnerId;
     private String partnerName;
@@ -22,11 +15,8 @@ public class FinInvoiceIssuedVO {
     private BigDecimal totalAmount;
     private BigDecimal collectedAmount;
     private BigDecimal balance;
-    /** DRAFT/ISSUED/PARTIAL/PAID/VOID */
     private String invoiceStatus;
-    /** 关联的源单号 (如 CKP202608190002) */
     private String sourceBillNo;
-    /** 本次开票金额 */
     private BigDecimal applyAmount;
 
     public Long getId() { return id; }
