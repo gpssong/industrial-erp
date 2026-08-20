@@ -64,7 +64,6 @@
             <el-table-column label="规格" width="120"><template #default="{ row }"><span>{{ row.spec }}</span></template></el-table-column>
             <el-table-column label="数量" width="120"><template #default="{ row }"><el-input-number v-model="row.qty" :precision="4" :step-strictly="false" size="small" /></template></el-table-column>
             <el-table-column label="单价(含税)" width="120"><template #default="{ row }"><el-input-number v-model="row.price" :precision="4" :step-strictly="false" size="small" /></template></el-table-column>
-            <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80"><template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" :step-strictly="false" size="small" /></template></el-table-column>
             <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ ((+row.qty||0) * (+row.price||0)).toFixed(2) }}</span></template></el-table-column>
             <el-table-column label="批次"><template #default="{ row }"><el-input v-model="row.batchNo" size="small" /></template></el-table-column>
             <el-table-column label="操作" width="60"><template #default="{ row, $index }"><el-button link type="danger" size="small" @click="form.details.splice($index,1)">删</el-button></template></el-table-column>
@@ -144,16 +143,13 @@ async function onSave() {
   if (!form.details.length) return ElMessage.warning('请添加商品')
   submitting.value = true
   try {
+    // v1.1.19+: 含税单价. totalAmount = totalAmountTax = 开单金额, 不再算税.
     const payload = { ...form }
-    let totalAmount = 0, taxAmount = 0
-    payload.details.forEach(d => {
-      const amt = (+d.qty || 0) * (+d.price || 0)
-      totalAmount += amt
-      taxAmount += amt * ((d.taxRate || 13) / 100)
-    })
+    let totalAmount = 0
+    payload.details.forEach(d => { totalAmount += (+d.qty || 0) * (+d.price || 0) })
     payload.totalAmount = totalAmount
-    payload.taxAmount = taxAmount
-    payload.totalAmountTax = totalAmount + taxAmount
+    payload.taxAmount = 0
+    payload.totalAmountTax = totalAmount
     await purReturnApi.add(payload); ElMessage.success('保存成功'); dialogVisible.value = false; loadData()
   } catch (e) {
     ElMessage.error(e.message || '保存失败')

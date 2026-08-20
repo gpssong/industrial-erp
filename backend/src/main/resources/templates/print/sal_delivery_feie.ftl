@@ -20,9 +20,7 @@ ${d.productName!''}  数量: ${d.qty!'0'}  单价: ${d.price!''}  金额: ${d.am
 </#if>
 <BR>
 合计: ¥${bill.totalAmount!'0'}
-<#if bill.totalAmountTax?has_content && bill.totalAmountTax != bill.totalAmount>
-<br>含税: ¥${bill.totalAmountTax!''}
-</#if>
+<#-- v1.1.19+: totalAmount = totalAmountTax = 开单金额 (含税), 一行即可, 不再显示含税 -->
 <#if bill.remark?has_content>
 <BR>
 备注: ${bill.remark!''}

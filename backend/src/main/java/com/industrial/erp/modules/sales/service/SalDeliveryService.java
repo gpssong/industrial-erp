@@ -130,19 +130,19 @@ public class SalDeliveryService {
 
         BigDecimal totalQty = BigDecimal.ZERO;
         BigDecimal totalAmount = BigDecimal.ZERO;
-        BigDecimal taxAmount = BigDecimal.ZERO;
+        // v1.1.19+: price = 含税单价. taxAmount 字段保留但不再计算 (留作将来报税报表),
+        // totalAmountTax = totalAmount = 开单金额 = 应收金额. AR 直接拿 totalAmountTax.
         BigDecimal totalAmountTax = BigDecimal.ZERO;
         int line = 0;
         for (SalDeliveryDetail d : delivery.getDetails()) {
             d.setLineNo(++line);
             if (d.getTaxRate() == null) d.setTaxRate(c.getTaxRate() == null ? new BigDecimal("13.00") : c.getTaxRate());
             d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
-            d.setTaxAmount(d.getAmount().multiply(d.getTaxRate()).divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
-            d.setAmountTax(d.getAmount().add(d.getTaxAmount()));
+            d.setTaxAmount(BigDecimal.ZERO);
+            d.setAmountTax(d.getAmount());
             totalQty = totalQty.add(d.getQty());
             totalAmount = totalAmount.add(d.getAmount());
-            taxAmount = taxAmount.add(d.getTaxAmount());
-            totalAmountTax = totalAmountTax.add(d.getAmountTax());
+            totalAmountTax = totalAmountTax.add(d.getAmount());
         }
         // 抹零
         BigDecimal tail = delivery.getTailAmount() == null ? BigDecimal.ZERO : delivery.getTailAmount();
@@ -153,7 +153,7 @@ public class SalDeliveryService {
 
         delivery.setTotalQty(totalQty);
         delivery.setTotalAmount(totalAmount);
-        delivery.setTaxAmount(taxAmount);
+        delivery.setTaxAmount(BigDecimal.ZERO);
         delivery.setTotalAmountTax(totalAmountTax);
         delivery.setReceivedAmount(BigDecimal.ZERO);
         delivery.setCostAmount(BigDecimal.ZERO);
@@ -187,19 +187,18 @@ public class SalDeliveryService {
 
         BigDecimal totalQty = BigDecimal.ZERO;
         BigDecimal totalAmount = BigDecimal.ZERO;
-        BigDecimal taxAmount = BigDecimal.ZERO;
+        // v1.1.19+: tax-inclusive price, taxAmount=0, totalAmountTax=totalAmount=开单金额
         BigDecimal totalAmountTax = BigDecimal.ZERO;
         int line = 0;
         for (SalDeliveryDetail d : delivery.getDetails()) {
             d.setLineNo(++line);
             if (d.getTaxRate() == null) d.setTaxRate(c.getTaxRate() == null ? new BigDecimal("13.00") : c.getTaxRate());
             d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
-            d.setTaxAmount(d.getAmount().multiply(d.getTaxRate()).divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
-            d.setAmountTax(d.getAmount().add(d.getTaxAmount()));
+            d.setTaxAmount(BigDecimal.ZERO);
+            d.setAmountTax(d.getAmount());
             totalQty = totalQty.add(d.getQty());
             totalAmount = totalAmount.add(d.getAmount());
-            taxAmount = taxAmount.add(d.getTaxAmount());
-            totalAmountTax = totalAmountTax.add(d.getAmountTax());
+            totalAmountTax = totalAmountTax.add(d.getAmount());
         }
         // 抹零/折扣
         BigDecimal tail = delivery.getTailAmount() == null ? BigDecimal.ZERO : delivery.getTailAmount();
@@ -209,7 +208,7 @@ public class SalDeliveryService {
 
         delivery.setTotalQty(totalQty);
         delivery.setTotalAmount(totalAmount);
-        delivery.setTaxAmount(taxAmount);
+        delivery.setTaxAmount(BigDecimal.ZERO);
         delivery.setTotalAmountTax(totalAmountTax);
         // 主表不可变字段保持原值
         delivery.setBillNo(origin.getBillNo());

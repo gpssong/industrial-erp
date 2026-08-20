@@ -121,12 +121,6 @@
               <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" @change="() => row._priceFromUnit = false" /></template>
             </el-table-column>
             <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ stripTrailingZero4(row.qty * row.price) }}</span></template></el-table-column>
-            <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80">
-              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
-            </el-table-column>
-            <el-table-column v-if="taxSeparation === 'true'" label="价税合计" width="120" align="right">
-              <template #default="{ row }"><span>{{ stripTrailingZero4((row.qty||0)*(row.price||0)*(1+((row.taxRate||0))/100)) }}</span></template>
-            </el-table-column>
             <el-table-column label="批次" width="160">
               <template #default="{ row }">
                 <el-select v-model="row.batchNo" size="small" filterable allow-create
@@ -148,14 +142,10 @@
             <el-form-item label="备注"><el-input v-model="form.remark" type="textarea" :rows="2" /></el-form-item>
           </el-col>
           <el-col :span="12">
+            <!-- v1.1.19+: 含税口径, 只显示合计金额 = 开单金额, 不再拆分税 -->
             <div class="summary">
               <p>合计数量: <b>{{ stripTrailingZero4(totalQty) }}</b></p>
-              <p v-if="taxSeparation !== 'true'">合计金额: <b>¥ {{ stripTrailingZero2(totalAmount) }}</b></p>
-              <template v-if="taxSeparation === 'true'">
-                <p>不含税金额: <b>¥ {{ stripTrailingZero2(totalAmount) }}</b></p>
-                <p>税额: <b>¥ {{ stripTrailingZero2(totalAmount * 0.13) }}</b></p>
-                <p class="total">价税合计: <b>¥ {{ stripTrailingZero2(totalAmount * 1.13) }}</b></p>
-              </template>
+              <p>合计金额: <b>¥ {{ stripTrailingZero2(totalAmount) }}</b></p>
             </div>
           </el-col>
         </el-row>
@@ -498,28 +488,60 @@ async function onSave() {
   if (!form.details.length) return ElMessage.warning('请添加商品明细')
   submitting.value = true
   try {
+    // v1.1.19+: price 已是含税单价. totalAmount = totalAmountTax = 开单金额.
+    // 后端按新公式重算, 前端预填以便乐观 UI 立即反映.
     const payload = { ...form }
-    if (taxSeparation.value === 'true') {
-      let totalAmount = 0, taxAmount = 0
-      payload.details.forEach(d => {
-        const amt = (+d.qty || 0) * (+d.price || 0)
-        totalAmount += amt
-        taxAmount += amt * ((d.taxRate || 13) / 100)
-      })
-      payload.totalAmount = totalAmount
-      payload.taxAmount = taxAmount
-      payload.totalAmountTax = totalAmount + taxAmount
-    }
+    let totalAmount = 0
+    payload.details.forEach(d => { totalAmount += (+d.qty || 0) * (+d.price || 0) })
+    const discount = +form.discountAmount || 0
+    const tail = +form.tailAmount || 0
+    payload.totalAmount = totalAmount - discount - tail
+    payload.taxAmount = 0
+    payload.totalAmountTax = payload.totalAmount
     if (form.id) {
-      await salDeliveryApi.update(payload)
-      ElMessage.success('修改成功')
+      await salDeliveryApi.update(payload); ElMessage.success('修改成功')
     } else {
-      await salDeliveryApi.add(payload)
-      ElMessage.success('保存成功')
+      await salDeliveryApi.add(payload); ElMessage.success('保存成功')
     }
-    dialogVisible.value = false
-    loadData()
+    dialogVisible.value = false; loadData()
   } finally { submitting.value = false }
+}
+
+/**
+ * 把商品详情注入明细行: 加入 productList + 加载 _units + 修正脏数据 unitId=0.
+ * v1.1.19+ 引入: 旧 sal_delivery_detail.unit_id=0 时, el-select 找不到 option 会显示 "0".
+ * 这里按 unitName 字符串匹配回填到真实 unitId; 仍无匹配则追加虚拟 option 保留历史单位名.
+ */
+async function injectProductIntoDetail(det) {
+  if (!det.productId) return
+  try {
+    const pd = (await productApi.detail(det.productId)).data
+    const p = pd.product || pd
+    if (!p) return
+    if (!productList.value.find(x => x.id === p.id)) {
+      productList.value.push(p)
+    }
+    det._units = (pd.units || []).map(u => ({
+      unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate,
+      isMain: u.isMain, salesPrice: u.salesPrice
+    }))
+    det._priceFromUnit = false  // 旧单: 单价已存档, 不让单位切换覆盖
+    // 1. 按 unitId 优先匹配
+    let u = det._units.find(x => x.unitId == det.unitId)
+    // 2. 旧脏数据 unitId=0 → 按 unitName 字符串匹配, 顺手把 unitId 修正到真实值
+    if (!u && det.unitName) {
+      u = det._units.find(x => x.unitName === det.unitName)
+      if (u) det.unitId = u.unitId
+    }
+    // 3. 仍未匹配 (历史单位名已改名/被删): 追加虚拟 option, 让 el-select 至少能显示名字
+    if (!u && det.unitName) {
+      det._units.unshift({
+        unitId: det.unitId || -1, unitName: det.unitName,
+        isMain: false, conversionRate: 1, salesPrice: 0
+      })
+    }
+    if (u) det.unitName = u.unitName
+  } catch (e) { /* ignore */ }
 }
 
 async function onEdit(row) {
@@ -560,22 +582,10 @@ async function onEdit(row) {
     batchNo: x.batchNo, locationName: x.locationName,
     remark: x.remark, _units: []
   }))
-  // 预加载每个商品到 productList (避免 el-select 显示空 label)
+  // v1.1.19+: 统一走 injectProductIntoDetail, 预加载 productList + 修正 unitId=0 脏数据
   productList.value = []
   for (const det of form.details) {
-    if (det.productId) {
-      try {
-        const pd = (await productApi.detail(det.productId)).data
-        if (pd.product) {
-          if (!productList.value.find(p => p.id === pd.product.id)) {
-            productList.value.push(pd.product)
-          }
-          // 加载单位
-          det._units = (pd.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain, salesPrice: u.salesPrice }))
-          det._priceFromUnit = false  // 编辑旧单: 单价已存档, 不覆盖
-        }
-      } catch (e) { /* ignore */ }
-    }
+    await injectProductIntoDetail(det)
   }
   dialogVisible.value = true
 }
@@ -716,16 +726,9 @@ async function onView(row) {
   const r = await salDeliveryApi.detail(row.id)
   Object.assign(form, r.data)
   form.billDate = form.billDate
-  // 为每个明细行加载商品单位列表
-  await Promise.all((form.details || []).map(async d => {
-    if (d.productId) {
-      const detail = (await productApi.detail(d.productId)).data
-      d._units = (detail.units || []).map(u => ({ unitId: u.unitId, unitName: u.unitName, conversionRate: u.conversionRate, isMain: u.isMain, salesPrice: u.salesPrice }))
-      d._priceFromUnit = false  // 编辑旧单: 单价已存档, 不覆盖
-      const u = d._units.find(x => x.unitId == d.unitId)
-      if (u) d.unitName = u.unitName
-    }
-  }))
+  // v1.1.19+: 与 onEdit 共用 injectProductIntoDetail, 修正商品/单位显示
+  productList.value = []
+  await Promise.all((form.details || []).map(injectProductIntoDetail))
   dialogVisible.value = true
 }
 

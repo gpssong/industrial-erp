@@ -108,23 +108,22 @@ public class PurReturnService {
         // 汇总金额
         BigDecimal totalQty = BigDecimal.ZERO;
         BigDecimal totalAmount = BigDecimal.ZERO;
-        BigDecimal taxAmount = BigDecimal.ZERO;
+        // v1.1.19+: tax-inclusive price, taxAmount=0, totalAmountTax=totalAmount=开单金额
         BigDecimal totalAmountTax = BigDecimal.ZERO;
         int line = 0;
         for (PurReturnDetail d : ret.getDetails()) {
             d.setLineNo(++line);
             if (d.getTaxRate() == null) d.setTaxRate(s.getTaxRate() == null ? new BigDecimal("13.00") : s.getTaxRate());
             d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
-            d.setTaxAmount(d.getAmount().multiply(d.getTaxRate()).divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
-            d.setAmountTax(d.getAmount().add(d.getTaxAmount()));
+            d.setTaxAmount(BigDecimal.ZERO);
+            d.setAmountTax(d.getAmount());
             totalQty = totalQty.add(d.getQty());
             totalAmount = totalAmount.add(d.getAmount());
-            taxAmount = taxAmount.add(d.getTaxAmount());
-            totalAmountTax = totalAmountTax.add(d.getAmountTax());
+            totalAmountTax = totalAmountTax.add(d.getAmount());
         }
         ret.setTotalQty(totalQty);
         ret.setTotalAmount(totalAmount);
-        ret.setTaxAmount(taxAmount);
+        ret.setTaxAmount(BigDecimal.ZERO);
         ret.setTotalAmountTax(totalAmountTax);
 
         returnMapper.insert(ret);

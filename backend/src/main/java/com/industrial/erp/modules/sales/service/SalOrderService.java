@@ -91,23 +91,22 @@ public class SalOrderService {
 
         BigDecimal totalQty = BigDecimal.ZERO;
         BigDecimal totalAmount = BigDecimal.ZERO;
-        BigDecimal taxAmount = BigDecimal.ZERO;
+        // v1.1.19+: tax-inclusive price, taxAmount=0, totalAmountTax=totalAmount=开单金额
         BigDecimal totalAmountTax = BigDecimal.ZERO;
         int line = 0;
         for (SalOrderDetail d : order.getDetails()) {
             d.setLineNo(++line);
             if (d.getTaxRate() == null) d.setTaxRate(c.getTaxRate() == null ? new BigDecimal("13.00") : c.getTaxRate());
             d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
-            d.setTaxAmount(d.getAmount().multiply(d.getTaxRate()).divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
-            d.setAmountTax(d.getAmount().add(d.getTaxAmount()));
+            d.setTaxAmount(BigDecimal.ZERO);
+            d.setAmountTax(d.getAmount());
             totalQty = totalQty.add(d.getQty());
             totalAmount = totalAmount.add(d.getAmount());
-            taxAmount = taxAmount.add(d.getTaxAmount());
-            totalAmountTax = totalAmountTax.add(d.getAmountTax());
+            totalAmountTax = totalAmountTax.add(d.getAmount());
         }
         order.setTotalQty(totalQty);
         order.setTotalAmount(totalAmount);
-        order.setTaxAmount(taxAmount);
+        order.setTaxAmount(BigDecimal.ZERO);
         order.setTotalAmountTax(totalAmountTax);
         order.setReceivedAmount(BigDecimal.ZERO);
         orderMapper.insert(order);
@@ -147,23 +146,22 @@ public class SalOrderService {
 
         BigDecimal totalQty = BigDecimal.ZERO;
         BigDecimal totalAmount = BigDecimal.ZERO;
-        BigDecimal taxAmount = BigDecimal.ZERO;
+        // v1.1.19+: tax-inclusive price, taxAmount=0, totalAmountTax=totalAmount=开单金额
         BigDecimal totalAmountTax = BigDecimal.ZERO;
         int line = 0;
         for (SalOrderDetail d : order.getDetails()) {
             d.setLineNo(++line);
             if (d.getTaxRate() == null) d.setTaxRate(new BigDecimal("13.00"));
             d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
-            d.setTaxAmount(d.getAmount().multiply(d.getTaxRate()).divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
-            d.setAmountTax(d.getAmount().add(d.getTaxAmount()));
+            d.setTaxAmount(BigDecimal.ZERO);
+            d.setAmountTax(d.getAmount());
             totalQty = totalQty.add(d.getQty());
             totalAmount = totalAmount.add(d.getAmount());
-            taxAmount = taxAmount.add(d.getTaxAmount());
-            totalAmountTax = totalAmountTax.add(d.getAmountTax());
+            totalAmountTax = totalAmountTax.add(d.getAmount());
         }
         order.setTotalQty(totalQty);
         order.setTotalAmount(totalAmount);
-        order.setTaxAmount(taxAmount);
+        order.setTaxAmount(BigDecimal.ZERO);
         order.setTotalAmountTax(totalAmountTax);
         orderMapper.updateById(order);
         // 删除原明细，重新插入
