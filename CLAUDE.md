@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.18 (反审核同步回退库存/AP/AR + 销售出库单位切换 + 库存副单位折算 v1.1.17)
+**当前版本**: v1.1.19 (含税单价口径 + 历史数据迁移 + 4 个 detail mapper 单位修复)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -269,7 +269,46 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - [ ] 浏览器访问 `http://NAS-IP:18080` 正常
 - [ ] 登录测试: `admin` / `admin123`
 
-## 变更日志 (v1.0.10 ~ v1.1.18)
+## 变更日志 (v1.0.10 ~ v1.1.19)
+
+### v1.1.19 (2026-08-20) — 含税单价口径重构 + 历史数据迁移
+
+#### Bug 背景
+销售出库都是按含税价格开的, 但后端 add() / update() 在 `price=含税` 基础上又 `* taxRate%` 重算了一次税 (双重计税). 例: 录 price=100, qty=2 → 写入 AR.amount=226 (= 2×100×1.13), 而客户实际谈的是 200 元.
+
+#### 用户决策
+- `price = 含税单价`. `amount = price × qty` = 开单金额 (含税)
+- `taxAmount` 字段保留但不再计算 (`= 0`, 留作将来报税报表)
+- `amountTax = amount` (单行价税合计)
+- 主表 `totalAmount = totalAmountTax = sum(amount) - discount - tail` = **开单金额** = **应收/应付金额**
+- AR/AP 直接拿 `totalAmountTax` 当应收, 不再 × 1.13
+- 前端 UI 列名「单价(含税)」保持, 删所有 hardcode `* 1.13` / `* 0.13` / `* (1+rate/100)`
+- 历史数据 UPDATE: `tax_amount=0`, `total_amount = total_amount_tax` (主表 + 8 张表 + fin_arap)
+
+#### 改动
+
+| # | 项目 | 修改 |
+|---|---|---|
+| #290 | SalDeliveryService.add() / update() 改含税口径 | 3 行替换 + 主表汇总: `taxAmount=0`, `amountTax=amount`, `totalAmountTax=totalAmount` |
+| #291 | SalReturnService.add() / PurReceiptService.add() / update() / PurReturnService.add() / SalOrderService.add() / update() / PurOrderService.add() / update() 同模式 | 同样 3 行替换 |
+| #292 | FinArapService 无需改动 | 4 个 createXxx 方法已用 `totalAmountTax`, 新口径下语义正确 |
+| #293 | 4 个 detail mapper XML JOIN base_unit (延续 v1.1.16 模式) | PurReceiptDetail / SalReturnDetail / PurReturnDetail / InvCheckDetail |
+| #294 | 6 个新 ServiceTest (共15 测试) | SalDeliveryServiceTest / SalReturnServiceTest / SalOrderServiceTest / PurReceiptServiceTest / PurReturnServiceTest / PurOrderServiceTest |
+| #295 | 前端 `useSystemConfig.js` 改 no-op | `taxSeparation` 引用保留, load/save 为 no-op (兼容旧代码不崩) |
+| #296 | 前端 6 个表单页删税率列 + 简化摘要 | Delivery.vue / 2×Return.vue / Receipt.vue / 2×Order.vue |
+| #297 | `Settings.vue` 移除「价税分离」el-switch UI | 不再展示开关; sys_config.PRICE_TAX_SEPARATION 记录保留 |
+| #298 | `sal_delivery_feie.ftl` 删「含税」一行 | totalAmount = totalAmountTax 同值, 单行「合计」即可 |
+| #299 | 新建 `sql/24_migrate_tax_inclusive.sql` 历史数据修复 | 8 张主表/明细 UPDATE; fin_arap 分 paidAmount 情况处理 (paidAmount>0 进审查表) |
+
+#### 迁移结果
+- 84 条未核销 AR/AP 按源单据税率缩 amount 至开单金额
+- 5 条已付/已开票记录进 `fin_arap_migration_review` 表 (待财务手工处理)
+- 后端 jar 96MB + pc-web dist 4.4MB 重建部署
+
+#### 风险
+- **fin_arap_paidAmount>0**: 不盲目缩 amount, 走审查表 + 红字发票/调整单
+- **credit_used**: 不自动修 (历史单旧口径 1.13×, 新单新口径, ~13% 偏差). 客户详情页加文案提示
+- **fin_invoice**: 已开发票金额保留原值 (1.13×), 不改
 
 ### v1.1.18 (2026-08-18) — 反审核同步回退库存/AP/AR
 
