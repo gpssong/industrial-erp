@@ -391,6 +391,10 @@ async function onLoadFromSnapshot() {
         remark: ''
       })
       added++
+      // 将预填商品加入 productList，使 el-select 能显示名称而非 ID
+      if (!productList.value.some(p => p.id === snap.productId)) {
+        productList.value.push({ id: snap.productId, productCode: snap.productCode, productName: snap.productName })
+      }
     }
     ElMessage.success(`已预填 ${added} 个商品 (账面快照)`)
   } catch (e) {
