@@ -188,12 +188,12 @@ const invoicePayForm = reactive({ invoiceId: null, sourceBillId: null, sourceBil
 // Tab 切换
 function onTabChange(tab) {
   if (tab === 'issued') {
-    // 切换到已开发票: 固定查询条件, 清空搜索参数
-    Object.assign(query, { pageNum: 1, pageSize: 20, billType: 'AR', billStatus: '', invoiceStatus: '', keyword: '' })
+    // 切换到已开发票: 固定查询已开票/部分开票状态
+    Object.assign(query, { pageNum: 1, pageSize: 20, billType: 'AR', billStatus: '', invoiceStatus: '', invoiceStatuses: 'FULL_INVOICED,PARTIAL_INVOICED', keyword: '' })
     loadData()
   } else {
     // 切回全部: 恢复默认
-    Object.assign(query, { pageNum: 1, pageSize: 20, billType: 'AR', billStatus: '', invoiceStatus: '', keyword: '' })
+    Object.assign(query, { pageNum: 1, pageSize: 20, billType: 'AR', billStatus: '', invoiceStatus: '', invoiceStatuses: '', keyword: '' })
     loadData()
   }
 }
@@ -202,8 +202,7 @@ async function loadData() {
   loading.value = true
   try {
     if (activeTab.value === 'issued') {
-      // 已开发票: 只查已开票或部分开票
-      query.invoiceStatus = ''
+      // 已开发票: 使用 invoiceStatuses 参数查询
       const r = await arapApi.page(query)
       data.value = r.data
       // 分页加载完成后, 异步预取关联发票
