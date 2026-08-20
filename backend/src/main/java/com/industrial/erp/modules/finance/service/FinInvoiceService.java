@@ -15,6 +15,7 @@ import com.industrial.erp.modules.finance.entity.FinInvoiceApply;
 import com.industrial.erp.modules.finance.mapper.FinArapMapper;
 import com.industrial.erp.modules.finance.mapper.FinInvoiceApplyMapper;
 import com.industrial.erp.modules.finance.mapper.FinInvoiceMapper;
+import com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO;
 import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
@@ -451,5 +452,55 @@ public class FinInvoiceService {
         }
         w.orderByDesc(FinInvoice::getId);
         return invoiceMapper.selectPage(p, w);
+    }
+
+    /**
+     * 已开发票列表 (v1.1.19+)
+     *
+     * <p>JOIN fin_invoice_apply 展示每张发票关联的源单信息
+     * <p>返回 FinInvoiceIssuedVO 列表，每张发票一行
+     */
+    public List<com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO> listIssued(
+            String invoiceType, String keyword) {
+        // 查所有已开发票 (排除作废)
+        LambdaQueryWrapper<FinInvoice> w = new LambdaQueryWrapper<>();
+        w.ne(FinInvoice::getInvoiceStatus, STATUS_VOID);
+        if (StrUtil.isNotBlank(invoiceType)) w.eq(FinInvoice::getInvoiceType, invoiceType);
+        if (StrUtil.isNotBlank(keyword)) {
+            w.and(q -> q.like(FinInvoice::getExternalNo, keyword)
+                    .or().like(FinInvoice::getBillNo, keyword)
+                    .or().like(FinInvoice::getPartnerName, keyword));
+        }
+        w.orderByDesc(FinInvoice::getId);
+        List<FinInvoice> invoices = invoiceMapper.selectList(w);
+
+        List<com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO> result = new ArrayList<>();
+        for (FinInvoice inv : invoices) {
+            // 取该发票的所有关联明细
+            List<FinInvoiceApply> applies = applyMapper.selectByInvoiceId(inv.getId());
+            for (FinInvoiceApply app : applies) {
+                FinArap arap = arapMapper.selectById(app.getArapId());
+                if (arap == null) continue;
+
+                com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO vo =
+                        new com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO();
+                vo.setId(inv.getId());
+                vo.setBillNo(inv.getBillNo());
+                vo.setExternalNo(inv.getExternalNo());
+                vo.setInvoiceType(inv.getInvoiceType());
+                vo.setPartnerType(inv.getPartnerType());
+                vo.setPartnerId(inv.getPartnerId());
+                vo.setPartnerName(inv.getPartnerName());
+                vo.setBillDate(inv.getBillDate());
+                vo.setTotalAmount(inv.getTotalAmount());
+                vo.setCollectedAmount(inv.getCollectedAmount());
+                vo.setBalance(inv.getBalance());
+                vo.setInvoiceStatus(inv.getInvoiceStatus());
+                vo.setSourceBillNo(arap.getSourceBillNo());
+                vo.setApplyAmount(app.getApplyAmount());
+                result.add(vo);
+            }
+        }
+        return result;
     }
 }

@@ -14,5 +14,7 @@ export const invoiceApi = {
   issue: (data) => request.post('/finance/invoice', data),
   void: (id) => request.put('/finance/invoice/' + id + '/void'),
   byArap: (arapId) => request.get('/finance/invoice/by-arap/' + arapId),
-  uninvoiced: (params) => request.get('/finance/invoice/uninvoiced', { params })
+  uninvoiced: (params) => request.get('/finance/invoice/uninvoiced', { params }),
+  // v1.1.19+: 已开发票列表 (发票 + 关联源单)
+  issued: (params) => request.get('/finance/invoice/issued', { params })
 }
