@@ -7,6 +7,7 @@ import com.industrial.erp.modules.finance.dto.FinInvoiceIssueDTO;
 import com.industrial.erp.modules.finance.entity.FinArap;
 import com.industrial.erp.modules.finance.entity.FinInvoice;
 import com.industrial.erp.modules.finance.service.FinInvoiceService;
+import com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -94,5 +95,18 @@ public class FinInvoiceController {
             throw new com.industrial.erp.exception.BizException("需指定 partnerType + customerId 或 supplierId");
         }
         return R.ok(invoiceService.listUninvoiced(pt, pid));
+    }
+
+    /**
+     * 已开发票列表 (v1.1.19+)
+     *
+     * <p>展示 fin_invoice + fin_invoice_apply 关联的源单信息
+     * <p>一张发票对应多个 AR/AP 单时展开为多行
+     */
+    @GetMapping("/issued")
+    public R<List<FinInvoiceIssuedVO>> listIssued(
+            @RequestParam(required = false) String invoiceType,
+            @RequestParam(required = false) String keyword) {
+        return R.ok(invoiceService.listIssued(invoiceType, keyword));
     }
 }
