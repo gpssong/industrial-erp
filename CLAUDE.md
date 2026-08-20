@@ -298,12 +298,14 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 | #296 | 前端 6 个表单页删税率列 + 简化摘要 | Delivery.vue / 2×Return.vue / Receipt.vue / 2×Order.vue |
 | #297 | `Settings.vue` 移除「价税分离」el-switch UI | 不再展示开关; sys_config.PRICE_TAX_SEPARATION 记录保留 |
 | #298 | `sal_delivery_feie.ftl` 删「含税」一行 | totalAmount = totalAmountTax 同值, 单行「合计」即可 |
-| #299 | 新建 `sql/24_migrate_tax_inclusive.sql` 历史数据修复 | 8 张主表/明细 UPDATE; fin_arap 分 paidAmount 情况处理 (paidAmount>0 进审查表) |
+| #299 | 新建 `sql/24_migrate_tax_inclusive.sql` 历史数据修复 (初版, 有误) | 8 张主表/明细 UPDATE; fin_arap 分 paidAmount 情况处理 |
+| #300 | 修正 `sql/25_fix_tax_inclusive.sql` — 从明细行重新计算 total_amount | sal_delivery 31条 / pur_receipt 56条 / fin_arap 73条 |
 
-#### 迁移结果
-- 84 条未核销 AR/AP 按源单据税率缩 amount 至开单金额
-- 5 条已付/已开票记录进 `fin_arap_migration_review` 表 (待财务手工处理)
-- 后端 jar 96MB + pc-web dist 4.4MB 重建部署
+#### 迁移结果 (2026-08-20 二次修正)
+- **问题**: `sql/24_migrate_tax_inclusive.sql` 只做了 `total_amount=total_amount_tax`(两者都是旧 1.13× 值),未从明细重新计算
+- **修复**: `sql/25_fix_tax_inclusive.sql` 从 `sal_*_detail.amount` 汇总重新计算 → 31 条 sal_delivery + 56 条 pur_receipt 修正
+- fin_arap: 73 条未核销记录已更新; 5 条已开票/已核销在 `fin_arap_migration_review` (待财务手工处理)
+- 后端 jar 96MB + pc-web dist 4.4MB 已部署
 
 #### 风险
 - **fin_arap_paidAmount>0**: 不盲目缩 amount, 走审查表 + 红字发票/调整单
