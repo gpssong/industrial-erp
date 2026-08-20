@@ -16,14 +16,8 @@
         <el-table-column prop="billDate" label="日期" width="120" />
         <el-table-column prop="customerName" label="客户" />
         <el-table-column prop="totalQty" label="数量" width="100" align="right" />
-        <template v-if="taxSeparation === 'true'">
-          <el-table-column prop="totalAmount" label="不含税" width="120" align="right" />
-          <el-table-column prop="taxAmount" label="税额" width="100" align="right" />
-          <el-table-column prop="totalAmountTax" label="价税合计" width="120" align="right" />
-        </template>
-        <template v-else>
-          <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
-        </template>
+        <!-- v1.1.19+: 含税单价口径, totalAmount = totalAmountTax = 开单金额, 只显示「金额」一列 -->
+        <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
         <el-table-column label="状态" width="80">
           <template #default="{ row }"><el-tag :type="row.billStatus==='DRAFT'?'info':'success'">{{ row.billStatus }}</el-tag></template>
         </el-table-column>
@@ -79,9 +73,6 @@
             </el-table-column>
             <el-table-column label="单价(含税)" width="120">
               <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :precision="4" :step-strictly="false" size="small" /></template>
-            </el-table-column>
-            <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80">
-              <template #default="{ row }"><el-input-number v-model="row.taxRate" :precision="2" :step-strictly="false" size="small" /></template>
             </el-table-column>
             <el-table-column label="操作" width="60">
               <template #default="{ row, $index }"><el-button link type="danger" @click="form.details.splice($index, 1)">删除</el-button></template>
@@ -206,29 +197,16 @@ async function onSubmit() {
   if (!form.value.details.length) { ElMessage.warning('请添加商品明细'); return }
   submitting.value = true
   try {
+    // v1.1.19+: 含税单价. totalAmount = totalAmountTax = 开单金额, 不再算税.
     let totalQty = 0, totalAmount = 0
-    if (taxSeparation.value === 'true') {
-      let taxAmount = 0
-      form.value.details.forEach(d => {
-        totalQty += d.qty || 0
-        const amt = (d.qty || 0) * (d.price || 0)
-        totalAmount += amt
-        taxAmount += amt * ((d.taxRate || 13) / 100)
-      })
-      form.value.totalQty = totalQty
-      form.value.totalAmount = totalAmount
-      form.value.taxAmount = taxAmount
-      form.value.totalAmountTax = totalAmount + taxAmount
-    } else {
-      form.value.details.forEach(d => {
-        totalQty += d.qty || 0
-        totalAmount += (d.qty || 0) * (d.price || 0)
-      })
-      form.value.totalQty = totalQty
-      form.value.totalAmount = totalAmount
-      form.value.taxAmount = 0
-      form.value.totalAmountTax = totalAmount
-    }
+    form.value.details.forEach(d => {
+      totalQty += d.qty || 0
+      totalAmount += (d.qty || 0) * (d.price || 0)
+    })
+    form.value.totalQty = totalQty
+    form.value.totalAmount = totalAmount
+    form.value.taxAmount = 0
+    form.value.totalAmountTax = totalAmount
 
     if (form.value.id) {
       await salOrderApi.update(form.value)

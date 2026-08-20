@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.industrial.erp.modules.inventory.mapper.InvCheckDetailMapper">
+    <!-- v1.1.16+ 修复: JOIN base_unit 重写 unit_name, 兼容历史脏数据 -->
     <select id="selectByCheckId" resultType="com.industrial.erp.modules.inventory.entity.InvCheckDetail">
-        SELECT * FROM inv_check_detail WHERE check_id = #{id} AND deleted = 0
+        SELECT d.*, COALESCE(u.unit_name, d.unit_name) AS unit_name
+        FROM inv_check_detail d
+        LEFT JOIN base_unit u ON u.id = d.unit_id AND u.deleted = 0
+        WHERE d.check_id = #{id} AND d.deleted = 0
     </select>
 </mapper>

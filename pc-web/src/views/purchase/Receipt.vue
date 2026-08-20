@@ -72,7 +72,6 @@
             <el-table-column label="规格" width="120"><template #default="{ row }"><span>{{ row.spec }}</span></template></el-table-column>
             <el-table-column label="数量" width="120"><template #default="{ row }"><el-input-number v-model="row.qty" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template></el-table-column>
             <el-table-column label="单价(含税)" width="120"><template #default="{ row }"><el-input-number v-model="row.price" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template></el-table-column>
-            <el-table-column v-if="taxSeparation === 'true'" label="税率" width="80"><template #default="{ row }"><el-input-number v-model="row.taxRate" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template></el-table-column>
             <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ stripTrailingZero2((row.qty||0)*(row.price||0)) }}</span></template></el-table-column>
             <el-table-column label="批次"><template #default="{ row }"><el-input v-model="row.batchNo" size="small" /></template></el-table-column>
             <el-table-column label="库位"><template #default="{ row }"><el-input v-model="row.locationName" size="small" /></template></el-table-column>
@@ -270,18 +269,13 @@ async function onSave() {
   if (!form.details.length) return ElMessage.warning('请添加商品')
   submitting.value = true
   try {
+    // v1.1.19+: 含税单价. totalAmount = totalAmountTax = 开单金额, 不再算税.
     const payload = { ...form }
-    if (taxSeparation.value === 'true') {
-      let totalAmount = 0, taxAmount = 0
-      payload.details.forEach(d => {
-        const amt = (+d.qty || 0) * (+d.price || 0)
-        totalAmount += amt
-        taxAmount += amt * ((d.taxRate || 13) / 100)
-      })
-      payload.totalAmount = totalAmount
-      payload.taxAmount = taxAmount
-      payload.totalAmountTax = totalAmount + taxAmount
-    }
+    let totalAmount = 0
+    payload.details.forEach(d => { totalAmount += (+d.qty || 0) * (+d.price || 0) })
+    payload.totalAmount = totalAmount
+    payload.taxAmount = 0
+    payload.totalAmountTax = totalAmount
     if (form.id) {
       await purReceiptApi.update(payload); ElMessage.success('修改成功')
     } else {

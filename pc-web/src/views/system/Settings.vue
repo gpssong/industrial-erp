@@ -62,17 +62,7 @@
       </el-form>
     </div>
     <div class="page-card">
-      <div class="tax-toggle">
-        <el-switch
-          v-model="taxSeparation"
-          active-value="true"
-          inactive-value="false"
-          @change="onTaxSeparationChange"
-          style="margin-right: 8px"
-        />
-        <span>价税分离模式</span>
-        <span class="tax-tip">关闭时所有单价均为含税单价；开启后显示税率、税额等字段</span>
-      </div>
+      <!-- v1.1.19+: 价税分离开关已废弃 (price=含税单价). -->
       <div class="toolbar">
         <el-button type="primary" @click="onAdd">新增配置</el-button>
       </div>
@@ -167,15 +157,8 @@ function onRefreshInfo() {
   ElMessage.success('已刷新系统信息')
 }
 
-// 列表中排除价税分离配置（由顶部开关独占）
-const filteredRecords = computed(() => data.value.records.filter(r => r.configKey !== 'PRICE_TAX_SEPARATION'))
-
-async function onTaxSeparationChange(val) {
-  try {
-    await saveTaxSeparation(val)
-    ElMessage.success(val === 'true' ? '已开启价税分离模式' : '已关闭价税分离模式')
-  } catch (e) { ElMessage.error(e.message || '保存失败') }
-}
+// v1.1.19+: 价税分离开关已废弃 (price=含税单价,不再拆分). 不过滤 PRICE_TAX_SEPARATION 记录 (UI 不再展示开关, 但配置表保留以备将来).
+const filteredRecords = computed(() => data.value.records)
 
 async function loadData() {
   loading.value = true

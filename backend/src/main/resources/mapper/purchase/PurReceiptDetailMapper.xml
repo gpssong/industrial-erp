@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper">
+    <!-- v1.1.16+ 修复: JOIN base_unit 用 unit_id 重写 unit_name 返回 (与 SalDeliveryDetail 同模式).
+         兼容历史脏数据 unit_id=0/不存在 → 退回 d.unit_name 旧值. -->
     <select id="selectByReceiptId" resultType="com.industrial.erp.modules.purchase.entity.PurReceiptDetail">
-        SELECT * FROM pur_receipt_detail WHERE receipt_id = #{receiptId} AND deleted = 0 ORDER BY line_no
+        SELECT d.*, COALESCE(u.unit_name, d.unit_name) AS unit_name
+        FROM pur_receipt_detail d
+        LEFT JOIN base_unit u ON u.id = d.unit_id AND u.deleted = 0
+        WHERE d.receipt_id = #{receiptId} AND d.deleted = 0
+        ORDER BY d.line_no
     </select>
     <select id="selectLastPriceBySupplierAndProduct" resultType="java.math.BigDecimal">
         SELECT d.price FROM pur_receipt_detail d
