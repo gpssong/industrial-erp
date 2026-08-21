@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.19 (含税单价口径 + 历史数据迁移 + 4 个 detail mapper 单位修复)
+**当前版本**: v1.1.19 (含税单价口径重构 + 历史数据迁移 + 已开发票 Tab + 4 个 detail mapper 单位修复)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -271,12 +271,15 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 
 ## 变更日志 (v1.0.10 ~ v1.1.19)
 
-### v1.1.19 (2026-08-20) — 含税单价口径重构 + 历史数据迁移
+### v1.1.19 (2026-08-20) — 含税单价口径重构 + 历史数据迁移 + 已开发票 Tab
 
-#### Bug 背景
+#### Bug 背景 (含税单价口径)
 销售出库都是按含税价格开的, 但后端 add() / update() 在 `price=含税` 基础上又 `* taxRate%` 重算了一次税 (双重计税). 例: 录 price=100, qty=2 → 写入 AR.amount=226 (= 2×100×1.13), 而客户实际谈的是 200 元.
 
-#### 用户决策
+#### 用户反馈 2 (已开发票 Tab)
+应收应付现有列表只能看到 AR/AP 往来, 看不到已开发票清单. 财务要求新增「已开发票」子页面, 展示 `fin_invoice` 表中的发票 + 关联源单.
+
+#### 用户决策 (含税单价)
 - `price = 含税单价`. `amount = price × qty` = 开单金额 (含税)
 - `taxAmount` 字段保留但不再计算 (`= 0`, 留作将来报税报表)
 - `amountTax = amount` (单行价税合计)
@@ -285,7 +288,7 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - 前端 UI 列名「单价(含税)」保持, 删所有 hardcode `* 1.13` / `* 0.13` / `* (1+rate/100)`
 - 历史数据 UPDATE: `tax_amount=0`, `total_amount = total_amount_tax` (主表 + 8 张表 + fin_arap)
 
-#### 改动
+#### 改动 (含税单价)
 
 | # | 项目 | 修改 |
 |---|---|---|
@@ -301,11 +304,37 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 | #299 | 新建 `sql/24_migrate_tax_inclusive.sql` 历史数据修复 (初版, 有误) | 8 张主表/明细 UPDATE; fin_arap 分 paidAmount 情况处理 |
 | #300 | 修正 `sql/25_fix_tax_inclusive.sql` — 从明细行重新计算 total_amount | sal_delivery 31条 / pur_receipt 56条 / fin_arap 73条 |
 
+#### 改动 (已开发票 Tab)
+
+| # | 项目 | 修改 |
+|---|---|---|
+| #310 | 新增 `FinInvoiceIssuedVO` 后端 VO | `finance/vo/FinInvoiceIssuedVO.java` 发票字段 + sourceBillNo + applyAmount |
+| #311 | `FinInvoiceService.listIssued()` | JOIN `fin_invoice_apply` 取关联明细细, 一张发票对应多 AR/AP 行展开 |
+| #312 | `FinInvoiceController` 新增 `GET /finance/invoice/issued` | invoiceType + keyword 过滤 |
+| #313 | `FinArapController` 加 `invoiceStatuses` 逗号分隔参数 | 支持 `IN('FULL_INVOICED','PARTIAL_INVOICED')` |
+| #314 | `Constants.BILL_INV = "INV"` 新增 | 单号生成前缀 |
+| #315 | `Arap.vue` 顶部 `el-tabs` 两个 tab | 全部往来 / 已开发票 |
+| #316 | 已开发票 Tab 调 `invoiceApi.issued()` | 客户端分页 (`pageSize=20`), 显示发票号/外部票号/类型/客户/关联源单/开票金额/状态 |
+| #317 | 发票详情弹窗 | el-descriptions + 关联源单表 |
+
+#### 部署关键 (v1.1.19)
+
+- **Sa-Token cookie 配置**: `application.yml` 必须有 `is-read-cookie: true` + `is-write-cookie: true`. 否则登录返回 JSON 但**没有 Set-Cookie 头**, 浏览器跳转后所有接口立即 401 ("登录已过期").
+- **gpssong 账号** `sys_user.status=1` (正常, 0=停用). 历史被禁的话 `UPDATE sys_user SET status=1 WHERE username='gpssong'`.
+- **本地无 JDK 17**: 用 Docker 编译 `docker run --rm -v /volume3/.../backend:/workspace -w /workspace maven:3.9-eclipse-temurin-17 mvn clean package -DskipTests -q`. 复制到容器: `docker cp target/industrial-erp-1.0.4.jar erp-backend:/opt/app/app.jar` + `docker restart erp-backend`.
+- **NAS 源码同步**: 用 base64 编码本地文件, ssh 解码到 NAS, 因为 SSH fail2ban 经常锁, HTTP server 也经常返回 404.
+
 #### 迁移结果 (2026-08-20 二次修正)
 - **问题**: `sql/24_migrate_tax_inclusive.sql` 只做了 `total_amount=total_amount_tax`(两者都是旧 1.13× 值),未从明细重新计算
 - **修复**: `sql/25_fix_tax_inclusive.sql` 从 `sal_*_detail.amount` 汇总重新计算 → 31 条 sal_delivery + 56 条 pur_receipt 修正
 - fin_arap: 73 条未核销记录已更新; 5 条已开票/已核销在 `fin_arap_migration_review` (待财务手工处理)
 - 后端 jar 96MB + pc-web dist 4.4MB 已部署
+
+#### 已开发票 Tab 验证 (2026-08-21)
+- 后端 `GET /finance/invoice/issued` 返回 16 张发票 (INV202608200001~006 重复关联多个 AR/AP)
+- 前端 `Arap-8iaZHMZu.js` + `finance-Dfo7KDLh.js` lazy-load chunk
+- `invoiceApi.issued: i=>e.get("/finance/invoice/issued",{params:i})` 已注入
+- 已开发票列: 发票单号 / 外部票号 / 类型 / 客户/供应商 / 来源单号 / 发票日期 / 票面金额 / 开票金额 / 已收款 / 未收款 / 状态 / 操作
 
 #### 风险
 - **fin_arap_paidAmount>0**: 不盲目缩 amount, 走审查表 + 红字发票/调整单
