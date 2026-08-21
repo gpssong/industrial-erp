@@ -166,9 +166,21 @@ services:
     container_name: erp-failover-watcher
     restart: unless-stopped
     volumes:
-      - ./failover.sh:/opt/failover.sh:ro
-      - ./wecom-config.json:/opt/wecom-config.json:ro
-    command: ["sh", "-c", "while true; do /opt/failover.sh check; sleep 60; done"]
+      - ./failover.sh:/vol2/erp-system/failover.sh:ro
+      - ./wecom-config.json:/vol2/erp-system/wecom-config.json:ro
+    working_dir: /vol2/erp-system
+    # alpine 内置 /bin/sh + 周期性 wget 检查
+    command:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          RESULT=$$(wget -q -O - --timeout=10 "$${MAIN_URL:-https://home.93gushi.com:8088/api/auth/captcha}" > /dev/null 2>&1; echo $$?)
+          echo "$$(date -Iseconds) main-site-check: $$RESULT"
+          sleep 60
+        done
+    environment:
+      - MAIN_URL=http://192.168.0.150:8088/api/auth/captcha
     networks:
       - erp-failover-net
 
