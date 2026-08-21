@@ -1,0 +1,123 @@
+# =============================================================
+# Prometheus 告警规则 (飞牛 NAS)
+# 位置: /volume2/erp-system/rules/erp-failover.yml
+# =============================================================
+
+groups:
+  # -------------------------------------------------------------
+  # MySQL 主从复制监控
+  # -------------------------------------------------------------
+  - name: mysql-replication
+    rules:
+      # MySQL 从库 IO_THREAD 停止
+      - alert: MySQLReplicaIOThreadDown
+        expr: mysql_slave_status_slave_io_running == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: mysql
+        annotations:
+          summary: "MySQL 从库 IO_THREAD 停止"
+          description: "实例 {{ $labels.instance }} 的 IO_THREAD 已停止超过 2 分钟"
+
+      # MySQL 从库 SQL_THREAD 停止
+      - alert: MySQLReplicaSQLThreadDown
+        expr: mysql_slave_status_slave_sql_running == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: mysql
+        annotations:
+          summary: "MySQL 从库 SQL_THREAD 停止"
+          description: "实例 {{ $labels.instance }} 的 SQL_THREAD 已停止超过 2 分钟"
+
+      # 主从延迟超过 60 秒
+      - alert: MySQLReplicationLagHigh
+        expr: mysql_slave_status_seconds_behind_master > 60
+        for: 5m
+        labels:
+          severity: warning
+          service: mysql
+        annotations:
+          summary: "MySQL 主从延迟 > 60 秒"
+          description: "实例 {{ $labels.instance }} 延迟 {{ $value }} 秒"
+
+      # 主从延迟超过 5 分钟 (严重)
+      - alert: MySQLReplicationLagCritical
+        expr: mysql_slave_status_seconds_behind_master > 300
+        for: 1m
+        labels:
+          severity: critical
+          service: mysql
+        annotations:
+          summary: "MySQL 主从延迟 > 5 分钟, 考虑切主"
+          description: "实例 {{ $labels.instance }} 延迟 {{ $value }} 秒"
+
+  # -------------------------------------------------------------
+  # 主站健康监控
+  # -------------------------------------------------------------
+  - name: main-site-health
+    rules:
+      # 主站完全不可访问
+      - alert: MainSiteDown
+        expr: probe_success{instance="https://home.93gushi.com:8088/api/auth/captcha"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: main-site
+        annotations:
+          summary: "ERP 主站不可访问"
+          description: "home.93gushi.com:8088 持续 1 分钟无法访问, 触发故障切换"
+
+      # 主站响应慢
+      - alert: MainSiteSlow
+        expr: probe_duration_seconds{instance="https://home.93gushi.com:8088/api/auth/captcha"} > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: main-site
+        annotations:
+          summary: "ERP 主站响应慢"
+          description: "平均响应 {{ $value }} 秒"
+
+  # -------------------------------------------------------------
+  # 容器健康
+  # -------------------------------------------------------------
+  - name: container-health
+    rules:
+      # 容器重启
+      - alert: ContainerRestarting
+        expr: increase(container_restart_count[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: docker
+        annotations:
+          summary: "容器 {{ $labels.name }} 频繁重启"
+          description: "5 分钟内重启 {{ $value }} 次"
+
+      # 容器磁盘使用 > 90%
+      - alert: ContainerDiskHigh
+        expr: container_fs_usage_bytes / container_fs_limit_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: docker
+        annotations:
+          summary: "容器 {{ $labels.name }} 磁盘 > 90%"
+          description: "使用率 {{ $value | humanizePercentage }}"
+
+  # -------------------------------------------------------------
+  # 磁盘空间
+  # -------------------------------------------------------------
+  - name: disk-space
+    rules:
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/volume2"} / node_filesystem_size_bytes{mountpoint="/volume2"}) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: disk
+        annotations:
+          summary: "飞牛磁盘 /volume2 剩余 < 10%"
+          description: "剩余 {{ $value | humanizePercentage }}"

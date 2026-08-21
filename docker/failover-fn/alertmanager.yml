@@ -1,0 +1,74 @@
+# =============================================================
+# Alertmanager 配置 (飞牛 NAS)
+# 位置: /volume2/erp-system/alertmanager.yml
+# 作用: 接收 Prometheus 告警, 发送到企业微信 webhook
+# =============================================================
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'wechat-erp'
+
+  routes:
+    # 严重告警立即通知
+    - match:
+        severity: critical
+      receiver: 'wechat-erp-critical'
+      repeat_interval: 5m
+
+    # 警告每 4 小时通知
+    - match:
+        severity: warning
+      receiver: 'wechat-erp-warning'
+      repeat_interval: 4h
+
+receivers:
+  # 严重告警 (立即通知)
+  - name: 'wechat-erp-critical'
+    wechat_configs:
+      - corp_id: 'ww1234567890abcdef'
+        agent_id: '1000002'
+        api_secret: 'your_wechat_secret'
+        to_user: '@all'
+        to_party: '1'
+        message: |
+          {{ range .Alerts }}
+          【紧急】{{ .Annotations.summary }}
+          详情: {{ .Annotations.description }}
+          实例: {{ .Labels.instance }}
+          时间: {{ .StartsAt }}
+          {{ end }}
+
+  # 警告
+  - name: 'wechat-erp-warning'
+    wechat_configs:
+      - corp_id: 'ww1234567890abcdef'
+        agent_id: '1000002'
+        api_secret: 'your_wechat_secret'
+        to_user: '@all'
+        message: |
+          {{ range .Alerts }}
+          【警告】{{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  # 默认
+  - name: 'wechat-erp'
+    wechat_configs:
+      - corp_id: 'ww1234567890abcdef'
+        agent_id: '1000002'
+        api_secret: 'your_wechat_secret'
+        to_user: '@all'
+
+# 抑制规则 (避免重复告警)
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service']
