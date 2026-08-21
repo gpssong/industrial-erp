@@ -316,6 +316,25 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 | #315 | `Arap.vue` 顶部 `el-tabs` 两个 tab | 全部往来 / 已开发票 |
 | #316 | 已开发票 Tab 调 `invoiceApi.issued()` | 客户端分页 (`pageSize=20`), 显示发票号/外部票号/类型/客户/关联源单/开票金额/状态 |
 | #317 | 发票详情弹窗 | el-descriptions + 关联源单表 |
+| #318 | **NAS 源码同步修复** (2026-08-21) | 完整上传 391 个 backend Java 源码 + pom.xml 修复后构建 |
+
+#### NAS 源码同步修复 (2026-08-21)
+
+**症状**: 前端访问 `/api/system/print-template/page` 返回 `No static resource` 500 错误.
+
+**根因**: NAS 上的 `sys_print-template` 控制器源码是**旧版本** (路径 `/system/print`), 与前端新代码路径 `/system/print-template` 不匹配. NAS 大部分 system 模块源码都比本地旧 1-2 个版本, 编译出来缺少新接口.
+
+**修复**:
+1. 完整打包上传 backend src: `cd backend/src && tar czf backend-src.tar.gz .` → mac 端 `python3 -m http.server` → NAS 端 `curl -O && tar xzf` (整目录覆盖)
+2. 上传最新 `pom.xml` (含 openpdf 2.0.2 + flying-saucer-pdf 9.1.22 依赖)
+3. 重新构建: `docker run --rm -v /volume3/docker/erp-system/backend:/workspace -w /workspace maven:3.9-eclipse-temurin-17 mvn clean package -DskipTests`
+4. 部署新 JAR (100541717 字节, 比旧 87MB 大)
+5. 验证: `/api/system/print-template/page` 返回 200, 4 条模板记录
+
+**预防措施**:
+- 后端新功能/接口变更必须同时 push 源码到 NAS, 不只是替换 JAR
+- 部署前用 `find /volume3/docker/erp-system/backend/src -name '*.java' | wc -l` 与本地对比, 数字一致才行
+- 经典 502 错误 (`No static resource`) 说明 controller 完全没被 Spring 扫描到, 不是 404 那种"接口不存在", 而是"源码压根没编译进去"
 
 #### 部署关键 (v1.1.19)
 
