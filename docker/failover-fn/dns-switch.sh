@@ -20,9 +20,15 @@ ALIYUN_AK="${ALIYUN_AK:-your_access_key}"
 ALIYUN_SK="${ALIYUN_SK:-your_secret_key}"
 ALIYUN_REGION="${ALIYUN_REGION:-cn-hangzhou}"
 
-# IP 配置
-MAIN_IP="${MAIN_IP:-主站IP}"
-BACKUP_IP="${BACKUP_IP:-飞牛IP}"
+# IP 配置 (两个 NAS 共享公网 IP 123.96.235.112, DNS 切换不适用;
+# 预留用于将来飞牛获得独立公网 IP 的场景)
+MAIN_IP="${MAIN_IP:-123.96.235.112}"
+BACKUP_IP="${BACKUP_IP:-123.96.235.112}"
+
+# 阿里云 DNS AK/SK (必须通过环境变量传入, 不要硬编码到脚本)
+# 获取方式: https://ram.console.aliyun.com/overview
+ALIYUN_AK="${ALIYUN_AK:-}"
+ALIYUN_SK="${ALIYUN_SK:-}"
 
 # 兼容 DNSPod / Cloudflare (可选)
 DNSPOD_TOKEN="${DNSPOD_TOKEN:-}"
@@ -47,7 +53,7 @@ aliyun_sign() {
   local BODY="${4:-}"
 
   # 公共参数
-  local COMMON="AccessKeyId=${ALIYUN_AK}&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=$(date +%s%N)&SignatureVersion=1.0&Timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  local COMMON="AccessKeyId=${ALIYUN_AK}&Format=JSON&SignatureMethod=HMAC-SHA1&SignatureNonce=$(date +%s%N)&SignatureVersion=1.0&Timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')&Version=${ALIYUN_API_VERSION}"
 
   # 构造待签名字符串
   local SORTED_QUERY=$(echo -e "${COMMON}&${QUERY}" | tr '&' '\n' | sort | tr '\n' '&' | sed 's/&$//')
@@ -74,7 +80,7 @@ print("&".join(result))
 aliyun_get_record_id() {
   local RR="$1"
   local ACTION="DescribeDomainRecords"
-  local QUERY="Action=${ACTION}&DomainName=${DOMAIN}&RRKeyWord=${RR}&Type=${RECORD_TYPE}"
+  local QUERY="Action=${ACTION}&DomainName=${DOMAIN}&RRKeyWord=${RR}&Type=${RECORD_TYPE}&Version=${ALIYUN_API_VERSION}"
 
   local SIGNATURE=$(aliyun_sign "GET" "/" "$QUERY")
 
@@ -103,7 +109,7 @@ aliyun_update_record() {
   log "INFO" "阿里云更新解析: $RR -> $TARGET_IP (RecordId=$RECORD_ID)"
 
   local ACTION="UpdateDomainRecord"
-  local QUERY="Action=${ACTION}&RecordId=${RECORD_ID}&RR=${RR}&Type=${RECORD_TYPE}&Value=${TARGET_IP}&TTL=${TTL}"
+  local QUERY="Action=${ACTION}&RecordId=${RECORD_ID}&RR=${RR}&Type=${RECORD_TYPE}&Value=${TARGET_IP}&TTL=${TTL}&Version=${ALIYUN_API_VERSION}"
 
   local SIGNATURE=$(aliyun_sign "GET" "/" "$QUERY")
 
@@ -111,15 +117,18 @@ aliyun_update_record() {
 
   log "INFO" "阿里云更新结果: $RESULT"
 
-  # 检查返回
+  # 检查返回 (成功时返回 RecordId, 失败时返回 ErrorCode)
   echo "$RESULT" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 if 'RecordId' in data:
     print('SUCCESS: RecordId=' + data['RecordId'])
+elif 'Code' in data:
+    print('FAILED: ' + data.get('Code','') + ' - ' + data.get('Message',''))
+    sys.exit(1)
 else:
-    print('FAILED: ' + json.dumps(data))
-    exit(1)
+    print('UNKNOWN: ' + json.dumps(data))
+    sys.exit(1)
 "
 
   return $?
