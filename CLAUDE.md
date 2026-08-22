@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.19.3 (含税单价口径重构 + 已开发票 Tab + 路由冲突修复 + CORS 飞牛域名 + 数量小数精度)
+**当前版本**: v1.1.19.4 (含税单价口径重构 + 已开发票 Tab + 飞牛热备应用部署)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
