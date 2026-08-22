@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.19 (含税单价口径重构 + 历史数据迁移 + 已开发票 Tab + 4 个 detail mapper 单位修复)
+**当前版本**: v1.1.19.3 (含税单价口径重构 + 已开发票 Tab + 路由冲突修复 + CORS 飞牛域名 + 数量小数精度)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -270,6 +270,28 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - [ ] 登录测试: `admin` / `admin123`
 
 ## 变更日志 (v1.0.10 ~ v1.1.19)
+
+### v1.1.19.3 (2026-08-22) — 部署补丁 (路由冲突 + CORS + 数量小数)
+
+#### 路由冲突修复 (#330)
+- **症状**: 「已开发票」Tab 点击查询提示 `Failed to convert value of type 'java.lang.String' to required type 'java.lang.Long'; For input string: "issued"`
+- **根因**: `FinInvoiceController.@GetMapping("/{id}")` 在 `@GetMapping("/issued")` 之前注册, Spring MVC 把 `/finance/invoice/issued` 匹配成 `id="issued"`, 试图转 Long 失败
+- **修复**: `/issued` 移到 `/{id}` 之前声明
+
+#### CORS 飞牛域名 (#331)
+- **症状**: 飞牛热备站 `http://n150.93gushi.com:8088/#/login` 登录报 "Invalid CORS request" 403
+- **根因**: `ERP_CORS_ALLOWED_ORIGINS` 未包含 `http://n150.93gushi.com:8088`
+- **修复**: `.env` + `.env.example` 添加飞牛域名到 CORS 白名单
+
+#### 数量/单价小数精度 (#332)
+- **症状**: 采购入库/销售出库的数量只能输整数
+- **根因**: `el-input-number` 默认 `precision=0`
+- **修复**: `Receipt.vue` / `Delivery.vue` 数量 + 单价加 `:precision="4" :min="0"`. `Return.vue` 已有 `precision="4"` 不动
+
+#### NAS 部署同步 (2026-08-22)
+- 后端 jar 重新编译: 100,541,726 bytes (`e96cc8de...`)
+- 前端 dist 重新构建: Receipt-DH3kSPtC.js, Delivery-DN-HScdX.js
+- CORS 修复需 `docker compose up -d --force-recreate backend` 重启生效 (.env 重新注入)
 
 ### v1.1.19 (2026-08-20) — 含税单价口径重构 + 历史数据迁移 + 已开发票 Tab
 
