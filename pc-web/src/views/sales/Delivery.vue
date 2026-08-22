@@ -115,10 +115,10 @@
               </template>
             </el-table-column>
             <el-table-column label="数量" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.qty" :precision="4" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
             </el-table-column>
             <el-table-column label="单价(含税)" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" @change="() => row._priceFromUnit = false" /></template>
+              <template #default="{ row }"><el-input-number v-model="row.price" :precision="4" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" @change="() => row._priceFromUnit = false" /></template>
             </el-table-column>
             <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ stripTrailingZero4(row.qty * row.price) }}</span></template></el-table-column>
             <el-table-column label="批次" width="160">
