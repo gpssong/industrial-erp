@@ -293,6 +293,39 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - 前端 dist 重新构建: Receipt-DH3kSPtC.js, Delivery-DN-HScdX.js
 - CORS 修复需 `docker compose up -d --force-recreate backend` 重启生效 (.env 重新注入)
 
+### v1.1.19.4 (2026-08-22) — 飞牛热备应用容器部署
+
+**容器状态**: 全部 healthy，登录/API/发票 Tab 验证通过
+
+```
+erp-backend-failover   Up (healthy)   8080:8080
+erp-pc-web-failover    Up             18080:80
+erp-mysql-failover     Up (healthy)   3306:3306
+redis-failover         Up             6379:6379
+erp-failover-watcher   Up             (主站监控)
+erp-prometheus/grafana  Up            9090/3000
+```
+
+**部署流程**:
+1. Mac 上传 jar + dist 到 FNOS: `curl http://192.168.0.16:18099/...`
+2. FNOS Docker 构建镜像: `docker build -f backend.Dockerfile -t erp-system-backend:latest`
+3. 手动启动 Redis (compose 配置 `--replicaof` 有语法错误): `docker run -d --name redis-failover --network erp-failover-net -p 6379:6379 -v /vol2/erp-system/redis-data:/data redis:7-alpine redis-server --appendonly yes`
+4. pc-web 用 bind mount: `-v /vol2/erp-system/pc-web/dist:/usr/share/nginx/html:ro`
+5. 账号启用: `UPDATE sys_user SET status=1 WHERE username IN ('admin','gpssong')`
+
+**踩坑**:
+- Redis compose 配置 `--replicaof "erp-redis-master" "192.168.0.150" "6379"` 引号错误 + 容器未加入 erp-failover-net → 手动重建
+- 健康检查用 `curl` 但 alpine 镜像没有 → Dockerfile 改 `wget`
+- 旧 jar 缺 v1.1.19.3 路由修复 → Docker Maven 从源码重新构建
+- Sa-Token 用 `Authorization` header (不是 `satoken`)
+- FNOS Python 3.11 签名与 Mac 3.9 不同 → DNS 脚本改用文件部署方式
+
+**验证**:
+- `curl http://192.168.0.32:8080/api/auth/captcha` → 200
+- `curl -X POST .../api/auth/login` (gpssong/850225song) → token
+- `curl -H "Authorization: $TOKEN" .../api/finance/invoice/issued` → code:200, count:16
+- MySQL 主从复制: Seconds_Behind_Master=0
+
 ### v1.1.19 (2026-08-20) — 含税单价口径重构 + 历史数据迁移 + 已开发票 Tab
 
 #### Bug 背景 (含税单价口径)
