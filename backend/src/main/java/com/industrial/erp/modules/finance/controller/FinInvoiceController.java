@@ -51,6 +51,18 @@ public class FinInvoiceController {
     }
 
     /**
+     * 已开发票列表 (v1.1.19+)
+     *
+     * <p>⚠️ 必须在 /{id} 之前声明, 否则 Spring MVC 会把 "issued" 当 id 匹配, 导致 NumberFormatException
+     */
+    @GetMapping("/issued")
+    public R<List<FinInvoiceIssuedVO>> listIssued(
+            @RequestParam(required = false) String invoiceType,
+            @RequestParam(required = false) String keyword) {
+        return R.ok(invoiceService.listIssued(invoiceType, keyword));
+    }
+
+    /**
      * 发票详情 (含关联 AR/AP 单)
      */
     @GetMapping("/{id}")
@@ -95,18 +107,5 @@ public class FinInvoiceController {
             throw new com.industrial.erp.exception.BizException("需指定 partnerType + customerId 或 supplierId");
         }
         return R.ok(invoiceService.listUninvoiced(pt, pid));
-    }
-
-    /**
-     * 已开发票列表 (v1.1.19+)
-     *
-     * <p>展示 fin_invoice + fin_invoice_apply 关联的源单信息
-     * <p>一张发票对应多个 AR/AP 单时展开为多行
-     */
-    @GetMapping("/issued")
-    public R<List<FinInvoiceIssuedVO>> listIssued(
-            @RequestParam(required = false) String invoiceType,
-            @RequestParam(required = false) String keyword) {
-        return R.ok(invoiceService.listIssued(invoiceType, keyword));
     }
 }
