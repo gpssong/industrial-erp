@@ -26,6 +26,8 @@ public class InvLedger {
     private Long productId;
     private String productCode;
     private String productName;
+    private String spec;
+    private String model;
     private Long unitId;
     private String unitName;
     private String batchNo;
@@ -73,6 +75,10 @@ public class InvLedger {
     public void setProductCode(String productCode) { this.productCode = productCode; }
     public String getProductName() { return productName; }
     public void setProductName(String productName) { this.productName = productName; }
+    public String getSpec() { return spec; }
+    public void setSpec(String spec) { this.spec = spec; }
+    public String getModel() { return model; }
+    public void setModel(String model) { this.model = model; }
     public Long getUnitId() { return unitId; }
     public void setUnitId(Long unitId) { this.unitId = unitId; }
     public String getUnitName() { return unitName; }

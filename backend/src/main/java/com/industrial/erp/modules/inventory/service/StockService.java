@@ -122,6 +122,8 @@ public class StockService {
             ledger.setProductId(productId);
             ledger.setProductCode(product.getProductCode());
             ledger.setProductName(product.getProductName());
+            ledger.setSpec(product.getSpec());
+            ledger.setModel(product.getModel());
             ledger.setUnitId(mainUnitId);
             ledger.setUnitName(mainUnitName);
             ledger.setBatchNo(bn);
@@ -232,11 +234,13 @@ public class StockService {
             ledger.setProductId(productId);
             ledger.setProductCode(product.getProductCode());
             ledger.setProductName(product.getProductName());
+            ledger.setSpec(product.getSpec());
+            ledger.setModel(product.getModel());
             ledger.setUnitId(mainUnitId);
             ledger.setUnitName(mainUnitName);
             ledger.setBatchNo(bn);
             ledger.setQty(mainQty);
-            ledger.setPrice(beforeAvgCost);
+            ledger.setPrice(price);
             ledger.setAmount(outCost);
             ledger.setBeforeQty(beforeQty);
             ledger.setAfterQty(afterQty);
