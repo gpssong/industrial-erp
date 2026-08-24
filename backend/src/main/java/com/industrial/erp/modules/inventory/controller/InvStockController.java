@@ -82,6 +82,8 @@ public class InvStockController {
         if (StrUtil.isNotBlank(startDate)) w.ge("biz_date", startDate);
         if (StrUtil.isNotBlank(endDate)) w.le("biz_date", endDate);
         w.eq("deleted", 0);
+        // v1.1.20+: 多租户过滤 (P0-4). inv_ledger 表已预留 tenant_id 字段, 当前所有租户均为 1.
+        w.eq("tenant_id", com.industrial.erp.security.SecurityContext.getTenantId());
         w.orderByDesc("id");
         Page<Map<String, Object>> result = ledgerMapper.selectMapsPage(p, w);
         return R.ok(PageResult.of(result));
