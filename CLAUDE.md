@@ -353,6 +353,59 @@ GET /api/inventory/ledger/page
 - `ef34d20` feat(inventory): 库存台账添加规格/型号列 (4 文件 +53 行)
 - `a93cb16` docs: v1.1.20 库存台账规格型号列
 
+### v1.1.20 patch (2026-08-24) — 问题修复批次 (P0/P1/P2)
+
+#### 第一批 + 第二批修复 (commit `5b2f92a`)
+
+| # | 问题 | 文件 | 修复 |
+|---|------|------|------|
+| P0-1 | `05_schema_inventory.sql` inv_ledger 缺 spec/model 列, 新建库失败 | `sql/05_schema_inventory.sql` | 加 `spec` / `model` 列 (含 COMMENT 'v1.1.20+') |
+| P0-2 | `26` 脚本非幂等, 二次执行直接报错 | `sql/26_add_ledger_spec_model.sql` | 加 `information_schema` + 动态 SQL 守门 |
+| P1-1 | spec/model null 时前端空白格缺语义提示 | `pc-web/.../Ledger.vue` | `{{ row.spec || '-' }}` |
+| P1-3 | `PermissionService.hasPerm` 缺括号, 未来易引入 bug | `security/PermissionService.java` | 加显式括号 |
+| P1-7 | `ledgerPage` 无输入长度校验, 可被构造大 LIKE 串拖慢 | `inventory/controller/InvStockController.java` | billNo ≤32 + productName ≤64 |
+| P1-8 | `Constants.BILL_INV` 注释 `v1.1.10+` 应是 `v1.1.19+` | `common/Constants.java` | 修正版本号 |
+| P2-2 | `StockServiceTest` 未断言 spec/model 写入 | `test/.../StockServiceTest.java` | 加 mockProduct.model + 2 个 写入测试 |
+
+#### 第三批修复 (commit `0a5ecc5`)
+
+| # | 问题 | 修复 |
+|---|------|------|
+| **P0-3** | pc-web 用 `COPY dist`, 每次前端改动必须重建镜像 (5-10 分钟) | 改 bind mount (`erp-system-pc-web:bind-mount` 镜像 + `-v /volume3/.../dist:/usr/share/nginx/html:ro`) |
+| **P0-4** | ledgerPage 无 tenant_id 过滤, 多租户化会跨租户泄漏 | `w.eq("tenant_id", SecurityContext.getTenantId())` (最小化, 不注册全局 interceptor) |
+
+#### ⚠️ 部署踩坑 (NAS docker compose v2.20.1)
+
+NAS docker compose v2.20.1 的 strict yaml parser **拒绝** `${VAR:?msg}` 这种 bash-style 默认值语法 (line 84 SA_TOKEN_JWT_SECRET_KEY)。即使 git HEAD 版本也会报 `yaml: line 84: mapping values are not allowed`。**之前能跑是因为 docker 守护进程隐式缓存了 .env 变量, 某次重启后失效**。
+
+**解决**: 用 `docker run` 手动启动容器, 不用 `docker compose` (compose 配置保留作为参考).
+
+**实际网络名**: `erp-system_erp-net` (不是 compose.yml 写的 `erp-net`).
+
+**pc-web 启动命令**:
+```bash
+docker rm -f erp-pc-web
+docker run -d --name erp-pc-web --restart unless-stopped \
+  --network erp-system_erp-net \
+  -p 18080:80 \
+  -v /volume3/docker/erp-system/pc-web/dist:/usr/share/nginx/html:ro \
+  erp-system-pc-web:bind-mount
+```
+
+**前端热修复流程** (30 秒):
+```bash
+# Mac: vite build + tar.gz 上传
+cd pc-web && npm run build && tar czf /tmp/pc-web-dist.tar.gz dist/
+cd /tmp && python3 -m http.server 18888 --bind 0.0.0.0 &
+
+# NAS: 下载 + 解压 + 重启
+curl -s -o /tmp/pc-web-dist.tar.gz http://192.168.0.23:18888/pc-web-dist.tar.gz
+cd /volume3/docker/erp-system/pc-web && tar xzf /tmp/pc-web-dist.tar.gz
+docker restart erp-pc-web
+```
+
+**回滚**: `docker run ... erp-system-pc-web:latest` (旧 `:latest` 仍可用).
+
 ### v1.1.19.4 (2026-08-22) — 飞牛热备应用容器部署
 
 **容器状态**: 全部 healthy，登录/API/发票 Tab 验证通过
