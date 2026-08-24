@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.hutool.core.util.StrUtil;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
+import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.inventory.entity.InvLedger;
 import com.industrial.erp.modules.inventory.entity.InvStock;
 import com.industrial.erp.modules.inventory.mapper.InvLedgerMapper;
@@ -65,6 +66,13 @@ public class InvStockController {
                                                         @RequestParam(required = false) String startDate,
                                                         @RequestParam(required = false) String endDate) {
         permService.requirePerm("inventory:ledger:list");
+        // v1.1.20+: 输入长度校验, 防恶意构造大 LIKE 串拖慢查询
+        if (billNo != null && billNo.length() > 32) {
+            throw BizException.of("单号查询条件最长 32 字符");
+        }
+        if (productName != null && productName.length() > 64) {
+            throw BizException.of("商品名称查询条件最长 64 字符");
+        }
         Page<Map<String, Object>> p = new Page<>(pageNum, pageSize);
         QueryWrapper<InvLedger> w = new QueryWrapper<>();
         if (StrUtil.isNotBlank(billType)) w.eq("bill_type", billType);

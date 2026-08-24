@@ -61,6 +61,8 @@ CREATE TABLE `inv_ledger` (
   `product_id`    BIGINT        NOT NULL,
   `product_code`  VARCHAR(64)   DEFAULT NULL,
   `product_name`  VARCHAR(128)  DEFAULT NULL,
+  `spec`          VARCHAR(128)  DEFAULT NULL COMMENT '规格(v1.1.20+)',
+  `model`         VARCHAR(128)  DEFAULT NULL COMMENT '型号(v1.1.20+)',
   `unit_id`       BIGINT        DEFAULT NULL,
   `unit_name`     VARCHAR(32)   DEFAULT NULL,
   `batch_no`      VARCHAR(64)   DEFAULT NULL,
