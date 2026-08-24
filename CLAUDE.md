@@ -293,6 +293,66 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - 前端 dist 重新构建: Receipt-DH3kSPtC.js, Delivery-DN-HScdX.js
 - CORS 修复需 `docker compose up -d --force-recreate backend` 重启生效 (.env 重新注入)
 
+### v1.1.20 (2026-08-24) — 库存台账规格/型号列
+
+**用户需求**: 库存台账清单界面添加商品的型号与规格, 放到商品名称后面列。
+
+#### 数据库 (`sql/26_add_ledger_spec_model.sql`)
+
+```sql
+ALTER TABLE inv_ledger
+  ADD COLUMN spec  VARCHAR(128) DEFAULT NULL COMMENT '规格' AFTER product_name,
+  ADD COLUMN model VARCHAR(128) DEFAULT NULL COMMENT '型号' AFTER spec;
+
+UPDATE inv_ledger l JOIN base_product p ON p.id=l.product_id AND p.deleted=0
+SET l.spec=p.spec, l.model=p.model
+WHERE l.deleted=0 AND (l.spec IS NULL OR l.model IS NULL);
+```
+
+**回填结果**: 136/138 条已回填 (2 条对应商品本身无规格/型号)
+
+#### 后端改动
+
+- `backend/.../inventory/entity/InvLedger.java` — 加 `spec` / `model` 字段
+- `backend/.../inventory/service/StockService.java` — inStock/outStock 写 `ledger.setSpec(product.getSpec())` + `setModel(product.getModel())`
+
+**部署**:
+1. Mac 打包 `entity/InvLedger.java` + `service/StockService.java` tar.gz
+2. 上传 NAS `/tmp/` (HTTP server)
+3. NAS 上 tar xzf 到 backend 源码目录
+4. Maven Docker 重新构建: `docker run --rm -v /workspace maven:3.9-eclipse-temurin-17 mvn clean package -DskipTests -q`
+5. `docker cp industrial-erp-1.0.4.jar erp-backend:/opt/app/app.jar`
+6. `docker restart erp-backend` → 35s 健康检查通过
+
+**验证**:
+```
+GET /api/inventory/ledger/page
+→ spec="5000只/袋" model="8*75*0.09"   (带鱼带8*75)
+→ spec="20卷/箱"    model="160*300"     (碳带160*300)
+→ spec="100只/捆   3500只/袋"  model="22*28*016"  (塑料袋22*28*0.16)
+```
+
+#### 前端改动
+
+- `pc-web/src/views/inventory/Ledger.vue` — 商品列后加 `<el-table-column prop="spec" label="规格" width="140" />` 和 `prop="model" label="型号" width="120"`
+
+**部署**:
+1. Mac `npm run build` → `pc-web/dist/`
+2. tar.gz 上传 NAS
+3. NAS 上 tar xzf 到 `/volume3/docker/erp-system/pc-web/dist/`
+4. **必须重建镜像**: `docker compose -f /volume3/docker/erp-system/docker-compose.yml build --no-cache pc-web`
+5. **必须重建容器**: `docker compose up -d --force-recreate --no-deps pc-web`
+6. (单 restart 不行! pc-web 是 COPY dist 而非 bind mount)
+
+**踩坑**:
+- 单 `docker restart erp-pc-web` 只重启 nginx, dist 还是 COPY 进镜像的旧版
+- 必须 `build --no-cache` + `up -d --force-recreate` 才能让新 dist 生效
+- index JS hash 从 `C_Qhwe0M` 变为 `DeqOLs49` 才是部署成功
+
+**GitHub 提交**:
+- `ef34d20` feat(inventory): 库存台账添加规格/型号列 (4 文件 +53 行)
+- `a93cb16` docs: v1.1.20 库存台账规格型号列
+
 ### v1.1.19.4 (2026-08-22) — 飞牛热备应用容器部署
 
 **容器状态**: 全部 healthy，登录/API/发票 Tab 验证通过
