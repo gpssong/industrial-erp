@@ -90,6 +90,7 @@ class StockServiceTest {
         p.setProductCode("P001");
         p.setProductName("薄膜-A");
         p.setSpec("厚0.1mm");
+        p.setModel("FM-A-2026");  // v1.1.20+ 型号字段
         p.setCostPrice(BigDecimal.ZERO);
         return p;
     }
@@ -476,5 +477,56 @@ class StockServiceTest {
         verify(stockMapper).insert(stockCap.capture());
         // 兜底: qty 原值
         assertThat(stockCap.getValue().getQty()).isEqualByComparingTo("1");
+    }
+
+    // ============================ v1.1.20+ spec/model 写入测试 ============================
+
+    @Test
+    @DisplayName("入库 - 台账应写入商品的 spec 和 model (v1.1.20+)")
+    void inStock_writesProductSpecModel_toLedger() {
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(mockProduct());
+        when(stockMapper.selectForUpdate(WAREHOUSE_ID, PRODUCT_ID, BATCH_NO)).thenReturn(null);
+
+        stockService.inStock(
+                "PUR_RECEIPT", 1L, "RKP001", 10L,
+                WAREHOUSE_ID, "主仓", null, null,
+                PRODUCT_ID, 1L, "KG", BATCH_NO,
+                new BigDecimal("100"), new BigDecimal("12.50"), "PO001",
+                1L, null, "首次入库");
+
+        ArgumentCaptor<InvLedger> ledgerCap = ArgumentCaptor.forClass(InvLedger.class);
+        verify(ledgerMapper).insert(ledgerCap.capture());
+        InvLedger ledger = ledgerCap.getValue();
+        assertThat(ledger.getSpec()).isEqualTo("厚0.1mm");
+        assertThat(ledger.getModel()).isEqualTo("FM-A-2026");
+    }
+
+    @Test
+    @DisplayName("出库 - 台账应写入商品的 spec 和 model (v1.1.20+)")
+    void outStock_writesProductSpecModel_toLedger() {
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(mockProduct());
+        InvStock existing = new InvStock();
+        existing.setId(1L);
+        existing.setWarehouseId(WAREHOUSE_ID);
+        existing.setProductId(PRODUCT_ID);
+        existing.setProductName("薄膜-A");
+        existing.setQty(new BigDecimal("100"));
+        existing.setAvailableQty(new BigDecimal("100"));
+        existing.setAvgCost(new BigDecimal("10"));
+        existing.setTotalCost(new BigDecimal("1000"));
+        when(stockMapper.selectForUpdate(WAREHOUSE_ID, PRODUCT_ID, BATCH_NO)).thenReturn(existing);
+
+        stockService.outStock(
+                "SAL_DELIVERY", 1L, "CKP001", 10L,
+                WAREHOUSE_ID, "主仓", null, null,
+                PRODUCT_ID, 1L, "KG", BATCH_NO,
+                new BigDecimal("30"), null, null,
+                null, 1L, "正常出库");
+
+        ArgumentCaptor<InvLedger> ledgerCap = ArgumentCaptor.forClass(InvLedger.class);
+        verify(ledgerMapper).insert(ledgerCap.capture());
+        InvLedger ledger = ledgerCap.getValue();
+        assertThat(ledger.getSpec()).isEqualTo("厚0.1mm");
+        assertThat(ledger.getModel()).isEqualTo("FM-A-2026");
     }
 }

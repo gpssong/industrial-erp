@@ -29,8 +29,12 @@
         </el-table-column>
         <el-table-column prop="bill_no" label="单号" width="180" />
         <el-table-column prop="product_name" label="商品" />
-        <el-table-column prop="spec" label="规格" width="140" />
-        <el-table-column prop="model" label="型号" width="120" />
+        <el-table-column prop="spec" label="规格" width="140">
+          <template #default="{ row }">{{ row.spec || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="model" label="型号" width="120">
+          <template #default="{ row }">{{ row.model || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="batch_no" label="批次" width="100" />
         <el-table-column label="方向" width="70">
           <template #default="{ row }">

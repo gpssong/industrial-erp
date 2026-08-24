@@ -30,7 +30,7 @@ public final class Constants {
     public static final String BILL_SK = "SK";
     public static final String BILL_FK = "FK";
     public static final String BILL_RC = "RC";
-    // v1.1.10+: 发票单据前缀
+    // v1.1.19+: 发票单据前缀 (BILL_INV = "INV")
     public static final String BILL_INV = "INV";
 
     public static final String STATUS_DRAFT = "DRAFT";
