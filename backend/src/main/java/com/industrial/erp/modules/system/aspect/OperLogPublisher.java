@@ -1,13 +1,19 @@
 package com.industrial.erp.modules.system.aspect;
 
 import cn.hutool.core.util.StrUtil;
+import com.fasterxml.jackson.annotation.JsonFilter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ser.FilterProvider;
+import com.fasterxml.jackson.databind.ser.impl.SimpleBeanPropertyFilter;
+import com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.modules.system.entity.SysOperLog;
 import com.industrial.erp.modules.system.event.OperLogEvent;
 import com.industrial.erp.security.SecurityContext;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -16,12 +22,15 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 发布操作日志事件 (统一序列化 + 拼接 User/IP/URL, 业务侧仅传业务信息即可)
  */
 @Component
 public class OperLogPublisher {
+
+    private static final Logger log = LoggerFactory.getLogger(OperLogPublisher.class);
 
     public static final String BIZ_ADD = "ADD";
     public static final String BIZ_EDIT = "EDIT";
@@ -36,11 +45,24 @@ public class OperLogPublisher {
      * 而不是 new 一个裸的 — 否则 LocalDateTime / BigDecimal 等会序列化失败.
      */
     private final ObjectMapper om;
+    /** P0-3: 敏感字段白名单, 操作日志序列化时过滤这些字段 */
+    private static final Set<String> SENSITIVE_FIELDS = Set.of(
+            "password", "passwordHash", "idCard", "id_card", "phone",
+            "bankCard", "bank_account", "bankAccount", "creditLimit",
+            "creditUsed", "credit_used", "bankName", "bank_name");
+    private final ObjectMapper logOmitOm;
 
     public OperLogPublisher(ApplicationEventPublisher publisher, ObjectMapper om) {
         this.publisher = publisher;
         this.om = om;
+        // P0-3: 新建一个 ObjectMapper, 用 BeanPropertyFilter 过滤敏感字段
+        this.logOmitOm = new ObjectMapper();
+        this.logOmitOm.addMixIn(Object.class, SensitiveFieldFilterMixin.class);
     }
+
+    /** P0-3: MixIn 定义, 让 Jackson 在序列化所有对象时自动忽略敏感字段 */
+    @JsonFilter("sensitiveFieldFilter")
+    public abstract static class SensitiveFieldFilterMixin {}
 
     /**
      * 通用发布
@@ -71,7 +93,8 @@ public class OperLogPublisher {
             l.setOperTime(LocalDateTime.now());
             publisher.publishEvent(new OperLogEvent(this, l));
         } catch (Exception e) {
-            // 切面/事件失败不能影响主流程
+            // P1-8: 切面/事件失败不能影响主流程, 但至少告警
+            log.warn("操作日志发布失败: module={}, bizType={}", module, businessType, e);
         }
     }
 
@@ -124,7 +147,16 @@ public class OperLogPublisher {
     private String serialize(Object o) throws JsonProcessingException {
         if (o == null) return null;
         if (o instanceof String) return (String) o;
-        return om.writeValueAsString(o);
+        // P0-3: 日志序列化用脱敏版本, 过滤敏感字段
+        return serializeWithSensitiveFilter(o);
+    }
+
+    /** P0-3: 带敏感字段过滤的序列化 */
+    private String serializeWithSensitiveFilter(Object o) throws JsonProcessingException {
+        FilterProvider providers = new SimpleFilterProvider()
+                .addFilter("sensitiveFieldFilter",
+                        SimpleBeanPropertyFilter.serializeAllExcept(SENSITIVE_FIELDS.toArray(new String[0])));
+        return om.setFilterProvider(providers).writeValueAsString(o);
     }
 
     private HttpServletRequest currentRequest() {

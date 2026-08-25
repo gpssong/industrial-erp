@@ -213,12 +213,19 @@ public class StockService {
             BigDecimal afterQty = beforeQty.subtract(mainQty);
             BigDecimal afterTotalCost = beforeAvgCost.multiply(afterQty).setScale(4, RoundingMode.HALF_UP);
 
+            // v1.1.20+ P0-2: 乐观锁守卫, WHERE version=#{version} 防并发覆盖
+            // InvStock 已有 @Version 字段, MyBatis-Plus 自动注入 version 到 UPDATE
             stock.setQty(afterQty);
             stock.setAvailableQty(afterQty);
             stock.setTotalCost(afterTotalCost);
             stock.setLastOutDate(LocalDate.now());
             stock.setUpdateTime(LocalDateTime.now());
-            stockMapper.updateById(stock);
+            int rows = stockMapper.updateById(stock);
+            if (rows == 0) {
+                throw BizException.of(String.format(
+                    "库存不足或版本冲突, 商品=%s(ID=%d), 仓库=%s(ID=%d), 需要=%s",
+                    product.getProductName(), productId, warehouseName, warehouseId, mainQty));
+            }
 
             // 写台账
             InvLedger ledger = new InvLedger();

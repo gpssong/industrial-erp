@@ -119,11 +119,20 @@ public class FinArapService {
     }
 
     /**
+     * v1.1.20+ P1-1: Controller 层事务下沉到 Service
+     * 按 AR/AP 单核销 (原逻辑, 不开票场景)
+     * 注意: v1.1.10+ 推荐使用 FinInvoiceService.writeoffByInvoice (按发票核销)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void cash(Long arapId, BigDecimal amount) {
+        writeoff(arapId, amount);
+    }
+
+    /**
      * 按 AR/AP 单核销 (原逻辑, 不开票场景)
      * 注意: v1.1.10+ 推荐使用 FinInvoiceService.writeoffByInvoice (按发票核销)
      */
     @OperLog(module="应收应付", businessType="EDIT", saveParam=true)
-    @Transactional(rollbackFor = Exception.class)
     public void writeoff(Long arapId, BigDecimal amount) {
         FinArap origin = arapMapper.selectById(arapId);
         if (origin == null) throw new com.industrial.erp.exception.BizException("应收/应付单不存在");

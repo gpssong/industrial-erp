@@ -39,7 +39,11 @@ public class SysDictController {
             try {
                 return R.ok(new com.fasterxml.jackson.databind.ObjectMapper()
                         .readValue(cached, new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}));
-            } catch (Exception ignore) {}
+            } catch (Exception e) {
+                // Redis 缓存解析失败, 继续查 DB
+                org.slf4j.LoggerFactory.getLogger(SysDictController.class)
+                        .warn("字典缓存解析失败: dictType={}, key={}", dictType, key, e);
+            }
         }
         // 查 DB
         List<Map<String, Object>> list = new ArrayList<>();
@@ -54,11 +58,19 @@ public class SysDictController {
                     list.add(m);
                 }, dictType
             );
-        } catch (Exception ignore) {}
+        } catch (Exception e) {
+            // DB 查询失败日志告警
+            org.slf4j.LoggerFactory.getLogger(SysDictController.class)
+                    .warn("字典查询失败: dictType={}", dictType, e);
+        }
         // 缓存 30 分钟
         try {
             redis.opsForValue().set(key, new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(list), 30, TimeUnit.MINUTES);
-        } catch (Exception ignore) {}
+        } catch (Exception e) {
+            // Redis 写入失败日志告警 (不影响主流程)
+            org.slf4j.LoggerFactory.getLogger(SysDictController.class)
+                    .warn("字典缓存写入失败: dictType={}, key={}", dictType, key, e);
+        }
         return R.ok(list);
     }
 }

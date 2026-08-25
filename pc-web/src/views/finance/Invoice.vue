@@ -60,7 +60,7 @@
     </div>
 
     <!-- 详情弹窗 -->
-    <el-dialog v-model="detailVisible" title="发票详情" width="800px">
+    <el-dialog v-model="detailVisible" title="发票详情" width="800px" destroy-on-close>
       <div v-if="detail">
         <el-descriptions :column="3" border>
           <el-descriptions-item label="内部单号">{{ detail.invoice.billNo }}</el-descriptions-item>
@@ -100,7 +100,7 @@
     </el-dialog>
 
     <!-- 收款弹窗 -->
-    <el-dialog v-model="collectVisible" title="按发票收款" width="500px">
+    <el-dialog v-model="collectVisible" title="按发票收款" width="500px" destroy-on-close>
       <el-form :model="collectForm" label-width="100px">
         <el-form-item label="发票号">
           <el-input :model-value="collectForm.billNo" disabled />

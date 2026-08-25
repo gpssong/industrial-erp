@@ -112,7 +112,7 @@ services:
         limits:
           memory: 1.2G
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/auth/captcha"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/auth/captcha"]
       interval: 30s
       timeout: 3s
       retries: 3

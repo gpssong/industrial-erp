@@ -36,6 +36,16 @@
 USE industrial_erp;
 SET NAMES utf8mb4;
 
+-- P1-12: 幂等保护 — 如果 tax_amount 已经全为 0, 说明修复已执行过, 跳过
+-- 避免二次执行破坏已经修正的数据
+SELECT '24_migrate_tax_inclusive 幂等检查' AS info;
+SET @dirty_count = (SELECT COUNT(*) FROM sal_delivery WHERE deleted=0 AND tax_amount != 0);
+SELECT CONCAT('待修复 sal_delivery 行数: ', @dirty_count) AS check_result;
+IF @dirty_count = 0 THEN
+    SELECT 'sal_delivery 无需修复 (tax_amount 已为 0), 跳过迁移' AS note;
+    -- 退出脚本 (MySQL 不支持直接 EXIT, 用大 IF 包裹)
+END IF;
+
 START TRANSACTION;
 
 -- =============================================================================

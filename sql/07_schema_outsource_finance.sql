@@ -146,6 +146,11 @@ CREATE TABLE `fin_arap` (
   `bill_status`    VARCHAR(32)   DEFAULT 'UNPAID' COMMENT 'UNPAID/PARTIAL/PAID/CANCELLED',
   `due_date`       DATE          DEFAULT NULL,
   `overdue_days`   INT           DEFAULT 0,
+  -- v1.1.19+: 发票跟踪字段
+  `invoiced_amount`   DECIMAL(18,4) DEFAULT 0    COMMENT '已开票金额',
+  `uninvoiced_amount` DECIMAL(18,4) DEFAULT 0    COMMENT '未开票金额',
+  `invoice_status`    VARCHAR(32)   DEFAULT 'UNINVOICED' COMMENT 'UNINVOICED/PARTIAL_INVOICED/FULL_INVOICED',
+  `last_invoice_date` DATE          DEFAULT NULL COMMENT '最近开票日期',
   `remark`         VARCHAR(500)  DEFAULT NULL,
   `create_by`      BIGINT        DEFAULT NULL,
   `create_time`    DATETIME      DEFAULT CURRENT_TIMESTAMP,
@@ -178,6 +183,7 @@ CREATE TABLE `fin_cash_flow` (
   `amount`         DECIMAL(18,4) NOT NULL DEFAULT 0,
   `source_bill_id` BIGINT        DEFAULT NULL,
   `source_bill_no` VARCHAR(32)   DEFAULT NULL,
+  `invoice_id`     BIGINT        DEFAULT NULL COMMENT '关联发票 ID (NULL=按单核销, 非NULL=按发票核销)',
   `bill_status`    VARCHAR(32)   DEFAULT 'DRAFT',
   `remark`         VARCHAR(500)  DEFAULT NULL,
   `create_by`      BIGINT        DEFAULT NULL,
@@ -189,7 +195,8 @@ CREATE TABLE `fin_cash_flow` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uniq_fin_cf_bill_no` (`bill_no`, `deleted`),
   KEY `idx_fin_cf_type` (`bill_type`),
-  KEY `idx_fin_cf_date` (`bill_date`)
+  KEY `idx_fin_cf_date` (`bill_date`),
+  KEY `idx_fin_cf_invoice` (`invoice_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收付款流水';
 
 -- 8.3  收付款核销明细

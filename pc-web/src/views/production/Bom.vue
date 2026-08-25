@@ -86,7 +86,7 @@
     </el-dialog>
 
     <!-- 明细查看弹窗 -->
-    <el-dialog v-model="detailVisible" title="BOM明细" width="800px">
+    <el-dialog v-model="detailVisible" title="BOM明细" width="800px" destroy-on-close>
       <el-table :data="current?.details || []" size="small" border>
         <el-table-column prop="materialType" label="类型" width="80" />
         <el-table-column prop="productCode" label="原料编码" width="120" />

@@ -158,7 +158,7 @@
     </div>
 
     <!-- 发票详情弹窗 -->
-    <el-dialog v-model="detailVisible" :title="currentInvoice?.billNo || '发票详情'" width="700px">
+    <el-dialog v-model="detailVisible" :title="currentInvoice?.billNo || '发票详情'" width="700px" destroy-on-close>
       <div v-if="currentInvoice">
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="发票单号">{{ currentInvoice.billNo }}</el-descriptions-item>
@@ -197,7 +197,7 @@
     </el-dialog>
 
     <!-- 按单收/付款弹窗 -->
-    <el-dialog v-model="payVisible" :title="form.billType==='RECEIPT'?'收款单 (按单)':'付款单 (按单)'" width="500px">
+    <el-dialog v-model="payVisible" :title="form.billType==='RECEIPT'?'收款单 (按单)':'付款单 (按单)'" width="500px" destroy-on-close>
       <el-form :model="form" label-width="100px">
         <el-form-item label="收/付日期">
           <el-date-picker v-model="form.billDate" type="date" value-format="YYYY-MM-DD" style="width:100%" />
@@ -224,7 +224,7 @@
     </el-dialog>
 
     <!-- 按发票收/付款弹窗 -->
-    <el-dialog v-model="invoicePayVisible" title="按发票收/付款" width="600px">
+    <el-dialog v-model="invoicePayVisible" title="按发票收/付款" width="600px" destroy-on-close>
       <el-form :model="invoicePayForm" label-width="100px">
         <el-form-item label="关联单据">
           <el-input :model-value="invoicePayForm.sourceBillNo" disabled />

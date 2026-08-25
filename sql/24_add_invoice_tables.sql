@@ -36,8 +36,7 @@ ALTER TABLE fin_cash_flow
   ADD KEY idx_fin_cf_invoice (invoice_id);
 
 -- 3. 发票主表 (AR/AP 共用, invoice_type 区分)
-DROP TABLE IF EXISTS `fin_invoice`;
-CREATE TABLE `fin_invoice` (
+CREATE TABLE IF NOT EXISTS `fin_invoice` (
   `id`                BIGINT        NOT NULL AUTO_INCREMENT,
   `bill_no`           VARCHAR(32)   NOT NULL             COMMENT '内部单号 INV...',
   `external_no`       VARCHAR(64)   DEFAULT NULL         COMMENT '外部票号 (真实发票号)',
@@ -70,8 +69,7 @@ CREATE TABLE `fin_invoice` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='发票主表 (AR/AP 共用)';
 
 -- 4. 发票-AR/AP 关联明细表 (一张发票可对应多个 AR/AP 单, 支持跨单合并开票)
-DROP TABLE IF EXISTS `fin_invoice_apply`;
-CREATE TABLE `fin_invoice_apply` (
+CREATE TABLE IF NOT EXISTS `fin_invoice_apply` (
   `id`              BIGINT        NOT NULL AUTO_INCREMENT,
   `invoice_id`      BIGINT        NOT NULL                COMMENT '发票 ID',
   `arap_id`         BIGINT        NOT NULL                COMMENT '关联 AR/AP 单 ID (fin_arap.id)',

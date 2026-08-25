@@ -3,8 +3,7 @@
 --   用于: 记录每次飞鹅云打印的请求/响应/耗时/状态, 供运营回查与失败重试
 -- =====================================================================
 
-DROP TABLE IF EXISTS `sys_feie_print_log`;
-CREATE TABLE `sys_feie_print_log` (
+CREATE TABLE IF NOT EXISTS `sys_feie_print_log` (
   `id`              BIGINT         NOT NULL AUTO_INCREMENT,
   `biz_type`        VARCHAR(32)    NOT NULL COMMENT '单据类型: PRD_ORDER/SAL_DELIVERY/SAL_RETURN/PUR_RECEIPT/PUR_RETURN/INV_CHECK',
   `bill_id`         BIGINT         NOT NULL COMMENT '单据ID',
