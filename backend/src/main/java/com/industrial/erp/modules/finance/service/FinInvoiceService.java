@@ -475,11 +475,23 @@ public class FinInvoiceService {
         List<FinInvoice> invoices = invoiceMapper.selectList(w);
 
         List<com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO> result = new ArrayList<>();
+        // P1-3: 批量预取所有 apply 和 arap, 避免 N+1 查询
+        List<FinInvoiceApply> allApplies = applyMapper.selectList(new LambdaQueryWrapper<FinInvoiceApply>()
+                .in(FinInvoiceApply::getInvoiceId, invoices.stream().map(FinInvoice::getId).collect(java.util.stream.Collectors.toList())));
+        List<Long> allArapIds = allApplies.stream()
+                .map(FinInvoiceApply::getArapId)
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+        Map<Long, FinArap> arapMap = allArapIds.isEmpty() ? Map.of()
+                : arapMapper.selectBatchIds(allArapIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(FinArap::getId, a -> a));
+
         for (FinInvoice inv : invoices) {
-            // 取该发票的所有关联明细
-            List<FinInvoiceApply> applies = applyMapper.selectByInvoiceId(inv.getId());
-            for (FinInvoiceApply app : applies) {
-                FinArap arap = arapMapper.selectById(app.getArapId());
+            List<FinInvoiceApply> invoiceApplies = allApplies.stream()
+                    .filter(a -> a.getInvoiceId().equals(inv.getId()))
+                    .collect(java.util.stream.Collectors.toList());
+            for (FinInvoiceApply app : invoiceApplies) {
+                FinArap arap = arapMap.get(app.getArapId());
                 if (arap == null) continue;
 
                 com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO vo =

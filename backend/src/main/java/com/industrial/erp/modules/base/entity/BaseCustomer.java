@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -34,6 +35,9 @@ public class BaseCustomer {
     private LocalDateTime updateTime;
     @TableLogic
     private Integer deleted = 0;
+    // v1.1.20+ P0-6: 乐观锁, 防并发大单信用占用超限
+    @Version
+    private Integer version;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -79,4 +83,6 @@ public class BaseCustomer {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
 }

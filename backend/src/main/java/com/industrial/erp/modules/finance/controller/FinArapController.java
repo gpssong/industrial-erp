@@ -16,7 +16,6 @@ import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.common.Constants;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -75,12 +74,12 @@ public class FinArapController {
     }
 
     /**
+     * v1.1.20+ P1-1: 事务已下沉到 FinArapService (Controller 层不加 @Transactional)
      * 收款 / 付款
      *
      * <p>v1.1.10+ 支持按发票核销: 当 request.invoiceId 不为空时,
      * 调用 FinInvoiceService.writeoffByInvoice, 联动更新 AR/AP 单.
      */
-    @Transactional(rollbackFor = Exception.class)
     @PostMapping("/cash")
     public R<Object> cash(@RequestBody FinCashFlow flow) {
         if ("RECEIPT".equals(flow.getBillType())) permService.requirePerm("finance:receipt:add");
@@ -98,11 +97,9 @@ public class FinArapController {
             cashFlowMapper.insert(flow);
             return R.ok(result);
         } else {
-            // 原有逻辑: 按 AR/AP 单核销
+            // v1.1.20+ P1-1: 事务在 Service 层
+            arapService.cash(flow.getSourceBillId(), flow.getAmount());
             cashFlowMapper.insert(flow);
-            if (flow.getSourceBillId() != null) {
-                arapService.writeoff(flow.getSourceBillId(), flow.getAmount());
-            }
             return R.ok();
         }
     }

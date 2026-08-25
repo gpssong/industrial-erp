@@ -85,6 +85,7 @@ sa-token:
   token-style: uuid
   is-read-header: true
   is-read-cookie: true
+  is-write-cookie: true
   is-read-query: false
   jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:?SA_TOKEN_JWT_SECRET_KEY_must_be_set_64+_chars_random_Generate_with_openssl_rand_hex_32}
   cookie:

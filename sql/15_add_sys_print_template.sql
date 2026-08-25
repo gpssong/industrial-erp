@@ -10,8 +10,7 @@ USE `industrial_erp`;
 -- ---------------------------------------------------------------------
 -- 15.1  打印模板表
 -- ---------------------------------------------------------------------
-DROP TABLE IF EXISTS `sys_print_template`;
-CREATE TABLE `sys_print_template` (
+CREATE TABLE IF NOT EXISTS `sys_print_template` (
   `id`           BIGINT        NOT NULL AUTO_INCREMENT             COMMENT '模板ID',
   `name`         VARCHAR(64)   NOT NULL                            COMMENT '模板名称',
   `biz_type`     VARCHAR(32)   NOT NULL                            COMMENT '业务类型: SAL_DELIVERY/PUR_RECEIPT/PUR_RETURN/SAL_RETURN/PRD_ORDER',

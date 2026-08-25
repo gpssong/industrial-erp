@@ -37,7 +37,7 @@
     </div>
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="formVisible" :title="isEdit ? '编辑角色' : '新增角色'" width="500px" :close-on-click-modal="false">
+    <el-dialog v-model="formVisible" :title="isEdit ? '编辑角色' : '新增角色'" width="500px" :close-on-click-modal="false" destroy-on-close>
       <el-form :model="form" label-width="100px" ref="formRef">
         <el-form-item label="角色名称" prop="roleName">
           <el-input v-model="form.roleName" placeholder="请输入角色名称" />
@@ -70,7 +70,7 @@
     </el-dialog>
 
     <!-- 分配权限弹窗 -->
-    <el-dialog v-model="permVisible" title="分配权限" width="600px" :close-on-click-modal="false">
+    <el-dialog v-model="permVisible" title="分配权限" width="600px" :close-on-click-modal="false" destroy-on-close>
       <el-tabs v-model="permTab">
         <el-tab-pane label="PC端菜单权限" name="pcMenu">
           <!-- v1.1.12+: check-strictly=true 关闭父子联动, 只允许勾叶子 (按钮/功能项)

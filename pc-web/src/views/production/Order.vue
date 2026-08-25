@@ -164,7 +164,7 @@
     </el-dialog>
 
     <!-- 完工登记弹窗 -->
-    <el-dialog v-model="finishVisible" title="完工登记" width="420px">
+    <el-dialog v-model="finishVisible" title="完工登记" width="420px" destroy-on-close>
       <el-form :model="finishForm" label-width="100px">
         <el-form-item label="良品数量"><el-input-number v-model="finishForm.goodQty" :precision="4" :step-strictly="false" :min="0" /></el-form-item>
         <el-form-item label="损耗数量"><el-input-number v-model="finishForm.lossQty" :precision="4" :step-strictly="false" :min="0" /></el-form-item>

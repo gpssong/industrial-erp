@@ -3,8 +3,7 @@
 -- =====================================================================
 
 -- 20.1 飞鹅打印机配置表
-DROP TABLE IF EXISTS `sys_feie_printer_config`;
-CREATE TABLE `sys_feie_printer_config` (
+CREATE TABLE IF NOT EXISTS `sys_feie_printer_config` (
   `id`              BIGINT         NOT NULL AUTO_INCREMENT,
   `printer_name`    VARCHAR(64)    NOT NULL COMMENT '打印机配置名称',
   `ukey`            VARCHAR(128)   NOT NULL COMMENT '飞鹅 UKey',
