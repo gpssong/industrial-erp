@@ -64,12 +64,12 @@ async function onLogin() {
   try {
     const r = await api.login(form)
     // v1.0.10+: 分离 PC/App 菜单 — App 端只使用 appMenus
+    // v1.1.22+: Token 由后端 httpOnly cookie 管理, 前端不再写 erp_token
     const persist = (k, v) => {
       const s = typeof v === 'string' ? v : JSON.stringify(v)
       try { if (typeof uni !== 'undefined' && uni.setStorageSync) uni.setStorageSync(k, v) } catch (e) {}
       try { localStorage.setItem(k, s) } catch (e) {}
     }
-    persist('erp_token', r.token || '')
     persist('erp_user', r)
     persist('erp_permissions', r.permissions || [])
     // v1.0.10+: 优先使用 appMenus, 兼容旧版 menus 字段

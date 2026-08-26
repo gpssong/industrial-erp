@@ -6,18 +6,17 @@
 <script setup>
 import { onLaunch, onShow } from '@dcloudio/uni-app'
 
-// v1.1.8+: 自动登录 - 启动时如果有有效 token 则直接进工作台
+// v1.1.8+: Token 由后端 Set-Cookie (httpOnly) 自动管理, 不再从 storage 读取 erp_token.
+// 自动登录仅检查 erp_user 是否仍在 localStorage (页面刷新后 Cookie 仍有效).
 function tryAutoLogin() {
-  let token = ''
   let user = null
   try {
-    token = uni.getStorageSync('erp_token') || ''
     const raw = uni.getStorageSync('erp_user')
     user = typeof raw === 'object' ? raw : (raw ? JSON.parse(raw) : null)
   } catch (e) {
     return
   }
-  if (!token || !user) return
+  if (!user) return
 
   // 当前已是工作台/其他业务页, 不重定向
   const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []

@@ -78,7 +78,6 @@ function roleLabel(r) {
 
 function onLogout() {
   if (confirm('确定退出登录?')) {
-    localStorage.removeItem('erp_token')
     localStorage.removeItem('erp_user')
     localStorage.removeItem('erp_permissions')
     localStorage.removeItem('erp_menus')
