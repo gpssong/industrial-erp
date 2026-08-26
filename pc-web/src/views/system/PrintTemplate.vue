@@ -208,7 +208,8 @@ function onEdit(row) {
 }
 
 async function onSubmit() {
-  await formRef.value.validate()
+  // v1.1.23: 修复"点击确定无反应" — formRef.validate() 失败 reject, 必须 try-catch
+  try { await formRef.value.validate() } catch { return }
   submitting.value = true
   try {
     // 关键: 把表单的 name/bizType 注入到 content JSON, 设计器才能识别

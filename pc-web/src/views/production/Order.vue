@@ -330,7 +330,8 @@ async function onProductChange(productId) {
 }
 
 async function onSubmit() {
-  await formRef.value.validate()
+  // v1.1.23: 修复"点击确定无反应" — formRef.validate() 失败 reject, 必须 try-catch
+  try { await formRef.value.validate() } catch { return }
   submitting.value = true
   try {
     if (form.value.id) { await prdOrderApi.update(form.value); ElMessage.success('修改成功') }
