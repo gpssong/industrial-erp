@@ -313,7 +313,7 @@ async function onAdd() {
   form.tailAmount = 0
   customerHistory.value = []   // v1.1.7+ 重置历史销售列表
   form.remark = ''
-  form.details = []
+  form.details.splice(0, form.details.length)
   await loadCustomers()
   if (!warehouses.value.length) warehouses.value = (await warehouseApi.list()).data
   if (!units.value.length) units.value = (await unitApi.list()).data
@@ -557,7 +557,7 @@ async function onEdit(row) {
   form.id = null; form.billNo = ''; form.billDate = new Date().toISOString().substring(0, 10)
   form.customerId = null; form.customerName = ''; form.warehouseId = null
   form.address = ''; form.phone = ''; form.discountAmount = 0; form.tailAmount = 0; form.remark = ''
-  form.details = []
+  form.details.splice(0, form.details.length)
 
   await loadCustomers()
   if (!warehouses.value.length) warehouses.value = (await warehouseApi.list()).data
@@ -578,7 +578,7 @@ async function onEdit(row) {
   form.discountAmount = d.discountAmount || 0
   form.tailAmount = d.tailAmount || 0
   form.remark = d.remark || ''
-  form.details = (d.details || []).map(x => ({
+  form.details.splice(0, form.details.length, ...(d.details || []).map(x => ({
     id: x.id, deliveryId: x.deliveryId, lineNo: x.lineNo,
     productId: x.productId,
     productCode: x.productCode, productName: x.productName,
@@ -587,7 +587,7 @@ async function onEdit(row) {
     amount: x.amount, taxAmount: x.taxAmount, amountTax: x.amountTax,
     batchNo: x.batchNo, locationName: x.locationName,
     remark: x.remark, _units: []
-  }))
+  })))
   // v1.1.19+: 统一走 injectProductIntoDetail, 预加载 productList + 修正 unitId=0 脏数据
   productList.value = []
   for (const det of form.details) {

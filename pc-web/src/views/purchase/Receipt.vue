@@ -194,7 +194,7 @@ function onReset() {
 
 async function onAdd() {
   loadTaxSeparation()
-  form.id = null; form.details = []
+  form.id = null; form.details.splice(0, form.details.length)
   await loadSuppliers()
   warehouses.value = (await warehouseApi.list()).data
   products.value = (await productApi.page({ pageNum: 1, pageSize: 200 })).data.records

@@ -76,11 +76,17 @@ sudo /usr/local/bin/docker exec "$MYSQL_CONTAINER" \
             echo 'NO_MYSQLDUMP' >&2
             exit 127
         fi
-        mysqldump -u${DB_USER} -p${DB_PASS} \
+        # 安全加固: 不用 -p<pwd> 拼接命令行 (mysql client 会把含特殊字符的 pwd 误解析),
+        # 改用 --defaults-extra-file 写入临时 .my.cnf 文件, 进程结束后立即删除.
+        MYPASSFILE="/tmp/.mysqldump_$$"
+        printf "[mysqldump]\nuser=%s\npassword=%s\n" "$DB_USER" "$DB_PASS" > "$MYPASSFILE"
+        chmod 600 "$MYPASSFILE"
+        mysqldump --defaults-extra-file=${MYPASSFILE} \
             --default-character-set=utf8mb4 \
             --single-transaction --quick --routines --triggers --events \
             --hex-blob \
             ${DB_NAME} > /tmp/${DB_NAME}_${TS}.sql
+        rm -f "$MYPASSFILE"
     " || fail "mysqldump 执行失败"
 sudo /usr/local/bin/docker cp "$MYSQL_CONTAINER:/tmp/${DB_NAME}_${TS}.sql" "$SQL_FILE" \
     || fail "docker cp dump 文件失败"
