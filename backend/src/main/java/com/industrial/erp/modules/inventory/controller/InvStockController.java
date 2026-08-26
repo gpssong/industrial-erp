@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.inventory.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -36,6 +37,7 @@ public class InvStockController {
         this.permService = permService;
     }
 
+    @SaCheckPermission(value = {"inventory:stock:list"}, orRole = "admin")
     @GetMapping("/stock/page")
     public R<PageResult<InvStock>> stockPage(@RequestParam(defaultValue = "1") Integer pageNum,
                                              @RequestParam(defaultValue = "20") Integer pageSize,
@@ -56,6 +58,7 @@ public class InvStockController {
         return R.ok(PageResult.of(stockMapper.selectPage(p, w)));
     }
 
+    @SaCheckPermission(value = {"inventory:ledger:list"}, orRole = "admin")
     @GetMapping("/ledger/page")
     public R<PageResult<Map<String, Object>>> ledgerPage(@RequestParam(defaultValue = "1") Integer pageNum,
                                                         @RequestParam(defaultValue = "20") Integer pageSize,
@@ -89,6 +92,7 @@ public class InvStockController {
         return R.ok(PageResult.of(result));
     }
 
+    @SaCheckPermission(value = {"inventory:warning:list"}, orRole = "admin")
     @GetMapping("/warning/list")
     public R<List<Map<String, Object>>> warnings() {
         permService.requirePerm("inventory:warning:list");
@@ -99,6 +103,7 @@ public class InvStockController {
      * 列某仓库+某商品下所有可用 (qty>0) 的库存批次 (供 销售/委外开单 时选 batchNo).
      * <p>v1.1.7+ 新增; 不走 stock/page (需 inventory:stock:list 权限), 让业务开单页能直接 dropdown.
      */
+    @SaCheckPermission(value = {"inventory:stock:list"}, orRole = "admin")
     @GetMapping("/stock/batches")
     public R<List<InvStock>> listBatches(@RequestParam Long warehouseId, @RequestParam Long productId) {
         return R.ok(stockMapper.listByWarehouseAndProduct(warehouseId, productId));

@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.finance.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
@@ -31,6 +32,7 @@ public class FinInvoiceController {
     /**
      * 开票 (创建发票 + 关联 AR/AP 单)
      */
+    @SaCheckPermission(value = {"finance:invoice:add"}, orRole = "admin")
     @PostMapping
     public R<Long> issue(@RequestBody FinInvoiceIssueDTO dto) {
         return R.ok(invoiceService.issue(dto));
@@ -39,6 +41,7 @@ public class FinInvoiceController {
     /**
      * 发票分页
      */
+    @SaCheckPermission(value = {"finance:invoice:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<FinInvoice>> page(
             @RequestParam(defaultValue = "1") Integer pageNum,
@@ -55,6 +58,7 @@ public class FinInvoiceController {
      *
      * <p>⚠️ 必须在 /{id} 之前声明, 否则 Spring MVC 会把 "issued" 当 id 匹配, 导致 NumberFormatException
      */
+    @SaCheckPermission(value = {"finance:invoice:list"}, orRole = "admin")
     @GetMapping("/issued")
     public R<List<FinInvoiceIssuedVO>> listIssued(
             @RequestParam(required = false) String invoiceType,
@@ -65,6 +69,7 @@ public class FinInvoiceController {
     /**
      * 发票详情 (含关联 AR/AP 单)
      */
+    @SaCheckPermission(value = {"finance:invoice:list"}, orRole = "admin")
     @GetMapping("/{id}")
     public R<Map<String, Object>> detail(@PathVariable Long id) {
         return R.ok(invoiceService.getDetail(id));
@@ -73,6 +78,7 @@ public class FinInvoiceController {
     /**
      * 作废发票
      */
+    @SaCheckPermission(value = {"finance:invoice:void"}, orRole = "admin")
     @PutMapping("/{id}/void")
     public R<Void> voidInvoice(@PathVariable Long id) {
         invoiceService.voidInvoice(id);
@@ -82,6 +88,7 @@ public class FinInvoiceController {
     /**
      * 按 AR/AP 单查关联的所有发票
      */
+    @SaCheckPermission(value = {"finance:invoice:list"}, orRole = "admin")
     @GetMapping("/by-arap/{arapId}")
     public R<List<FinInvoice>> getByArap(@PathVariable Long arapId) {
         return R.ok(invoiceService.getByArapId(arapId));
@@ -90,6 +97,7 @@ public class FinInvoiceController {
     /**
      * 查客户/供应商未开票的 AR/AP 单 (开票选单)
      */
+    @SaCheckPermission(value = {"finance:invoice:uninvoiced"}, orRole = "admin")
     @GetMapping("/uninvoiced")
     public R<List<FinArap>> uninvoiced(
             @RequestParam(required = false) String partnerType,

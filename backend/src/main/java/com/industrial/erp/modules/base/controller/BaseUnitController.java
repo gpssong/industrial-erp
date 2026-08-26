@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.base.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.industrial.erp.common.R;
 import com.industrial.erp.exception.BizException;
@@ -26,15 +27,21 @@ public class BaseUnitController {
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
 
+    @SaCheckPermission(value = {"base:unit:list"}, orRole = "admin")
     @GetMapping("/list")
-    public R<List<BaseUnit>> list() { permService.requirePerm("base:unit:list"); return R.ok(mapper.selectList(null)); }
+    public R<List<BaseUnit>> list() { return R.ok(mapper.selectList(null)); }
+
+    @SaCheckPermission(value = {"base:unit:add"}, orRole = "admin")
     @PostMapping
-    public R<Void> add(@RequestBody BaseUnit u) { permService.requirePerm("base:unit:add"); if (u.getStatus()==null) u.setStatus(1); mapper.insert(u); return R.ok(); }
+    public R<Void> add(@RequestBody BaseUnit u) { if (u.getStatus()==null) u.setStatus(1); mapper.insert(u); return R.ok(); }
+
+    @SaCheckPermission(value = {"base:unit:edit"}, orRole = "admin")
     @PutMapping
-    public R<Void> update(@RequestBody BaseUnit u) { permService.requirePerm("base:unit:edit"); mapper.updateById(u); return R.ok(); }
+    public R<Void> update(@RequestBody BaseUnit u) { mapper.updateById(u); return R.ok(); }
+
+    @SaCheckPermission(value = {"base:unit:delete"}, orRole = "admin")
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) {
-        permService.requirePerm("base:unit:delete");
         BaseUnit u = mapper.selectById(id);
         if (u == null) throw BizException.of("计量单位不存在或已删除");
         mapper.update(null, new LambdaUpdateWrapper<BaseUnit>().eq(BaseUnit::getId, id).set(BaseUnit::getDeleted, 1));

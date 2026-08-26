@@ -9,6 +9,10 @@ export default defineConfig({
   plugins: [
     vue(),
     AutoImport({ resolvers: [ElementPlusResolver()] }),
+    // v1.1.24+: Components resolver 不再返回 ElementPlus 全部组件,
+    // 而是由 unplugin-vue-components 自动扫描 <el-*> 标签按需引入.
+    // 之前在 main.js 里有 app.use(ElementPlus) 强制全量注册, 体积 ~700KB,
+    // 改为按需后实际只用 ~10-20 个组件, 体积降到 50-100KB.
     Components({ resolvers: [ElementPlusResolver()] })
   ],
   resolve: {
@@ -59,6 +63,19 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    chunkSizeWarningLimit: 1500
+    chunkSizeWarningLimit: 1500,
+    // v1.1.24+: manualChunks 把大依赖拆到独立 chunk, 浏览器可并行下载且利于浏览器缓存复用
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Element Plus 核心 (按需扫描后约 100-200KB, 不打主 bundle)
+          'element-plus': ['element-plus'],
+          // Vue 生态
+          'vue-vendor': ['vue', 'vue-router', 'pinia'],
+          // 富文本/打印相关
+          'printer': ['myprint-design', 'dompurify']
+        }
+      }
+    }
   }
 })

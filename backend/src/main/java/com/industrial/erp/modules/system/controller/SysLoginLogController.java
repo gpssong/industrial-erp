@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.system.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -37,6 +38,7 @@ public class SysLoginLogController {
      * @param start    开始时间 (yyyy-MM-dd HH:mm:ss)
      * @param end      结束时间 (yyyy-MM-dd HH:mm:ss)
      */
+    @SaCheckPermission(value = {"system:login-log:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<SysLoginLog>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                           @RequestParam(defaultValue = "20") Integer pageSize,
@@ -44,18 +46,17 @@ public class SysLoginLogController {
                                           @RequestParam(required = false) Integer status,
                                           @RequestParam(required = false) String start,
                                           @RequestParam(required = false) String end) {
-        permService.requirePerm("system:login-log:list");
         Page<SysLoginLog> p = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<SysLoginLog> w = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(username)) w.like(SysLoginLog::getUsername, username);
         if (status != null) w.eq(SysLoginLog::getStatus, status);
         if (StrUtil.isNotBlank(start)) {
             try { w.ge(SysLoginLog::getLoginTime, LocalDateTime.parse(start, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))); }
-            catch (Exception ignore) {}
+            catch (Exception e) { org.slf4j.LoggerFactory.getLogger(SysLoginLogController.class).debug("登录日志查询 start 解析失败: '{}', 已忽略", start); }
         }
         if (StrUtil.isNotBlank(end)) {
             try { w.le(SysLoginLog::getLoginTime, LocalDateTime.parse(end, java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))); }
-            catch (Exception ignore) {}
+            catch (Exception e) { org.slf4j.LoggerFactory.getLogger(SysLoginLogController.class).debug("登录日志查询 end 解析失败: '{}', 已忽略", end); }
         }
         w.orderByDesc(SysLoginLog::getId);
         return R.ok(PageResult.of(mapper.selectPage(p, w)));

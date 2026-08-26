@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.finance.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -46,6 +47,7 @@ public class FinArapController {
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
 
+    @SaCheckPermission(value = {"finance:arap:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<FinArap>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                        @RequestParam(defaultValue = "20") Integer pageSize,
@@ -79,7 +81,11 @@ public class FinArapController {
      *
      * <p>v1.1.10+ 支持按发票核销: 当 request.invoiceId 不为空时,
      * 调用 FinInvoiceService.writeoffByInvoice, 联动更新 AR/AP 单.
+     *
+     * <p>v1.1.24+ 权限注解: 收款 finance:receipt:add, 付款 finance:payment:add,
+     * 两者有任一即可 (Sa-Token 数组默认 OR 关系).
      */
+    @SaCheckPermission(value = {"finance:receipt:add", "finance:payment:add"}, orRole = "admin")
     @PostMapping("/cash")
     public R<Object> cash(@RequestBody FinCashFlow flow) {
         if ("RECEIPT".equals(flow.getBillType())) permService.requirePerm("finance:receipt:add");
@@ -107,6 +113,7 @@ public class FinArapController {
     /**
      * v1.1.10+: 列出客户/供应商"未开票"的 AR/AP 单 (开票选单界面)
      */
+    @SaCheckPermission(value = {"finance:invoice:uninvoiced"}, orRole = "admin")
     @GetMapping("/uninvoiced")
     public R<List<FinArap>> listUninvoiced(
             @RequestParam(required = false) String partnerType,

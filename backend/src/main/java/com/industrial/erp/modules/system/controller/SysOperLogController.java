@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.system.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
@@ -25,13 +26,13 @@ public class SysOperLogController {
     private final SysOperLogMapper mapper;
     private final PermissionService permService;
 
+    @SaCheckPermission(value = {"system:oper-log:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<SysOperLog>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                           @RequestParam(defaultValue = "20") Integer pageSize,
                                           @RequestParam(required = false) String module,
                                           @RequestParam(required = false) String businessType,
                                           @RequestParam(required = false) String username) {
-        permService.requirePerm("system:oper-log:list");
         Page<SysOperLog> p = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<SysOperLog> w = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(module)) w.like(SysOperLog::getModule, module);
@@ -44,9 +45,9 @@ public class SysOperLogController {
     /**
      * 清理 N 天前的操作日志 (默认 90 天, 需 system:oper-log:delete)
      */
+    @SaCheckPermission(value = {"system:oper-log:delete"}, orRole = "admin")
     @DeleteMapping("/clean")
     public R<Integer> clean(@RequestParam(defaultValue = "90") Integer days) {
-        permService.requirePerm("system:oper-log:delete");
         java.time.LocalDateTime cutoff = java.time.LocalDateTime.now().minusDays(days);
         int n = mapper.delete(new LambdaUpdateWrapper<SysOperLog>()
                 .lt(SysOperLog::getOperTime, cutoff));
