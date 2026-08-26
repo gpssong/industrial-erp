@@ -332,8 +332,7 @@ function setMainUnit(index) {
 }
 
 async function onSubmit() {
-  // v1.1.23: 修复"点击确定无反应" — formRef.validate() 失败 reject, 必须 try-catch
-  try { await formRef.value.validate() } catch { return }
+  await formRef.value.validate()
   submitting.value = true
   try {
     // 将 images 数组保存到 imageUrl (逗号分隔)

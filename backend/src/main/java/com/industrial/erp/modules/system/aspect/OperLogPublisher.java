@@ -80,10 +80,10 @@ public class OperLogPublisher {
                 l.setIpAddress(clientIp(req));
             }
             if (requestParam != null) {
-                try { l.setRequestParam(serialize(requestParam)); } catch (Exception ignore) {}
+                try { l.setRequestParam(serialize(requestParam)); } catch (Exception e) { log.warn("操作日志 requestParam 序列化失败, 已忽略. method={}, businessType={}", method, businessType, e); }
             }
             if (responseData != null) {
-                try { l.setResponseData(serialize(responseData)); } catch (Exception ignore) {}
+                try { l.setResponseData(serialize(responseData)); } catch (Exception e) { log.warn("操作日志 responseData 序列化失败, 已忽略. method={}, businessType={}", method, businessType, e); }
             }
             l.setUserId(SecurityContext.getUserId());
             l.setUsername(SecurityContext.getUsername());

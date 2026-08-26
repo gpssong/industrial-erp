@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.system.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.system.entity.SysMenu;
@@ -23,6 +24,7 @@ public class SysRoleController {
 
     private final SysRoleService service;
 
+    @SaCheckPermission(value = {"system:role:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<SysRole>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                        @RequestParam(defaultValue = "20") Integer pageSize,
@@ -30,23 +32,29 @@ public class SysRoleController {
         return R.ok(PageResult.of(service.page(pageNum, pageSize, roleName)));
     }
 
+    @SaCheckPermission(value = {"system:role:list"}, orRole = "admin")
     @GetMapping("/{id}")
     public R<SysRole> detail(@PathVariable Long id) { return R.ok(service.detail(id)); }
 
+    @SaCheckPermission(value = {"system:role:add"}, orRole = "admin")
     @PostMapping
     public R<Void> add(@RequestBody @Valid SysRole r) { service.add(r); return R.ok(); }
 
+    @SaCheckPermission(value = {"system:role:edit"}, orRole = "admin")
     @PutMapping
     public R<Void> update(@RequestBody @Valid SysRole r) { service.update(r); return R.ok(); }
 
+    @SaCheckPermission(value = {"system:role:delete"}, orRole = "admin")
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
 
+    @SaCheckPermission(value = {"system:role:list"}, orRole = "admin")
     @GetMapping("/{id}/menus")
     public R<List<SysMenu>> roleMenus(@PathVariable Long id) {
         return R.ok(service.getMenusByRoleId(id));
     }
 
+    @SaCheckPermission(value = {"system:role:grant"}, orRole = "admin")
     @PutMapping("/{id}/menus")
     public R<Void> grantMenus(@PathVariable Long id, @RequestBody List<Long> menuIds) {
         service.grantMenus(id, menuIds);
@@ -54,6 +62,7 @@ public class SysRoleController {
     }
 
     /** v1.0.10+: 按客户端类型分配菜单权限 */
+    @SaCheckPermission(value = {"system:role:grant"}, orRole = "admin")
     @PutMapping("/{id}/menus/client")
     public R<Void> grantMenusByClient(@PathVariable Long id,
                                        @RequestParam String clientType,
@@ -63,16 +72,19 @@ public class SysRoleController {
     }
 
     /** v1.0.10+: 查询角色已分配的客户端分类菜单 */
+    @SaCheckPermission(value = {"system:role:list"}, orRole = "admin")
     @GetMapping("/{id}/menus/client")
     public R<Map<String, List<SysMenu>>> roleMenusByClient(@PathVariable Long id) {
         return R.ok(service.getMenuByClientType(id));
     }
 
+    @SaCheckPermission(value = {"system:role:list"}, orRole = "admin")
     @GetMapping("/{id}/users")
     public R<List<Long>> roleUsers(@PathVariable Long id) {
         return R.ok(service.getUserIdsByRoleId(id));
     }
 
+    @SaCheckPermission(value = {"system:role:assign-user"}, orRole = "admin")
     @PutMapping("/{id}/users")
     public R<Void> assignUsers(@PathVariable Long id, @RequestBody List<Long> userIds) {
         service.assignUsers(id, userIds);

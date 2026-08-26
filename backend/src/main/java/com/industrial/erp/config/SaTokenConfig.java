@@ -136,8 +136,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
      * 兜底 CORS Filter: 处理 Capacitor WebView 内部 HTTP server.
      * Capacitor Android WebView 以 http://localhost:[随机端口] 加载页面,
      * Spring MVC CorsRegistry 不支持端口 pattern, 所以用 Web Filter 做 pattern 匹配兜底.
-     * 
-     * 允许 Origin: http://localhost:* / http://127.0.0.1:* / http://home.93gushi.com:8088
+     *
+     * <p>v1.1.24 改造: 不再硬编码公网域名, 改读 {@link #allowedOriginsRaw} 里以
+     * "http://localhost" 或 "http://127.0.0.1" 开头的条目, 全部加 ":*" 后缀纳入 pattern;
+     * 其余精确域名走 CorsRegistry (addCorsMappings), 这里不再重复, 避免白名单分裂.
      */
     @Bean
     public CorsFilter corsFilter() {
@@ -146,7 +148,8 @@ public class SaTokenConfig implements WebMvcConfigurer {
         config.addAllowedMethod("*");
         config.addAllowedOriginPattern("http://localhost:*");
         config.addAllowedOriginPattern("http://127.0.0.1:*");
-        config.addAllowedOriginPattern("http://home.93gushi.com:8088");
+        // 注: 公网精确域名 (如 http://home.93gushi.com:8088) 由 addCorsMappings() 处理,
+        //     本 filter 只兜底 Capacitor WebView 的端口通配场景, 不再硬编码.
         config.addAllowedHeader("*");
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", config);

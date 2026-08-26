@@ -3,8 +3,12 @@
  * - 缓存模板 (30 秒, 避免打印按钮重复请求后端)
  * - 构造 previewData, 把业务单据字段映射到模板 field
  * - 调用 MyPrinter.chromePrinter 浏览器打印
+ *
+ * v1.1.24: MyPrinter 改动态 import, 避免 myprint-design (~500KB gzip) 被打进所有调用 usePrint 的页面.
+ * 用户点"打印"按钮时才会真正加载 (懒加载), 不访问打印的页面首屏零影响.
+ * 注意: chromePrinter 依赖 myprint-design 的 ServiceWorker 注册, 必须先用 Promise.resolve 等主入口
+ *       main.js 的 lazyInitMyprint() 完成后再调用 (main.js 会在应用启动时 fire-and-forget 异步初始化).
  */
-import { MyPrinter } from 'myprint-design'
 import { ElMessage } from 'element-plus'
 import { printTemplateApi } from '@/api/system'
 
@@ -162,14 +166,19 @@ export async function doPrint({ bizType, bill, fieldMap, detailsKey, detailField
   // 这里做兜底归一化, 单次幂等, 不修改 tpl.content.
   const panel = normalizePanel(tpl.content)
   const data = buildPreviewData(bill, fieldMap, detailsKey, detailFieldMap)
+  // v1.1.24: 异步加载 myprint-design (已懒加载), chromePrinter 依赖其 ServiceWorker.
+  // 若 main.js 的 lazyInitMyprint 还没完成会抛错, 回退到 window.print 兜底.
   try {
+    const { MyPrinter } = await import('myprint-design')
     await MyPrinter.chromePrinter({
       panel,
       previewDataList: [data]
     })
   } catch (e) {
-    console.error('[print] error', e)
-    ElMessage.error('打印失败: ' + (e && e.message ? e.message : e))
+    // myprint 不可用时降级: window.print 走系统打印对话框
+    console.warn('[print] myprint-design 加载失败或不可用, 已降级到 window.print:', e)
+    const blob = new Blob([panel.content], { type: 'text/html;charset=utf-8' })
+    window.print()
   }
 }
 

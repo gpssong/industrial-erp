@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -39,6 +40,8 @@ public class PurReceipt {
     private LocalDateTime createTime;
     private Long updateBy;
     private LocalDateTime updateTime;
+    @Version
+    private Integer version;
     @TableLogic
     private Integer deleted = 0;
 

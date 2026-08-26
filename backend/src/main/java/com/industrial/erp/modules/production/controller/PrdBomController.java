@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.production.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.production.entity.PrdBom;
@@ -17,6 +18,7 @@ public class PrdBomController {
     }
     private final PrdBomService service;
 
+    @SaCheckPermission(value = {"production:bom:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<PrdBom>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                       @RequestParam(defaultValue = "20") Integer pageSize,
@@ -34,15 +36,19 @@ public class PrdBomController {
         return R.ok(page);
     }
 
+    @SaCheckPermission(value = {"production:bom:list"}, orRole = "admin")
     @GetMapping("/{id}")
     public R<PrdBom> detail(@PathVariable Long id) { return R.ok(service.detail(id)); }
 
+    @SaCheckPermission(value = {"production:bom:add"}, orRole = "admin")
     @PostMapping
     public R<Void> add(@RequestBody PrdBom bom) { service.add(bom); return R.ok(); }
 
+    @SaCheckPermission(value = {"production:bom:edit"}, orRole = "admin")
     @PutMapping
     public R<Void> update(@RequestBody PrdBom bom) { service.update(bom); return R.ok(); }
 
+    @SaCheckPermission(value = {"production:bom:delete"}, orRole = "admin")
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
 }

@@ -7,11 +7,16 @@ import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.system.entity.SysFeiePrintTemplate;
 import com.industrial.erp.modules.system.mapper.SysFeiePrintTemplateMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 /**
  * 飞鹅云打印模板 Service
+ *
+ * <p>v1.1.24+: {@code save} / {@code update} 涉及"先 clearDefault 改 N 行 + 再 insert/update" 多步写,
+ * 必须包到事务里, 否则 clearDefault 成功 + insert 失败会留下"旧默认被改 0 + 新默认未建"的脏状态
+ * (下次调用 getActive 找不到默认模板). {@code delete} 也加了事务 — 后续如改"级联删关联"也安全.
  */
 @Service
 public class SysFeiePrintTemplateService {
@@ -49,6 +54,7 @@ public class SysFeiePrintTemplateService {
         return t;
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void save(SysFeiePrintTemplate t) {
         // 如果设默认, 把同 (bizType, printerConfigId) 的其他默认取消
         if (t.getIsDefault() != null && t.getIsDefault() == 1) {
@@ -57,6 +63,7 @@ public class SysFeiePrintTemplateService {
         mapper.insert(t);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void update(SysFeiePrintTemplate t) {
         if (t.getIsDefault() != null && t.getIsDefault() == 1) {
             clearDefault(t.getBizType(), t.getPrinterConfigId(), t.getId());
@@ -66,6 +73,7 @@ public class SysFeiePrintTemplateService {
         mapper.updateById(t);
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         SysFeiePrintTemplate existing = mapper.selectById(id);
         if (existing == null) throw BizException.of("模板不存在: id=" + id);

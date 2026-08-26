@@ -57,9 +57,12 @@
   </div>
 </template>
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { DesignPanel } from 'myprint-design'
+// v1.1.24: 懒加载 myprint-design (静态 import 会把 DesignPanel 的 Fabric.js 画布 + 字体 1.6MB 打入主 chunk).
+// 改用 defineAsyncComponent, 路由进入 /system/print-template/designer/:id 时才真正加载.
+// 注意: 异步组件的注册时机要在 onMounted 里 (setup 执行时还没挂载), 否则会报 "unknown custom element".
+const DesignPanel = defineAsyncComponent(() => import('myprint-design').then(m => m.DesignPanel))
 import { printTemplateApi } from '@/api/system'
 import { clearTemplateCache, BIZ_TYPE_LABEL } from '@/composables/usePrint'
 import { ElMessage, ElMessageBox } from 'element-plus'

@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.production.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.production.entity.PrdFinishedIn;
@@ -17,6 +18,7 @@ public class PrdFinishedInController {
     }
     private final PrdFinishedInService service;
 
+    @SaCheckPermission(value = {"production:finished-in:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<PrdFinishedIn>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                               @RequestParam(defaultValue = "20") Integer pageSize,
@@ -24,9 +26,11 @@ public class PrdFinishedInController {
         return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo)));
     }
 
+    @SaCheckPermission(value = {"production:finished-in:add"}, orRole = "admin")
     @PostMapping
     public R<Void> add(@RequestBody PrdFinishedIn in) { service.add(in); return R.ok(); }
 
+    @SaCheckPermission(value = {"production:finished-in:check"}, orRole = "admin")
     @PostMapping("/{id}/check")
     public R<Void> check(@PathVariable Long id) { service.check(id); return R.ok(); }
 }

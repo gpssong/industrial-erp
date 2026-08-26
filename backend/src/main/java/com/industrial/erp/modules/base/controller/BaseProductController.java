@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.base.controller;
 
+import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
@@ -26,6 +27,7 @@ public class BaseProductController {
     private final BaseProductService service;
     private final ObjectMapper objectMapper;
 
+    @SaCheckPermission(value = {"base:product:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<BaseProduct>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                            @RequestParam(defaultValue = "20") Integer pageSize,
@@ -34,9 +36,11 @@ public class BaseProductController {
         return R.ok(PageResult.of(service.page(pageNum, pageSize, keyword, categoryId)));
     }
 
+    @SaCheckPermission(value = {"base:product:list"}, orRole = "admin")
     @GetMapping("/{id}")
     public R<Map<String, Object>> detail(@PathVariable Long id) { return R.ok(service.detail(id)); }
 
+    @SaCheckPermission(value = {"base:product:add"}, orRole = "admin")
     @PostMapping
     public R<Void> add(@RequestBody Map<String, Object> body) {
         BaseProduct p = objectMapper.convertValue(body.get("product"), BaseProduct.class);
@@ -46,6 +50,7 @@ public class BaseProductController {
         return R.ok();
     }
 
+    @SaCheckPermission(value = {"base:product:edit"}, orRole = "admin")
     @PutMapping
     public R<Void> update(@RequestBody Map<String, Object> body) {
         BaseProduct p = objectMapper.convertValue(body.get("product"), BaseProduct.class);
@@ -55,15 +60,17 @@ public class BaseProductController {
         return R.ok();
     }
 
+    @SaCheckPermission(value = {"base:product:delete"}, orRole = "admin")
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
 
+    @SaCheckPermission(value = {"base:product:list"}, orRole = "admin")
     @GetMapping("/convert")
     public R<BigDecimal> convert(@RequestParam Long productId, @RequestParam Long unitId, @RequestParam BigDecimal qty) {
         return R.ok(service.convertToMain(productId, unitId, qty));
     }
 
-    /** App 端专用商品搜索 (不检查 base:product:list 权限) */
+    /** App 端专用商品搜索 (登录即可, 不需要 base:product:list) */
     @GetMapping("/app-search")
     public R<PageResult<BaseProduct>> appSearch(@RequestParam(defaultValue = "1") Integer pageNum,
                                                 @RequestParam(defaultValue = "20") Integer pageSize,

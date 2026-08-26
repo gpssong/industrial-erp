@@ -159,13 +159,13 @@ public class FeiePrintService {
             row.setCostMs((int) (System.currentTimeMillis() - start));
             row.setStatus(0);
             row.setRespMsg(truncate(e.getMessage(), 500));
-            try { logService.save(row); } catch (Exception ignore) {}
+            try { logService.save(row); } catch (Exception ex) { log.warn("飞鹅打印失败日志落库失败, bizType={}, billId={}", bizType, billId, ex); }
             throw e;
         } catch (RuntimeException e) {
             row.setCostMs((int) (System.currentTimeMillis() - start));
             row.setStatus(0);
             row.setRespMsg(truncate(ExceptionUtil.getRootCauseMessage(e), 500));
-            try { logService.save(row); } catch (Exception ignore) {}
+            try { logService.save(row); } catch (Exception ex) { log.warn("飞鹅打印异常日志落库失败, bizType={}, billId={}", bizType, billId, ex); }
             throw BizException.of("飞鹅打印异常: " + e.getMessage());
         }
     }
@@ -223,14 +223,14 @@ public class FeiePrintService {
             row.setUserId(StpUtil.getLoginId() == null ? null : Long.valueOf(StpUtil.getLoginId().toString()));
             row.setUserName(StpUtil.getSession() == null ? null
                     : (String) StpUtil.getSession().get(Constants.CURRENT_USER));
-        } catch (Exception ignore) {}
+        } catch (Exception e) { log.debug("飞鹅日志取用户信息失败 (非登录态?), 已忽略: {}", e.getMessage()); }
         try {
             ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
             if (attrs != null) {
                 HttpServletRequest req = attrs.getRequest();
                 row.setClientIp(clientIp(req));
             }
-        } catch (Exception ignore) {}
+        } catch (Exception e) { log.debug("飞鹅日志取客户端 IP 失败, 已忽略: {}", e.getMessage()); }
         return row;
     }
 
