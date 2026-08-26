@@ -485,7 +485,48 @@ docker run -d --name erp-pc-web ... -v /tmp/pc-web-dist-new/dist:/usr/share/ngin
 sudo chown -R gpssong:users /volume3/docker/erp-system/pc-web/dist
 ```
 
-### v1.1.23 (2026-08-26) — P1+P2 收尾修复批次
+### v1.1.23 (2026-08-26) — P0/P1/P2 收尾修复批次
+
+#### App cookie 改造 (#74)
+- `App.vue`: `tryAutoLogin()` 不再读 `erp_token`, 仅检查 `erp_user`
+- `login/index.vue`: 登录不再写 `erp_token` 到 localStorage
+- `change-password.vue`: 清除登录态不再清 `erp_token`
+- `profile/index.vue`: 退出登录不再清 `erp_token`
+- `settings.vue`: 保存服务器设置不再清 `erp_token`
+- 所有 5 处改动统一走 `api/index.js` 共享 `request()` (httpOnly cookie 自动带)
+
+#### 默认密码拦截弹窗 (#85)
+- `MainLayout.vue`: `onMounted` 检测 `passwordExpired`, 弹强制改密框
+- `watch passwordExpired` 变化, 刷新页面时自动检测
+
+#### 密码复杂度校验 (#92)
+- `MainLayout.vue`: `submitChangePassword` 加复杂度校验 (8位+字母+数字)
+- `User.vue` 已有复杂度校验, 无需改动
+
+#### 分页器补 page-sizes (#100)
+- `Receipt.vue`: 加 `:page-sizes + @size-change`
+- `sales/Return.vue`: 加 `:page-sizes + @size-change`
+- `purchase/Return.vue`: 加 `:page-sizes + @size-change`
+- (`Order.vue` 两个页面已有, `Stock.vue`/`Ledger.vue` 已有)
+
+#### 已确认完成（代码中已有，无需改动）
+- #89 PC Login.vue/router dev/prod 日志脱敏: 已有 `import.meta.env.DEV` 守卫
+- #90 5 个单据审核/开工二次确认: 6 个表单页全部有 `ElMessageBox.confirm`
+- #91 角色删除确认: `Role.vue` 已有角色名输入校验 (userCount>0 时)
+- #94 AndroidManifest allowBackup=false: 已设置 + backup_rules.xml
+- #95 App utils/permission.js PAGE_PERMS: 已扩展
+- #96 FeiePrinterConfig.vue UKey 脱敏: 已 mask + password 类型
+- #98 Delivery.vue searchProduct debounce: 已有 250ms debounce
+- #99 utils/error.js StandardError: 已存在
+- #101 死代码清理: 已完成
+
+#### 部署
+- 后端 jar: 83MB, 测试 45 个 (4 个预存 StockServiceTest 失败, 无关)
+- 前端 dist: 重新构建并部署到 NAS (bind mount `/volume3/.../pc-web/dist`)
+- NAS 后端: `erp-backend` healthy (jar 83MB, Aug 26 13:31)
+- NAS 前端: `erp-pc-web` 200 OK (修复 nginx upstream `backend` → `erp-backend`)
+
+### v1.1.22 (2026-08-26) — P1+P2 收尾修复批次
 
 #### P1 重要修复
 
