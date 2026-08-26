@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.20 (库存台账添加规格/型号列)
+**当前版本**: v1.1.21 (采购入库/销售出库列表添加规格/型号列)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -405,6 +405,85 @@ docker restart erp-pc-web
 ```
 
 **回滚**: `docker run ... erp-system-pc-web:latest` (旧 `:latest` 仍可用).
+
+### v1.1.20.1 (2026-08-25) — P0+P1 安全与性能修复批次
+
+#### P0 紧急修复 (7 条)
+
+| # | 问题 | 修复 |
+|---|------|------|
+| P0-1 | FinArap/BaseCustomer 并发更新无保护 | 加 `@Version` 乐观锁 + 数据库 `version` 列 |
+| P0-2 | StockService.outStock 库存扣减无守卫 | InvStock 已有 `@Version`, 加 affectedRows 检查 |
+| P0-3 | 操作日志泄漏敏感字段 | OperLogPublisher 加 Jackson MixIn 过滤 password/idCard/phone |
+| P0-4 | SQL 迁移脚本 DROP+CREATE 业务表 | 5 个文件改 `CREATE TABLE IF NOT EXISTS` |
+| P0-5 | fin_arap 4 列不在 baseline | 合并进 `07_schema_outsource_finance.sql` |
+| P0-6 | 客户信用占用并发超限 | BaseCustomer 加 `@Version` |
+| P0-7 | 报表路由无权限控制 | router/index.js 加 `meta.perm` |
+
+#### P1 重要修复 (12 条)
+
+| # | 问题 | 修复 |
+|---|------|------|
+| P1-1 | FinArapController.cash() @Transactional 在 Controller | 下沉到 Service |
+| P1-3 | FinInvoiceService.listIssued() N+1 查询 | 改 `selectBatchIds` + 内存 join |
+| P1-5 | 13 个 el-dialog 缺 destroy-on-close | 批量加 `:destroy-on-close="true"` |
+| P1-8 | SysDictController 3 处 catch 静默吞异常 | 补 `log.warn` |
+| P1-10 | application.yml 缺 is-write-cookie | 加 `is-write-cookie: true` |
+| P1-11 | docker-compose healthcheck wget 非 0 退出 | 改 `wget --spider` |
+| P1-12 | 24_migrate_tax_inclusive.sql 无幂等保护 | 加前置检查 |
+
+#### 数据库迁移
+
+```sql
+ALTER TABLE fin_arap ADD COLUMN version INT DEFAULT 0;
+ALTER TABLE base_customer ADD COLUMN version INT DEFAULT 0;
+```
+
+### v1.1.21 (2026-08-26) — 采购入库/销售出库列表添加规格/型号列
+
+**用户需求**: 在采购入库和销售出库列表的商品名称后面添加型号和规格列。
+
+#### 后端改动
+
+- `PurReceiptMapper.java`: SQL 注入 `firstProductSpec`/`firstProductModel`
+- `SalDeliveryMapper.java`: SQL 注入 `firstProductSpec`/`firstProductModel`
+- `PurReceipt.java`: 加 transient 字段 + getter/setter
+- `SalDelivery.java`: 加 transient 字段 + getter/setter
+
+#### 前端改动
+
+- `Receipt.vue`: 列表商品名称后添加规格/型号列
+- `Delivery.vue`: 列表商品名称后添加规格/型号列
+
+#### 数据库回填
+
+```sql
+-- 回填 inv_ledger 的 spec/model 字段 (从 base_product 关联)
+UPDATE inv_ledger l
+LEFT JOIN base_product p ON p.id = l.product_id AND p.deleted = 0
+SET l.spec = p.spec, l.model = p.model
+WHERE l.deleted = 0 AND (l.spec IS NULL OR l.model IS NULL);
+
+-- 结果: 141/143 条已回填 (2 条商品本身无规格/型号)
+```
+
+#### 部署踩坑
+
+NAS 上 `/volume3/docker/erp-system/pc-web/dist/` 目录属主是 UID 501 (Docker 用户), gpssong 无写入权限。
+
+**解决方案**: 用 `/tmp/pc-web-dist-new/dist` 作为 bind mount 替代方案:
+```bash
+# 解压到 /tmp
+cd /tmp && tar xzf pc-web-v1121.tar.gz
+# 重建容器, 挂载 /tmp 目录
+docker rm -f erp-pc-web
+docker run -d --name erp-pc-web ... -v /tmp/pc-web-dist-new/dist:/usr/share/nginx/html ...
+```
+
+**注意**: /tmp 目录在容器重启后可能丢失, 需重新挂载。长期方案是更改 dist 目录属主:
+```bash
+sudo chown -R gpssong:users /volume3/docker/erp-system/pc-web/dist
+```
 
 ### v1.1.19.4 (2026-08-22) — 飞牛热备应用容器部署
 
