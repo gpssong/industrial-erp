@@ -17,7 +17,7 @@ public class IndustrialErpApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(IndustrialErpApplication.class, args);
-        System.out.println("""
+        log.info("""
 
                 ███████╗██████╗ ██████╗     ███████╗████████╗ █████╗ ██████╗ ████████╗███████╗██████╗
                 ██╔════╝██╔══██╗██╔══██╗    ██╔════╝╚══██╔══╝██╔══██╗██╔══██╗╚══██╔══╝██╔════╝██╔══██╗
