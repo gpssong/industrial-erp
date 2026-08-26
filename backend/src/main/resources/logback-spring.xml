@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- P2-12: 日志滚动配置, 限 100MB × 30 天, 防磁盘撑爆 -->
+    <springProperty scope="context" name="LOG_PATH" source="logging.file.path" defaultValue="${user.home}/logs/erp"/>
+    <springProperty scope="context" name="LOG_FILE" source="logging.file.name" defaultValue="erp.log"/>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${LOG_FILE}</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 按天滚动, 单文件最大 100MB -->
+            <fileNamePattern>${LOG_PATH}/archive/erp.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <!-- 保留 30 天 -->
+            <maxHistory>30</maxHistory>
+            <!-- 总大小上限 3GB -->
+            <totalSizeCap>3GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- P2-12: 只记录 WARN 及以上, 减少磁盘 IO -->
+    <root level="WARN">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+
+    <!-- 业务日志 INFO -->
+    <logger name="com.industrial.erp" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+</configuration>

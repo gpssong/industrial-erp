@@ -47,7 +47,6 @@ CREATE TABLE `base_product` (
   `purchase_price`  DECIMAL(18,4) DEFAULT 0 COMMENT '参考采购价',
   `sales_price`     DECIMAL(18,4) DEFAULT 0 COMMENT '参考零售价',
   `cost_price`      DECIMAL(18,4) DEFAULT 0 COMMENT '单位成本价',
-  `cost_price`      DECIMAL(18,4) DEFAULT 0 COMMENT '当前移动加权平均成本',
   `tax_rate`        DECIMAL(8,2)  DEFAULT 13.00 COMMENT '默认税率(%)',
   `is_weigh`        TINYINT       DEFAULT 0 COMMENT '是否称重商品 1=是',
   `is_batch`        TINYINT       DEFAULT 1 COMMENT '是否批次管理 1=是',

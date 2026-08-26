@@ -53,6 +53,7 @@ CREATE TABLE `sys_role` (
   `role_code`   VARCHAR(64)  NOT NULL          COMMENT '角色编码',
   `role_name`   VARCHAR(64)  NOT NULL          COMMENT '角色名称',
   `data_scope`  TINYINT      DEFAULT 1         COMMENT '数据范围: 1=全部 2=本部门及下级 3=本部门 4=本人',
+  `client_scope` VARCHAR(16) DEFAULT 'BOTH'    COMMENT '允许登录的端: BOTH/PC/APP (P2-2 baseline)',
   `sort_no`     INT          DEFAULT 0         COMMENT '显示顺序',
   `status`      TINYINT      DEFAULT 1         COMMENT '状态',
   `remark`      VARCHAR(255) DEFAULT NULL      COMMENT '备注',
@@ -78,6 +79,7 @@ CREATE TABLE `sys_menu` (
   `icon`        VARCHAR(64)  DEFAULT NULL      COMMENT '图标',
   `sort_no`     INT          DEFAULT 0         COMMENT '排序',
   `is_visible`  TINYINT      DEFAULT 1         COMMENT '是否显示',
+  `dashboard_perm` TINYINT   DEFAULT 0         COMMENT '工作台 KPI 需独立鉴权 (P2-2 baseline)',
   `status`      TINYINT      DEFAULT 1         COMMENT '状态',
   `create_by`   BIGINT       DEFAULT NULL,
   `create_time` DATETIME     DEFAULT CURRENT_TIMESTAMP,
@@ -130,7 +132,10 @@ DROP TABLE IF EXISTS `sys_role_menu`;
 CREATE TABLE `sys_role_menu` (
   `role_id` BIGINT NOT NULL COMMENT '角色ID',
   `menu_id` BIGINT NOT NULL COMMENT '菜单ID',
-  PRIMARY KEY (`role_id`, `menu_id`)
+  `client_type` VARCHAR(8) NOT NULL DEFAULT 'PC' COMMENT '客户端类型: PC/APP/BOTH (P2-2 baseline)',
+  PRIMARY KEY (`role_id`, `menu_id`, `client_type`),
+  KEY `idx_rmenu_menu` (`menu_id`),
+  KEY `idx_rmenu_role_client` (`role_id`, `client_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='角色菜单(按钮)关联';
 
 -- 1.7  角色-部门关联 (用于数据权限: 本部门及下级)
