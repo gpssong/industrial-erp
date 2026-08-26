@@ -174,7 +174,11 @@ public class FeiePrintService {
      * 测试打印机连接
      */
     public String testConnection(String user, String ukey, String deviceSn) {
-        if (user == null || user.isEmpty()) user = "gpssong@163.com";
+        // P2-4: 飞鹅默认账号改读环境变量, 不再硬编码
+        if (user == null || user.isEmpty()) {
+            user = System.getenv("FEIE_DEFAULT_USER");
+            if (user == null || user.isEmpty()) user = "gpssong@163.com";
+        }
         String now = LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String testContent = "<CB>测试打印</CB><BR>"
                 + "飞鹅云打印机工作正常<BR>"
@@ -275,7 +279,8 @@ public class FeiePrintService {
             for (byte b : hash) sb.append(String.format("%02x", b));
             return sb.toString();
         } catch (Exception e) {
-            return null;
+            // P2-13: MD5 出错不能返 null (签名链条断裂), 抛 BizException
+            throw BizException.of("MD5 签名失败: " + e.getMessage());
         }
     }
 

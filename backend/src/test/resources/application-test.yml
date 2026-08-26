@@ -12,4 +12,5 @@ spring:
       host: localhost
       port: 6379
 sa-token:
-  jwt-secret-key: industrial-erp-jwt-test
+  # P2-10: 测试密钥, 不得在生产环境使用
+  jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:industrial-erp-jwt-test-p2-fix}
