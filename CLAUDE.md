@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.21 (采购入库/销售出库列表添加规格/型号列)
+**当前版本**: v1.1.22 (P1+P2 安全与质量修复 + 采购入库/销售出库列表规格/型号)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -484,6 +484,40 @@ docker run -d --name erp-pc-web ... -v /tmp/pc-web-dist-new/dist:/usr/share/ngin
 ```bash
 sudo chown -R gpssong:users /volume3/docker/erp-system/pc-web/dist
 ```
+
+### v1.1.22 (2026-08-26) — P1+P2 收尾修复批次
+
+#### P1 重要修复
+
+| # | 问题 | 修复 |
+|---|------|------|
+| P1-3 | FinInvoiceService.listIssued() 仍有 N+1 | 改 `selectBatchIds` + 内存 join |
+| P1-7 | reactive 数组重赋值陷阱 | 6 个表单页改 `form.details.splice(0, length)` |
+
+#### P2 一般修复
+
+| # | 问题 | 修复 |
+|---|------|------|
+| P2-1 | SQL 文件命名双胞胎 | 合并 `12_add_gram_weight.sql` + `12_product_gram_weight.sql` → 保留前者 |
+| P2-1 | SQL 文件命名双胞胎 | 合并 `22_add_client_type.sql` + `23_fix_role_menu_pk.sql` → `22_add_client_type_and_fix_pk.sql` |
+| P2-4 | 飞鹅默认账号硬编码 | 改读 `FEIE_DEFAULT_USER` env，未配置抛 RuntimeException |
+| P2-13 | FeiePrintService.md5() 吞异常 | 改抛 `BizException("MD5 签名失败: ...")` |
+| P2-14 | 备份脚本命令行传密码 | `backup.sh` 改 `--defaults-extra-file=/tmp/.mysqldump_$$` |
+
+#### 环境变量新增
+
+```bash
+# .env.example + docker-compose.yml
+FEIE_DEFAULT_USER=CHANGE_ME_FEIE_ACCOUNT
+```
+
+#### 测试状态
+
+```
+Tests run: 45, Failures: 0, Errors: 4 (预存 StockServiceTest), Skipped: 0
+```
+
+**说明**: 4 个错误是预存的 `StockServiceTest` 并发问题，与本次修复无关。
 
 ### v1.1.19.4 (2026-08-22) — 飞牛热备应用容器部署
 
