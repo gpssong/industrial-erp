@@ -115,7 +115,14 @@ function resetServerBase() {
 }
 
 async function onLogin() {
-  await formRef.value.validate()
+  // v1.1.23: 修复"点击登录无反应" — formRef.validate() 失败会 reject, 必须 try-catch
+  // 否则函数立即终止, loading 永远到不了, 按钮看起来"无反应"
+  try {
+    await formRef.value.validate()
+  } catch (e) {
+    // 验证失败: Element Plus 已在对应字段下显示红字提示, 此处不再 toast
+    return
+  }
   try {
     loading.value = true
     await user.loginAction({ username: form.username, password: form.password })
