@@ -34,7 +34,6 @@ function onSave() {
     uni.showToast({ title: '已恢复默认' })
   }
   setTimeout(() => {
-    uni.removeStorageSync('erp_token')
     uni.removeStorageSync('erp_user')
     uni.reLaunch({ url: '/pages/login/index' })
   }, 800)

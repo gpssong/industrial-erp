@@ -87,7 +87,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Key, SwitchButton } from '@element-plus/icons-vue'
@@ -259,8 +259,17 @@ async function submitChangePassword() {
     ElMessage.warning('请输入原密码和新密码')
     return
   }
-  if (pwdForm.newPassword.length < 6) {
-    ElMessage.warning('新密码至少 6 位')
+  // #92: 密码复杂度校验 — 8位+字母+数字
+  if (pwdForm.newPassword.length < 8) {
+    ElMessage.warning('新密码至少 8 位')
+    return
+  }
+  if (!/[a-zA-Z]/.test(pwdForm.newPassword)) {
+    ElMessage.warning('新密码必须包含至少一个字母')
+    return
+  }
+  if (!/\d/.test(pwdForm.newPassword)) {
+    ElMessage.warning('新密码必须包含至少一个数字')
     return
   }
   if (pwdForm.newPassword !== pwdForm.confirmPassword) {
@@ -291,6 +300,19 @@ onMounted(async () => {
   loadSystemName()
   checkMobile()
   window.addEventListener('resize', checkMobile)
+  // #85: 默认密码拦截 — passwordExpired=true 时强制弹改密框, 阻止进入系统
+  if (userStore.userInfo?.passwordExpired) {
+    ElMessage.warning('默认密码已过期, 请立即修改密码')
+    pwdDialogVisible.value = true
+  }
+})
+
+// #85: 监听登录态变化, 每次刷新页面重新检测 passwordExpired
+watch(() => userStore.userInfo?.passwordExpired, (expired) => {
+  if (expired) {
+    ElMessage.warning('默认密码已过期, 请立即修改密码')
+    pwdDialogVisible.value = true
+  }
 })
 
 onUnmounted(() => {
