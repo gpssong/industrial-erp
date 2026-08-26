@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.23 (P1+P2 安全与质量修复 + 采购入库/销售出库列表规格/型号)
+**当前版本**: v1.1.23 (App cookie 改造 + 默认密码拦截 + 密码复杂度 + 分页器补 page-sizes)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
