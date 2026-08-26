@@ -133,6 +133,8 @@ public class SalDelivery {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
     public List<SalDeliveryDetail> getDetails() { return details; }
     public void setDetails(List<SalDeliveryDetail> details) { this.details = details; }
     public String getFirstProductName() { return firstProductName; }

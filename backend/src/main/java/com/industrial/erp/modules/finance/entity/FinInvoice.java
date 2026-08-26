@@ -103,4 +103,6 @@ public class FinInvoice {
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
     public Long getTenantId() { return tenantId; }
     public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
 }
