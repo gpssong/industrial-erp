@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.22 (P1+P2 安全与质量修复 + 采购入库/销售出库列表规格/型号)
+**当前版本**: v1.1.23 (P1+P2 安全与质量修复 + 采购入库/销售出库列表规格/型号)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -485,7 +485,7 @@ docker run -d --name erp-pc-web ... -v /tmp/pc-web-dist-new/dist:/usr/share/ngin
 sudo chown -R gpssong:users /volume3/docker/erp-system/pc-web/dist
 ```
 
-### v1.1.22 (2026-08-26) — P1+P2 收尾修复批次
+### v1.1.23 (2026-08-26) — P1+P2 收尾修复批次
 
 #### P1 重要修复
 
