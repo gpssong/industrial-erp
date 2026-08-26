@@ -23,6 +23,12 @@
         <el-table-column prop="billDate" label="日期" width="120" />
         <el-table-column prop="supplierName" label="供应商" />
         <el-table-column prop="firstProductName" label="商品名称" show-overflow-tooltip />
+        <el-table-column prop="firstProductSpec" label="规格" width="120" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.firstProductSpec || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="firstProductModel" label="型号" width="100" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.firstProductModel || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="totalQty" label="数量" width="100" align="right" />
         <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
         <el-table-column label="状态" width="80">

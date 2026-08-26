@@ -54,6 +54,12 @@ public class SalDelivery {
     @TableField(exist = false)
     private String firstProductName;
 
+    // v1.1.21+: 首行商品规格/型号
+    @TableField(exist = false)
+    private String firstProductSpec;
+    @TableField(exist = false)
+    private String firstProductModel;
+
     /** 仓库名称 (PrintService 通过 JOIN 填充, 模板 {{warehouseName}} 可用) */
     @TableField(exist = false)
     private String warehouseName;
@@ -128,6 +134,10 @@ public class SalDelivery {
     public void setDetails(List<SalDeliveryDetail> details) { this.details = details; }
     public String getFirstProductName() { return firstProductName; }
     public void setFirstProductName(String firstProductName) { this.firstProductName = firstProductName; }
+    public String getFirstProductSpec() { return firstProductSpec; }
+    public void setFirstProductSpec(String firstProductSpec) { this.firstProductSpec = firstProductSpec; }
+    public String getFirstProductModel() { return firstProductModel; }
+    public void setFirstProductModel(String firstProductModel) { this.firstProductModel = firstProductModel; }
     public String getWarehouseName() { return warehouseName; }
     public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
     public String getAreaName() { return areaName; }
