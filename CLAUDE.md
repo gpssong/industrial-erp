@@ -526,6 +526,23 @@ sudo chown -R gpssong:users /volume3/docker/erp-system/pc-web/dist
 - NAS 后端: `erp-backend` healthy (jar 83MB, Aug 26 13:31)
 - NAS 前端: `erp-pc-web` 200 OK (修复 nginx upstream `backend` → `erp-backend`)
 
+#### 后续补丁 — CORS 白名单补局域网 18080/5173/5174
+
+**用户反馈**: 浏览器访问 `http://192.168.0.150:18080` (pc-web 直连) 登录返回 403 Forbidden.
+
+**根因**: `ERP_CORS_ALLOWED_ORIGINS` 白名单只列了 `http://192.168.0.150:8088` (DSM 反代), 局域网直连 18080 (前端 nginx 容器) 不在白名单, Spring Security CORS 拦截.
+
+**修复**:
+- `/volume3/docker/erp-system/.env`: 加上 `http://192.168.0.150:18080,http://192.168.0.150:5173,http://192.168.0.150:5174`
+- `.env.example`: 同步补全
+- 重启 `erp-backend` 加载新 CORS
+
+**验证**:
+```
+POST /api/auth/login Origin: http://192.168.0.150:18080
+→ 200 OK ✅
+```
+
 ### v1.1.22 (2026-08-26) — P1+P2 收尾修复批次
 
 #### P1 重要修复
