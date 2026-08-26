@@ -362,7 +362,7 @@ function onAdd() {
 
 function onWarehouseChange(whId) {
   // 切换仓库时清空已选明细 (账面数与仓库强绑定)
-  form.details = []
+  form.details.splice(0, form.details.length)
 }
 
 async function onLoadFromSnapshot() {

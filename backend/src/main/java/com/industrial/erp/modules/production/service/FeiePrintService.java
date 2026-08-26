@@ -175,9 +175,12 @@ public class FeiePrintService {
      */
     public String testConnection(String user, String ukey, String deviceSn) {
         // P2-4: 飞鹅默认账号改读环境变量, 不再硬编码
+        // 配置方式: 在 .env 中添加 FEIE_DEFAULT_USER=your@email.com, 或通过 docker-compose.yml environment 注入
         if (user == null || user.isEmpty()) {
             user = System.getenv("FEIE_DEFAULT_USER");
-            if (user == null || user.isEmpty()) user = "gpssong@163.com";
+        }
+        if (user == null || user.isEmpty()) {
+            throw new RuntimeException("FEIE_DEFAULT_USER 环境变量未配置, 无法确定飞鹅云默认账号");
         }
         String now = LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String testContent = "<CB>测试打印</CB><BR>"

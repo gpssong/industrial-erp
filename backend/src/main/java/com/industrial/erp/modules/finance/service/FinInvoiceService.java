@@ -256,10 +256,15 @@ public class FinInvoiceService {
         List<Map<String, Object>> details = new ArrayList<>();
 
         if (!applies.isEmpty()) {
+            // 批量预取所有 AR/AP 单, 消除 N+1 查询
+            List<Long> arapIds = applies.stream().map(FinInvoiceApply::getArapId).distinct().collect(java.util.stream.Collectors.toList());
+            Map<Long, FinArap> arapMap = arapMapper.selectBatchIds(arapIds).stream()
+                    .collect(java.util.stream.Collectors.toMap(FinArap::getId, a -> a));
+
             BigDecimal allocatedTotal = BigDecimal.ZERO;
             for (int i = 0; i < applies.size(); i++) {
                 FinInvoiceApply apply = applies.get(i);
-                FinArap arap = arapMapper.selectById(apply.getArapId());
+                FinArap arap = arapMap.get(apply.getArapId());
                 if (arap == null) continue;
 
                 BigDecimal portion;
@@ -369,6 +374,7 @@ public class FinInvoiceService {
 
     /**
      * 查发票详情 (含关联 AR/AP 单)
+     * P1-1: selectBatchIds 批量取 arap, 消除 N+1 查询
      */
     public Map<String, Object> getDetail(Long id) {
         FinInvoice inv = invoiceMapper.selectById(id);
@@ -376,12 +382,18 @@ public class FinInvoiceService {
         List<FinInvoiceApply> applies = applyMapper.selectByInvoiceId(id);
 
         List<Map<String, Object>> araps = new ArrayList<>();
-        for (FinInvoiceApply apply : applies) {
-            FinArap arap = arapMapper.selectById(apply.getArapId());
-            Map<String, Object> m = new HashMap<>();
-            m.put("applyAmount", apply.getApplyAmount());
-            m.put("arap", arap);
-            araps.add(m);
+        if (!applies.isEmpty()) {
+            // 批量取 AR/AP, 一次查询替代逐行 selectById
+            List<Long> arapIds = applies.stream().map(FinInvoiceApply::getArapId).distinct().collect(java.util.stream.Collectors.toList());
+            Map<Long, FinArap> arapMap = arapMapper.selectBatchIds(arapIds).stream()
+                    .collect(java.util.stream.Collectors.toMap(FinArap::getId, a -> a));
+            for (FinInvoiceApply apply : applies) {
+                FinArap arap = arapMap.get(apply.getArapId());
+                Map<String, Object> m = new HashMap<>();
+                m.put("applyAmount", apply.getApplyAmount());
+                m.put("arap", arap);
+                araps.add(m);
+            }
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -392,12 +404,16 @@ public class FinInvoiceService {
 
     /**
      * 按 AR/AP 单 ID 查关联的所有发票
+     * P1-2: selectBatchIds 批量取发票, 消除 N+1 查询
      */
     public List<FinInvoice> getByArapId(Long arapId) {
         List<FinInvoiceApply> applies = applyMapper.selectByArapId(arapId);
+        if (applies.isEmpty()) return new ArrayList<>();
+        // 批量取发票, 一次查询替代逐行 selectById
+        List<Long> invoiceIds = applies.stream().map(FinInvoiceApply::getInvoiceId).distinct().collect(java.util.stream.Collectors.toList());
+        List<FinInvoice> invoices = invoiceMapper.selectBatchIds(invoiceIds);
         List<FinInvoice> result = new ArrayList<>();
-        for (FinInvoiceApply a : applies) {
-            FinInvoice inv = invoiceMapper.selectById(a.getInvoiceId());
+        for (FinInvoice inv : invoices) {
             if (inv != null && !STATUS_VOID.equals(inv.getInvoiceStatus())) {
                 result.add(inv);
             }
