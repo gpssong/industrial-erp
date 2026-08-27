@@ -19,7 +19,7 @@ public interface SalDeliveryMapper extends BaseMapper<SalDelivery> {
             "SELECT d.*, " +
             "(SELECT GROUP_CONCAT(p.product_name ORDER BY dtl.line_no SEPARATOR ', ') " +
             " FROM sal_delivery_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.delivery_id = d.id LIMIT 1) AS firstProductName, " +
+            " WHERE dtl.delivery_id = d.id LIMIT 1) AS first_product_name, " +
             // v1.1.21+: 注入首行商品的规格和型号
             "(SELECT p.spec FROM sal_delivery_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
             " WHERE dtl.delivery_id = d.id ORDER BY dtl.line_no LIMIT 1) AS first_product_spec, " +
