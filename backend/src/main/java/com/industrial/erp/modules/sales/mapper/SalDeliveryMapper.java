@@ -22,9 +22,9 @@ public interface SalDeliveryMapper extends BaseMapper<SalDelivery> {
             " WHERE dtl.delivery_id = d.id LIMIT 1) AS firstProductName, " +
             // v1.1.21+: 注入首行商品的规格和型号
             "(SELECT p.spec FROM sal_delivery_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.delivery_id = d.id ORDER BY dtl.line_no LIMIT 1) AS firstProductSpec, " +
+            " WHERE dtl.delivery_id = d.id ORDER BY dtl.line_no LIMIT 1) AS first_product_spec, " +
             "(SELECT p.model FROM sal_delivery_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.delivery_id = d.id ORDER BY dtl.line_no LIMIT 1) AS firstProductModel, " +
+            " WHERE dtl.delivery_id = d.id ORDER BY dtl.line_no LIMIT 1) AS first_product_model, " +
             "w.warehouse_name AS warehouseName " +
             "FROM sal_delivery d " +
             "LEFT JOIN base_warehouse w ON w.id = d.warehouse_id AND w.deleted = 0 " +

@@ -24,9 +24,9 @@ public interface PurReceiptMapper extends BaseMapper<PurReceipt> {
             " WHERE dtl.receipt_id = r.id LIMIT 1) AS firstProductName, " +
             // v1.1.21+: 注入首行商品的规格和型号
             "(SELECT p.spec FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.receipt_id = r.id ORDER BY dtl.line_no LIMIT 1) AS firstProductSpec, " +
+            " WHERE dtl.receipt_id = r.id ORDER BY dtl.line_no LIMIT 1) AS first_product_spec, " +
             "(SELECT p.model FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.receipt_id = r.id ORDER BY dtl.line_no LIMIT 1) AS firstProductModel " +
+            " WHERE dtl.receipt_id = r.id ORDER BY dtl.line_no LIMIT 1) AS first_product_model " +
             " FROM pur_receipt r " +
             // v1.1.15+: LEFT JOIN 仓库表注入 warehouseName
             "LEFT JOIN base_warehouse w ON w.id = r.warehouse_id AND w.deleted = 0 " +
