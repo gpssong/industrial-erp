@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.23 (App cookie 改造 + 默认密码拦截 + 密码复杂度 + 分页器补 page-sizes)
+**当前版本**: v1.1.26 (P0 安全加固 + P1 性能/事务/乐观锁 + 规格型号字段显示修复)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -885,6 +885,88 @@ StockService.outStock/inStock 内部 `stock.getQty().compareTo(qty)` 直接扣�
 | # | 项目 | 修改 |
 |---|---|---|
 | #150 | 飞鹅打印从手写 ftl 改为 myprint-design v1.0.12 (Apache-2.0): mountDesign + chromePreview 弹原生打印对话框 | 见 memory `erp-myprint-integration.md` |
+
+### v1.1.26 (2026-08-27) — 采购/销售/库存台账规格型号显示修复
+
+**问题**: 采购入库/销售出库/库存台账列表的"规格"和"型号"列一直显示 `-`，即使 SQL 子查询能查到数据。
+
+**根因** (3 个叠加问题):
+1. `PurReceipt.firstProductSpec` 字段被 linter 改时漏掉，只剩 `firstProductModel`，导致编译错误
+2. `IndustrialErpApplication` 的 `System.out.println` 被误改成 `log.info` 但没声明 Logger，编译失败
+3. **关键**: `erp-backend` 是通过 `Dockerfile` 构建的镜像，jar 打包在镜像内 — 只 `docker restart` 不会更新 jar，必须 `docker build` 重建镜像 + 用新镜像启动新容器
+4. SQL 用 `AS firstProductSpec` (驼峰) 但 MyBatis 配置 `map-underscore-to-camel-case: true`，导致字段映射失败 — 改为 `AS first_product_spec`
+
+**修复**:
+- 补回 `firstProductSpec` 字段声明 (PurReceipt / SalDelivery)
+- 还原 `IndustrialErpApplication` 为 `System.out.println`
+- SQL 改用下划线命名: `AS first_product_spec` / `AS first_product_model`
+- 重新构建镜像: `docker build -t erp-system-backend:latest backend/`
+- 用 `--env-file .env` 启动新容器（避免漏掉 `ERP_CORS_ALLOWED_ORIGINS`）
+
+**部署命令** (重要 — 后端必须重建镜像):
+```bash
+# 1. 复制新 jar 到 backend 目录 (Dockerfile COPY industrial-erp-*.jar)
+cp backend/target/industrial-erp-1.0.4.jar backend/industrial-erp-1.0.4.jar
+# 2. 重新构建镜像
+docker build -t erp-system-backend:latest backend/
+# 3. 停旧容器, 用 --env-file 启动新容器 (保留 .env 里的 CORS 等配置)
+docker stop erp-backend && docker rm erp-backend
+docker run -d --name erp-backend --restart unless-stopped \
+  --network erp-system_erp-net \
+  --env-file .env \
+  -e SPRING_PROFILES_ACTIVE=prod \
+  -e ERP_UPLOAD_PATH=/opt/industrial-erp/upload \
+  -v /volume3/docker/erp-system/backend/upload:/opt/industrial-erp/upload \
+  -v /volume3/docker/erp-system/backend/backup:/opt/industrial-erp/backup \
+  -p 8080:8080 \
+  erp-system-backend:latest
+```
+
+**验证**:
+- 接口返回 `firstProductSpec: "100只/捆 3500只/袋"`, `firstProductModel: "22*28*016"`
+- CORS 预检: `Access-Control-Allow-Origin: http://home.93gushi.com:8088`
+
+### v1.1.25 (2026-08-26) — P2 优化 + 集成测试
+
+| 类别 | 项目 | 提交 |
+|---|---|---|
+| P2-3 集成测试 | `SalDeliveryVersionLockTest` 验证 @Version 乐观锁并发场景 | `SalDeliveryVersionLockTest.java` |
+| P2-3 集成测试 | `SalDeliveryPermissionTest` 验证 @SaCheckPermission 拦截 (无权限/有权限/SUPER_ADMIN) | `SalDeliveryPermissionTest.java` |
+| P2-4 优化 | 实体重构: 删除 v1.1.24 误改的 `System.out → log` (没声明 Logger 编译失败) | `IndustrialErpApplication.java` |
+
+**已知遗留**:
+- P2-2 字体 CDN 化: 需 fork myprint-design 包 (npm 依赖内联字体 URL), 暂记为后续项
+
+### v1.1.24 (2026-08-26) — P0 安全加固 + P1 性能/事务/乐观锁批次
+
+#### P0 安全加固
+
+| 类别 | 项目 | 提交 |
+|---|---|---|
+| P0-1 Controller 权限 | 26 个 Controller 加 `@SaCheckPermission(value = {xxx:list}, orRole = "admin")` — 之前只有"已登录"校验, 任意用户能调任何 API | 全部 26 个 Controller |
+| P0-2 CORS | `SaTokenConfig.corsFilter()` 去除硬编码 `http://home.93gushi.com:8088`, 统一从 `@Value` 读 .env | `SaTokenConfig.java` |
+| P0-3 索引 | 新建 `sql/27_add_perf_indexes.sql` — 21 张表 47+ 组合索引 (信息守门幂等) | `sql/27_add_perf_indexes.sql` |
+| P0-4 权限 seed | 新建 `sql/28_v124_permissions.sql` — 74 个新权限码 + 6 角色绑定 | `sql/28_v124_permissions.sql` |
+
+#### P1 性能/质量
+
+| 类别 | 项目 | 提交 |
+|---|---|---|
+| P1-1 事务 | `SysFeiePrintTemplateService.save/update/delete` 加 `@Transactional(rollbackFor=Exception)` — clearDefault 多步写需事务 | `SysFeiePrintTemplateService.java` |
+| P1-2 异常日志 | 9 处 `catch (Exception ignore) {}` 改 `log.warn/debug` | RedisLock, SysLoginLogController, OperLogPublisher, FeiePrintService |
+| P1-3 打包 | **前端主 bundle: 2,750KB → 65KB (gzip 25KB)**, 97% 优化: Element Plus 按需引入 + icons 收集 + myprint-design 路由懒加载 | `main.js`, `usePrint.js`, `PrintDesigner.vue`, `vite.config.js` |
+| P1-4 乐观锁 | FinInvoice/SalDelivery/PurReceipt 实体加 `@Version` + getter/setter + `sql/29_add_version_lock.sql` | 3 实体 + SQL |
+
+#### P2 修复
+
+| 类别 | 项目 | 提交 |
+|---|---|---|
+| P2-1 SecureRandom | `RedisLock` token 改 `SecureRandom` (16 字节熵, 32 字符 hex), 避免 `Math.random()` 可预测 | `RedisLock.java` |
+
+**部署**:
+- 后端 jar: 96M
+- 前端 dist: 7.9M (主 chunk 65KB)
+- 容器全 healthy
 
 ### v1.0.7 ~ v1.0.9
 
