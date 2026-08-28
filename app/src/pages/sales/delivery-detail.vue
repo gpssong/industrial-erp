@@ -1,6 +1,7 @@
 <template>
   <view class="container">
     <view v-if="loading" class="empty">加载中...</view>
+    <view v-else-if="loadError" class="empty">加载失败</view>
     <view v-else-if="!order || !order.id" class="empty">出库单不存在</view>
 
     <template v-else>
@@ -88,6 +89,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
 
 const order = ref({})
+const loadError = ref(false)
 const loading = ref(true)
 
 function statusTag(s) {
@@ -107,7 +109,9 @@ onLoad(async (q) => {
     if (!id) throw new Error('缺少单据 ID')
     const r = await api.salesDeliveryDetail(id)
     order.value = (r && (r.data || r)) || {}
+    loadError.value = false
   } catch (e) {
+    loadError.value = true
     if (typeof uni !== 'undefined' && uni.showToast) {
       uni.showToast({ title: e.message || '加载失败', icon: 'none' })
     }

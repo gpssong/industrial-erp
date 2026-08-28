@@ -1,6 +1,7 @@
 <template>
   <view class="container">
     <view v-if="loading" class="empty">加载中...</view>
+    <view v-else-if="loadError" class="empty">加载失败</view>
     <view v-else-if="!order || !order.id" class="empty">生产单不存在</view>
 
     <template v-else>
@@ -124,6 +125,7 @@ const STATUS_MAP = {
 }
 
 const order = ref(null)  // 初始 null, 加载中/未加载时不会触发模板 null 异常
+const loadError = ref(false)
 const requisitionDetails = ref([])
 const loading = ref(false)
 const editable = ref(false)
@@ -181,6 +183,7 @@ async function loadOrder(id) {
     checkPerms()
   } catch (e) {
     order.value = null
+    loadError.value = true
     if (typeof uni !== 'undefined' && uni.showToast) {
       uni.showToast({ title: (e && e.msg) || (e && e.message) || '加载失败', icon: 'none' })
     }

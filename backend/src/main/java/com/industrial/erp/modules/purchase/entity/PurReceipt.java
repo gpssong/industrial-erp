@@ -52,7 +52,9 @@ public class PurReceipt {
     private String firstProductName;
 
     // v1.1.21+: 首行商品规格/型号 (通过 SQL JOIN 填充)
+    @TableField(exist = false)
     private String firstProductSpec;
+    @TableField(exist = false)
     private String firstProductModel;
 
     /** 仓库名称 (PrintService 通过 JOIN 填充, 模板 {{warehouseName}} 可用) */
