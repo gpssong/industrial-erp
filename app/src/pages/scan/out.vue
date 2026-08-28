@@ -103,7 +103,10 @@
     <!-- 操作按钮 -->
     <view class="btn btn-block" @click="onClear" v-if="list.length && !submitted" style="margin-top:10px;background:#95a5a6">清空列表</view>
     <view class="btn btn-block" @click="onSubmit" v-if="list.length && !submitted" style="margin-top:10px;background:var(--success)">提交出库单 ({{ list.length }})</view>
-    <view v-if="submitted" class="card" style="background:#d4edda;color:#155724">✓ 已提交, 单号 {{ submittedBillNo }}, 待 PC 端审核入库扣减</view>
+    <view v-if="submitted" class="card" style="background:#d4edda;color:#155724;margin-bottom:16px">
+      <view style="margin-bottom:8px">✓ 已提交, 单号 {{ submittedBillNo }}, 待 PC 端审核入库扣减</view>
+      <view class="btn btn-sm" @click="onCloseSubmitted" style="background:#6c757d">关闭</view>
+    </view>
   </view>
 </template>
 
@@ -259,6 +262,10 @@ function onAdd() {
 }
 
 function onClear() { list.value = [] }
+function onCloseSubmitted() {
+  submitted.value = false
+  submittedBillNo.value = ''
+}
 
 async function onSubmit() {
   if (!form.value.customerId) { toast('请先选择客户'); return }

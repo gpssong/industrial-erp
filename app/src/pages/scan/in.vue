@@ -100,13 +100,14 @@
       </view>
     </view>
 
-    <view v-if="!list.length" class="empty">暂无商品，请先扫描或搜索</view>
+    <view v-if="!list.length && !submitted" class="empty">暂无商品，请先扫描或搜索</view>
     <view class="btn btn-block" @click="onClear" v-if="list.length && !submitted" style="margin-top:10px;background:#95a5a6">清空列表</view>
     <view class="btn btn-block" @click="onSubmit" v-if="list.length && !submitted" style="margin-top:10px;background:var(--success)">确认入库 ({{ list.length }})</view>
-    <view v-if="submitted" class="card" style="background:#d4edda;color:#155724">
+    <view v-if="submitted" class="card" style="background:#d4edda;color:#155724;margin-bottom:16px">
       <view style="font-weight:bold;margin-bottom:4px">✓ 已提交入库单</view>
       <view style="font-size:12px;margin-bottom:8px">{{ submittedBillNo }}</view>
-      <view class="btn btn-sm" @click="onFeiePrint" v-if="submittedBillNo">🖨️ 飞鹅云打印</view>
+      <view class="btn btn-sm" @click="onFeiePrint" v-if="submittedBillNo" style="margin-bottom:8px">🖨️ 飞鹅云打印</view>
+      <view class="btn btn-sm" @click="onCloseSubmitted" style="background:#6c757d">关闭</view>
     </view>
   </view>
 </template>
@@ -212,6 +213,10 @@ function onAdd() {
 }
 
 function onClear() { list.value = [] }
+function onCloseSubmitted() {
+  submitted.value = false
+  submittedBillNo.value = ''
+}
 
 async function onSubmit() {
   if (list.value.length === 0) { toast('请先添加商品'); return }

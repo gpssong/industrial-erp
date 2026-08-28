@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.26 (P0 安全加固 + P1 性能/事务/乐观锁 + 规格型号字段显示修复)
+**当前版本**: v1.1.27 (App 端扫码权限 + 详情页错误状态 + 扫码卡片关闭按钮)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -971,3 +971,88 @@ docker run -d --name erp-backend --restart unless-stopped \
 ### v1.0.7 ~ v1.0.9
 
 详见 git log (ece218c / c7dfc54 / afdee45 / f6f9695 / 3001f62 / 等). 主题: P0~P3 安全/性能加固 + 系统参数页显示版本号 + 库存盘点 (PC + App 外勤).
+
+### v1.1.27 (2026-08-28) — App 端扫码权限补齐 + 详情页错误状态分离 + 扫码卡片关闭按钮
+
+#### 问题 1: App 端扫码入库 "无权限访问"（秦运桂等非超管账号）
+
+**症状**: 秦运桂（制袋工）在 PC 端角色管理中勾选了 App 端"扫码入库"菜单权限，App 端可以打开扫码入库页面，但点"确认入库"时提示"提交失败：无权限访问"。
+
+**根因**:
+- App 端菜单「扫码入库」映射到 `purchase:receipt:list`（menu id=402, 仅查看权限）
+- 但扫码入库提交时调 `POST /purchase/receipt`，后端 `@SaCheckPermission(value = {"purchase:receipt:add"})` 要求的是新增权限
+- 「制袋工」角色只被授予了 `purchase:receipt:list`，没有 `purchase:receipt:add`（menu id=2090345792472715280, F 类型按钮权限）
+- `purchase:receipt:add` 在 `sys_role_menu` 中只配了 `client_type='PC'`，没有 `APP`，导致非超管 App 账号扫不了码
+
+**修复** (SQL 一行 INSERT):
+```sql
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id, client_type)
+SELECT DISTINCT rm.role_id, 2090345792472715280, 'APP'
+FROM sys_role_menu rm
+WHERE rm.menu_id = 402 AND rm.client_type = 'APP';
+```
+给所有有 `purchase:receipt:list` APP 权限的角色追加 `purchase:receipt:add` APP 权限：超级管理员 / 销售经理 / 仓库主管 / **制袋工**（秦运桂所在角色）。
+
+**后续维护建议**: PC 角色管理「App 端菜单权限」Tab 中「扫码入库」/「扫码出库」功能默认同时勾选 list 和 add 两个权限；或后端 `grantMenusByClient` 勾选页面型菜单时自动补齐关联的 `*:add` 按钮权限。
+
+#### 问题 2: App 详情页"单据不存在"误显示
+
+**症状**: 销售出库/采购入库/生产单详情页加载失败时，同时弹出"加载失败"toast 和"出库单不存在/入库单不存在/生产单不存在"灰色页面，混淆用户判断（其实是权限/网络错误，不是单据不存在）。
+
+**修复**: 三个详情页加 `loadError` ref，在 catch 块中显式设置；模板用 `v-else-if` 优先级区分：
+```vue
+<view v-if="loading" class="empty">加载中...</view>
+<view v-else-if="loadError" class="empty">加载失败</view>
+<view v-else-if="!order || !order.id" class="empty">单据不存在</view>
+```
+
+**改动文件**:
+- `app/src/pages/sales/delivery-detail.vue`
+- `app/src/pages/purchase/receipt-detail.vue`
+- `app/src/pages/production/order-detail.vue`
+
+#### 问题 3: 后端 SQL 错误 `Unknown column 'first_product_spec'`（预防性）
+
+**症状**: App 端详情页加载时偶现 `Unknown column 'first_product_spec' in 'field list'`，后端日志刷错。
+
+**根因**: `PurReceipt.firstProductSpec` / `firstProductModel` 字段加了 transient getter/setter 但漏加 `@TableField(exist = false)`，MyBatis Plus 把虚拟字段写进 `SELECT *`。
+
+**修复**: `backend/.../purchase/entity/PurReceipt.java` 和 `sales/entity/SalDelivery.java` 两个实体类补 `@TableField(exist = false)` 注解。
+
+#### 问题 4: 扫码入库/出库成功后绿色成功卡片遮挡按钮
+
+**症状**: 用户扫码成功后绿色「已提交入库单 / 飞鹅云打印」卡片占据屏幕下半部，遮挡「清空列表」和「确认入库」按钮；必须退出页面重新进入才能扫下一个商品。
+
+**根因**: 成功卡片 `margin-bottom=0`（或不设），且提交后按钮区被压在卡片下方。
+
+**修复**: 在成功卡片底部增加灰色「关闭」按钮：
+- 点击关闭 → 清空 `submitted.value = false` + `submittedBillNo.value = ''`
+- 卡片消失，按钮区重新可见，可立即扫下一单
+
+**改动文件**:
+- `app/src/pages/scan/in.vue` — 增加「关闭」按钮 + `onCloseSubmitted` 函数
+- `app/src/pages/scan/out.vue` — 同模式修复（顺手）
+
+#### 部署
+
+- **后端**: 增量 jar 替换 + `docker restart erp-backend`（未变 schema, 仅注解补全）
+- **SQL**: 一次性 INSERT IGNORE 修复 sys_role_menu，部署完成后立即生效（用户下次登录刷权限）
+- **App H5**: 重新构建 + `docker build -t erp-app-h5:latest` + 容器重建（`--force-recreate`）
+- **APK**: 同步更新本地 `~/Desktop/鹏程ERP-debug.apk` (4.4MB)
+
+#### 容器状态
+
+```
+erp-app-h5     Up (healthy)   18090:80
+erp-backend    Up (healthy)   8080:8080
+erp-pc-web     Up (healthy)   18080:80
+erp-mysql      Up (healthy)   3306:3306
+erp-redis      Up             6379:6379
+myprint-pdf    Up             19898:19898
+```
+
+#### 操作提示
+
+- 秦运桂等 App 用户**退出 App 重新登录**一次，刷取最新权限后扫码入库即可用
+- 已使用 H5 浏览器访问的用户刷新页面（`Ctrl+Shift+R` 强刷）即可
+- APK 用户需要卸载旧版后安装新 APK
