@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.27 (App 端扫码权限 + 详情页错误状态 + 扫码卡片关闭按钮)
+**当前版本**: v1.1.28 (PC 销售出库保存错误提示 + 部署踩坑修复)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -1056,3 +1056,55 @@ myprint-pdf    Up             19898:19898
 - 秦运桂等 App 用户**退出 App 重新登录**一次，刷取最新权限后扫码入库即可用
 - 已使用 H5 浏览器访问的用户刷新页面（`Ctrl+Shift+R` 强刷）即可
 - APK 用户需要卸载旧版后安装新 APK
+
+### v1.1.28 (2026-08-30) — PC 销售出库保存错误提示 + nginx 反代 502 修复
+
+#### 问题 1: PC 端销售出库保存失败无 toast 提示
+
+**症状**: 在 PC 端销售出库单弹窗点"保存"时，如果该仓库没有对应商品库存，后端抛 `BizException("库存不存在, 商品=xxx(ID=xxx), 仓库=xxx(ID=xxx), 入参批次=xxx. 该仓库无该商品任何库存记录, 请先录入或采购入库")`，但前端只在 console 报错，没有任何 UI 提示。
+
+**根因**: `pc-web/src/views/sales/Delivery.vue` 的 `onSave()` 只写了 try/finally，没有 catch 块；axios 拦截器在业务错误（HTTP 200 + code != 200）路径上会 `ElMessage.error` 弹一次，但 axios Promise 仍 reject 抛出，被 silent 吞掉后用户看不到后续反馈。
+
+**修复**: 加 catch 块显式弹 ElMessage.error，从 reject 原因中提取 msg：
+```js
+} catch (e) {
+  ElMessage.error((e && e.msg) || (e && e.message) || '保存失败')
+} finally { submitting.value = false }
+```
+
+**改动文件**:
+- `pc-web/src/views/sales/Delivery.vue`
+
+#### 问题 2: pc-web 容器重建后 502 Bad Gateway
+
+**症状**: 重新部署 pc-web 后通过 `http://home.93gushi.com:8088/` 访问任何页面，浏览器 console 报 `Failed to load resource: the server responded with a status of 502 (Bad Gateway)`；`docker ps` 显示 `erp-pc-web Restarting (1) 6 seconds ago` 循环。
+
+**根因**: 重建容器时只挂了 dist（`/tmp/pc-web-new:/usr/share/nginx/html`），没有挂 nginx.conf（`/tmp/nginx.conf.fixed:/etc/nginx/conf.d/default.conf`），导致容器使用镜像内置默认配置，upstream 名为 `backend` 而非 `erp-backend`，nginx 启动时报 `[emerg] host not found in upstream "backend"`，容器不断重启。
+
+**修复**: 重建容器时同时挂两个卷：
+```bash
+docker run -d --name erp-pc-web --restart unless-stopped \
+  --network erp-system_erp-net -p 18080:80 \
+  -v /tmp/pc-web-new:/usr/share/nginx/html:ro \
+  -v /tmp/nginx.conf.fixed:/etc/nginx/conf.d/default.conf:ro \
+  erp-system-pc-web:bind-mount
+```
+
+**预防**: 完整 pc-web 容器启动命令必须包含 `html` + `default.conf` 两个挂载。
+
+#### 部署
+
+- PC web dist 已重新构建（`Delivery-Bo6wZwGp.js`），通过 `/tmp/pc-web-new` bind mount 部署
+- 新容器挂载 nginx.conf 后正常启动 + 健康检查通过
+- 仅前端变更，未触碰后端
+
+#### 容器状态
+
+```
+erp-app-h5     Up (healthy)   18090:80
+erp-backend    Up (healthy)   8080:8080
+erp-pc-web     Up (healthy)   18080:80   ← 修复
+erp-mysql      Up (healthy)   3306:3306
+erp-redis      Up             6379:6379
+myprint-pdf    Up             19898:19898
+```
