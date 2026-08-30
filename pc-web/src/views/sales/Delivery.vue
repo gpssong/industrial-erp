@@ -510,6 +510,8 @@ async function onSave() {
       await salDeliveryApi.add(payload); ElMessage.success('保存成功')
     }
     dialogVisible.value = false; loadData()
+  } catch (e) {
+    ElMessage.error((e && e.msg) || (e && e.message) || '保存失败')
   } finally { submitting.value = false }
 }
 
