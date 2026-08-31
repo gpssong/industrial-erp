@@ -307,6 +307,35 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - 若 `match=true` 但前端仍丢, 问题在 list/getTemplate 返回路径
 - 若 `match=false`, 问题在保存路径 (MyBatis-Plus 字段策略/Hook)
 
+**DB 直查验证 + 直接修复** (2026-08-31 14:30 SSH 到 NAS 后):
+
+通过 SSH + sudo docker exec 进 `erp-mysql` 容器,以 `-h mysql -uroot -perp_root_pwd` (实际密码是 `erp_root_pwd`, 不是记忆中的 `850225sonG`) 查 DB:
+
+```sql
+SELECT id, name, biz_type, LENGTH(content) AS len,
+       content LIKE '%${order.spec}%' AS has_spec_var
+FROM sys_feie_print_template WHERE deleted=0;
+```
+
+→ **DB 中 `规格：` 后是空字符串 (换行后直接 `备注：`),`update_time` = `2026-08-31 14:00:57` (用户截图当天)**, **完全对应图17 的现象**。
+→ 即: **用户编辑时点"插入字段"按钮插入 `${order.spec!''}`, DOM 文本框显示了, 但 Vue 的 `form.content` reactive 没同步; 点击保存时 payload.content 不含 `${order.spec!''}`, DB 写入时就丢了**。
+
+**直接修复**: 用 Python 生成正确的完整 content (17 行), 在 NAS 上 `/tmp/fix.sql` 跑:
+
+```sql
+ALTER TABLE sys_feie_print_template ADD COLUMN content_backup_20260831 LONGTEXT;
+UPDATE sys_feie_print_template SET content_backup_20260831 = content WHERE id = 2078644534343434242;
+UPDATE sys_feie_print_template SET content = '<CB>生产单</CB>\n...规格：${order.spec!''''}<BR>\n...' WHERE id = 2078644534343434242;
+```
+
+→ 修复后 `LENGTH(content) = 437` (含规格行),`INSTR(content, 0x247B6F726465722E737065632127277D) = 298` (规格占位符存在).
+→ **同时备份了原 content 到 `content_backup_20260831` 列**, 需要时可手动回滚: `UPDATE ... SET content = content_backup_20260831 WHERE ...`.
+
+**SSH 隧道细节** (后续运维参考):
+- `gpssong` 用户没 docker 组权限, 必须 `echo 19850225aB | sudo -S -p "" /usr/local/bin/docker exec ...`
+- docker exec 走 `mysql -h mysql` (用容器 hostname), 直接 `-h 127.0.0.1` / `-h localhost` 会报 `Access denied` (root@'localhost' 走 socket, 密码不对)
+- mysql root 实际密码是 `erp_root_pwd` (与 `erp-backend` 容器 env 一致), 不是记忆中的 `850225sonG` (compose 文件里写的, 但部署时换过)
+
 ### v1.1.29 (2026-08-31) — App 生产单分享 PDF 完整修复 (3 层穿透 + 自愈机制)
 
 **问题**: App 端生产单详情 → "📤 分享生产单" → 生成 PDF → 连续 3 个错:
