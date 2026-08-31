@@ -89,7 +89,7 @@
               <div v-else>
                 <div style="padding:6px 10px;background:#f0f9eb;color:#67c23a;font-size:11px;font-weight:600;">📌 主表字段 (${'${bill.xxx}'})</div>
                 <div v-for="f in (FIELD_DOC[form.bizType]?.main || [])" :key="'m-'+f.name" class="field-row" @click="insertField(bizPrefix + f.name)">
-                  <span class="field-name">{{ bizPrefix }}{{ f.name }}<span v-if="!form.bizType || form.bizType !== 'PRD_ORDER'">!''</span></span>
+                  <span class="field-name">{{ bizPrefix }}{{ f.name }}!''</span>
                   <span class="field-desc">{{ f.desc }}</span>
                 </div>
                 <div v-if="form.bizType !== 'INV_CHECK'" style="padding:6px 10px;background:#fdf6ec;color:#e6a23c;font-size:11px;font-weight:600;">🔁 明细循环 (&lt;#list bill.details as d&gt;...)</div>
@@ -351,6 +351,8 @@ async function loadData() {
     if (filterPrinterId.value) params.printerConfigId = filterPrinterId.value
     const r = await feiePrintApi.templatePage(params)
     list.value = r.data?.records || []
+    // v1.1.30+: 诊断 — 列出每行模板的 content 长度 (排查 list API 是否已丢失)
+    list.value.forEach(t => console.log('[FeieTpl#load] id=', t.id, 'contentLen=', (t.content || '').length))
   } catch (e) {
     ElMessage.error('加载失败: ' + (e.message || ''))
   } finally {
@@ -388,6 +390,9 @@ async function onSubmit() {
   try {
     // el-switch 返回 boolean, 后端 isDefault 期望 Integer (0/1)
     const payload = { ...form, isDefault: form.isDefault ? 1 : 0, status: form.status ?? 1 }
+    // v1.1.30+: 诊断 content 丢失 — 记录发送前 payload.content 长度
+    console.log('[FeieTpl#onSubmit] id=', form.id, 'content.length=', (payload.content || '').length,
+      'head=', (payload.content || '').slice(0, 60), 'tail=', (payload.content || '').slice(-60))
     if (form.id) {
       await feiePrintApi.updateTemplate(form.id, payload)
       ElMessage.success('更新成功')
@@ -435,15 +440,28 @@ async function doPreviewRender() {
   }
 }
 
+// v1.1.30+: 修复"插入字段后保存再打开,字段占位符丢失"问题.
+//   旧实现用 textarea.value 直接拼接 + 改 selectionStart, 但没触发 Vue v-model 同步事件.
+//   Element Plus 的 el-input 监听 'input' 事件, 直接改 .value 不触发 v-model 响应式更新,
+//   导致 form.content 与 DOM 不同步 — 保存时是 DOM 当前值, 但 Vue 内部 model 还是旧值.
+//   修复: 同时 dispatch input 事件让 Vue 同步, 并把 selection 状态回写到 textarea.
 function insertTag(tag) {
   const textarea = document.querySelector('textarea[placeholder*="<CB>"]')
   if (textarea) {
     const start = textarea.selectionStart
     const end = textarea.selectionEnd
     const val = textarea.value
-    textarea.value = val.slice(0, start) + tag + val.slice(end)
+    const newVal = val.slice(0, start) + tag + val.slice(end)
+    // v1.1.30+: 同时同步 form.content (Vue 响应式), 避免保存时拿不到最新值
+    form.content = newVal
+    // 触发原生 input 事件让 Element Plus 知道 v-model 变化
+    textarea.value = newVal
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
     textarea.selectionStart = textarea.selectionEnd = start + tag.length
     textarea.focus()
+  } else {
+    // 后备: 直接追加到 form.content 末尾
+    form.content = (form.content || '') + tag
   }
 }
 
