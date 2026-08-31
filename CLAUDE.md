@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.29 (App 生产单分享 PDF 完整修复 — 原生 NativeSharePlugin)
+**当前版本**: v1.1.30 (飞鹅模板保存后再打开内容丢失 — 根因诊断 + insertTag 同步 + UpdateWrapper)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -269,7 +269,43 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - [ ] 浏览器访问 `http://NAS-IP:18080` 正常
 - [ ] 登录测试: `admin` / `admin123`
 
-## 变更日志 (v1.0.10 ~ v1.1.19)
+## 变更日志 (v1.0.10 ~ v1.1.30)
+
+### v1.1.30 (2026-08-31) — 飞鹅模板保存后再打开内容丢失 (insertTag 同步 + UpdateWrapper)
+
+**症状**: 用户在 PC 端 `系统 → 飞鹅打印模板` 编辑生产加工单模板, 内容含 `规格: ${order.spec!''}` 等字段占位符, 保存后再次打开, 该段占位符整段不见 (具体表现为 `${order.spec!''}<BR>` 被吃掉, 末尾 `<BR>` 计数 +1).
+
+**根因诊断** (Explore agent 全代码搜索 + 后端日志分析):
+
+| 怀疑点 | 排查结果 |
+|---|---|
+| 后端 sanitize / XSS / 占位符转义 | **无任何相关代码** (WebMvcConfig / Jackson / Interceptor / Filter / 注解) |
+| MySQL `content` 字段类型 | `LONGTEXT` (4GB 上限), 不可能长度截断 |
+| MyBatis-Plus `updateById` 字段策略 | 全局 `update-strategy: not_null`, 对 String content 不影响 (不为 null) |
+| Freemarker 渲染路径 | `renderCustomContent` 只读不写, 不影响 DB |
+| **前端 `insertTag()` DOM 操作 vs Vue v-model** | **真正的 bug 嫌疑**: 直接 `textarea.value = ...` 改 DOM, 没 dispatch 'input' 事件, **Element Plus 的 v-model 同步可能丢失**, 导致保存时拿到的 `form.content` 与 DOM 不同步 |
+
+**修复 — 4 个方向**:
+
+| # | 文件 | 改动 |
+|---|---|---|
+| 1 | `pc-web/.../FeiePrintTemplate.vue` `insertTag()` | 同时写 `form.content` + dispatch 'input' 事件, 保证 Vue v-model 与 DOM 同步 |
+| 2 | `pc-web/.../FeiePrintTemplate.vue` PRD_ORDER 字段显示 | 取消 `v-if="!== 'PRD_ORDER'"` 排除, 字段显示统一带 `!''` (UX 修正) |
+| 3 | `backend/.../SysFeiePrintTemplateService.java` `update()` | 改用 `LambdaUpdateWrapper` 显式 SET (排除 MyBatis-Plus 任何隐藏副作用) + 回查验证日志 |
+| 4 | `backend/.../SysFeiePrintTemplateService.java` `save()` | 入参 + 写库回查日志 (`[FeieTpl#save]` / `[FeieTpl#update]` 含 contentLen/head/tail/match) |
+| 5 | `pc-web/.../FeiePrintTemplate.vue` `loadData` + `onSubmit` | 加 `console.log` 诊断, 输出 contentLen / head / tail |
+
+**关键教训**:
+1. **Element Plus `el-input` / `el-textarea` 不要直接改 DOM `.value`**, 必须同步触发 'input' 事件让 Vue 响应式系统知道 (与 Vue 2 不同, Vue 3 + Element Plus 内部对 `el-textarea` 的 v-model 是基于 input 事件)
+2. **MyBatis-Plus `updateById` 的字段策略 + 全局 `not_null` 是潜在隐患**, 对涉及核心字段的 service 可改用 `LambdaUpdateWrapper` 显式 SET, 增加确定性
+3. **保存后再打开数据丢失**类 bug 排查路径: 网络请求体 → 后端日志 (请求参数) → DB 实际值 → 前端 v-model 绑定. 任何一环都可能丢.
+
+**验证方法**:
+- 用户重新部署前端 dist + 后端 jar 后, 再保存一次模板
+- 后端日志看 `[FeieTpl#save/update] contentLen=... match=true/false`
+- 前端 console 看 `[FeieTpl#onSubmit] content.length=... head=... tail=...`
+- 若 `match=true` 但前端仍丢, 问题在 list/getTemplate 返回路径
+- 若 `match=false`, 问题在保存路径 (MyBatis-Plus 字段策略/Hook)
 
 ### v1.1.29 (2026-08-31) — App 生产单分享 PDF 完整修复 (3 层穿透 + 自愈机制)
 

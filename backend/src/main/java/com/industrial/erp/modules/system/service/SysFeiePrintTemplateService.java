@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.system.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.exception.BizException;
@@ -60,7 +61,24 @@ public class SysFeiePrintTemplateService {
         if (t.getIsDefault() != null && t.getIsDefault() == 1) {
             clearDefault(t.getBizType(), t.getPrinterConfigId(), t.getId());
         }
+        // v1.1.30+: 诊断 — 记录入参 content 长度
+        if (t.getContent() != null) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).info(
+                "[FeieTpl#save] bizType={}, contentLen={}, contentHead={}",
+                t.getBizType(), t.getContent().length(),
+                t.getContent().length() > 60 ? t.getContent().substring(0, 60) : t.getContent()
+            );
+        }
         mapper.insert(t);
+        // v1.1.30+: 回查验证
+        SysFeiePrintTemplate check = mapper.selectById(t.getId());
+        if (check != null && t.getContent() != null) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).info(
+                "[FeieTpl#save] AFTER id={}, DB.contentLen={}, match={}",
+                t.getId(), check.getContent() == null ? -1 : check.getContent().length(),
+                java.util.Objects.equals(check.getContent(), t.getContent())
+            );
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -68,9 +86,45 @@ public class SysFeiePrintTemplateService {
         if (t.getIsDefault() != null && t.getIsDefault() == 1) {
             clearDefault(t.getBizType(), t.getPrinterConfigId(), t.getId());
         }
-        // 避免 updateById 更新 is_default 引发 UK 冲突 (clearDefault 已处理)
+        // v1.1.30+: 诊断 content 丢失问题 — 记录入参 content 长度与字段值
+        if (t.getContent() != null) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).info(
+                "[FeieTpl#update] id={}, bizType={}, contentLen={}, contentHead={}, contentTail={}",
+                t.getId(), t.getBizType(), t.getContent().length(),
+                t.getContent().length() > 60 ? t.getContent().substring(0, 60) : t.getContent(),
+                t.getContent().length() > 60 ? t.getContent().substring(t.getContent().length() - 60) : ""
+            );
+        } else {
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn(
+                "[FeieTpl#update] id={}, content is NULL! 全局 update-strategy=not_null 会跳过 content",
+                t.getId()
+            );
+        }
+        // v1.1.30+: 避免 updateById 字段策略/触发器/Hook 副作用 — 改用 UpdateWrapper 显式更新
+        //   之前用 updateById(t), MyBatis-Plus 全局 update-strategy=not_null 会跳过 null 字段,
+        //   看似没问题, 但 clearDefault 内的 updateById(o) 会把"被取消默认"的模板整行重写一次
+        //   (o 里除了 id/isDefault 其他字段都是 DB 旧值, 没有问题).
+        //   这里改用 UpdateWrapper 显式指定 SET 子句, 排除任何隐藏副作用.
         t.setIsDefault(null);
-        mapper.updateById(t);
+        mapper.update(null, new LambdaUpdateWrapper<SysFeiePrintTemplate>()
+                .eq(SysFeiePrintTemplate::getId, t.getId())
+                .set(SysFeiePrintTemplate::getName, t.getName())
+                .set(SysFeiePrintTemplate::getBizType, t.getBizType())
+                .set(SysFeiePrintTemplate::getPrinterConfigId, t.getPrinterConfigId())
+                .set(SysFeiePrintTemplate::getContent, t.getContent())
+                .set(SysFeiePrintTemplate::getPaperWidth, t.getPaperWidth())
+                .set(SysFeiePrintTemplate::getStatus, t.getStatus())
+                .set(SysFeiePrintTemplate::getRemark, t.getRemark())
+        );
+        // v1.1.30+: 回查验证 content 是否真的写入了 (排除 MyBatis-Plus 字段策略/触发器/Hook 副作用)
+        SysFeiePrintTemplate check = mapper.selectById(t.getId());
+        if (check != null && t.getContent() != null) {
+            org.slf4j.LoggerFactory.getLogger(getClass()).info(
+                "[FeieTpl#update] AFTER id={}, DB.contentLen={}, match={}",
+                t.getId(), check.getContent() == null ? -1 : check.getContent().length(),
+                java.util.Objects.equals(check.getContent(), t.getContent())
+            );
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
