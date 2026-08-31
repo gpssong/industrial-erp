@@ -2,4 +2,9 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- v1.1.29+: uni.saveFile 把临时 PDF 存到 getFilesDir()/store/, 对应 files-path -->
+    <!--          Share plugin 用 FileProvider.getUriForFile 需要此 root 声明 -->
+    <files-path name="my_files" path="." />
+    <!-- v1.1.29+: getExternalCacheDir()/UniappTemp 对应外部 cache, 兼容部分 ROM -->
+    <external-cache-path name="my_external_cache" path="." />
 </paths>

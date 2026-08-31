@@ -49,6 +49,38 @@ dependencies {
     implementation project(':capacitor-share')
 }
 
+// v1.1.29+: 防 `npx cap sync android` 把 capacitor.plugins.json 重置为 []
+// (CLI 6.x 不会自动扫描 @CapacitorPlugin 注解, 必须显式列 3 个本地 classpath)
+// 在每次 packageDebug 前校验, 文件缺失/为空/缺 Share 条目就重写
+tasks.matching { it.name == 'mergeDebugAssets' }.configureEach {
+    doFirst {
+        def pluginJson = file('src/main/assets/capacitor.plugins.json')
+        def expected = '''[
+  {
+    "pkg": "com.pengcheng.erp",
+    "classpath": "com.pengcheng.erp.NativeScannerPlugin"
+  },
+  {
+    "pkg": "com.pengcheng.erp",
+    "classpath": "com.pengcheng.erp.NativeSharePlugin"
+  },
+  {
+    "pkg": "@capacitor/share",
+    "classpath": "com.capacitorjs.plugins.share.SharePlugin"
+  },
+  {
+    "pkg": "@capacitor-community/barcode-scanner",
+    "classpath": "com.getcapacitor.community.barcodescanner.BarcodeScanner"
+  }
+]
+'''
+        if (!pluginJson.exists() || pluginJson.text == '[]\n' || !pluginJson.text.contains('SharePlugin') || !pluginJson.text.contains('NativeSharePlugin')) {
+            logger.warn("[v1.1.29] 修复 capacitor.plugins.json (CLI sync 会重置为 [])")
+            pluginJson.text = expected
+        }
+    }
+}
+
 apply from: 'capacitor.build.gradle'
 
 try {
