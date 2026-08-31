@@ -115,6 +115,9 @@
 import { ref, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { Share } from '@capacitor/share'
+import { registerPlugin } from '@capacitor/core'
+// v1.1.29+: 自定义原生分享 plugin (绕开 Capacitor Share 6 + FileProvider 路径兼容问题)
+const NativeShare = registerPlugin('NativeShare')
 import api from '../../api/index.js'
 import { applyTabBar, isAdmin, getPermissions } from '../../utils/permission.js'
 import { navigateTo } from '../../utils/nav.js'
@@ -244,7 +247,10 @@ async function onFeiePrint() {
   }
 }
 
-// v1.1.11+: 分享生产单 (PDF 下载 → uni.share 调原生菜单)
+// v1.1.11+: 分享生产单
+// v1.1.29+: 改用自定义 NativeSharePlugin — 直接传 PDF URL, 原生 plugin 用 HttpURLConnection 下载到
+//             Context.getFilesDir()/share-<ts>.pdf, 然后 FileProvider 转 content:// URI 分享.
+//             完全绕开 uni.saveFile / plus.io 返回 webview blob 路径的坑
 async function onShare() {
   if (!orderId.value) {
     if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: '生产单未加载', icon: 'none' })
@@ -253,28 +259,12 @@ async function onShare() {
   if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '生成 PDF...', mask: true })
   try {
     const url = api.prdOrderPdfUrl(String(orderId.value))
-    // 1. 下载 PDF (uni.downloadFile 在 App-Plus 平台返回本地临时文件路径)
-    const d = await new Promise((resolve, reject) => {
-      if (typeof uni === 'undefined' || !uni.downloadFile) {
-        reject(new Error('当前环境不支持分享'))
-        return
-      }
-      uni.downloadFile({
-        url,
-        success: (res) => resolve(res),
-        fail: (err) => reject(new Error(err && err.errMsg ? err.errMsg : '下载失败'))
-      })
-    })
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
-    if (!d || d.statusCode !== 200) {
-      throw new Error('下载失败: HTTP ' + (d && d.statusCode))
-    }
-    // 2. Capacitor Share 调原生菜单 (v1.1.11+ 修 uni.share 不支持问题)
-    await Share.share({
+    // v1.1.29+: NativeShare 自下载 PDF + 启 share sheet, JS 端无需处理文件路径
+    await NativeShare.sharePdf({
       title: '生产单 ' + (order.value && order.value.billNo ? order.value.billNo : ''),
       text: (order.value && order.value.productName ? order.value.productName : '') + ' 生产加工单',
-      url: d.tempFilePath,  // file://... (Capacitor 自动 FileProvider 转 content://)
-      dialogTitle: '分享生产单 PDF'
+      url: url
     })
     if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: '已调起分享', icon: 'success' })
   } catch (e) {

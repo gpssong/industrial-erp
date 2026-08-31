@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.28 (PC 销售出库保存错误提示 + 部署踩坑修复)
+**当前版本**: v1.1.29 (App 生产单分享 PDF 完整修复 — 原生 NativeSharePlugin)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -270,6 +270,56 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - [ ] 登录测试: `admin` / `admin123`
 
 ## 变更日志 (v1.0.10 ~ v1.1.19)
+
+### v1.1.29 (2026-08-31) — App 生产单分享 PDF 完整修复 (3 层穿透 + 自愈机制)
+
+**问题**: App 端生产单详情 → "📤 分享生产单" → 生成 PDF → 连续 3 个错:
+1. `"Share" plugin is not implemented on android` — Capacitor CLI 6 把 `capacitor.plugins.json` 重置为 `[]`, Share plugin 从未注册
+2. `Unsupported url` — uni.downloadFile 返回 `_doc/uniapp_temp/xxx.pdf` 没 `file://` 前缀, Capacitor Share 的 `url` 校验失败
+3. `Failed to find configured root that contains /localhost/UUID` — `plus.io.convertLocalFileSystemURL` 返回 webview 风格路径, FileProvider 找不到 root
+4. `file not found: /data/.../files/blob:http://localhost/UUID` — `uni.saveFile` 返回 webview blob 虚拟路径, 根本没写文件
+
+**修复 — 4 层穿透**:
+
+| # | 层 | 文件 | 作用 |
+|---|---|---|---|
+| 1 | Capacitor 插件注册 | `android/app/src/main/assets/capacitor.plugins.json` | 手动写 4 个插件 (NativeScanner/Share/BarcodeScanner) 的 classpath, 防 CLI sync 重置为 `[]` |
+| 2 | Capacitor 项目引用 | `android/capacitor.settings.gradle` | 显式 include `:capacitor-share` + `:capacitor-community-barcode-scanner` |
+| 3 | FileProvider root | `android/app/src/main/res/xml/file_paths.xml` | 加 `<files-path>` + `<external-cache-path>` (原只有 external/cache) |
+| 4 | **新增 NativeSharePlugin** | `android/app/src/main/java/com/pengcheng/erp/NativeSharePlugin.java` | **彻底绕开 JS 端文件路径问题** — 原生 plugin 接收 `url` 自己 `HttpURLConnection` 下载到 `getFilesDir()/share-<ts>.pdf` (真实磁盘路径), `FileProvider.getUriForFile` 转 content://, `ACTION_SEND + EXTRA_STREAM` 启 share sheet |
+| 5 | Gradle 自愈 | `android/app/build.gradle` 的 `mergeDebugAssets` | 每次 build 前校验 plugins.json, 缺失 SharePlugin/NativeSharePlugin 就重写 |
+
+**JS 端** (`app/src/pages/production/order-detail.vue`):
+- `import { registerPlugin } from '@capacitor/core'; const NativeShare = registerPlugin('NativeShare')`
+- `onShare()` 直接传 `url: api.prdOrderPdfUrl(...)`, 不再 `uni.downloadFile` + `uni.saveFile`
+- 删除 `saveDownloadedPdf` helper (已不需要)
+- 不再依赖 `@capacitor/share` (但仍保留注册, 避免破坏 plugins.json 兼容性)
+
+**新增原生 plugin**: `NativeSharePlugin.java` (77 行):
+```java
+@CapacitorPlugin(name = "NativeShare")
+public class NativeSharePlugin extends Plugin {
+    @PluginMethod
+    public void sharePdf(PluginCall call) {
+        String url = call.getString("url");
+        // 后台 ExecutorService 下载到 getFilesDir()/share-<ts>.pdf
+        // 自动带 CookieManager cookie 让后端 Sa-Token 鉴权通过
+        // FileProvider.getUriForFile → content:// URI
+        // Intent.ACTION_SEND + EXTRA_STREAM 启 share sheet
+    }
+}
+```
+
+**MainActivity 注册**: `registerPlugin(NativeSharePlugin.class)` 在 `super.onCreate` 之前.
+
+**为什么不用 Capacitor Filesystem 写文件**: 该插件未安装, 安装会触发 peer dep 冲突 (`barcode-scanner` 锁 capacitor 5, filesystem 要 capacitor 6). 自写 plugin 更短更可控.
+
+**新 APK**: `~/Desktop/鹏程ERP-debug.apk` (4.37MB). 部署后预期: 生产单详情 → 分享生产单 → 后台下载 PDF → 弹原生分享菜单 → 微信/QQ 收到真实 PDF 附件.
+
+**踩坑经验 (下次再写 Capacitor plugin 参考)**:
+- Capacitor 6 不再自动扫描 `@CapacitorPlugin` 注解生成 `capacitor.plugins.json`, 必须 `npx cap sync` 后**手动**列 classpath, 或写 gradle 任务自愈
+- `npx cap sync` 会把 `capacitor.plugins.json` 重置为 `[]` 如果 `includePlugins` 没匹配 (因为本地 native plugin 不是 npm 包), 强烈建议 gradle 任务自愈
+- Capacitor Share 6 的 `files` 数组对路径非常挑剔, uni-app 沙箱 `plus.io` 输出又不稳定 — 自写原生 plugin + `getContext().getFilesDir()` 是最干净的方案
 
 ### v1.1.19.3 (2026-08-22) — 部署补丁 (路由冲突 + CORS + 数量小数)
 

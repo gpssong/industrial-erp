@@ -34,6 +34,7 @@ public class MainActivity extends BridgeActivity {
         // Register plugins before super.onCreate
         registerPlugin(BarcodeScanner.class);
         registerPlugin(NativeScannerPlugin.class);
+        registerPlugin(NativeSharePlugin.class);
         super.onCreate(savedInstanceState);
 
         // Fix: HTTPS page + HTTP API → Android WebView blocks mixed content by default.
