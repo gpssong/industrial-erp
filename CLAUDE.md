@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.30 (飞鹅模板保存后再打开内容丢失 — 根因诊断 + insertTag 同步 + UpdateWrapper)
+**当前版本**: v1.1.30 (飞鹅模板保存后再打开内容丢失 — 根因诊断 + insertTag 同步 + UpdateWrapper + 部署踩坑修复)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -335,6 +335,91 @@ UPDATE sys_feie_print_template SET content = '<CB>生产单</CB>\n...规格：${
 - `gpssong` 用户没 docker 组权限, 必须 `echo 19850225aB | sudo -S -p "" /usr/local/bin/docker exec ...`
 - docker exec 走 `mysql -h mysql` (用容器 hostname), 直接 `-h 127.0.0.1` / `-h localhost` 会报 `Access denied` (root@'localhost' 走 socket, 密码不对)
 - mysql root 实际密码是 `erp_root_pwd` (与 `erp-backend` 容器 env 一致), 不是记忆中的 `850225sonG` (compose 文件里写的, 但部署时换过)
+
+**v1.1.30 部署踩坑** (2026-08-31 15:00~15:15 部署期间遇到):
+
+**坑 1: NAS docker compose v2.20 解析 `${VAR:?MSG}` 语法报错**
+- 报错: `yaml: line 84: mapping values are not allowed in this context`
+- line 84 是 `SA_TOKEN_JWT_SECRET_KEY: ${SA_TOKEN_JWT_SECRET_KEY:?SA_TOKEN_JWT_SECRET_KEY must be set in .env. Generate with: openssl rand -hex 32}` (用 `?` 强制校验 + 中文逗号在错误信息里)
+- 这版 docker compose (v2.20.1-6047-g6817716, NAS DSM 7.4) 不支持该语法 (官方 v2.x 应该支持, 但此 build 不行)
+- 解决: **绕过 compose**, 直接 `docker stop && docker rm && docker run -d` 用显式命令行参数重建容器
+- **后续 SOP**: 把所有 deploy 步骤写到一个 `deploy-to-nas.sh` 脚本里 (避免遗漏 env), 或修复 compose 文件 escape
+
+**坑 2: 手动 docker run 漏传 `ERP_CORS_ALLOWED_ORIGINS` env, 部署后所有前端登录 403**
+- 现象: 部署完用户 PC 浏览器 `POST /api/auth/login 403 Forbidden`
+- 后端日志: 无 `POST /api/auth/login` 记录 — 因为 Spring Security CORS 校验先于 controller
+- 根因: 我手动重建容器时, 只复制了 SPRING_DATASOURCE_*/ / JAVA_OPTS / SA_TOKEN_JWT_SECRET_KEY / SPRING_DATA_REDIS_HOST 等"必须的"env, **漏了 `ERP_CORS_ALLOWED_ORIGINS`**
+- 后端 application.yml 默认值只有 `http://localhost:5173/5174/8080, http://127.0.0.1:5173/5174/8080`, **不含 `home.93gushi.com:8088` / `n150.93gushi.com:8088` / `192.168.0.150:8088`** 等外部域名
+- 浏览器发 OPTIONS 预检 → Spring Security 返回 403 "Invalid CORS request" → POST 根本没发
+- 修复: `docker rm -f erp-backend && docker run -d ... --env ERP_CORS_ALLOWED_ORIGINS=http://home.93gushi.com:8088,https://home.93gushi.com:8089,...` (完整 list 16 个 origin)
+- 验证: `curl -X OPTIONS ... -H "Origin: http://home.93gushi.com:8088"` → 200 + `Access-Control-Allow-Origin` ✓
+- **关键 env list 必须完整** (任何删减都会让某 origin 走不通):
+  ```
+  ERP_CORS_ALLOWED_ORIGINS=http://home.93gushi.com:8088,https://home.93gushi.com:8089,
+    https://home.93gushi.com,http://home.93gushi.com,
+    http://n150.93gushi.com:8088,https://n150.93gushi.com:8088,
+    http://192.168.0.150:8088,http://192.168.0.150,
+    http://localhost:5173,http://localhost:5174,http://localhost:8080,
+    http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:8080,
+    http://localhost/*,http://127.0.0.1/*,
+    http://192.168.0.150:18080,http://192.168.0.150:5173,http://192.168.0.150:5174
+  ```
+
+**坑 3: pc-web 容器 bind mount 的不是 `/volume3/docker/erp-system/pc-web/dist`, 而是 `/tmp/pc-web-new`**
+- Dockerfile 注释说 "前端 dist 通过 bind mount 进容器 /usr/share/nginx/html", 但实际 mount source 是 `/tmp/pc-web-new`
+- 部署时我把新 dist `tar 流式传到 /volume3/docker/erp-system/pc-web/dist` 后, **必须** 再 `cp` 一份到 `/tmp/pc-web-new` 才能生效
+- `docker restart erp-pc-web` 才能加载新内容 (容器本身不需重建, 因为 dist 通过 mount 进)
+- **NAS 上 `/tmp/pc-web-new` 是 uid=501 拥有, gpssong 没权限, 需要 `echo 19850225aB | sudo -S cp` 或 `rm -rf && cp -r`** (新建文件可写)
+
+**坑 4: SSH "Permission denied, please try again" 间歇性锁**
+- 多次 `sshpass` 连续发命令时, NAS 端 sshd 偶尔会触发密码失败计数, 临时 lock gpssong 用户 30 秒
+- 解决: `sleep 8~15` 重试; 若是连续多次错误, 可能需要更长时间 (等 NAS 自动解锁)
+- `ssh -o StrictHostKeyChecking=no` 即可, 不要用错字 `StrictHostKeyKeyChecking=no` (会引发其他错误)
+
+**部署命令汇总** (后续 v1.1.30+ 重启时复用):
+```bash
+# 1. pc-web dist 上传 (SSH)
+sshpass -p '19850225aB' ssh gpssong@192.168.0.150 'echo 19850225aB | sudo -S -p "" sh -c "
+  cd /volume3/docker/erp-system/pc-web && tar cf - --exclude=node_modules dist/ \
+    | tar xf - -C /tmp/pc-web-new && \
+    docker restart erp-pc-web
+"'
+
+# 2. backend jar 上传 (SSH, cat 流式)
+cat backend/target/industrial-erp-1.0.4.jar | sshpass -p '19850225aB' ssh gpssong@192.168.0.150 \
+  'cat > /volume3/docker/erp-system/backend/industrial-erp-1.0.4.jar'
+
+# 3. backend 镜像 build + container recreate (完整 env list 见上方)
+sshpass -p '19850225aB' ssh gpssong@192.168.0.150 'echo 19850225aB | sudo -S -p "" sh -c "
+  cd /volume3/docker/erp-system && docker build -t erp-system-backend:latest -f backend/Dockerfile ./backend && \
+  docker rm -f erp-backend && \
+  docker run -d --name erp-backend --network erp-system_erp-net \
+    --publish 8080:8080 \
+    --mount type=bind,source=/volume3/docker/erp-system/data/upload,target=/opt/industrial-erp/upload \
+    --mount type=bind,source=/volume3/docker/erp-system/data/backup,target=/opt/industrial-erp/backup \
+    --env SPRING_PROFILES_ACTIVE=prod \
+    --env SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/industrial_erp?... \
+    --env SPRING_DATASOURCE_USERNAME=root \
+    --env SPRING_DATASOURCE_PASSWORD=erp_root_pwd \
+    --env SPRING_DATA_REDIS_HOST=redis \
+    --env SPRING_DATA_REDIS_PORT=6379 \
+    --env SA_TOKEN_JWT_SECRET_KEY=71db660065bfdd3b78f277b1e90b715e6da12567420b6a1733f97bdaba4b6562 \
+    --env JAVA_OPTS=\"-Xms256m -Xmx768m -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -Dfile.encoding=UTF-8 -Duser.timezone=GMT+8\" \
+    --env ERP_UPLOAD_PATH=/opt/industrial-erp/upload \
+    --env ERP_BACKUP_PATH=/opt/industrial-erp/backup \
+    --env ERP_BACKUP_SQL_PATH=/opt/industrial-erp/sql \
+    --env ERP_CORS_ALLOWED_ORIGINS=http://home.93gushi.com:8088,https://home.93gushi.com:8089,... \
+    --env TZ=Asia/Shanghai \
+    --health-cmd=\"wget -qO- http://127.0.0.1:8080/api/auth/captcha || exit 1\" \
+    --health-interval=30s --health-timeout=3s --health-retries=3 \
+    erp-system-backend:latest
+"'
+
+# 4. 验证
+curl -s http://127.0.0.1:8080/api/auth/captcha | python3 -m json.tool  # 后端
+curl -sI http://127.0.0.1:18080/ | head -5                                # pc-web
+curl -sv -X OPTIONS http://127.0.0.1:8088/api/auth/login -H "Origin: http://home.93gushi.com:8088" -H "Access-Control-Request-Method: POST" | grep "Access-Control-Allow"  # CORS
+```
 
 ### v1.1.29 (2026-08-31) — App 生产单分享 PDF 完整修复 (3 层穿透 + 自愈机制)
 
