@@ -13,6 +13,11 @@ import { createPinia } from 'pinia'
 // 既支持 <Search /> 组件式也支持 <component :is="'Search'"> 字符串式 (侧边栏菜单).
 // 全量注册 200+ icons ~50KB gzip, 收集后约 5KB; 完全值得.
 import { Search, Plus, Refresh, Delete, Edit, Download, Upload, View, Lock, User, UserFilled, Menu, OfficeBuilding, Setting, Printer, Goods, Avatar, Connection, House, DataLine, List, Box, Back, Tickets, TakeawayBox, Notebook, Document, Files, SetUp, Money, TrendCharts, PieChart, Close, Check, ArrowLeft, ArrowRight, Warning, InfoFilled, CircleCheck, CircleClose, Loading, Sort, Filter, Calendar, Bell, Tools, Promotion, MoreFilled, Star, StarFilled, Flag, ChatLineRound, DataAnalysis, ChatDotRound, Position, Phone, Message } from '@element-plus/icons-vue'
+// v1.1.31: Element Plus 按需组件 (unplugin-vue-components 自动 <el-*>) 不覆盖 ElMessageBox.confirm/alert 这种 API 调用
+// 必须手动 import message-box / message / notification 样式, 否则弹窗无背景色
+import 'element-plus/theme-chalk/el-message-box.css'
+import 'element-plus/theme-chalk/el-message.css'
+import 'element-plus/theme-chalk/el-notification.css'
 import App from './App.vue'
 import router from './router'
 import './styles/index.scss'

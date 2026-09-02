@@ -16,11 +16,18 @@ body { background: var(--bg-color); font-family: -apple-system, "PingFang SC", "
   .left { display: flex; gap: 8px; } .right { display: flex; gap: 8px; } }
 .industrial-title { background: linear-gradient(90deg, var(--primary-color), var(--primary-light)); color: #fff; padding: 8px 16px; font-weight: bold; border-radius: 4px; }
 
-// v1.1.31: Element Plus ElMessageBox 强制垂直水平居中 (alignCenter 只控制水平, 垂直位置默认视口底部)
+// v1.1.31: Element Plus ElMessageBox 强制垂直水平居中
+// 注意: alignCenter 只控制水平居中, 垂直位置默认在视口顶部. 这里用更具体的属性覆盖
+// 同时必须保留 Element Plus 的样式 (背景色/padding/border-radius), 不能整体 position: fixed 覆盖
+.el-message-box__wrapper {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
 .el-message-box {
-  position: fixed !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  margin: 0 !important;
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
+  margin: 0 auto !important;
 }
