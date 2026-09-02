@@ -619,6 +619,7 @@ async function onCheck(row) {
     ElMessage.success('审核成功, 已扣减库存 / 生成应收')
     loadData()
   } catch (e) {
+    console.error('[onCheck] 审核失败, error=', e, 'msg=', e?.msg, 'message=', e?.message)
     ElMessage.error((e && e.msg) || (e && e.message) || '审核失败')
   }
 }
