@@ -619,8 +619,11 @@ async function onCheck(row) {
     ElMessage.success('审核成功, 已扣减库存 / 生成应收')
     loadData()
   } catch (e) {
-    console.error('[onCheck] 审核失败, error=', e, 'msg=', e?.msg, 'message=', e?.message)
-    ElMessage.error((e && e.msg) || (e && e.message) || '审核失败')
+    // v1.1.31: 用 ElMessageBox.alert (modal 风格, 强制可见) 替代 ElMessage.error (toast 容易被遮挡)
+    const errMsg = (e && e.msg) || (e && e.message) || '审核失败'
+    console.error('[onCheck] 审核失败:', e)
+    await ElMessageBox.alert(errMsg, '审核失败', { type: 'error', confirmButtonText: '知道了', alignCenter: true })
+    loadData()
   }
 }
 
@@ -637,7 +640,10 @@ async function onUncheck(row) {
     ElMessage.success('反审核成功')
     loadData()
   } catch (e) {
-    ElMessage.error((e && e.msg) || (e && e.message) || '反审核失败')
+    const errMsg = (e && e.msg) || (e && e.message) || '反审核失败'
+    console.error('[onUncheck] 反审核失败:', e)
+    await ElMessageBox.alert(errMsg, '反审核失败', { type: 'error', confirmButtonText: '知道了', alignCenter: true })
+    loadData()
   }
 }
 
