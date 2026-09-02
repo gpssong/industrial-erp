@@ -614,9 +614,13 @@ async function onCheck(row) {
       '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' }
     )
   } catch { return }  // 用户取消
-  await salDeliveryApi.check(row.id)
-  ElMessage.success('审核成功, 已扣减库存 / 生成应收')
-  loadData()
+  try {
+    await salDeliveryApi.check(row.id)
+    ElMessage.success('审核成功, 已扣减库存 / 生成应收')
+    loadData()
+  } catch (e) {
+    ElMessage.error((e && e.msg) || (e && e.message) || '审核失败')
+  }
 }
 
 // v1.1.11+ 反审核 (status-only, 不回退库存/账务)
@@ -627,9 +631,13 @@ async function onUncheck(row) {
       '反审核确认', { type: 'warning', confirmButtonText: '确认反审核', cancelButtonText: '取消' }
     )
   } catch { return }
-  await salDeliveryApi.uncheck(row.id)
-  ElMessage.success('反审核成功')
-  loadData()
+  try {
+    await salDeliveryApi.uncheck(row.id)
+    ElMessage.success('反审核成功')
+    loadData()
+  } catch (e) {
+    ElMessage.error((e && e.msg) || (e && e.message) || '反审核失败')
+  }
 }
 
 // 打印 (myprint-design 浏览器打印)
