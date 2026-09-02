@@ -65,8 +65,12 @@ service.interceptors.response.use(res => {
     handle401(data.msg)
     return Promise.reject(new Error(data.msg || '未登录'))
   }
-  ElMessage.error((data && data.msg) || '服务器响应格式异常')
-  return Promise.reject(new Error((data && data.msg) || '服务器响应格式异常'))
+  // v1.1.31: 不在拦截器弹 ElMessage, 把 data.msg 一并附给 Error 对象,
+  // 让组件的 catch 统一弹窗 (避免双弹 + 防止拦截器弹的 msg 被组件 catch 覆盖导致用户看不到)
+  const bizErr = new Error((data && data.msg) || '服务器响应格式异常')
+  bizErr.msg = (data && data.msg) || ''
+  bizErr.code = (data && data.code) || -1
+  return Promise.reject(bizErr)
 }, err => {
   NProgress.done()
   // HTTP 层 401 (例如 Nginx 反代未鉴权)
