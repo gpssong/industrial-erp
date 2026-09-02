@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.30 (飞鹅模板保存后再打开内容丢失 — 根因诊断 + insertTag 同步 + UpdateWrapper + 部署踩坑修复)
+**当前版本**: v1.1.31 (销售出库审核库存不足无提示 — ElMessageBox 样式缺失 + alert 替代 toast)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -269,7 +269,38 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - [ ] 浏览器访问 `http://NAS-IP:18080` 正常
 - [ ] 登录测试: `admin` / `admin123`
 
-## 变更日志 (v1.0.10 ~ v1.1.30)
+## 变更日志 (v1.0.10 ~ v1.1.31)
+
+### v1.1.31 (2026-09-02) — 销售出库审核库存不足无提示 (ElMessageBox 样式 + alert 强制可见)
+
+**症状**: 销售出库 → 审核 → 库存不足时**没有任何弹窗提示**(用户看到 JS 错误堆栈,但页面无反应)。原本 v1.1.11 已加 try-catch + ElMessage.error,看似应该能弹,实际不行。
+
+**根因链** (5 层):
+1. **ElMessage (toast) 容易被路由切换/遮罩层销毁**: 用户操作太快时 toast 一闪而过,看不到
+2. **后端抛 BizException("库存不存在, ...")** → R.fail(500, msg) → 响应 200 (HTTP 层)
+3. **request.js 拦截器检测到 `data.code !== 200`**: 立刻 `ElMessage.error(data.msg)` + 同时 `reject(new Error(data.msg))`
+4. **onCheck catch 又触发** `ElMessage.error((e && e.msg) || (e && e.message) || '审核失败')` — **双弹覆盖**,用户看到一闪而过的 toast
+5. **`unplugin-vue-components` 按需组件不识别 API 调用的 CSS**: `ElMessageBox.confirm/alert` 是 API 调用, 不会触发自动 CSS 导入, 弹窗虽然显示但**没有背景色/边框/阴影**
+
+**修复 — 4 个 commit**:
+
+| # | commit | 内容 |
+|---|---|---|
+| 1 | `3a4dcff` | 全局 `el-message-box` 居中 CSS (但 position: fixed 破坏内部布局) |
+| 2 | `3b87823` | request.js 拦截器去掉重复 ElMessage, 让组件 catch 统一弹 (用 bizErr.msg = data.msg 传业务 msg) |
+| 3 | `6a3661c` | onCheck/onUncheck 改用 ElMessageBox.alert (modal 风格, 强制可见, 必须点确认才能关) |
+| 4 | `2a34069` | main.js 手动 import `element-plus/theme-chalk/el-message-box.css` + `el-message.css` + `el-notification.css` (解决样式缺失) + 修正居中 CSS 用 flex 布局 |
+
+**关键教训**:
+- Element Plus 的 `ElMessageBox.confirm/alert` 是 API 调用, **unplugin-vue-components 不会自动导入其 CSS**, 必须在 main.js 手动 `import 'element-plus/theme-chalk/el-message-box.css'`
+- `ElMessage` (toast) 不适合提示业务异常, **重要错误必须用 `ElMessageBox.alert` (modal)**, 强制用户确认
+- **axios 拦截器不要重复弹 ElMessage**, 让组件 catch 统一处理 (避免双弹覆盖)
+- 全局居中 CSS 用 flex (`.el-message-box__wrapper { display: flex; align-items: center }`), **不要 position: fixed + transform** (破坏 Element Plus 内部 box 布局)
+
+**部署注意事项**:
+- 部署前清理 NAS 旧 tar 包: `rm -f /tmp/dist*.tar.gz` (避免 /tmp 4GB 满了)
+- 上传用 `cat local.tar.gz | ssh 'cat > /tmp/remote.tar.gz'` 比 scp 更稳
+- tar 用 `--strip-components=1` 去掉 `dist/` 前缀
 
 ### v1.1.30 (2026-08-31) — 飞鹅模板保存后再打开内容丢失 (insertTag 同步 + UpdateWrapper)
 
