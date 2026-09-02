@@ -15,3 +15,12 @@ body { background: var(--bg-color); font-family: -apple-system, "PingFang SC", "
 .table-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
   .left { display: flex; gap: 8px; } .right { display: flex; gap: 8px; } }
 .industrial-title { background: linear-gradient(90deg, var(--primary-color), var(--primary-light)); color: #fff; padding: 8px 16px; font-weight: bold; border-radius: 4px; }
+
+// v1.1.31: Element Plus ElMessageBox 强制垂直水平居中 (alignCenter 只控制水平, 垂直位置默认视口底部)
+.el-message-box {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+}
