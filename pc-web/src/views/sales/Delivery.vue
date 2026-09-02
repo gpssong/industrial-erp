@@ -611,7 +611,7 @@ async function onCheck(row) {
   try {
     await ElMessageBox.confirm(
       `确认审核出库单 ${row.billNo}?\n\n审核后将:\n• 扣减库存\n• 生成应收 (AP → 客户)\n• 单据不可再修改\n`,
-      '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' }
+      '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消', alignCenter: true }
     )
   } catch { return }  // 用户取消
   try {
@@ -628,7 +628,7 @@ async function onUncheck(row) {
   try {
     await ElMessageBox.confirm(
       `确认反审核出库单 ${row.billNo}?\n\n此操作仅回退单据状态至「草稿」, 不会自动回退已扣减的库存或生成的应收. 如需调整, 请走销售退货单红冲.\n`,
-      '反审核确认', { type: 'warning', confirmButtonText: '确认反审核', cancelButtonText: '取消' }
+      '反审核确认', { type: 'warning', confirmButtonText: '确认反审核', cancelButtonText: '取消', alignCenter: true }
     )
   } catch { return }
   try {
