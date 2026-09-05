@@ -24,10 +24,15 @@ export function useStripZero() {
     if (!isFinite(n)) return String(v)
     return String(n)
   }
+  // v1.1.32: parser 必须返回原始字符串(而非 null)当用户正在输入中间态时(如 "1." / ".5")
+  // 若返回 null, EP 会清空整个输入框. 只在完全无法解析时才返回 null
   const stripZeroParse = (v) => {
     if (v == null || v === '') return null
-    const n = Number(String(v).replace(/,/g, ''))
-    return isFinite(n) ? n : null
+    const cleaned = String(v).replace(/,/g, '')
+    // 允许中间态: 以 . 开头/结尾 或 纯点 的字符串原样返回, 不强制转 Number
+    if (/^-?\d*\.$|^-$/.test(cleaned)) return cleaned
+    const n = Number(cleaned)
+    return isFinite(n) ? n : cleaned // 无法解析时也返回原始字符串, 不返回 null
   }
   const stripTrailingZero4 = (v) => {
     if (v == null || v === '' || !isFinite(Number(v))) return ''

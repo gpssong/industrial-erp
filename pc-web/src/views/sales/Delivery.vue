@@ -230,8 +230,11 @@ const stripZeroFormat = (v) => {
 }
 const stripZeroParse = (v) => {
   if (v == null || v === '') return null
-  const n = Number(String(v).replace(/,/g, ''))
-  return isFinite(n) ? n : null
+  const cleaned = String(v).replace(/,/g, '')
+  // v1.1.32: 允许中间态 "1." / ".5" 透传, 不强制转 Number 否则返回 null 清空输入框
+  if (/^-?\d*\.$|^-$/.test(cleaned)) return cleaned
+  const n = Number(cleaned)
+  return isFinite(n) ? n : cleaned
 }
 // 计算列去尾 0: 量纲 4 位 (数量), 金额 2 位 (元)
 const stripTrailingZero4 = (v) => {
