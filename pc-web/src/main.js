@@ -12,7 +12,9 @@ import { createPinia } from 'pinia'
 // Element Plus icons 按需收集 — 只注册路由 + 业务页面实际用到的 (~30 个),
 // 既支持 <Search /> 组件式也支持 <component :is="'Search'"> 字符串式 (侧边栏菜单).
 // 全量注册 200+ icons ~50KB gzip, 收集后约 5KB; 完全值得.
-import { Search, Plus, Refresh, Delete, Edit, Download, Upload, View, Lock, User, UserFilled, Menu, OfficeBuilding, Setting, Printer, Goods, Avatar, Connection, House, DataLine, List, Box, Back, Tickets, TakeawayBox, Notebook, Document, Files, SetUp, Money, TrendCharts, PieChart, Close, Check, ArrowLeft, ArrowRight, Warning, InfoFilled, CircleCheck, CircleClose, Loading, Sort, Filter, Calendar, Bell, Tools, Promotion, MoreFilled, Star, StarFilled, Flag, ChatLineRound, DataAnalysis, ChatDotRound, Position, Phone, Message } from '@element-plus/icons-vue'
+// v1.1.34: 补充 4 个侧边栏用到的 icon (Sell 销售/Grid 库存/DataAnalysis 报表/Odometer 工作台),
+// 它们之前漏注册, 导致 <component :is="'Sell'"> 等字符串式渲染时空图标.
+import { Search, Plus, Refresh, Delete, Edit, Download, Upload, View, Lock, User, UserFilled, Menu, OfficeBuilding, Setting, Printer, Goods, Avatar, Connection, House, DataLine, List, Box, Back, Tickets, TakeawayBox, Notebook, Document, Files, SetUp, Money, TrendCharts, PieChart, Close, Check, ArrowLeft, ArrowRight, Warning, InfoFilled, CircleCheck, CircleClose, Loading, Sort, Filter, Calendar, Bell, Tools, Promotion, MoreFilled, Star, StarFilled, Flag, ChatLineRound, DataAnalysis, ChatDotRound, Position, Phone, Message, Sell, Grid, Odometer } from '@element-plus/icons-vue'
 // v1.1.31: Element Plus 按需组件 (unplugin-vue-components 自动 <el-*>) 不覆盖 ElMessageBox.confirm/alert 这种 API 调用
 // 必须手动 import message-box / message / notification 样式, 否则弹窗无背景色
 import 'element-plus/theme-chalk/el-message-box.css'
@@ -41,7 +43,7 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 // 按需注册 icons
-;[Search, Plus, Refresh, Delete, Edit, Download, Upload, View, Lock, User, UserFilled, Menu, OfficeBuilding, Setting, Printer, Goods, Avatar, Connection, House, DataLine, List, Box, Back, Tickets, TakeawayBox, Notebook, Document, Files, SetUp, Money, TrendCharts, PieChart, Close, Check, ArrowLeft, ArrowRight, Warning, InfoFilled, CircleCheck, CircleClose, Loading, Sort, Filter, Calendar, Bell, Tools, Promotion, MoreFilled, Star, StarFilled, Flag, ChatLineRound, DataAnalysis, ChatDotRound, Position, Phone, Message].forEach(c => app.component(c.name, c))
+;[Search, Plus, Refresh, Delete, Edit, Download, Upload, View, Lock, User, UserFilled, Menu, OfficeBuilding, Setting, Printer, Goods, Avatar, Connection, House, DataLine, List, Box, Back, Tickets, TakeawayBox, Notebook, Document, Files, SetUp, Money, TrendCharts, PieChart, Close, Check, ArrowLeft, ArrowRight, Warning, InfoFilled, CircleCheck, CircleClose, Loading, Sort, Filter, Calendar, Bell, Tools, Promotion, MoreFilled, Star, StarFilled, Flag, ChatLineRound, DataAnalysis, ChatDotRound, Position, Phone, Message, Sell, Grid, Odometer].forEach(c => app.component(c.name, c))
 
 // myprint-design 异步初始化: 立即创建应用, 用户访问"打印模板"路由时按需加载.
 // MyPrinter 必须在第一个打印调用前初始化, createPrint 是 Vue 插件. 用动态 import +
