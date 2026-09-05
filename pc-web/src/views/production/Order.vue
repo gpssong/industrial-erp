@@ -206,8 +206,10 @@ const stripZeroFormat = (v) => {
 }
 const stripZeroParse = (v) => {
   if (v == null || v === '') return null
-  const n = Number(String(v).replace(/,/g, ''))
-  return isFinite(n) ? n : null
+  const cleaned = String(v).replace(/,/g, '')
+  if (/^-?\d*\.$|^-$/.test(cleaned)) return cleaned
+  const n = Number(cleaned)
+  return isFinite(n) ? n : cleaned
 }
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', productName: '' })
