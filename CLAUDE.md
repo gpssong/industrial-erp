@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.32 (stripZeroParse 修复单价无法输入小数点)
+**当前版本**: v1.1.33 (改用 el-input + 自定义清洗彻底修复小数点无法输入)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -10,6 +10,49 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
 
 ## changelog (倒序)
+
+### v1.1.33 (2026-09-05) — 改用 el-input 彻底修复小数点无法输入
+
+**问题**: v1.1.32 修了 `stripZeroParse` 中间态返回字符串, 但 el-input-number 在表格内仍被 EP `precision + min + step-strictly` 组合的内部 `displayValue/watch` 机制干扰, 用户截图显示数量/单价列完全无法输入小数点.
+
+**根因**: el-input-number 在 `handleInput(value)` 后会:
+1. 把 `value` 给 `parser`, 拿到的结果如果是字符串 '1.' 就把 currentValue 也设为字符串
+2. `watch(currentValue)` 触发 `displayValue = formatter(currentValue)`, 但 formatter 的输入字符串 `'1.'` 不会被正确格式化
+3. 表格 cell 在渲染时会强制调用 `el-input-number.setCurrentValue(parseFloat(value))`, 触发 clamp
+
+**修复**: **完全不用 `el-input-number`, 改用 `<el-input inputmode="decimal">`** + 三个事件处理器:
+- `@focus` — 焦点移入时清掉占位 `0` (否则点不动), 同时把 `_priceFromUnit` 置 false (允许用户编辑)
+- `@input` — 实时清洗: 去掉非数字字符, 限制只有一个 `.` 和一个 `-`
+- `@blur` — 失焦时把字符串归一化成 number (保证 `row.qty * row.price` 计算正确)
+
+```vue
+<el-input v-model="row.price" size="small" type="text" inputmode="decimal"
+  @focus="onPriceFocus(row, $event)"
+  @input="onPriceInput(row, $event)"
+  @blur="row.price = normNum(row.price)" placeholder="0" />
+```
+
+```js
+const normNum = (v) => {
+  if (v == null || v === '') return 0
+  const n = Number(String(v).replace(/,/g, ''))
+  return isFinite(n) ? n : 0
+}
+function onPriceInput(row, ev) {
+  let raw = ev.target.value
+  let clean = raw.replace(/[^\d.-]/g, '')
+  // 只允许第一个 -, 第一个 .
+  const dotIdx = clean.indexOf('.')
+  if (dotIdx >= 0) clean = clean.slice(0, dotIdx + 1) + clean.slice(dotIdx + 1).replace(/\./g, '')
+  if (clean !== raw) ev.target.value = clean
+  row.price = clean  // 中间态 "1." 保持 string, 让金额列也能容错
+}
+```
+
+**涉及文件** (1 个):
+- `pc-web/src/views/sales/Delivery.vue` — 销售出库表格数量/单价列改用 el-input
+
+**未来调整**: 若修复需要扩散到采购入库/退货/生产加工单等其他表单, 把 `normNum/onPriceFocus/onPriceInput` 抽到 `useStripZero.js` 暴露即可.
 
 ### v1.1.32 (2026-09-05) — stripZeroParse 修复单价无法输入小数点
 
