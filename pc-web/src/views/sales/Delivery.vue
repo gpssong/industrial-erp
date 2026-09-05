@@ -121,12 +121,19 @@
               </template>
             </el-table-column>
             <el-table-column label="数量" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.qty" :precision="4" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" /></template>
+              <template #default="{ row }">
+                <el-input v-model="row.qty" size="small" type="text" inputmode="decimal"
+                  @blur="row.qty = normNum(row.qty)" placeholder="0" />
+              </template>
             </el-table-column>
             <el-table-column label="单价(含税)" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.price" :precision="4" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" @change="() => row._priceFromUnit = false" /></template>
+              <template #default="{ row }">
+                <el-input v-model="row.price" size="small" type="text" inputmode="decimal"
+                  @blur="row.price = normNum(row.price)" @focus="onPriceFocus(row, $event)" @input="onPriceInput(row, $event)"
+                  placeholder="0" />
+              </template>
             </el-table-column>
-            <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ stripTrailingZero4(row.qty * row.price) }}</span></template></el-table-column>
+            <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ stripTrailingZero4((+row.qty || 0) * (+row.price || 0)) }}</span></template></el-table-column>
             <el-table-column label="批次" width="160">
               <template #default="{ row }">
                 <el-select v-model="row.batchNo" size="small" filterable allow-create
@@ -222,6 +229,40 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 // el-input-number 数字自动去尾 0 (v1.1.6 引入; v1.1.7 补到销售出库):
 // EP 的 precision=N 会强制显示 N 位小数, 用 formatter/parser 接管显示.
 // 740 → "740", 31.4 → "31.4", 17 → "17"
+// v1.1.33: 把任意输入归一化成 number, 无效返回 0 (blur 时调用)
+const normNum = (v) => {
+  if (v == null || v === '') return 0
+  const n = Number(String(v).replace(/,/g, ''))
+  return isFinite(n) ? n : 0
+}
+// v1.1.33: 单价聚焦时清空占位符 "0" (避免点不动), 允许正常输入小数点
+function onPriceFocus(row, ev) {
+  if (ev && ev.target && (ev.target.value === '0' || ev.target.value === 0)) {
+    row.price = ''
+  }
+  row._priceFromUnit = false
+}
+// v1.1.33: 实时去掉非数字字符, 保留数字 + 单个小数点
+function onPriceInput(row, ev) {
+  let raw = ev && ev.target ? ev.target.value : String(row.price ?? '')
+  // 移除非法字符: 保留 数字 + 小数点 + 负号
+  let clean = raw.replace(/[^\d.-]/g, '')
+  // 只允许第一个负号, 只允许第一个小数点
+  const negIdx = clean.indexOf('-')
+  if (negIdx > 0) clean = clean.slice(negIdx)
+  const dotIdx = clean.indexOf('.')
+  if (dotIdx >= 0) {
+    clean = clean.slice(0, dotIdx + 1) + clean.slice(dotIdx + 1).replace(/\./g, '')
+  }
+  // 同步给 row.price (可能是 "1." 中间态, 留 string)
+  if (clean !== raw && ev && ev.target) ev.target.value = clean
+  row.price = clean
+}
+// v1.1.33: 让 <el-input v-model="row.price"> 在加载时也清掉 0 占位符焦点
+const onPriceBlur = (row) => {
+  row.price = normNum(row.price)
+  row._priceFromUnit = false
+}
 const stripZeroFormat = (v) => {
   if (v == null || v === '') return ''
   const n = Number(v)
