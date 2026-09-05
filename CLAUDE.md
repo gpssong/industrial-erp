@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.31 (销售出库审核库存不足无提示 — ElMessageBox 样式缺失 + alert 替代 toast)
+**当前版本**: v1.1.32 (stripZeroParse 修复单价无法输入小数点)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -8,6 +8,41 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 外部域名: `home.93gushi.com`
 
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
+
+## changelog (倒序)
+
+### v1.1.32 (2026-09-05) — stripZeroParse 修复单价无法输入小数点
+
+**问题**: 用户在销售出库/采购入库的"单价(含税)" `el-input-number` 框无法输入小数点, 例如想打 `1.5` 只能输入 `15`.
+
+**根因**: `useStripZero.js` 中的 `stripZeroParse` 函数对任何 `Number()` 转换失败的结果都返回 `null`:
+```js
+const stripZeroParse = (v) => {
+  if (v == null || v === '') return null
+  const n = Number(String(v).replace(/,/g, ''))
+  return isFinite(n) ? n : null  // ← BUG: "1." 转 NaN → isFinite false → 返回 null
+}
+```
+当用户输入 `1.5` 时, Element Plus 在中间态传 `"1."` 给 parser. `Number("1.")` 返回 `NaN`, 不被识别为 finite, parser 返回 `null`, EP 立即把整个输入框清空 → 用户没法继续输入.
+
+**修复**: 中间态 (`1.` / `.5` / `-` 等不完整输入) 直接返回字符串透传, 不强制转 Number:
+```js
+if (/^-?\d*\.$|^-$/.test(cleaned)) return cleaned  // 中间态原样返回
+const n = Number(cleaned)
+return isFinite(n) ? n : cleaned  // 完全无效才返回原始字符串 (不再 null)
+```
+
+**涉及文件** (3 个):
+- `pc-web/src/composables/useStripZero.js` — 共用 hook, 修复源
+- `pc-web/src/views/sales/Delivery.vue` — 销售出库 (本地副本, 同步修复)
+- `pc-web/src/views/production/Order.vue` — 生产加工单 (本地副本, 同步修复)
+
+**部署提示**:
+- 容器实际挂载路径是 `/tmp/pc-web-new -> /usr/share/nginx/html` (不是 `docker-compose.yml` 写的 `/volume3/docker/erp-system/pc-web/dist`)
+- 部署时不能直接 `tar -xzf`, 因 macOS 打包的 tarball 携带 LIBARCHIVE.xattr 扩展头导致部分文件被跳过 → 必须先 tar 到本地, 然后在 NAS 端 `rm -rf /tmp/pc-web-new && mkdir -p /tmp/pc-web-new/assets && cp dist/index.html /tmp/pc-web-new/ && cp dist/assets/* /tmp/pc-web-new/assets/`
+- 然后 `docker restart erp-pc-web`, 通过 `curl http://127.0.0.1:18080/index.html` 验证引用了新 bundle
+
+### v1.1.31 (2026-09-05) — 销售出库审核库存不足无提示
 
 ## 飞鹅云打印架构 (v1.0.4+)
 
