@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.33 (改用 el-input + 自定义清洗彻底修复小数点无法输入)
+**当前版本**: v1.1.34 (侧边栏 4 个菜单图标缺失)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -10,6 +10,31 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
 
 ## changelog (倒序)
+
+### v1.1.34 (2026-09-05) — 侧边栏 4 个菜单图标缺失 (补 Sell/Grid/DataAnalysis/Odometer)
+
+**症状**: 用户截图显示侧边栏 **销售管理 / 库存管理 / 报表中心** 三个主菜单左侧没有图标 (空白方块位置), **工作台** 也没图标. 其余菜单 (系统管理/基础资料/采购管理/生产管理/应收应付) 图标正常.
+
+**根因**: `pc-web/src/layouts/MainLayout.vue` 用 `<component :is="m.icon" />` **字符串式** 渲染图标, 要求图标必须在 `app.component(name, Component)` 注册. `main.js` 注册列表漏了 4 个:
+- `Sell` → 销售管理
+- `Grid` → 库存管理
+- `DataAnalysis` → 报表中心
+- `Odometer` → 工作台
+
+**修复**: `pc-web/src/main.js` import 与注册循环各补 4 个:
+```js
+// import 末尾:
+import { ..., Sell, Grid, Odometer } from '@element-plus/icons-vue'
+// (DataAnalysis 已在列表中, 不重复)
+// 注册循环末尾:
+;[..., Sell, Grid, Odometer].forEach(c => app.component(c.name, c))
+```
+
+**验证**: 4 个图标文件确实存在 (`@element-plus/icons-vue/dist/types/components/{sell,grid,odometer,data-analysis}.vue.d.ts`), 不是拼写错误.
+
+**GitHub**: `8cdc861` (已推送)
+
+---
 
 ### v1.1.33 (2026-09-05) — 改用 el-input 彻底修复小数点无法输入
 
@@ -347,7 +372,7 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 - [ ] 浏览器访问 `http://NAS-IP:18080` 正常
 - [ ] 登录测试: `admin` / `admin123`
 
-## 变更日志 (v1.0.10 ~ v1.1.31)
+## 变更日志 (v1.0.10 ~ v1.1.34)
 
 ### v1.1.31 (2026-09-02) — 销售出库审核库存不足无提示 (ElMessageBox 样式 + alert 强制可见)
 
