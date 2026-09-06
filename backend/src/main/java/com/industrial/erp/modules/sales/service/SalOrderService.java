@@ -173,7 +173,9 @@ public class SalOrderService {
         }
     }
 
-    /** v1.1.11+ 审核销售订单 (status-only, 下游出库单触发库存账) */
+    /** v1.1.11+ 审核销售订单 (status-only, 下游出库单触发库存账)
+     *  v1.1.35-1: 改用 LambdaUpdateWrapper 只 SET billStatus,
+     *  避免 SalOrderMapper.xml 自定义 updateById 全字段 SET 把 bill_no 等列覆盖成 NULL */
     @Transactional(rollbackFor = Exception.class)
     public void check(Long id) {
         permService.requirePerm("sales:order:check");
@@ -182,13 +184,13 @@ public class SalOrderService {
         if (!Constants.STATUS_DRAFT.equals(order.getBillStatus())) {
             throw BizException.of("只有草稿状态可审核");
         }
-        SalOrder upd = new SalOrder();
-        upd.setId(id);
-        upd.setBillStatus(Constants.STATUS_CHECKED);
-        orderMapper.updateById(upd);
+        orderMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<SalOrder>()
+                .eq(SalOrder::getId, id)
+                .set(SalOrder::getBillStatus, Constants.STATUS_CHECKED));
     }
 
-    /** v1.1.11+ 反审核销售订单 (CHECKED→DRAFT) */
+    /** v1.1.11+ 反审核销售订单 (CHECKED→DRAFT)
+     *  v1.1.35-1: 同 check(), 改用 LambdaUpdateWrapper 避免全字段覆盖 */
     @Transactional(rollbackFor = Exception.class)
     public void uncheck(Long id) {
         permService.requirePerm("sales:order:uncheck");
@@ -197,9 +199,8 @@ public class SalOrderService {
         if (!Constants.STATUS_CHECKED.equals(order.getBillStatus())) {
             throw BizException.of("只有已审核状态可反审核");
         }
-        SalOrder upd = new SalOrder();
-        upd.setId(id);
-        upd.setBillStatus(Constants.STATUS_DRAFT);
-        orderMapper.updateById(upd);
+        orderMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<SalOrder>()
+                .eq(SalOrder::getId, id)
+                .set(SalOrder::getBillStatus, Constants.STATUS_DRAFT));
     }
 }
