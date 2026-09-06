@@ -73,6 +73,7 @@ const id = String(route.params.id || 'new')
 
 const BIZ_OPTIONS = [
   { value: 'SAL_DELIVERY', label: BIZ_TYPE_LABEL.SAL_DELIVERY },
+  { value: 'SAL_ORDER',    label: BIZ_TYPE_LABEL.SAL_ORDER },
   { value: 'PUR_RECEIPT',  label: BIZ_TYPE_LABEL.PUR_RECEIPT },
   { value: 'PUR_RETURN',   label: BIZ_TYPE_LABEL.PUR_RETURN },
   { value: 'SAL_RETURN',   label: BIZ_TYPE_LABEL.SAL_RETURN },
