@@ -83,6 +83,7 @@ import { ElMessage } from 'element-plus'
 
 const BIZ_TYPE_OPTIONS = [
   { label: '生产加工单', value: 'PRD_ORDER' },
+  { label: '销售订单', value: 'SAL_ORDER' },
   { label: '销售出库单', value: 'SAL_DELIVERY' },
   { label: '销售退货单', value: 'SAL_RETURN' },
   { label: '采购入库单', value: 'PUR_RECEIPT' },
@@ -90,7 +91,7 @@ const BIZ_TYPE_OPTIONS = [
   { label: '库存盘点单', value: 'INV_CHECK' }
 ]
 const BIZ_TYPE_MAP = {
-  PRD_ORDER: '生产加工单', SAL_DELIVERY: '销售出库单', SAL_RETURN: '销售退货单',
+  PRD_ORDER: '生产加工单', SAL_ORDER: '销售订单', SAL_DELIVERY: '销售出库单', SAL_RETURN: '销售退货单',
   PUR_RECEIPT: '采购入库单', PUR_RETURN: '采购退货单', INV_CHECK: '库存盘点单'
 }
 
