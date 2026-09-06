@@ -202,4 +202,36 @@ class SalDeliveryServiceTest {
         lenient().doNothing().when(permService).requirePerm(any());
         lenient().when(billNoGenerator.generate(any())).thenReturn("CKP20260820001");
     }
+
+    // v1.1.35: 验证订单→出库联动字段写入 (BaseMapper.insert 自动写 orderId/orderNo/orderDetailId)
+    @Test
+    @DisplayName("add 从订单生成: orderId/orderNo/orderDetailId 联动字段全部写入主表+明细")
+    void add_fromOrder_writesLinkageFields() {
+        SalDelivery delivery = buildDelivery(BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("13.00"));
+        delivery.setOrderId(987654321L);
+        delivery.setOrderNo("SO202609060001");
+        delivery.getDetails().get(0).setOrderDetailId(111222333L);
+        captureInserted(delivery);
+        doNothing();
+
+        service.add(delivery);
+
+        // 验证主表联动字段
+        assertThat(delivery.getOrderId()).isEqualTo(987654321L);
+        assertThat(delivery.getOrderNo()).isEqualTo("SO202609060001");
+
+        // 验证明细联动字段
+        SalDeliveryDetail detail = delivery.getDetails().get(0);
+        assertThat(detail.getOrderDetailId()).isEqualTo(111222333L);
+
+        // 验证 insert 收到的 payload 包含联动字段 (BaseMapper.insert 才能写到 DB)
+        ArgumentCaptor<SalDelivery> mainCap = ArgumentCaptor.forClass(SalDelivery.class);
+        verify(deliveryMapper).insert(mainCap.capture());
+        assertThat(mainCap.getValue().getOrderId()).isEqualTo(987654321L);
+        assertThat(mainCap.getValue().getOrderNo()).isEqualTo("SO202609060001");
+
+        ArgumentCaptor<SalDeliveryDetail> detailCap = ArgumentCaptor.forClass(SalDeliveryDetail.class);
+        verify(detailMapper).insert(detailCap.capture());
+        assertThat(detailCap.getValue().getOrderDetailId()).isEqualTo(111222333L);
+    }
 }

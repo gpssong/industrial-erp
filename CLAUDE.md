@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.34 (侧边栏 4 个菜单图标缺失)
+**当前版本**: v1.1.35 (销售订单「生成出库单」一键联动入口)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -10,6 +10,34 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
 
 ## changelog (倒序)
+
+### v1.1.35 (2026-09-06) — 销售订单「生成出库单」一键联动入口
+
+**症状**: 销售订单审核后, 仓库需要重新录入一份 `sal_delivery` (重复录客户/商品/价格), schema 里预留的 `order_id` / `order_no` / `order_detail_id` / `out_qty` 联动字段一直是死代码 (grep 验证 0 个 `fromOrder` / `setOutQty` 调用).
+
+**方案**: 销售订单列表 (仅 `CHECKED` 状态) 加「生成出库单」按钮 → 轻量级弹窗 → 自动带入订单客户 / 仓库 / 商品明细 → 用户改仓库 / 库位 / 批次 → 保存为草稿 → 走现有 `salDeliveryApi.add()` 流程 (审核 / 反审核 / AR / 库存账完全不动).
+
+**改动**:
+- 后端: **0 行代码** (SalDeliveryMapper.xml 只有 `<select>`, BaseMapper.insert 自动写 entity 字段)
+- 前端: `pc-web/src/views/sales/Order.vue` 加按钮 + 弹窗 + `onGenerateDelivery` / `onConfirmGenerate` + 复用 v1.1.33 `normNum` (≈180 行)
+- SQL: **0 改动** (`sal_delivery.order_id` / `order_no` / `sal_delivery_detail.order_detail_id` 列已存在; `sales:delivery:add` perm 已 seed)
+- 测试: `SalDeliveryServiceTest#add_fromOrder_writesLinkageFields` 通过
+
+**关键发现**: SalDelivery 实体 `orderId` / `orderNo` 字段不是 `@TableField(exist=false)`, 所以 Jackson 反序列化 → BaseMapper.insert 自动写入 DB. **前端传联动字段 → 后端零改动**.
+
+**用户决策** (2026-09-06):
+- 默认数量 = 订单明细 qty (全量). 多笔出库 / 部分发货靠用户后续手动减
+- 状态守卫: 仅 CHECKED 订单显示按钮
+- 弹窗设计: 轻量级内联弹窗 (不抽取公共组件)
+
+**未启用** (留待后续版本):
+- `sal_order_detail.out_qty` 累计回写 (需 SQL + SalOrderService.check 后置调用)
+- 订单状态机 PICKING/FINISHED 自动推进
+- 订单审核即扣库存 (见 v1.1.34 风险分析, 不建议)
+
+**验证**: T1 单测通过 (`mvn test -Dtest='SalDeliveryServiceTest#add_fromOrder_writesLinkageFields'` → BUILD SUCCESS). T2 pc-web build 通过 (`Order-DqF1mThT.js` 新 chunk).
+
+---
 
 ### v1.1.34 (2026-09-05) — 侧边栏 4 个菜单图标缺失 (补 Sell/Grid/DataAnalysis/Odometer)
 
