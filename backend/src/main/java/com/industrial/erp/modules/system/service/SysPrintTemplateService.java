@@ -23,7 +23,7 @@ public class SysPrintTemplateService {
 
     /** 业务类型白名单 */
     public static final Set<String> BIZ_TYPES = Set.of(
-            "SAL_DELIVERY", "PUR_RECEIPT", "PUR_RETURN", "SAL_RETURN", "PRD_ORDER"
+            "SAL_DELIVERY", "PUR_RECEIPT", "PUR_RETURN", "SAL_RETURN", "PRD_ORDER", "SAL_ORDER"
     );
 
     public SysPrintTemplateService(SysPrintTemplateMapper mapper,

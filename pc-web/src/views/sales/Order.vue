@@ -21,7 +21,7 @@
         <el-table-column label="状态" width="80">
           <template #default="{ row }"><el-tag :type="row.billStatus==='DRAFT'?'info':'success'">{{ row.billStatus }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="290" fixed="right">
+        <el-table-column label="操作" width="370" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('sales:order:edit')" link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
             <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('sales:order:delete')" link type="danger" size="small" @click="onDelete(row)">删除</el-button>
@@ -29,6 +29,19 @@
             <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('sales:order:uncheck')" link type="warning" size="small" @click="onUncheck(row)">反审核</el-button>
             <!-- v1.1.35: 已审核订单一键生成销售出库 (走现有 salDeliveryApi.add) -->
             <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('sales:delivery:add')" link type="primary" size="small" @click="onGenerateDelivery(row)">生成出库单</el-button>
+            <!-- v1.1.36: 打印 (浏览器 + 飞鹅云, 与 Delivery.vue 同模式) -->
+            <el-dropdown v-if="['DRAFT','CHECKED'].includes(row.billStatus)" trigger="click" @command="(cmd) => onPrintCommand(cmd, row)">
+              <el-button link type="warning" size="small">
+                打印<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="browser">浏览器打印</el-dropdown-item>
+                  <el-dropdown-item command="feie-preview">飞鹅打印预览</el-dropdown-item>
+                  <el-dropdown-item command="feie-print" divided>飞鹅云打印</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -168,6 +181,17 @@
         <el-button type="primary" @click="onConfirmGenerate" :loading="submitting">保存为草稿</el-button>
       </template>
     </el-dialog>
+
+    <!-- 飞鹅云打印预览弹窗 (v1.1.36) -->
+    <el-dialog v-model="feiePreviewVisible" title="飞鹅云打印预览" width="560px" destroy-on-close>
+      <div v-loading="feiePreviewLoading" style="min-height:200px;">
+        <pre style="white-space:pre-wrap;font-family:SimSun,monospace;font-size:12px;background:#fafafa;padding:12px;border-radius:4px;max-height:500px;overflow:auto;">{{ feiePreviewHtml }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="feiePreviewVisible=false">关闭</el-button>
+        <el-button type="primary" :loading="feiePrinting" :disabled="!feiePreviewHtml" @click="feieConfirmPrint">确认打印</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -177,6 +201,9 @@ import { salOrderApi, salDeliveryApi } from '@/api/sales'
 import { useUserStore } from '@/store/user'
 import { customerApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
+import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
+import { feiePrintApi } from '@/api/feie'
+import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 // v1.1.33: el-input + inputmode=decimal 数字归一化 (与 Delivery.vue 同模式)
@@ -410,6 +437,94 @@ async function onSubmit() {
 }
 
 onMounted(loadData)
+
+// ==================== v1.1.36: 打印 ====================
+// 浏览器打印 (myprint-design)
+const { doPrint } = usePrint()
+const SAL_ORDER_HEADER_MAP = {
+  billNo: 'billNo',
+  billDate: 'billDate',
+  customerName: 'customerName',
+  phone: 'phone',
+  deliveryDate: 'deliveryDate',
+  payType: 'payType',
+  totalQty: 'totalQty',
+  totalAmount: 'totalAmount',
+  remark: 'remark'
+}
+const SAL_ORDER_DETAIL_MAP = {
+  lineNo: 'lineNo',
+  productCode: 'productCode',
+  productName: 'productName',
+  model: 'pModel',
+  spec: 'spec',
+  unitName: 'unitName',
+  qty: 'qty',
+  price: 'price',
+  amount: 'amount',
+  taxRate: 'taxRate',
+  batchNo: 'batchNo'
+}
+async function onPrint(row) {
+  try {
+    const r = await salOrderApi.detail(row.id)
+    await doPrint({
+      bizType: BIZ_TYPES.SAL_ORDER,
+      bill: r.data || {},
+      fieldMap: SAL_ORDER_HEADER_MAP,
+      detailsKey: 'details',
+      detailFieldMap: SAL_ORDER_DETAIL_MAP
+    })
+  } catch (e) {
+    ElMessage.error(e.message || '打印失败')
+  }
+}
+
+// 飞鹅云打印
+const feiePreviewVisible = ref(false)
+const feiePreviewLoading = ref(false)
+const feiePreviewHtml = ref('')
+const feiePrinting = ref(false)
+let feiePendingBillId = null
+const feieCurrentBizType = ref('SAL_ORDER')
+
+async function feiePreview(row) {
+  feiePreviewLoading.value = true
+  try {
+    feiePendingBillId = row.id
+    feiePreviewHtml.value = ''
+    feiePreviewVisible.value = true
+    const r = await feiePrintApi.preview('SAL_ORDER', row.id)
+    feiePreviewHtml.value = r.data || ''
+  } catch (e) {
+    ElMessage.error('飞鹅预览失败: ' + (e.message || '未知错误'))
+    feiePreviewVisible.value = false
+  } finally { feiePreviewLoading.value = false }
+}
+
+async function feieDirectPrint(row) {
+  feiePreview(row) // 先弹预览弹窗, 让用户可看一眼再确认打印
+}
+
+async function feieConfirmPrint() {
+  if (!feiePendingBillId) return
+  feiePrinting.value = true
+  try {
+    const res = await feiePrintApi.print('SAL_ORDER', feiePendingBillId)
+    ElMessage.success(res.msg || '打印成功')
+    feiePreviewVisible.value = false
+  } catch (e) {
+    ElMessage.error('飞鹅打印失败: ' + (e.message || '未知错误'))
+  } finally { feiePrinting.value = false }
+}
+
+function onPrintCommand(cmd, row) {
+  if (cmd === 'browser') return onPrint(row)
+  if (cmd === 'feie-preview' || cmd === 'feie-print') {
+    feieCurrentBizType.value = 'SAL_ORDER'
+    return cmd === 'feie-preview' ? feiePreview(row) : feieDirectPrint(row)
+  }
+}
 </script>
 
 <style scoped>

@@ -21,7 +21,8 @@ export const BIZ_TYPES = Object.freeze({
   PUR_RECEIPT:  'PUR_RECEIPT',
   PUR_RETURN:   'PUR_RETURN',
   SAL_RETURN:   'SAL_RETURN',
-  PRD_ORDER:    'PRD_ORDER'
+  PRD_ORDER:    'PRD_ORDER',
+  SAL_ORDER:    'SAL_ORDER'
 })
 
 export const BIZ_TYPE_LABEL = Object.freeze({
@@ -29,7 +30,8 @@ export const BIZ_TYPE_LABEL = Object.freeze({
   PUR_RECEIPT:  '采购入库单',
   PUR_RETURN:   '采购退货单',
   SAL_RETURN:   '销售退货单',
-  PRD_ORDER:    '生产加工单'
+  PRD_ORDER:    '生产加工单',
+  SAL_ORDER:    '销售订单'
 })
 
 /**
