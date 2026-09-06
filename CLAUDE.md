@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.35-1 (hotfix: 销售订单审核 bill_no NULL 报错)
+**当前版本**: v1.1.36 (销售订单补打印按钮)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -10,6 +10,32 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
 
 ## changelog (倒序)
+
+### v1.1.36 (2026-09-06) — 销售订单补打印按钮
+
+**症状**: 销售出库单 `Delivery.vue` 有浏览器打印 + 飞鹅云打印 dropdown, 但销售订单 `Order.vue` 完全没有打印能力.
+
+**根因**: 
+- `SysPrintTemplateService.BIZ_TYPES` 白名单没有 `SAL_ORDER` → 即使手动调 API 也会返回 null
+- 没有 `BillLoader` 实现 → 飞鹅预览 `POST /feie/print/SAL_ORDER/{id}/preview` 会抛 "不支持的单据类型"
+- 没有 ftl 模板 → 渲染失败
+- 前端 `usePrint.js` 没有 `SAL_ORDER` 枚举 → `doPrint` 的 bizType 无效
+
+**方案**: 
+- 后端: 白名单 + BillLoader + ftl 模板三件套全补上
+- 前端: `usePrint.js` 加枚举, `Order.vue` 操作列加打印 dropdown (browser/feie-preview/feie-print)
+
+**改动**:
+- `backend/.../SysPrintTemplateService.java`: BIZ_TYPES 加 `"SAL_ORDER"` (1行)
+- `backend/.../bill/SalOrderBillLoader.java`: 新增 (≈55行), 加载 SalOrder + 明细, 注入 pModel
+- `backend/.../templates/print/sal_order_feie.ftl`: 新增 (≈28行)
+- `pc-web/src/composables/usePrint.js`: BIZ_TYPES + BIZ_TYPE_LABEL 各加 SAL_ORDER (6行)
+- `pc-web/src/views/sales/Order.vue`: 操作列 width 290→370, 加打印 dropdown + 飞鹅预览弹窗 + onPrint/onPrintCommand 等 (~110行)
+
+**验证**:
+- `GET /api/system/print-template/biz-type/SAL_ORDER` → 200, data=null (未创建模板时正常)
+- `GET /api/feie/print/SAL_ORDER/{id}/preview` → 200, 返回渲染后的飞鹅标签文本
+- 测试数据: 订单 `SO202609060001` → 预览返回 `<CB>销售订单</CB><BR>单号: SO202609060001...合计: ¥7,910` ✅
 
 ### v1.1.35-1 (2026-09-06) — 销售订单审核 bill_no NULL 报错 hotfix
 
