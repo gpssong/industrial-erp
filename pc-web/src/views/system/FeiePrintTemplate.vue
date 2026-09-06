@@ -143,6 +143,7 @@ import { feiePrintApi } from '@/api/feie'
 // 单据类型选项
 const BIZ_TYPE_OPTIONS = [
   { label: '生产加工单', value: 'PRD_ORDER' },
+  { label: '销售订单', value: 'SAL_ORDER' },
   { label: '销售出库单', value: 'SAL_DELIVERY' },
   { label: '销售退货单', value: 'SAL_RETURN' },
   { label: '采购入库单', value: 'PUR_RECEIPT' },
@@ -150,7 +151,7 @@ const BIZ_TYPE_OPTIONS = [
   { label: '库存盘点单', value: 'INV_CHECK' }
 ]
 const BIZ_TYPE_MAP = {
-  PRD_ORDER: '生产加工单', SAL_DELIVERY: '销售出库单', SAL_RETURN: '销售退货单',
+  PRD_ORDER: '生产加工单', SAL_ORDER: '销售订单', SAL_DELIVERY: '销售出库单', SAL_RETURN: '销售退货单',
   PUR_RECEIPT: '采购入库单', PUR_RETURN: '采购退货单', INV_CHECK: '库存盘点单'
 }
 
@@ -190,6 +191,32 @@ const FIELD_DOC = {
       { name: 'qty', desc: '领料数量' },
       { name: 'unitName', desc: '单位' },
       { name: 'lineNo', desc: '行号' },
+      { name: 'batchNo', desc: '批次' }
+    ]
+  },
+  SAL_ORDER: {
+    main: [
+      { name: 'billNo', desc: '订单号' },
+      { name: 'billDate', desc: '单据日期' },
+      { name: 'customerName', desc: '客户名称' },
+      { name: 'phone', desc: '客户电话' },
+      { name: 'deliveryDate', desc: '交货日期' },
+      { name: 'payType', desc: '付款方式' },
+      { name: 'totalQty', desc: '总数量' },
+      { name: 'totalAmount', desc: '总金额' },
+      { name: 'remark', desc: '备注' }
+    ],
+    detail: [
+      { name: 'lineNo', desc: '行号' },
+      { name: 'productCode', desc: '商品编码' },
+      { name: 'productName', desc: '商品名称' },
+      { name: 'pModel', desc: '型号' },
+      { name: 'spec', desc: '规格' },
+      { name: 'unitName', desc: '单位' },
+      { name: 'qty', desc: '数量' },
+      { name: 'price', desc: '单价(含税)' },
+      { name: 'amount', desc: '金额' },
+      { name: 'taxRate', desc: '税率(%)' },
       { name: 'batchNo', desc: '批次' }
     ]
   },
