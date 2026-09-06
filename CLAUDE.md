@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.35 (销售订单「生成出库单」一键联动入口)
+**当前版本**: v1.1.35-1 (hotfix: 销售订单审核 bill_no NULL 报错)
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
@@ -10,6 +10,34 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
 
 ## changelog (倒序)
+
+### v1.1.35-1 (2026-09-06) — 销售订单审核 bill_no NULL 报错 hotfix
+
+**症状**: 销售订单审核 (`POST /api/sales/order/{id}/check`) 抛 `java.sql.SQLIntegrityConstraintViolationException: Column 'bill_no' cannot be null`. 错误堆栈明确指向 `SalOrderMapper.updateById-Inline` —— 即走的是 XML 里自定义的 `<update id="updateById">`.
+
+**根因**: `SalOrderMapper.xml` 自 v1.0 初始化 (93d4932) 起就有自定义 `<update id="updateById">` (line 23-36), **全字段 SET** (`bill_no = #{et.billNo}, bill_date = #{et.billDate}, ...`). MyBatis Plus 找到自定义 XML 后优先于默认行为, 即使实体字段为 NULL 也会写入 SQL 参数.
+
+- `SalOrderService.check()` (line 185-188 原版) 只 set 了 `id` + `billStatus`, 其他字段都是 NULL → UPDATE 时 `bill_no` 被覆盖成 NULL → 触发 NOT NULL 约束
+- 同理 `uncheck()` (line 200-203 原版) 也有同样 BUG
+- `delete()` 用的是 `LambdaUpdateWrapper.set(SalOrder::getDeleted, 1)`, 所以没受影响
+- `SalDeliveryMapper.xml` 没自定义 updateById, 所以出库单没这问题
+
+**为什么 v1.1.11 引入审核功能时没发现**: 历史 UAT 没人实际点过「审核」按钮, 或者后续 BUG 被噪音盖过.
+
+**方案**: `check()` / `uncheck()` 改用 `LambdaUpdateWrapper.eq(SalOrder::getId, id).set(SalOrder::getBillStatus, ...)`, 只 SET 一个字段, 其他列保持不变. 跟 `delete()` 同样模式.
+
+**改动**:
+- `backend/.../SalOrderService.java`: check + uncheck 改 LambdaUpdateWrapper (共 -10 行 +12 行)
+- `backend/.../SalOrderServiceTest.java`: +3 测试 (check_usesLambdaUpdateWrapper / uncheck_usesLambdaUpdateWrapper / check_wrongStatus_throws), 用 `@BeforeAll initTableInfo` + `MapperBuilderAssistant` 初始化 lambda cache
+- 其他: 0 改动
+
+**验证 (NAS 部署后)**:
+- `POST /api/sales/order/2096482979270463489/check` → `{"code":200,"msg":"操作成功"}` ✅
+- DB 字段保留: `bill_no=SO202609060001, bill_status=CHECKED, customer_id=..., customer_name=7412, total_amount=7910` ✅
+- 反审核 + 再审核: 均 200 ✅
+- 单测: `SalOrderServiceTest` 5/5 + `SalDeliveryServiceTest` 6/6 全过 ✅
+
+**未修复** (留 v1.1.36+): `SalOrderMapper.xml` 全字段 updateById 是历史债, 修风险大 (影响 `update()` 编辑订单路径), 本次只针对 check/uncheck. 后续可考虑删 XML 自定义 updateById 让所有路径走 MyBatis Plus 默认.
 
 ### v1.1.35 (2026-09-06) — 销售订单「生成出库单」一键联动入口
 
