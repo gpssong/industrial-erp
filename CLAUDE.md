@@ -1,6 +1,33 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.36 (销售订单补打印按钮)
+**当前版本**: v1.1.37 (销售订单新增采购订单号、交货方式)
+
+### v1.1.37 (2026-09-06) — 销售订单新增采购订单号、交货方式字段
+
+**症状**: 销售订单编辑弹窗缺「采购订单号」和「交货方式」输入框, 业务上需要记录客户 PO 号和送货/自提等交货方式.
+
+**根因**:
+- `sal_order` 表无 `po_no` / `delivery_method` 列
+- `SalOrder.java` 实体无对应字段
+- `Order.vue` 编辑弹窗只有客户 / 仓库 / 交货日期 / 付款方式 / 备注, 无 PO 号 / 交货方式
+
+**方案**:
+- 后端: `sal_order` 加 `po_no VARCHAR(64)` + `delivery_method VARCHAR(32)` 列, 索引 `idx_po_no`
+- 实体: `SalOrder.java` 加 `poNo` / `deliveryMethod` + getter/setter (MyBatis Plus BaseMapper.insert/update 自动写入)
+- 前端: `Order.vue` 编辑弹窗增加采购订单号输入框 + 交货方式下拉 (送货/自提/专车直送)
+- 打印模板: 修正 `deliveryMethod` 字段绑定 (原来误绑 deliveryDate), 明细表「采购订单号」列绑定改为 `poNo` (订单头字段)
+
+**改动**:
+- `sql/30_add_sales_order_po_delivery.sql`: 新增迁移脚本 (幂等, INSERT IF NOT EXISTS)
+- `backend/.../sales/entity/SalOrder.java`: 加 `poNo` / `deliveryMethod` 字段 + getter/setter (+8 行)
+- `pc-web/src/views/sales/Order.vue`: 编辑弹窗加采购订单号 + 交货方式输入框 (+12 行), `SAL_ORDER_HEADER_MAP` 加 poNo/deliveryMethod
+- `sys_print_template.content`: 更新模板, field `deliveryMethod` 修正, 明细表采购订单号列从 `batchNo` 改 `poNo`
+
+**验证**:
+- DB: `SHOW COLUMNS FROM sal_order` 看到 `po_no VARCHAR(64)` / `delivery_method VARCHAR(32)` ✅
+- 旧数据 `po_no=NULL` / `delivery_method=NULL` (兼容)
+- 前端构建: `Order-CNroBjW5.js` (新 chunk, 9997 字节) ✅
+- 打印模板字段映射: `deliveryMethod` / `poNo` 正确绑定 ✅
 
 Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 

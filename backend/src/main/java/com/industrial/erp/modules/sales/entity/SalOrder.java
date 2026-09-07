@@ -39,6 +39,8 @@ public class SalOrder {
     private LocalDate deliveryDate;
     private String address;
     private String phone;
+    private String poNo;
+    private String deliveryMethod;
     private String billStatus;
     private Long sourceBillId;
     private String remark;
@@ -51,6 +53,10 @@ public class SalOrder {
 
     @TableField(exist = false)
     private List<SalOrderDetail> details;
+
+    /** 仓库名称 (打印模板预览用, Service.detail() 注入) */
+    @TableField(exist = false)
+    private transient String warehouseName;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -100,6 +106,10 @@ public class SalOrder {
     public void setAddress(String address) { this.address = address; }
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
+    public String getPoNo() { return poNo; }
+    public void setPoNo(String poNo) { this.poNo = poNo; }
+    public String getDeliveryMethod() { return deliveryMethod; }
+    public void setDeliveryMethod(String deliveryMethod) { this.deliveryMethod = deliveryMethod; }
     public String getBillStatus() { return billStatus; }
     public void setBillStatus(String billStatus) { this.billStatus = billStatus; }
     public Long getSourceBillId() { return sourceBillId; }
@@ -118,4 +128,6 @@ public class SalOrder {
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
     public List<SalOrderDetail> getDetails() { return details; }
     public void setDetails(List<SalOrderDetail> details) { this.details = details; }
+    public String getWarehouseName() { return warehouseName; }
+    public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
 }
