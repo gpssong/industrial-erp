@@ -19,7 +19,7 @@
         <!-- v1.1.19+: 含税单价口径, totalAmount = totalAmountTax = 开单金额, 只显示「金额」一列 -->
         <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
         <el-table-column label="状态" width="80">
-          <template #default="{ row }"><el-tag :type="row.billStatus==='DRAFT'?'info':'success'">{{ row.billStatus }}</el-tag></template>
+          <template #default="{ row }"><el-tag :type="row.billStatus==='DRAFT'?'info':'success'">{{ row.billStatus === 'DRAFT' ? '草稿' : '已审核' }}</el-tag></template>
         </el-table-column>
         <el-table-column label="操作" width="370" fixed="right">
           <template #default="{ row }">
@@ -68,7 +68,18 @@
             <el-option label="月结" value="MONTHLY" />
             <el-option label="货到付款" value="ARRIVAL" />
           </el-select></el-form-item></el-col>
+          <!-- v1.1.37: 采购订单号 (客户 PO 号) -->
+          <el-col :span="8"><el-form-item label="采购订单号"><el-input v-model="form.poNo" placeholder="客户PO号" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="交货方式"><el-select v-model="form.deliveryMethod" style="width:100%">
+            <el-option label="送货" value="DELIVERY" />
+            <el-option label="自提" value="PICKUP" />
+            <el-option label="专车直送" value="DIRECT" />
+          </el-select></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="12">
           <el-col :span="16"><el-form-item label="备注"><el-input v-model="form.remark" /></el-form-item></el-col>
+          <!-- 留空占位保持列对齐 (无新字段时可删) -->
+          <el-col :span="8"></el-col>
         </el-row>
         <!-- 商品明细 -->
         <el-form-item label="明细">
@@ -441,13 +452,14 @@ onMounted(loadData)
 // ==================== v1.1.36: 打印 ====================
 // 浏览器打印 (myprint-design)
 const { doPrint } = usePrint()
+// v1.1.38: 打印 header/detail map 对齐销售出库单 (SAL_DELIVERY)
 const SAL_ORDER_HEADER_MAP = {
   billNo: 'billNo',
   billDate: 'billDate',
   customerName: 'customerName',
+  warehouseName: 'warehouseName',
+  address: 'address',
   phone: 'phone',
-  deliveryDate: 'deliveryDate',
-  payType: 'payType',
   totalQty: 'totalQty',
   totalAmount: 'totalAmount',
   remark: 'remark'
@@ -457,13 +469,15 @@ const SAL_ORDER_DETAIL_MAP = {
   productCode: 'productCode',
   productName: 'productName',
   model: 'pModel',
+  colorNo: 'pColorNo',
   spec: 'spec',
   unitName: 'unitName',
   qty: 'qty',
   price: 'price',
   amount: 'amount',
   taxRate: 'taxRate',
-  batchNo: 'batchNo'
+  batchNo: 'batchNo',
+  locationName: 'locationName'
 }
 async function onPrint(row) {
   try {

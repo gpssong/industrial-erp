@@ -139,6 +139,38 @@ function buildProviderElementList(bizType) {
     { type: 'Text', field: 'colorNo', label: '色号', width: 30, height: 8 }
   )
 
+  if (t === 'SAL_ORDER') {
+    list.push(
+      { type: 'Text', field: 'customerName', label: '客户名称', width: 60, height: 8 },
+      { type: 'Text', field: 'phone', label: '客户电话', width: 50, height: 8 },
+      { type: 'Text', field: 'deliveryDate', label: '交货日期', width: 40, height: 8 },
+      { type: 'Text', field: 'poNo', label: '采购订单号', width: 50, height: 8 },
+      { type: 'Text', field: 'deliveryMethod', label: '交货方式', width: 40, height: 8 },
+      { type: 'Text', field: 'totalQty', label: '合计数量', width: 30, height: 8 },
+      { type: 'Text', field: 'totalAmount', label: '合计金额', width: 30, height: 8 },
+      { type: 'Text', field: 'totalAmountTax', label: '价税合计', width: 30, height: 8 },
+      { type: 'DataTable', field: 'details', label: '商品明细表', width: 180, height: 100,
+        option: { fontFamily: 'heiti', fontSize: 11 },
+        columnList: [
+          { type: 'Text', field: 'lineNo', label: '序号', width: 10, height: 8 },
+          { type: 'Text', field: 'productCode', label: '商品编码', width: 30, height: 8 },
+          { type: 'Text', field: 'productName', label: '商品名称', width: 40, height: 8 },
+          { type: 'Text', field: 'model', label: '型号', width: 35, height: 8 },
+          { type: 'Text', field: 'colorNo', label: '色号', width: 25, height: 8 },
+          { type: 'Text', field: 'spec', label: '规格', width: 25, height: 8 },
+          { type: 'Text', field: 'unitName', label: '单位', width: 15, height: 8 },
+          { type: 'Text', field: 'qty', label: '数量', width: 20, height: 8 },
+          { type: 'Text', field: 'price', label: '单价(含税)', width: 25, height: 8 },
+          { type: 'Text', field: 'amount', label: '金额', width: 25, height: 8 },
+          { type: 'Text', field: 'batchNo', label: '批次', width: 25, height: 8 },
+          { type: 'Text', field: 'poNo', label: '采购订单号', width: 40, height: 8 },
+          { type: 'Text', field: 'remark', label: '备注', width: 35, height: 8 }
+        ] },
+      { type: 'Text', contentType: 'Barcode', field: 'billNo', label: '条形码(单据号)', width: 60, height: 20,
+        option: { barcodeFormat: 'CODE128' } },
+      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 }
+    )
+  }
   if (t === 'SAL_DELIVERY' || t === 'SAL_RETURN') {
     list.push(
       { type: 'Text', field: 'customerName', label: '客户名称', width: 60, height: 8 },
@@ -262,6 +294,51 @@ function buildSamplePreviewData(bizType) {
     remark: '含税价. 仅作设计器示例, 不影响实际打印.'
   }
   const map = {
+    SAL_ORDER: {
+      billNo: 'SO202609060001',
+      billDate: '2026-09-06',
+      customerName: '示例客户有限公司',
+      phone: '021-12345678',
+      deliveryDate: '2026-09-15',
+      poNo: 'PO-CLIENT-2026-001',
+      deliveryMethod: '送货上门',
+      totalQty: 100.50,
+      totalAmount: 5025.00,
+      totalAmountTax: 5025.00,
+      remark: '含税价. 仅作设计器示例, 不影响实际打印.',
+      details: [
+        {
+          lineNo: 1,
+          productCode: 'P0001',
+          productName: '示例塑料薄膜 28μ',
+          model: 'M-001',
+          colorNo: '01-透明',
+          spec: '28*36*0.16',
+          unitName: '卷',
+          qty: 50.5,
+          price: 25.00,
+          amount: 1262.50,
+          batchNo: 'B2026-001',
+          poNo: 'PO-CLIENT-2026-001',
+          remark: '首批订单, 加急'
+        },
+        {
+          lineNo: 2,
+          productCode: 'P0002',
+          productName: '示例涂层膜 50μ',
+          model: 'M-002',
+          colorNo: '02-蓝色',
+          spec: '50*0.20',
+          unitName: '箱',
+          qty: 50,
+          price: 75.25,
+          amount: 3762.50,
+          batchNo: 'B2026-002',
+          poNo: 'PO-CLIENT-2026-001',
+          remark: ''
+        }
+      ]
+    },
     SAL_DELIVERY: {
       ...salesPreview,
       details: [

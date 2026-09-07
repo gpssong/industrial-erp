@@ -15,6 +15,18 @@ public class SalOrderDetail {
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
     private transient String pModel;
 
+    // v1.1.38: 打印模板"色号"列需要 pColorNo 字段
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private transient String pColorNo;
+
+    // v1.1.38: 打印模板"库位"列 (出库单对齐), transient
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private transient String locationName;
+
+    // v1.1.35+: BillLoader 从 SalOrder.poNo 注入的采购订单号 (暂存于明细行, 不入库)
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private transient String poNo;
+
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private Long orderId;
@@ -97,4 +109,19 @@ public class SalOrderDetail {
     /** 模板字段: model = 型号 */
     public String getModel() { return pModel; }
     public void setModel(String model) { this.pModel = model; }
+
+    // ===== v1.1.38: pColorNo / locationName (transient, JOIN 注入) =====
+    public String getPColorNo() { return pColorNo; }
+    public void setPColorNo(String pColorNo) { this.pColorNo = pColorNo; }
+    /** 模板字段: colorNo = 色号 */
+    public String getColorNo() { return pColorNo; }
+    public void setColorNo(String colorNo) { this.pColorNo = colorNo; }
+    public String getLocationName() { return locationName; }
+    public void setLocationName(String locationName) { this.locationName = locationName; }
+
+    // ===== v1.1.35+: poNo (BillLoader 从订单头注入, 不入库) =====
+    public String getPoNo() { return poNo; }
+    public void setPoNo(String poNo) { this.poNo = poNo; }
+    /** 模板字段: poNo = 采购订单号 (重复自订单头, 供明细表打印) */
+    public String getCustomerPoNo() { return poNo; }
 }

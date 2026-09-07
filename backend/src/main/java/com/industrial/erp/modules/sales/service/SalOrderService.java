@@ -7,7 +7,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
+import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
+import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.sales.entity.SalOrder;
 import com.industrial.erp.modules.sales.entity.SalOrderDetail;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
@@ -28,7 +30,7 @@ import java.util.List;
 @Service
 public class SalOrderService {
 
-    public SalOrderService(SalOrderMapper orderMapper, SalOrderDetailMapper detailMapper, BaseCustomerMapper customerMapper, BillNoGenerator billNoGenerator, PermissionService permService, SalDeliveryDetailMapper deliveryDetailMapper, OperLogPublisher operLogPublisher, com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper) {
+    public SalOrderService(SalOrderMapper orderMapper, SalOrderDetailMapper detailMapper, BaseCustomerMapper customerMapper, BillNoGenerator billNoGenerator, PermissionService permService, SalDeliveryDetailMapper deliveryDetailMapper, OperLogPublisher operLogPublisher, com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper) {
         this.orderMapper = orderMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
@@ -37,6 +39,7 @@ public class SalOrderService {
         this.deliveryDetailMapper = deliveryDetailMapper;
         this.operLogPublisher = operLogPublisher;
         this.productMapper = productMapper;
+        this.warehouseMapper = warehouseMapper;
     }
 
     private final SalOrderMapper orderMapper;
@@ -47,6 +50,7 @@ public class SalOrderService {
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
     private final com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper;
+    private final BaseWarehouseMapper warehouseMapper;
 
     public IPage<SalOrder> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus) {
         permService.requirePerm("sales:order:list");
@@ -62,12 +66,21 @@ public class SalOrderService {
     public SalOrder detail(Long id) {
         SalOrder o = orderMapper.selectById(id);
         if (o != null) o.setDetails(detailMapper.selectByOrderId(id));
+        // v1.1.38: 注入仓库名称 (对齐销售出库单)
+        if (o != null && o.getWarehouseId() != null) {
+            BaseWarehouse wh = warehouseMapper.selectById(o.getWarehouseId());
+            if (wh != null) o.setWarehouseName(wh.getWarehouseName());
+        }
         // v1.1.12+: 注入 model 字段 (打印模板"型号"列)
+        // v1.1.38: 同步注入 colorNo + locationName (对齐出库单明细字段)
         if (o != null && o.getDetails() != null) {
             com.industrial.erp.modules.base.service.ProductAttrInjector.inject(productMapper, o.getDetails(),
                     r -> ((SalOrderDetail) r).getProductId(),
                     (r, v) -> ((SalOrderDetail) r).setPModel(v),
                     p -> p.getModel());
+            com.industrial.erp.modules.base.service.ProductAttrInjector.injectColorNo(productMapper, o.getDetails(),
+                    r -> ((SalOrderDetail) r).getProductId(),
+                    (r, v) -> ((SalOrderDetail) r).setPColorNo(v));
         }
         return o;
     }

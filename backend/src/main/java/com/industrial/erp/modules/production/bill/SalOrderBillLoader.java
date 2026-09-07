@@ -46,6 +46,12 @@ public class SalOrderBillLoader implements BillLoader {
                     (d, v) -> d.setPModel(v),
                     p -> p.getModel());
         }
+        // 注入客户采购订单号 (poNo 是头字段, 明细行重复显示以便打印模板)
+        if (!details.isEmpty() && bill.getPoNo() != null) {
+            for (SalOrderDetail d : details) {
+                d.setPoNo(bill.getPoNo());
+            }
+        }
         Map<String, Object> model = new HashMap<>();
         model.put("bill", bill);
         model.put("details", details);
