@@ -2,6 +2,9 @@
 
 **当前版本**: v1.1.49 (P0 安全/部署修复: SecurityPreflightValidator + Testcontainers + build-app.sh)
 
+> **文档说明**: v1.1.49 起 changelog 拆分为 `docs/CHANGELOG.md` (完整历史) + 本文件顶部 (当前版本摘要)。
+> 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
+
 ## changelog (倒序)
 ### v1.1.49 (2026-09-13) — P0 安全/部署修复
 
