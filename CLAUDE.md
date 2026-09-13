@@ -42,6 +42,14 @@
 - Testcontainers 首次 mvn verify 要拉 mysql:8.0 镜像 (~500MB), 本地 mvn test 不受影响
 - build-app.sh 在 macOS 上跑 (JAVA_HOME 路径写死 homebrew), Linux 需改
 
+**v1.1.49 P1/P2 扩展 (同日)**:
+- P1-13: docker-compose.yml pc-web 加 healthcheck; backend/pc-web 镜像固定 tag `1.1.49` (commit `df887b2`)
+- P1-10: CLAUDE.md 顶部精简 + 拆分 `docs/CHANGELOG.md` (commit `3df97e9`)
+- P2-22: `scripts/pre-commit.sh` 校验 npm ci 一致性 (commit `0a36cf5`)
+- P2-20: `git tag -a v1.1.49` (含完整 tag message)
+- P2-21: `docs/user-manual/index.md` 用户手册初版目录
+- 修复 app 端 `package-lock.json` (capacitor v6 vs barcode-scanner@4 peer dep 冲突, 用 `--legacy-peer-deps`)
+
 
 ### v1.1.48 (2026-09-13) — App 端库存预警产品列表上线 + 重新打包 APK
 
