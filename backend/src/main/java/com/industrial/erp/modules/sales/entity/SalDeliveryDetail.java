@@ -51,6 +51,8 @@ public class SalDeliveryDetail {
     private String locationName;
     private String snNo;
     private String remark;
+    /** v1.1.40: 采购订单号 (客户 PO 号, 用于追溯) */
+    private String poNo;
     private Long createBy;
     private LocalDateTime createTime;
     private Long updateBy;
@@ -104,6 +106,8 @@ public class SalDeliveryDetail {
     public void setSnNo(String snNo) { this.snNo = snNo; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
+    public String getPoNo() { return poNo; }
+    public void setPoNo(String poNo) { this.poNo = poNo; }
     public Long getCreateBy() { return createBy; }
     public void setCreateBy(Long createBy) { this.createBy = createBy; }
     public LocalDateTime getCreateTime() { return createTime; }

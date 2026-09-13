@@ -161,6 +161,113 @@ docker compose up -d --build
 docker exec -i erp-mysql mysql -uroot -p你的密码 industrial_erp < sql/新文件.sql
 ```
 
+### 8.1 App H5 单独升级 (uni-app 编译产物)
+
+App 端 H5 资源 (`/usr/share/nginx/html` 在 `erp-app-h5` 容器内) 不能用 bind mount, 必须重建镜像。
+
+```bash
+# === Mac 端 ===
+cd /path/to/erp-system/app
+npm run build:h5  # 输出到 dist/build/h5/
+cd dist/build/h5
+tar czf /tmp/app-h5-build.tar.gz .  # 273KB 左右
+
+# 起 HTTP server 给 NAS 拉 (避免 scp subsystem 限制)
+python3 -m http.server 18888 --bind 0.0.0.0 &
+
+# === NAS 端 (ssh) ===
+# 1. 拉 tar
+curl -s -o ~/app-h5-build.tar.gz http://<mac_ip>:18888/app-h5-build.tar.gz
+
+# 2. ⚠️ 必须在 user home 解压 (ACL 锁 dist/build/h5, 直接解压会丢 assets/)
+mkdir -p ~/test-extract && cd ~/test-extract
+tar xzf ~/app-h5-build.tar.gz
+
+# 3. 复制到 dist (cp 不触发 ACL 拦截)
+rm -rf /volume1/docker/erp-system/app/dist/build/h5
+cp -r ~/test-extract /volume1/docker/erp-system/app/dist/build/h5
+
+# 4. Dockerfile 必须放 NAS 上 (没的话 scp 上去)
+#    FROM nginx:1.27-alpine  ← 不能锁 sha256 (拉镜像超时)
+#    COPY dist/build/h5 /usr/share/nginx/html
+
+# 5. 重建镜像 + 重启
+cd /volume1/docker/erp-system
+sudo docker build --no-cache -t erp-app-h5:latest ./app
+sudo docker rm -f erp-app-h5
+sudo docker run -d --name erp-app-h5 --restart unless-stopped \
+  --network erp-system_erp-net -p 18090:80 erp-app-h5:latest
+
+# 6. 验证 (chunk hash 应该是新的)
+curl -s http://<nas_ip>:18090/ | grep -oE 'index-[A-Za-z0-9_-]*\.js'
+```
+
+**踩坑** (v1.1.45):
+- `dist/build/h5` 是 Synology ACL 锁定的, tar 直接 `-C` 解压会丢失 `assets/` 子目录 → 容器 nginx 找不到 JS → 整个 H5 空白
+- mac tar 含 `LIBARCHIVE.xattr.com.apple.provenance` xattr, NAS tar 会告警但能正常解 (忽略 `tar: Ignoring unknown extended header keyword`)
+- `FROM nginx:1.27-alpine@sha256:...` 在 NAS 上 `docker build` 会卡住拉镜像, 必须去掉 sha256 锁
+
+### 8.2 后端 jar 单独升级 (修改 XML/Java)
+
+`backend/industrial-erp-1.0.4.jar` 在 NAS 上**有两份** (根目录 + `backend/` 子目录), 但 Dockerfile `COPY industrial-erp-*.jar` 是从 build context `./backend/` 复制, **必须改 `backend/industrial-erp-1.0.4.jar`**。
+
+```bash
+# === Mac 端 ===
+cd /path/to/erp-system
+# 假设改了两个 XML: ReportMapper.xml + InvLedgerQueryMapper.xml
+python3 -c "
+import zipfile, shutil
+JAR = './industrial-erp-1.0.4.jar'
+REPL = {
+    'BOOT-INF/classes/mapper/report/ReportMapper.xml': open('./backend/src/main/resources/mapper/report/ReportMapper.xml', 'rb').read(),
+    'BOOT-INF/classes/mapper/inventory/InvLedgerQueryMapper.xml': open('./backend/src/main/resources/mapper/inventory/InvLedgerQueryMapper.xml', 'rb').read(),
+}
+with zipfile.ZipFile(JAR) as zin, zipfile.ZipFile(JAR+'.tmp', 'w', zipfile.ZIP_DEFLATED) as zout:
+    for item in zin.infolist():
+        zout.writestr(item, REPL.get(item.filename, zin.read(item.filename)))
+shutil.move(JAR+'.tmp', JAR)
+"
+
+# 起 HTTP server
+python3 -m http.server 18888 --bind 0.0.0.0 &
+
+# === NAS 端 ===
+curl -s -o /volume1/docker/erp-system/backend/industrial-erp-1.0.4.jar http://<mac_ip>:18888/industrial-erp-1.0.4.jar
+
+# ⚠️ 验证 size (管道传大文件偶尔会变 0 bytes)
+ls -la /volume1/docker/erp-system/backend/industrial-erp-1.0.4.jar
+# 期望: 约 100MB (100597929 bytes), 不是 0
+
+# 重建镜像 (--no-cache 强制让 COPY 层重新拷贝)
+cd /volume1/docker/erp-system
+sudo docker build --no-cache -t erp-system-backend:latest ./backend
+
+# 重启容器 (手动 docker run, 不用 compose)
+sudo docker rm -f erp-backend
+sudo docker run -d --name erp-backend --restart unless-stopped \
+  --network erp-system_erp-net -p 8080:8080 \
+  -e SPRING_PROFILES_ACTIVE=prod -e TZ=Asia/Shanghai \
+  -e MYSQL_ROOT_PASSWORD=<你的密码> \
+  -e SA_TOKEN_JWT_SECRET_KEY=<你的 jwt 密钥> \
+  -e SPRING_DATASOURCE_URL="jdbc:mysql://erp-mysql:3306/industrial_erp?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true" \
+  -e SPRING_DATASOURCE_USERNAME=root -e SPRING_DATASOURCE_PASSWORD=<你的密码> \
+  -e SPRING_DATA_REDIS_HOST=erp-redis -e SPRING_DATA_REDIS_PORT=6379 \
+  -e JAVA_OPTS="-Xms256m -Xmx768m -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -Dfile.encoding=UTF-8 -Duser.timezone=GMT+8" \
+  -e ERP_UPLOAD_PATH=/opt/industrial-erp/upload -e ERP_BACKUP_PATH=/opt/industrial-erp/backup \
+  -v /volume1/docker/erp-system/data/upload:/opt/industrial-erp/upload \
+  -v /volume1/docker/erp-system/data/backup:/opt/industrial-erp/backup \
+  erp-system-backend:latest
+
+# 验证 jar 是新的
+sudo docker exec erp-backend sh -c "stat /opt/app/app.jar"
+# 期望: size=新 size, Modify=刚刚替换时间
+```
+
+**注意**:
+- `docker compose up` 在 NAS 上会因 yaml line 84 `${VAR:?msg}` 报 "mapping values are not allowed", 必须用 `docker run` 手动起。
+- `SA_TOKEN_JWT_SECRET_KEY` 必须从 `.env` 读, 后端启动时强制校验, 无默认值。
+- Sa-Token 用 `Authorization: <token>` header, **不是** `satoken: <token>`。
+
 ## 九、常见问题
 
 ### 9.1 启动后前端一直 loading

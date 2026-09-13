@@ -198,6 +198,8 @@ export const api = {
   // 报表
   dashboard: () => request({ url: '/report/dashboard' }),
   inventorySummary: () => request({ url: '/report/inventory/summary' }),
+  // 库存预警 (v1.1.44+ 显示具体产品列表, 与 /report/dashboard.warningCount 共用同实时统计逻辑)
+  warningList: () => request({ url: '/inventory/warning/list' }),
   // 用户管理
   userPage: (params) => request({ url: '/system/user/page', data: params }),
   userDetail: (id) => request({ url: '/system/user/' + id }),

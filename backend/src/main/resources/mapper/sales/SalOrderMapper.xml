@@ -8,14 +8,14 @@
             warehouse_id, salesman_id, salesman_name, order_type, pay_type,
             currency, exchange_rate, total_qty, total_amount, discount_rate,
             discount_amount, tail_amount, tax_amount, total_amount_tax,
-            received_amount, delivery_date, address, phone, bill_status,
+            received_amount, delivery_date, address, phone, po_no, delivery_method, bill_status,
             source_bill_id, remark, create_by, create_time, update_by, update_time, deleted
         ) VALUES (
             #{id}, #{billNo}, #{billDate}, #{customerId}, #{customerName}, #{priceLevel},
             #{warehouseId}, #{salesmanId}, #{salesmanName}, #{orderType}, #{payType},
             #{currency}, #{exchangeRate}, #{totalQty}, #{totalAmount}, #{discountRate},
             #{discountAmount}, #{tailAmount}, #{taxAmount}, #{totalAmountTax},
-            #{receivedAmount}, #{deliveryDate}, #{address}, #{phone}, #{billStatus},
+            #{receivedAmount}, #{deliveryDate}, #{address}, #{phone}, #{poNo}, #{deliveryMethod}, #{billStatus},
             #{sourceBillId}, #{remark}, #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{deleted}
         )
     </insert>
@@ -30,6 +30,7 @@
             discount_amount = #{et.discountAmount}, tail_amount = #{et.tailAmount}, tax_amount = #{et.taxAmount},
             total_amount_tax = #{et.totalAmountTax}, received_amount = #{et.receivedAmount},
             delivery_date = #{et.deliveryDate}, address = #{et.address}, phone = #{et.phone},
+            po_no = #{et.poNo}, delivery_method = #{et.deliveryMethod},
             bill_status = #{et.billStatus}, source_bill_id = #{et.sourceBillId}, remark = #{et.remark},
             update_by = #{et.updateBy}, update_time = #{et.updateTime}
         WHERE id = #{et.id}

@@ -58,6 +58,18 @@ public class SalOrder {
     @TableField(exist = false)
     private transient String warehouseName;
 
+    /** 交货方式中文标签 (打印模板用, BillLoader.load() 注入) */
+    @TableField(exist = false)
+    private transient String deliveryMethodLabel;
+
+    /** 付款方式中文标签 (打印模板用, Service/Loader 注入) */
+    @TableField(exist = false)
+    private transient String payTypeLabel;
+
+    /** v1.1.41: 已发货数量 (list page 注入, 不入库) */
+    @TableField(exist = false)
+    private transient BigDecimal shippedQty;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getBillNo() { return billNo; }
@@ -130,4 +142,12 @@ public class SalOrder {
     public void setDetails(List<SalOrderDetail> details) { this.details = details; }
     public String getWarehouseName() { return warehouseName; }
     public void setWarehouseName(String warehouseName) { this.warehouseName = warehouseName; }
+    public String getDeliveryMethodLabel() { return deliveryMethodLabel; }
+    public void setDeliveryMethodLabel(String deliveryMethodLabel) { this.deliveryMethodLabel = deliveryMethodLabel; }
+    public String getPayTypeLabel() { return payTypeLabel; }
+    public void setPayTypeLabel(String payTypeLabel) { this.payTypeLabel = payTypeLabel; }
+
+    /** v1.1.41: 已发货数量 (list page 注入) */
+    public BigDecimal getShippedQty() { return shippedQty; }
+    public void setShippedQty(BigDecimal shippedQty) { this.shippedQty = shippedQty; }
 }

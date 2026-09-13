@@ -37,9 +37,15 @@
         <el-card>
           <template #header><b>库存预警</b></template>
           <el-table :data="warningList" size="small" max-height="240">
+            <el-table-column prop="productCode" label="编码" width="90" />
             <el-table-column prop="productName" label="商品" />
-            <el-table-column prop="qty" label="当前库存" width="100" />
-            <el-table-column prop="safetyStock" label="安全库存" width="100" />
+            <el-table-column prop="warehouseName" label="仓库" width="80" />
+            <el-table-column prop="qty" label="当前库存" width="80" align="right">
+              <template #default="{ row }">
+                <span style="color:#c0392b;font-weight:bold">{{ row.qty }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="safetyStock" label="安全库存" width="80" align="right" />
           </el-table>
         </el-card>
       </el-col>
@@ -62,6 +68,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { reportApi } from '@/api/report'
+import { stockApi } from '@/api/inventory'
 import dayjs from 'dayjs'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -108,6 +115,7 @@ onMounted(async () => {
   const userObj = JSON.parse(localStorage.getItem('erp_user') || '{}')
   const isSuper = (userObj && (userObj.userId === 1 || userObj.isAdmin === 1 || userObj.userId === '1' || userObj.isAdmin === true))
   const canView = isSuper || (Array.isArray(perms) && perms.includes('report:view'))
+  console.log('[Dashboard] canView=', canView, 'isSuper=', isSuper, 'perms=', perms.slice(0,5))
   if (!canView) return
 
   try {
@@ -127,6 +135,29 @@ onMounted(async () => {
 
   const rk = await reportApi.salesRanking({ startDate: start, endDate: end, limit: 10 })
   ranking.value = rk.data || []
+
+  // v1.1.44: 加载库存预警 (qty < safety_stock)
+  try {
+    console.log('[Dashboard] 开始加载库存预警...')
+    const w = await stockApi.warningList()
+    console.log('[Dashboard] 预警 API 返回:', w)
+    const raw = w.data || []
+    console.log('[Dashboard] 预警 raw 数量:', raw.length, '首条:', raw[0])
+    warningList.value = raw
+      .map(item => ({
+        productName: item.product_name || item.productName || '-',
+        productCode: item.product_code || item.productCode || '',
+        qty: item.qty != null ? Number(item.qty) : 0,
+        safetyStock: (item.safety_stock != null ? item.safety_stock : item.p_safety_stock) != null ? Number(item.safety_stock != null ? item.safety_stock : item.p_safety_stock) : 0,
+        warehouseName: item.wh_name || item.warehouseName || ''
+      }))
+    console.log('[Dashboard] 预警 mapped:', JSON.stringify(warningList.value))
+    const beforeFilter = warningList.value.length
+    warningList.value = warningList.value.filter(item => item.qty < item.safetyStock)
+    console.log('[Dashboard] 过滤前:', beforeFilter, '过滤后:', warningList.value.length, '数据:', JSON.stringify(warningList.value))
+  } catch (e) {
+    console.error('[Dashboard] 加载库存预警失败:', e)
+  }
 })
 </script>
 

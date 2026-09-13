@@ -31,6 +31,11 @@ backend/**/*.war
 backend/**/*.log
 backend/logs/
 backend/*.pid
+backend/BOOT-INF/
+backend/industrial-erp-*.jar.fixed
+backend/industrial-erp-*.jar.new
+pc-web-dist*.tar.gz
+pc-web/pc-web-dist*.tar.gz
 
 # ===== 前端 =====
 pc-web/node_modules/

@@ -61,4 +61,11 @@ public class SalOrderController {
     public R<BigDecimal> lastPrice(@RequestParam Long customerId, @RequestParam Long productId) {
         return R.ok(service.getLastPrice(customerId, productId));
     }
+
+    /** v1.1.41: 查询订单的已发货明细汇总 (用于"发货详情"弹窗) */
+    @SaCheckPermission(value = {"sales:order:list"}, orRole = "admin")
+    @GetMapping("/{id}/delivery-summary")
+    public R<java.util.List<java.util.Map<String, Object>>> deliverySummary(@PathVariable Long id) {
+        return R.ok(service.getDeliverySummary(id));
+    }
 }

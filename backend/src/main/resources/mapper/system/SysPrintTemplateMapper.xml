@@ -11,4 +11,15 @@
         LIMIT 1
     </select>
 
+    <!-- v1.1.39: 按 biz_type + customerId 查客户专属模板 -->
+    <select id="selectByBizTypeAndCustomer" resultType="com.industrial.erp.modules.system.entity.SysPrintTemplate">
+        SELECT id, name, biz_type, content, paper_width, paper_height, page_unit,
+               status, is_default, remark, create_by, create_time, update_by, update_time, deleted
+        FROM sys_print_template
+        WHERE biz_type = #{bizType} AND customer_id = #{customerId}
+          AND status = 1 AND deleted = 0
+        ORDER BY is_default DESC, id ASC
+        LIMIT 1
+    </select>
+
 </mapper>

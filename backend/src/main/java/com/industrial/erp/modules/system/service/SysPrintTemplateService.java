@@ -55,9 +55,18 @@ public class SysPrintTemplateService {
     }
 
     public SysPrintTemplate getActiveByBizType(String bizType) {
+        return getActiveByBizType(bizType, null);
+    }
+
+    /** v1.1.39: 按 bizType + customerId 取生效模板, 客户专属优先, 无则回退全局默认 */
+    public SysPrintTemplate getActiveByBizType(String bizType, Long customerId) {
         if (!SecurityContextPermitted()) return null;
         if (!BIZ_TYPES.contains(bizType)) return null;
-        List<SysPrintTemplate> list = mapper.selectActiveByBizType(bizType);
+        // 1. 查客户专属模板
+        List<SysPrintTemplate> list = mapper.selectByBizTypeAndCustomer(bizType, customerId);
+        if (!list.isEmpty()) return list.get(0);
+        // 2. 回退到全局默认模板 (customer_id IS NULL)
+        list = mapper.selectActiveByBizType(bizType);
         return list.isEmpty() ? null : list.get(0);
     }
 

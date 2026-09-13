@@ -32,6 +32,16 @@ public class SalDeliveryController {
         return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, customerId, billStatus, productName)));
     }
 
+    /** v1.1.38: 按源订单 ID 查询关联出库单列表 (追溯入口) — 必须在 /{id} 之前声明，否则 Spring 把 page-by-order 当 id */
+    @SaCheckPermission(value = {"sales:delivery:list"}, orRole = "admin")
+    @GetMapping("/page-by-order")
+    public R<PageResult<SalDelivery>> pageByOrder(
+            @RequestParam Long orderId,
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "20") Integer pageSize) {
+        return R.ok(PageResult.of(service.pageByOrderId(pageNum, pageSize, orderId)));
+    }
+
     @SaCheckPermission(value = {"sales:delivery:list"}, orRole = "admin")
     @GetMapping("/{id}")
     public R<SalDelivery> detail(@PathVariable Long id) { return R.ok(service.detail(id)); }

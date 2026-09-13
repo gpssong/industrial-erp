@@ -40,6 +40,11 @@ public class SalDelivery {
     private LocalDate deliveryDate;
     private String address;
     private String phone;
+    /** v1.1.40: 交货方式 (送货/自提等) */
+    private String deliveryMethod;
+    /** v1.1.40: 交货方式中文标签 (打印模板用, BillLoader 注入) */
+    @TableField(exist = false)
+    private transient String deliveryMethodLabel;
     private String billStatus;
     private String remark;
     private Long createBy;
@@ -119,6 +124,10 @@ public class SalDelivery {
     public void setAddress(String address) { this.address = address; }
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
+    public String getDeliveryMethod() { return deliveryMethod; }
+    public void setDeliveryMethod(String deliveryMethod) { this.deliveryMethod = deliveryMethod; }
+    public String getDeliveryMethodLabel() { return deliveryMethodLabel; }
+    public void setDeliveryMethodLabel(String deliveryMethodLabel) { this.deliveryMethodLabel = deliveryMethodLabel; }
     public String getBillStatus() { return billStatus; }
     public void setBillStatus(String billStatus) { this.billStatus = billStatus; }
     public String getRemark() { return remark; }

@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.sales.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -53,4 +54,14 @@ public interface SalDeliveryMapper extends BaseMapper<SalDelivery> {
 
     @Select("SELECT * FROM sal_delivery_detail WHERE delivery_id = #{deliveryId} ORDER BY line_no")
     List<SalDelivery> selectDetailsByDeliveryId(@Param("deliveryId") Long deliveryId);
+
+    /** v1.1.38: 按源订单 ID 分页查询关联出库单 (追溯入口) */
+    @Select("SELECT d.*, w.warehouse_name AS warehouseName " +
+            "FROM sal_delivery d " +
+            "LEFT JOIN base_warehouse w ON w.id = d.warehouse_id AND w.deleted = 0 " +
+            "WHERE d.deleted = 0 AND d.order_id = #{orderId} " +
+            "ORDER BY d.id DESC")
+    IPage<SalDelivery> selectPageByOrderId(
+            IPage<SalDelivery> page,
+            @Param("orderId") Long orderId);
 }

@@ -18,9 +18,12 @@ import com.industrial.erp.modules.finance.service.FinArapService;
 import com.industrial.erp.modules.inventory.service.StockService;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
+import com.industrial.erp.modules.sales.entity.SalOrder;
+import com.industrial.erp.modules.sales.entity.SalOrderDetail;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
+import com.industrial.erp.modules.sales.mapper.SalOrderMapper;
 import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
@@ -43,7 +46,7 @@ import java.util.List;
 @Service
 public class SalDeliveryService {
 
-    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher, BaseProductMapper productMapper) {
+    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher, BaseProductMapper productMapper, SalOrderMapper orderMapper) {
         this.deliveryMapper = deliveryMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
@@ -55,6 +58,7 @@ public class SalDeliveryService {
         this.orderDetailMapper = orderDetailMapper;
         this.operLogPublisher = operLogPublisher;
         this.productMapper = productMapper;
+        this.orderMapper = orderMapper;
     }
 
     private static final Logger log = LoggerFactory.getLogger(SalDeliveryService.class);
@@ -64,6 +68,7 @@ public class SalDeliveryService {
     private final BaseCustomerMapper customerMapper;
     private final BaseWarehouseMapper warehouseMapper;
     private final BaseProductMapper productMapper;
+    private final SalOrderMapper orderMapper;
     private final SalOrderDetailMapper orderDetailMapper;
     private final BillNoGenerator billNoGenerator;
     private final StockService stockService;
@@ -75,7 +80,14 @@ public class SalDeliveryService {
         permService.requirePerm("sales:delivery:list");
         Page<SalDelivery> p = new Page<>(pageNum, pageSize);
         // productName EXISTS 子查询已下沉到 mapper XML, 避免 QueryWrapper.apply() 字符串拼接反模式 (P1-3)
-        return deliveryMapper.selectPageWithProduct(p, billNo, customerId, billStatus, productName);
+        IPage<SalDelivery> result = deliveryMapper.selectPageWithProduct(p, billNo, customerId, billStatus, productName);
+        // v1.1.42: 批量注入交货方式中文标签 (列表页展示用, 与 detail() 保持一致)
+        if (result.getRecords() != null) {
+            for (SalDelivery d : result.getRecords()) {
+                if (d.getDeliveryMethod() != null) d.setDeliveryMethodLabel(mapDeliveryMethod(d.getDeliveryMethod()));
+            }
+        }
+        return result;
     }
 
     public SalDelivery detail(Long id) {
@@ -91,8 +103,32 @@ public class SalDeliveryService {
                     r -> ((SalDeliveryDetail) r).getProductId(),
                     (r, v) -> ((SalDeliveryDetail) r).setPModel(v),
                     p -> p.getModel());
+            // v1.1.47: 注入采购订单号 (poNo) — 从源订单自动带入, 供打印模板显示
+            for (SalDeliveryDetail dDetail : d.getDetails()) {
+                if (dDetail.getOrderDetailId() != null
+                        && StrUtil.isBlank(dDetail.getPoNo())) {
+                    SalOrderDetail od = orderDetailMapper.selectById(dDetail.getOrderDetailId());
+                    if (od != null && od.getOrderId() != null) {
+                        SalOrder order = orderMapper.selectById(od.getOrderId());
+                        if (order != null && order.getPoNo() != null) {
+                            dDetail.setPoNo(order.getPoNo());
+                        }
+                    }
+                }
+            }
+        }
+        // v1.1.40: 交货方式枚举值 → 中文 label (与 SalOrderService 保持一致)
+        if (d != null && d.getDeliveryMethod() != null) {
+            d.setDeliveryMethodLabel(mapDeliveryMethod(d.getDeliveryMethod()));
         }
         return d;
+    }
+
+    /** v1.1.38: 按源订单 ID 分页查询关联出库单 (追溯入口) */
+    public IPage<SalDelivery> pageByOrderId(Integer pageNum, Integer pageSize, Long orderId) {
+        permService.requirePerm("sales:delivery:list");
+        Page<SalDelivery> p = new Page<>(pageNum, pageSize);
+        return deliveryMapper.selectPageByOrderId(p, orderId);
     }
 
     /** 查询指定客户+商品的上次订单单价 */
@@ -127,6 +163,14 @@ public class SalDeliveryService {
         // 校验仓库
         BaseWarehouse w = warehouseMapper.selectById(delivery.getWarehouseId());
         if (w == null) throw BizException.of("仓库不存在");
+
+        // v1.1.41: 从源订单自动带入交货方式 (出库单主表无 poNo 列, poNo 写入明细行)
+        if (delivery.getOrderId() != null) {
+            SalOrder order = orderMapper.selectById(delivery.getOrderId());
+            if (order != null && StrUtil.isBlank(delivery.getDeliveryMethod())) {
+                delivery.setDeliveryMethod(order.getDeliveryMethod());
+            }
+        }
 
         BigDecimal totalQty = BigDecimal.ZERO;
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -163,6 +207,16 @@ public class SalDeliveryService {
         for (SalDeliveryDetail d : delivery.getDetails()) {
             d.setId(null);
             d.setDeliveryId(delivery.getId());
+            // v1.1.41: 从源订单自动带入采购订单号到明细行
+            if (d.getOrderDetailId() != null && StrUtil.isBlank(d.getPoNo())) {
+                SalOrderDetail od = orderDetailMapper.selectById(d.getOrderDetailId());
+                if (od != null && od.getOrderId() != null) {
+                    SalOrder order = orderMapper.selectById(od.getOrderId());
+                    if (order != null && order.getPoNo() != null) {
+                        d.setPoNo(order.getPoNo());
+                    }
+                }
+            }
             detailMapper.insert(d);
         }
     }
@@ -305,6 +359,19 @@ public class SalDeliveryService {
         // 4. 应收台账
         arapService.createArForSales(d, details);
 
+        // 5. v1.1.41: 按 order_detail_id 累计已审核出库数量回写到 sal_order_detail.out_qty
+        for (SalDeliveryDetail det : details) {
+            if (det.getOrderDetailId() == null) continue;
+            BigDecimal shipped = orderDetailMapper.selectShippedQtyByOrderDetailId(det.getOrderDetailId());
+            if (shipped != null && shipped.compareTo(BigDecimal.ZERO) > 0) {
+                SalOrderDetail od = orderDetailMapper.selectById(det.getOrderDetailId());
+                if (od != null) {
+                    od.setOutQty(shipped);
+                    orderDetailMapper.updateById(od);
+                }
+            }
+        }
+
         log.info("销售出库审核: billNo={}, amount={}, cost={}, profit={}",
                 d.getBillNo(), d.getTotalAmount(), totalCost, profit);
     }
@@ -353,5 +420,26 @@ public class SalDeliveryService {
         upd.setCostAmount(BigDecimal.ZERO);
         upd.setProfitAmount(BigDecimal.ZERO);
         deliveryMapper.updateById(upd);
+
+        // 5. v1.1.41: 反审核后重置关联订单明细的已发货数量
+        for (SalDeliveryDetail det : details) {
+            if (det.getOrderDetailId() == null) continue;
+            SalOrderDetail od = orderDetailMapper.selectById(det.getOrderDetailId());
+            if (od != null) {
+                od.setOutQty(BigDecimal.ZERO);
+                orderDetailMapper.updateById(od);
+            }
+        }
+    }
+
+    /** v1.1.40: 交货方式枚举值 → 中文标签 (与 SalOrderService 保持一致) */
+    private static String mapDeliveryMethod(String code) {
+        if (code == null) return "";
+        switch (code) {
+            case "DELIVERY": return "送货";
+            case "PICKUP":   return "自提";
+            case "DIRECT":   return "专车直送";
+            default:         return code;
+        }
     }
 }

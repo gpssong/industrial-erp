@@ -32,6 +32,13 @@
             {{ BIZ_TYPE_LABEL[row.bizType] || row.bizType }}
           </template>
         </el-table-column>
+        <!-- v1.1.39: 绑定客户列 -->
+        <el-table-column label="绑定客户" width="140">
+          <template #default="{ row }">
+            <span v-if="row.customerId">{{ customerName(row.customerId) }}</span>
+            <span v-else class="muted">全局默认</span>
+          </template>
+        </el-table-column>
         <el-table-column label="纸张" width="120">
           <template #default="{ row }">
             {{ row.paperWidth }} × {{ row.paperHeight }} {{ row.pageUnit }}
@@ -72,6 +79,13 @@
           <el-select v-model="form.bizType" style="width:100%" :disabled="!!form.id">
             <el-option v-for="o in BIZ_OPTIONS" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
+        </el-form-item>
+        <!-- v1.1.39: 绑定客户 -->
+        <el-form-item label="绑定客户">
+          <el-select v-model="form.customerId" clearable filterable style="width:100%" placeholder="留空=全局默认">
+            <el-option v-for="c in customers" :key="c.id" :label="c.customerName" :value="c.id" />
+          </el-select>
+          <span class="muted" style="margin-left:8px;font-size:12px">不填则所有客户共用此模板</span>
         </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">
@@ -121,6 +135,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { printTemplateApi } from '@/api/system'
+import { customerApi } from '@/api/base'
 import { clearTemplateCache, BIZ_TYPE_LABEL } from '@/composables/usePrint'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -140,12 +155,14 @@ const loading = ref(false)
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref(null)
+const customers = ref([])  // v1.1.39: 用于客户选择下拉
 const rules = {
   name: [{ required: true, message: '请填写模板名称', trigger: 'blur' }],
   bizType: [{ required: true, message: '请选择业务类型', trigger: 'change' }]
 }
 const form = ref({
   id: null, name: '', bizType: 'SAL_DELIVERY',
+  customerId: null,  // v1.1.39: 客户专属模板 (NULL=全局默认)
   paperWidth: 210, paperHeight: 297, pageUnit: 'mm',
   status: 1, isDefaultFlag: 0, remark: '',
   content: ''
@@ -177,6 +194,19 @@ async function loadData() {
     data.value = (await printTemplateApi.page(params)).data || { records: [], total: 0 }
   } finally { loading.value = false }
 }
+// v1.1.39: 加载客户列表 (用于弹窗选择)
+async function loadCustomers() {
+  if (customers.value.length > 0) return  // 幂等缓存
+  try {
+    const r = await customerApi.list()
+    customers.value = r.data || []
+  } catch { /* ignore */ }
+}
+function customerName(id) {
+  if (!id) return ''
+  const c = customers.value.find(x => x.id === id)
+  return c ? c.customerName : `ID=${id}`
+}
 function onReset() {
   query.name = ''; query.bizType = ''; query.status = ''
   query.pageNum = 1
@@ -184,8 +214,10 @@ function onReset() {
 }
 
 function onAdd() {
+  loadCustomers()
   form.value = {
     id: null, name: '', bizType: 'SAL_DELIVERY',
+    customerId: null,  // v1.1.39
     paperWidth: 210, paperHeight: 297, pageUnit: 'mm',
     status: 1, isDefaultFlag: 0, remark: '',
     content: ''
@@ -193,10 +225,12 @@ function onAdd() {
   dialogVisible.value = true
 }
 function onEdit(row) {
+  loadCustomers()
   form.value = {
     id: row.id,
     name: row.name,
     bizType: row.bizType,
+    customerId: row.customerId ?? null,  // v1.1.39
     paperWidth: Number(row.paperWidth) || 210,
     paperHeight: Number(row.paperHeight) || 297,
     pageUnit: row.pageUnit || 'mm',
@@ -221,6 +255,7 @@ async function onSubmit() {
       id: form.value.id || undefined,
       name: form.value.name,
       bizType: form.value.bizType,
+      customerId: form.value.customerId,  // v1.1.39
       paperWidth: form.value.paperWidth,
       paperHeight: form.value.paperHeight,
       pageUnit: form.value.pageUnit,

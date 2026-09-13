@@ -168,7 +168,8 @@ function buildProviderElementList(bizType) {
         ] },
       { type: 'Text', contentType: 'Barcode', field: 'billNo', label: '条形码(单据号)', width: 60, height: 20,
         option: { barcodeFormat: 'CODE128' } },
-      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 }
+      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 },
+      buildFreeTable('SAL_ORDER')
     )
   }
   if (t === 'SAL_DELIVERY' || t === 'SAL_RETURN') {
@@ -202,13 +203,16 @@ function buildProviderElementList(bizType) {
           { type: 'Text', field: 'qty', label: '数量', width: 20, height: 8 },
           { type: 'Text', field: 'price', label: '单价', width: 25, height: 8 },
           { type: 'Text', field: 'amount', label: '金额', width: 25, height: 8 },
-          { type: 'Text', field: 'batchNo', label: '批次', width: 25, height: 8 }
+          { type: 'Text', field: 'batchNo', label: '批次', width: 25, height: 8 },
+          { type: 'Text', field: 'poNo', label: '采购订单号', width: 40, height: 8 },
+          { type: 'Text', field: 'remark', label: '备注', width: 35, height: 8 }
         ] },
       // myprint v6 期望 Barcode/QRCode 的外层 type 是 'Text', contentType 子类型区分,
       // 否则 print 路径 `else if (previewWrapper.type == 'Text' || ...)` 直接跳过不渲染
       { type: 'Text', contentType: 'Barcode', field: 'billNo', label: '条形码(单据号)', width: 60, height: 20,
         option: { barcodeFormat: 'CODE128' } },
-      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 }
+      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单据号)', width: 30, height: 30 },
+      buildFreeTable('OTHER_SALE')
     )
   }
   if (t === 'PRD_ORDER') {
@@ -252,10 +256,39 @@ function buildProviderElementList(bizType) {
         ] },
       { type: 'Text', contentType: 'Barcode', field: 'billNo', label: '条形码(单号)', width: 60, height: 20,
         option: { barcodeFormat: 'CODE128' } },
-      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单号)', width: 30, height: 30 }
+      { type: 'Text', contentType: 'QrCode', field: 'billNo', label: '二维码(单号)', width: 30, height: 30 },
+      buildFreeTable('PRD_ORDER')
     )
   }
   return list
+}
+
+/**
+ * 构造自由表格元素 — 用 DataTable + 空 field 实现, 用户可以拖到画布后自由编辑列/行.
+ * 因为 myprint-design 1.0.12 的 FreeTable 类型没有完整的拖拽初始化支持 (initElement 没处理),
+ * 改用 DataTable 并设置 field='' (不绑定任何 previewData), 实现"自由表格"效果:
+ * - 表头可自定义 (汇总项 / 值)
+ * - 数据行可填静态文字或字段变量 (如 ${customerName})
+ * - 用户可以通过设计器 UI 增删列、合并单元格、设置样式
+ */
+function buildFreeTable(bizTypeHint) {
+  const isSales = ['SAL_ORDER','SAL_DELIVERY','SAL_RETURN'].includes(bizTypeHint)
+  const isPurchase = ['PUR_RECEIPT','PUR_RETURN'].includes(bizTypeHint)
+  const isProduction = bizTypeHint === 'PRD_ORDER'
+  // 2 列表头 + 2 行数据, field 留空 (不绑定预览数据), 用户可手动填
+  const columnList = [
+    { type: 'Text', field: '', label: '汇总项', width: 60, height: 8 },
+    { type: 'Text', field: '', label: '值', width: 60, height: 8 }
+  ]
+  return {
+    type: 'DataTable',
+    field: '',
+    label: '自定义表格',
+    width: 120,
+    height: 40,
+    option: { fontFamily: 'heiti', fontSize: 11, tableHeightType: 'AUTO' },
+    columnList: columnList
+  }
 }
 
 /**
