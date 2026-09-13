@@ -2,6 +2,18 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.50 (2026-09-13) — 销售订单关联出库单跳转修复
+
+**症状**: PC 端销售订单 → 「关联出库单」弹窗 → 点「查看」/单号, 跳转到 `/sales/delivery?id=xxx` 后, 详情弹窗显示空的「新增销售出库单」(No Data), 拿不到对应出库单。
+
+**根因**: 出库单 `id` 是雪花 ID (`Long`, 如 `2097666445908426754`), 超过 `Number.MAX_SAFE_INTEGER` (9007199254740991)。`Delivery.vue` onMounted 里 `onView({ id: Number(_detailId) })` 把字符串强转成 `Number`, 精度丢失 → 后端收到错的 id → 404/null → `Object.assign(form, null)` 未填 form.id → 弹窗空。
+
+**修复** (pc-web):
+- `Delivery.vue` onMounted: `Number(_detailId)` → `String(_detailId)`, axios 原样拼 URL, 不丢精度
+- `Order.vue` `jumpToDelivery`: 先关弹窗 + `nextTick` 再 `router.push`, 避免 dialog overlay 拦截导航
+
+**部署**: 重新构建 PC-web bundle 并同步到 NAS `/volume3/docker/erp-system/pc-web/dist` (bind mount, 立即生效)。
+
 ### v1.1.49 (2026-09-13) — P0 安全/部署修复
 
 **症状**: 项目审计 (2026-09-13) 发现 4 项生产风险: 弱 JWT secret / MySQL 默认密码兜底 / H2 测试漏 MySQL 严格模式 / App APK 升级流程没固化.

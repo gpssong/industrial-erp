@@ -838,8 +838,15 @@ function onScan() {
 onMounted(async () => {
   await loadCustomers()
   // v1.1.43: 从订单「关联出库单」弹窗跳入时, URL 带 ?id=xxx, 自动打开详情
+  // v1.1.50: 雪花 ID 超过 Number.MAX_SAFE_INTEGER, 不能用 Number() 转换 (会丢精度,
+  // 导致后端 404 → 详情弹窗空). 直接传字符串, axios 原样拼进 URL.
   if (_detailId) {
-    await onView({ id: Number(_detailId) })
+    try {
+      await onView({ id: String(_detailId) })
+    } catch (e) {
+      ElMessage.error('打开出库单详情失败: ' + (e.message || '未知错误'))
+      loadData()
+    }
   } else {
     loadData()
   }
