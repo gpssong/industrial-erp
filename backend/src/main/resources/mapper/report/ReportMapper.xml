@@ -77,10 +77,14 @@
             (SELECT IFNULL(COUNT(*),0) FROM inv_stock WHERE deleted = 0) AS stockSkuCount,
             (SELECT IFNULL(SUM(balance),0) FROM fin_arap WHERE deleted = 0 AND bill_type = 'AR') AS arBalance,
             (SELECT IFNULL(SUM(balance),0) FROM fin_arap WHERE deleted = 0 AND bill_type = 'AP') AS apBalance,
-            (SELECT IFNULL(COUNT(*),0) FROM inv_stock s
-                JOIN base_product p ON p.id = s.product_id
-                WHERE s.deleted = 0 AND s.qty > 0
+            (SELECT IFNULL(COUNT(*),0) FROM (
+                SELECT p.id
+                FROM base_product p
+                LEFT JOIN (SELECT product_id, SUM(qty) AS qty FROM inv_stock WHERE deleted=0 GROUP BY product_id) s
+                  ON s.product_id = p.id
+                WHERE p.deleted=0 AND p.status=1
                   AND p.safety_stock IS NOT NULL AND p.safety_stock > 0
-                  AND s.qty &lt; p.safety_stock) AS warningCount
+                  AND COALESCE(s.qty,0) &lt; p.safety_stock
+            ) x) AS warningCount
     </select>
 </mapper>

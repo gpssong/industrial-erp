@@ -6,17 +6,27 @@
         WHERE product_id = #{productId} AND deleted = 0 AND qty > 0
         ORDER BY last_in_date
     </select>
+    <!-- v1.1.47: 库存预警 - 以 base_product 为驱动表, LEFT JOIN inv_stock
+         即使没有 inv_stock 行 (库存=0 且无记录) 也能命中 (修复 4-06-003-0018 类情况)
+         包一层子查询避开 only_full_group_by 对 HAVING/ORDER BY 引用别名的限制 -->
     <select id="selectStockAll" resultType="java.util.Map">
-        SELECT s.id AS stock_id, s.warehouse_id, s.warehouse_name, s.product_id, s.product_code, s.product_name,
-               s.qty, s.available_qty, s.avg_cost, s.total_cost, s.create_time,
-               w.warehouse_name AS wh_name,
-               p.safety_stock AS p_safety_stock
-        FROM inv_stock s
-        LEFT JOIN base_warehouse w ON w.id = s.warehouse_id
-        LEFT JOIN base_product p ON p.id = s.product_id
-        WHERE s.deleted = 0 AND s.qty > 0
-            AND p.safety_stock IS NOT NULL AND p.safety_stock > 0
-            AND s.qty &lt; p.safety_stock
-        ORDER BY s.qty ASC, s.product_id, s.warehouse_id
+        SELECT product_id, product_code, product_name, spec, p_safety_stock,
+               qty, available_qty, wh_name, warehouse_name,
+               (p_safety_stock - qty) AS shortage
+        FROM (
+            SELECT p.id AS product_id, p.product_code, p.product_name, p.spec, p.safety_stock AS p_safety_stock,
+                   COALESCE(SUM(s.qty), 0) AS qty,
+                   COALESCE(SUM(s.available_qty), 0) AS available_qty,
+                   MIN(w.warehouse_name) AS wh_name,
+                   MIN(s.warehouse_name) AS warehouse_name
+            FROM base_product p
+            LEFT JOIN inv_stock s ON s.product_id = p.id AND s.deleted = 0
+            LEFT JOIN base_warehouse w ON w.id = s.warehouse_id
+            WHERE p.deleted = 0 AND p.status = 1
+              AND p.safety_stock IS NOT NULL AND p.safety_stock > 0
+            GROUP BY p.id, p.product_code, p.product_name, p.spec, p.safety_stock
+        ) t
+        WHERE qty &lt; p_safety_stock
+        ORDER BY shortage DESC
     </select>
 </mapper>
