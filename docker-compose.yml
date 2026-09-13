@@ -65,6 +65,9 @@ services:
           memory: 384M
 
   backend:
+    # v1.1.49+: 使用带版本 tag 的镜像 (而非 latest 浮动), 方便回滚和版本追溯.
+    # 构建命令: docker build -t erp-system-backend:1.1.49 ./backend
+    image: erp-system-backend:1.1.49
     build: ./backend
     container_name: erp-backend
     restart: unless-stopped
@@ -125,7 +128,10 @@ services:
       start_period: 90s
 
   pc-web:
+    # v1.1.20+: bind mount dist (P0-3). 主机 /volume3/docker/erp-system/pc-web/dist 改动立即生效,
+    # 无需重建镜像. 仅需 docker restart erp-pc-web (30 秒)
     build: ./pc-web
+    image: erp-system-pc-web:1.1.49
     container_name: erp-pc-web
     restart: unless-stopped
     depends_on:
@@ -134,8 +140,6 @@ services:
     # 反代后端 8080; pc-web:80 由容器暴露到主机 18080, DSM 反代从 18080 转发 (避免与 DSM nginx 80 冲突)
     ports:
       - "18080:80"
-    # v1.1.20+: bind mount dist (P0-3). 主机 /volume3/docker/erp-system/pc-web/dist 改动立即生效,
-    # 无需重建镜像. 仅需 docker restart erp-pc-web (30 秒)
     volumes:
       - /volume3/docker/erp-system/pc-web/dist:/usr/share/nginx/html:ro
     networks: [erp-net]
@@ -143,6 +147,13 @@ services:
       resources:
         limits:
           memory: 128M
+    # v1.1.49 P1-13: 健康检查 — nginx 是否响应根路径
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   # 移动 App 不在服务器端, 客户端独立打包
 
