@@ -335,7 +335,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { salOrderApi, salDeliveryApi } from '@/api/sales'
 import { useUserStore } from '@/store/user'
@@ -576,7 +576,11 @@ async function reloadLinkedDeliveries() {
 }
 
 function jumpToDelivery(deliveryId) {
-  router.push({ path: '/sales/delivery', query: { id: deliveryId } })
+  // v1.1.50: 修复跳转 — 关闭弹窗后 router.push, 避免 dialog overlay 拦截点击
+  linkedDeliveryDialogVisible.value = false
+  nextTick(() => {
+    router.push({ path: '/sales/delivery', query: { id: deliveryId } })
+  })
 }
 
 // v1.1.41: 查看订单发货详情 (已发/未发数量)
