@@ -1,6 +1,47 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.47 (库存预警 hotfix: 库存=0 但低于安全库存的产品现在能进入预警)
+**当前版本**: v1.1.48 (App APK 重新打包: 库存预警产品列表生效 + capacitor-share 插件注入修复)
+
+### v1.1.48 (2026-09-13) — App 端库存预警产品列表上线 + 重新打包 APK
+
+**症状**: v1.1.45 (9月9日) App 端 dashboard 已写好 `warningItems` 列表渲染 + `await api.warningList()` 调用,
+**但用户手机看到的还是只显示数字 "(1)"**。v1.1.47 后端 SQL 修好后, 数字恢复成 1, 但产品列表仍未显示。
+
+**根因**:
+1. **APK 内置资源陈旧** — Capacitor APK 打包时把 `dist/build/h5` 内嵌到 `android/app/src/main/assets/public/`。
+   用户手机上跑的 `app-debug.apk` 是 8月31日打的, 内嵌的 `pages-dashboard-index.CpVb6CJr.js` 是 v1.1.45 之前的版本,
+   **setup 函数里只有 `await api.dashboard()`, 根本没有 `await api.warningList()`, `warningItems` 永远空数组**。
+2. **H5 容器和 NAS dist 是新版** — 9月9日 v1.1.45 时已经写过代码, 但 APK 没重新 cap sync + 重新打包,
+   浏览器访问 `192.168.0.150:18090` 和 `dist/build/h5/assets` 都是新版 chunk `CWb9SSks` (含 `await warningList`)。
+
+**修复**:
+1. `npm run build:h5` → `npx cap sync android` → 把新版 H5 同步进 APK assets (MD5 校验一致)
+2. **手动补 `:capacitor-share` 到 `capacitor.settings.gradle`** — Capacitor CLI 6.x 的 cap sync 不会自动注入 `@capacitor/share`,
+   `app/build.gradle` 引用 `implementation project(':capacitor-share')` 会报 `Project with path ':capacitor-share' could not be found`。
+   解决方案: 在 `capacitor.settings.gradle` 末尾追加:
+   ```gradle
+   include ':capacitor-share'
+   project(':capacitor-share').projectDir = new File('../node_modules/@capacitor/share/android')
+   ```
+3. **删 `node_modules/@capacitor/share/android/build/` 缓存** — 否则 `checkDebugAarMetadata` 报 NPE `Cannot invoke "java.util.List.get(int)" because "path" is null`
+4. `./gradlew assembleDebug` (不带 `--offline`, 重新走 `capacitor-share:writeDebugAarMetadata`) 成功
+
+**产物**:
+- APK: `~/Desktop/erp-app-v1.1.48-20260913.apk`, 4,369,313 字节, MD5 `9423265417daff4dab5508861a7310eb` (vs 旧 `84eccd601880020346bd6c9a0bdab2fa`)
+- 内嵌 dashboard chunk MD5 `a21fe68e1a35b7c68212ec4e740a8b84` = `dist/build/h5` 同名 chunk MD5 (sync 一致)
+- 含 `await v.warningList()` 调用 + `warning-item` CSS class + 完整 v-for 渲染逻辑
+
+**改动**:
+- `app/android/capacitor.settings.gradle` — 追加 `:capacitor-share` include 路径 (注释里说明 CLI 6.x 不会自动扫 @capacitor/share)
+
+**部署**:
+- 用户手机: 安装新 APK 后, "工作台 → 库存预警" 卡片下能看到 1 条预警 (4-06-003-0018 塑料袋22*28*0.16, 库存 0 / 安全 70000)
+- H5 浏览器 (`http://home.93gushi.com:18090` 或 `http://192.168.0.150:18090`): 已正常显示, 无需重新部署容器
+
+**踩坑**:
+- `cap sync` 后第一次 `assembleDebug` 要去掉 `--offline`, 之后可加
+- cap sync 不会触发 `npm install`, plugin 缺包时 build 直接失败
+- 不要在 `capacitor.settings.gradle` 里改 `include ':capacitor-android'` 那行 — cap sync 会重置, 但**追加**的 include 会被保留
 
 ### v1.1.45 (2026-09-09) — App 端库存预警显示具体产品
 
