@@ -35,7 +35,8 @@ services:
       # ⚠️  mysqladmin ping 健康检查也强制从 .env 读 MYSQL_ROOT_PASSWORD.
       #     历史遗留: v1.1.49 之前默认值 "erp_root_pwd" 过于明显, 任何知道 compose 的人都能猜密码.
       #     若 .env 里漏填 MYSQL_ROOT_PASSWORD, healthcheck 会失败 (容器 healthy 但 DB 启动不起来).
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env for healthcheck}"]
+      #     docker-compose yaml: :? 是变量默认值语法, 不是 mapping 分隔符, 用引号包裹避免解析歧义.
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
