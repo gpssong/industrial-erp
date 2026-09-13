@@ -1,0 +1,59 @@
+# v1.1.49: PR 自动检查 — 后端编译 + PC 端构建 + App H5 构建
+# 跑 mvn compile 确保 SecurityPreflightValidator 等新增代码没编译错
+# 跑 npm run build:h5 确保前端没语法错误
+# 注意: 不跑 Testcontainers 集成测试 (需 Docker), 只跑 mvn compile
+
+name: ci-build-check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-compile:
+    name: Backend compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Compile backend
+        run: |
+          cd backend
+          # 用本地 mvn (GitHub Actions runner 预装 maven)
+          mvn -B compile -DskipTests 2>&1 | tail -20
+        timeout-minutes: 10
+
+  pc-web-build:
+    name: PC Web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install pc-web deps
+        run: cd pc-web && npm ci --no-audit --no-fund 2>&1 | tail -5
+      - name: Build pc-web
+        run: cd pc-web && npm run build 2>&1 | tail -10
+
+  app-h5-build:
+    name: App H5 build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install app deps
+        run: cd app && npm ci --no-audit --no-fund 2>&1 | tail -5
+      - name: Build app H5
+        run: cd app && npm run build:h5 2>&1 | tail -10
+      - name: Verify warningItems in dashboard chunk
+        run: |
+          JS=$(find app/dist/build/h5/assets -name "pages-dashboard-index.*.js")
+          grep -q "warningList" "$JS" || (echo "Dashboard chunk missing warningList"; exit 1)

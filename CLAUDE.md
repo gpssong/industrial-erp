@@ -1,6 +1,43 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.48 (App APK 重新打包: 库存预警产品列表生效 + capacitor-share 插件注入修复)
+**当前版本**: v1.1.49 (P0 安全/部署修复: SecurityPreflightValidator + Testcontainers + build-app.sh)
+
+### v1.1.49 (2026-09-13) — P0 安全/部署修复
+
+**症状**: 项目审计 (2026-09-13) 发现 4 项生产风险: 弱 JWT secret / MySQL 默认密码兜底 / H2 测试漏 MySQL 严格模式 / App APK 升级流程没固化.
+
+**方案**:
+- **SecurityPreflightValidator** 启动期拒绝弱 JWT secret (中等强度校验: 长度 ≥32 字符 + 黑名单; `@Profile("!test")` 测试不受影响)
+- docker-compose.yml healthcheck 强制从 .env 读 MYSQL_ROOT_PASSWORD (去掉 erp_root_pwd 兜底)
+- Testcontainers MySQL 8.0 加 @Tag("integration"), mvn verify 才跑, 详情 schema-test.sql + data-test.sql
+- scripts/build-app.sh 把 cap sync + assembleDebug 全流程固化, 输出版本号命名的 APK 到桌面 + 项目根
+- .github/workflows/ci-build-check.yml 首次引入 CI (后端 compile + PC H5 build + App H5 build)
+- docs/security.md 文档化 .env 必填项 + 生成命令 + 密钥泄漏后果
+- .env.example 顶部加 preflight 安全提示
+
+**改动**:
+- 后端: SecurityPreflightValidator (新增) + pom.xml 加 testcontainers mysql/junit-jupiter + failsafe-plugin
+- 后端测试: application-mysql-test.yml + sql/schema-test.sql + sql/data-test.sql + InvLedgerQueryMapperMysqlIT
+- docker-compose.yml: healthcheck 强制从 .env 读 MYSQL_ROOT_PASSWORD
+- .env.example: 顶部加安全预检说明 + JWT secret 生成命令提示
+- scripts/build-app.sh (新增): npm build → cap sync → 自动补 capacitor-share → assembleDebug → 输出到桌面
+- .github/workflows/ci-build-check.yml (新增): PR 自动跑后端 compile + PC H5 build + App H5 build
+- docs/security.md (新增): .env 必填项 + 生成命令清单 + 升级流程
+
+**部署副作用**:
+- 本次部署时 NAS .env 的 SA_TOKEN_JWT_SECRET_KEY 自动替换为强随机值 → 所有用户**必须重新登录**(cookie 失效)
+- MYSQL_ROOT_PASSWORD 不动 (避免破坏现有数据)
+
+**已有失败测试 (pre-existing, 非本次引入)**:
+- SalOrderServiceTest / SalDeliveryVersionLockTest 等 13 个测试 NPE (Mockito + @InjectMocks 注入 mapper 失败)
+- 根因是这些测试类用了父类构造注入 mapper, 不是 @Autowired, Mockito 无法自动注入
+- 不在本次 P0 范围内, 留 v1.1.50+ 处理
+
+**风险**:
+- SecurityPreflightValidator 启动失败 = backend 起不来, 必须 .env 改对; 测试 profile 不受影响
+- Testcontainers 首次 mvn verify 要拉 mysql:8.0 镜像 (~500MB), 本地 mvn test 不受影响
+- build-app.sh 在 macOS 上跑 (JAVA_HOME 路径写死 homebrew), Linux 需改
+
 
 ### v1.1.48 (2026-09-13) — App 端库存预警产品列表上线 + 重新打包 APK
 

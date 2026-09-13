@@ -1,0 +1,22 @@
+# v1.1.49: Testcontainers MySQL 真实环境测试
+# TC_REUSABLE=true 让容器复用 (mvn verify 多次跑只需启动一次)
+# init-script 由 @Sql 注解指定, 不走 spring.sql.init (testcontainers 容器内 MySQL 启动时才执行)
+spring:
+  datasource:
+    url: jdbc:tc:mysql:8.0.33:///industrial_erp_test?TC_REUSABLE=true
+    username: test
+    password: test
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+  sql:
+    init:
+      mode: never  # schema/data 由测试 @Sql 显式加载
+  test:
+    database:
+      replace: none  # 禁止 Spring 用 H2 替换 DataSource
+
+# 测试 JWT secret 用占位符, SecurityPreflightValidator 已 @Profile("!test") 不加载
+sa-token:
+  jwt-secret-key: ${SA_TOKEN_JWT_SECRET_KEY:industrial-erp-jwt-test-p2-fix}
+
+# 关闭 flyway / liquibase (本项目用 sql/ 手写)
+spring.flyway.enabled: false

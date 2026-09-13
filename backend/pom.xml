@@ -183,6 +183,22 @@
                 </exclusion>
             </exclusions>
         </dependency>
+
+        <!-- v1.1.49: Testcontainers MySQL — 真实 MySQL 跑集成测试, 捕获 only_full_group_by 类问题
+             (v1.1.32/45/47 反复修的 SQL 模式, H2 MODE=MySQL 模拟不出来).
+             @Tag("integration") 让 mvn test 跳过, mvn verify 才跑. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <version>1.19.7</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>1.19.7</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -213,7 +229,27 @@
                 <configuration>
                     <!-- 解决 Mockito 5 + byte-buddy 在 JDK 17 上的 self-attach 限制 (JDK 9+ 默认不允许 attach 当前进程) -->
                     <argLine>-Djdk.attach.allowAttachSelf=true</argLine>
+                    <!-- v1.1.49: mvn test 跳过 Testcontainers 集成测试 (本地开发不被容器启动阻塞);
+                         mvn verify 时 failsafe-plugin 才跑 @Tag("integration"). -->
+                    <excludedGroups>integration</excludedGroups>
                 </configuration>
+            </plugin>
+            <!-- v1.1.49: failsafe-plugin 在 mvn verify 时跑集成测试, 跟单元测试分离 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>-Djdk.attach.allowAttachSelf=true</argLine>
+                    <groups>integration</groups>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

@@ -2,7 +2,6 @@
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
 
-// v1.1.48: CLI cap sync 不会自动扫描 @capacitor/share, 但 app/build.gradle 引用 ':capacitor-share'
-// 手动追加 (cap sync 不会覆盖此行)
+// v1.1.49 build-app.sh 自动追加 (CLI 6.x cap sync 不会扫 @capacitor/share)
 include ':capacitor-share'
 project(':capacitor-share').projectDir = new File('../node_modules/@capacitor/share/android')
