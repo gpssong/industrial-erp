@@ -2,6 +2,7 @@
 
 **当前版本**: v1.1.49 (P0 安全/部署修复: SecurityPreflightValidator + Testcontainers + build-app.sh)
 
+## changelog (倒序)
 ### v1.1.49 (2026-09-13) — P0 安全/部署修复
 
 **症状**: 项目审计 (2026-09-13) 发现 4 项生产风险: 弱 JWT secret / MySQL 默认密码兜底 / H2 测试漏 MySQL 严格模式 / App APK 升级流程没固化.
@@ -314,7 +315,7 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
 
-## changelog (倒序)
+
 
 ### v1.1.47 (2026-09-13) — 库存预警: 库存=0 但低于安全库存的产品现在能进预警
 
