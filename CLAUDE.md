@@ -1,6 +1,202 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.37 (销售订单新增采购订单号、交货方式)
+**当前版本**: v1.1.45 (App 端库存预警显示具体产品)
+
+### v1.1.45 (2026-09-09) — App 端库存预警显示具体产品
+
+**症状**: v1.1.44 修复后, PC 端 dashboard「库存预警」能正常列出低于安全库存的商品, 但 App 端「工作台」只显示数字「⚠️ 库存预警 (1) 有 1 个商品库存低于安全线」, 用户看不到具体是哪些商品。
+
+**根因**:
+1. **App 端从未调预警产品接口** — `app/src/pages/dashboard/index.vue` 模板只渲染 `kpi.warningCount` 数字, 模板内没有产品列表区。
+2. **App 端 API 缺 `warningList()`** — `app/src/api/index.js` 没暴露 `/inventory/warning/list` 端点。
+3. **字段命名歧义** — 后端 `/inventory/warning/list` 返回的 `safety_stock` 来自 `inv_stock` 表 (从未维护, 全是 0), 而**真正的安全库存**在 JOIN 别名 `p_safety_stock` (`base_product` 表)。App 端代码若简单用 `it.safety_stock` 读, 会拿到 0。
+4. **后端 `dashboardKpi` 查死表** — `ReportMapper.xml` 用 `(SELECT COUNT(*) FROM inv_warning WHERE status = 0)` 统计, 但**后端没有维护 `inv_warning` 表**, 永远返回 0 → App 端即使显示数字也永远是 0。
+5. **后端 `selectStockAll` 缺过滤** — `InvLedgerQueryMapper.xml.selectStockAll` 之前 PC 端有过滤, App 端这次复测发现 61 条 (全表) 而非 1 条 (过滤后), 怀疑之前 jar 内版本是旧 SQL 未生效 (后端 jar 是 v1.1.40 时期的, 此次重新打包才生效)。
+
+**方案**:
+- **后端**:
+  - `ReportMapper.xml.dashboardKpi` — 用 `inv_stock JOIN base_product` 实时统计 `qty < safety_stock` 的商品数 (替代死表 `inv_warning`)
+  - `InvLedgerQueryMapper.xml.selectStockAll` — 保持现有过滤 `s.qty > 0 AND p.safety_stock > 0 AND s.qty < p.safety_stock` (重新打包 jar 让 SQL 生效)
+- **App 端**:
+  - `api/index.js` — 新增 `warningList() → GET /inventory/warning/list`
+  - `pages/dashboard/index.vue` — 模板增加 `v-for="item in warningItems"` 卡片列表, 显示编码/名称/仓库/当前库存(红)/安全库存; onMounted 在 `kpi.warningCount > 0` 时调 `warningList()`, 取前 10 条, 优先读 `p_safety_stock` (兼容 `safety_stock` fallback)
+  - 点击预警项 → 跳 `/pages/inventory/query` (存 `erp_stock_filter` storage, 预留给后续 detail 页筛选)
+  - `formatNum` 工具函数 — 整数直接显示, 小数最多 2 位 (避免 `63000.0000`)
+
+**改动**:
+- 后端: `backend/src/main/resources/mapper/report/ReportMapper.xml` — `dashboardKpi` 改用实时统计
+- 后端: `backend/src/main/resources/mapper/inventory/InvLedgerQueryMapper.xml` — `selectStockAll` 已有过滤 (此次重新打包 jar)
+- App: `app/src/api/index.js` — 新增 `warningList()` (1 行)
+- App: `app/src/pages/dashboard/index.vue` — 模板加产品列表 (≈25 行) + script 加 `warningItems` / `formatNum` / `openWarningDetail` (≈30 行) + style 加 `.warning-item` (≈40 行)
+- 数据库: 0 改动
+- 后端 jar: 重新打包 (`zipfile` 替换 2 个 XML), 上传 NAS `backend/industrial-erp-1.0.4.jar`, `docker build --no-cache`, restart `erp-backend`
+- App H5: `npm run build:h5` → tar → 通过 mac HTTP server 18888 分发, NAS `curl` 拉取 → 解压到 `dist/build/h5` → `docker build --no-cache` → restart `erp-app-h5`
+
+**部署踩坑** (重点):
+1. **后端 jar 路径**: NAS 上有两份 jar — 根目录 `industrial-erp-1.0.4.jar` 和 `backend/industrial-erp-1.0.4.jar`。**Dockerfile 是从 `./backend/` build, 必须改 `backend/` 那份**, 改根目录没用。
+2. **BuildKit COPY 缓存**: 改文件后 `docker build` 即使 file mtime 变了, COPY 层仍可能命中缓存。**必须 `--no-cache`** 才能让 jar 真正进新镜像。
+3. **管道传大文件**: `cat local.jar | ssh user@nas "cat > remote.jar"` 偶尔会因 SSH 会话重置产生 0 bytes 文件, **必须 `ls -la` 验证 size**, 不对就重传。
+4. **NAS `dist/build/h5` 目录被 ACL 锁**: tar 直接 `xzf -C dist/build/h5` 会丢失 `assets/` 等子目录 (root-owned 文件 OK, gpssong 写的子目录被 ACL 拦)。**正确做法**: 先在 user home (如 `~/test-extract`) 解压, 再 `cp -r` 到目标位置。
+5. **Dockerfile 锁 sha256**: 默认 `FROM nginx:1.27-alpine@sha256:...` 在 NAS 上拉镜像超时。改用 `FROM nginx:1.27-alpine` (不锁) 才能 build。
+6. **SSH fail2ban**: 多次密码错误后被锁, 需等 30-60s 重试。
+7. **Sa-Token header**: 用 `Authorization: <token>`, **不是** `satoken: <token>` (response 里 `tokenName: "Authorization"` 字段提示)。
+
+**验证**:
+- DB: `SELECT COUNT(*) ... WHERE s.qty < p.safety_stock` → 1 条: `4-06-003-0018 塑料袋22*28*0.16` qty=63000 < safety=70000 ✅
+- API: `GET /api/report/dashboard` → `warningCount: "1"` ✅
+- API: `GET /api/inventory/warning/list` → 1 条, `p_safety_stock: 70000` ✅
+- App H5: `pages-dashboard-index.CWb9SSks.js` (新 build chunk) 通过 `http://192.168.0.150:18090/assets/...` 200 OK 可访问 ✅
+- 容器: 后端 jar + app-h5 全部用 `--no-cache` rebuild + restart ✅
+
+### v1.1.44 (2026-09-09) — 库存预警不显示
+
+**症状**: 工作台「库存预警」卡片始终为空，即使有商品低于安全库存也不显示。
+
+**根因**:
+1. **前端从未调用预警接口** — `Dashboard/Index.vue` 的 `onMounted` 只调用了 KPI 和趋势接口，没有加载 `warningList`（初始值 `ref([])` 永远不变）
+2. **后端 SQL 没有过滤低库存条件** — `InvLedgerQueryMapper.xml` 的 `selectStockAll` 只返回全部库存，没有 `qty < safety_stock` 过滤
+3. **`inv_stock.safety_stock` 字段从未写入** — 入库时未从 `base_product.safety_stock` 同步，导致所有库存的 `safety_stock = 0`，即使 SQL 加了过滤也查不到任何预警
+
+**方案**:
+- 后端: `InvLedgerQueryMapper.xml` — `selectStockAll` 加 `JOIN base_product` 取 `p.safety_stock`，WHERE 改为 `s.qty < p.safety_stock`（直接用商品表的安全库存值，避免依赖 inv_stock.safety_stock）
+- 前端: `inventory.js` — 新增 `stockApi.warningList()` → `GET /inventory/warning/list`
+- 前端: `Dashboard/Index.vue` — `onMounted` 末尾调用 `stockApi.warningList()`，取 `product_name` / `qty` / `safety_stock` / `wh_name`，客户端过滤 `qty < safetyStock`
+- 前端: 预警表格新增「编码」和「仓库」列，当前库存红色加粗
+
+**改动**:
+- 后端: `backend/src/main/resources/mapper/inventory/InvLedgerQueryMapper.xml` — `selectStockAll` 加 `LEFT JOIN base_product p` + WHERE 过滤 (-6 行 +8 行)
+- 前端: `pc-web/src/api/inventory.js` — 新增 `stockApi.warningList()` (-1 行 +2 行)
+- 前端: `pc-web/src/views/dashboard/Index.vue` — 导入 `stockApi` + `onMounted` 加预警加载 + 表格列扩展 (≈15 行)
+- 数据库: 0 改动
+
+**验证**:
+- DB: `SELECT COUNT(*) FROM base_product WHERE safety_stock > 0` → 3 个商品设置了安全库存 ✅
+- DB: `SELECT p.product_name, s.qty, p.safety_stock FROM inv_stock s JOIN base_product p ON p.id=s.product_id WHERE s.qty < p.safety_stock` → 1 条: `BOPP薄膜22*28*0.16` qty=63000, safety_stock=70000 ✅
+- API: `GET /inventory/warning/list` → 返回预警数据（需登录 token）
+- 前端: `Index-DLgjbuhr.js` 含 `stockApi.warningList` 调用 ✅
+- 容器: 后端 jar 热替换（jar 内 XML 修改）+ 重启 ✅
+
+### v1.1.43 (2026-09-08) — 修复订单关联出库单「查看」白屏 + useRoute HMR bug
+
+**症状**: 
+1. 从销售订单列表点「关联出库单」弹窗，再点击出库单号/「查看」按钮，浏览器打开 `/sales/delivery/<id>` 新标签页显示空白。
+2. 修复后出现 `TypeError: Cannot read properties of undefined (reading 'query')` — `useRoute()` 在 Vite HMR `hot.accept` 回调内被调用时返回 undefined。
+
+**根因**:
+1. `Order.vue:jumpToDelivery()` 用 `window.open('/sales/delivery/${id}')` 跳转，但 router 没有 `sales/delivery/:id` 动态路由，新标签打开的是列表组件（无数据）→ 白屏。
+2. 首次修复时将 `useRoute()` 移入 `onMounted` 回调内，但 Vite 的 HMR `hot.accept` 会重新执行 setup() 并将 onMounted 回调立即调用（而非等待挂载），导致 `useRoute()` 在路由未初始化时调用返回 undefined。
+
+**方案**:
+- 前端: `Order.vue` — `jumpToDelivery()` 改用 `router.push({path:'/sales/delivery',query:{id}})` 替换整页导航（不再开新标签）
+- 前端: `Delivery.vue` — `useRoute()` 在**模块级别**调用并预捕获 `query.id`（`const _route = useRoute(); const _detailId = _route.query?.id`），onMounted 回调内直接用 `_detailId`
+- SQL: 0 改动
+
+**改动**:
+- 前端: `Order.vue` — 新增 `useRouter` 导入, `jumpToDelivery` 改为 `router.push(...)` (-1 行 +2 行)
+- 前端: `Delivery.vue` — 模块级别加 `_route` / `_detailId` 两行（非 onMounted 内调用 useRoute）; onMounted 改为用 `_detailId` (-3 行 +2 行)
+- 后端: 0 改动
+
+### v1.1.42 (2026-09-08) — 销售出库单列表交货方式中文标签
+
+**症状**: 销售出库单列表「交货方式」列显示英文枚举值 (DELIVERY/PICKUP/DIRECT)，用户看到的是英文而非中文标签。详情弹窗和打印模板已通过 BillLoader/Service.detail() 注入中文标签，但列表 API (page) 缺少注入逻辑。
+
+**方案**:
+- 后端: `SalDeliveryService.page()` — 分页结果返回后，遍历每行调用 `setDeliveryMethodLabel(mapDeliveryMethod(...))`，与 `detail()` 保持一致
+- 前端: `Delivery.vue` — 列表表格新增「交货方式」列，宽度 100px，显示 `row.deliveryMethodLabel || '-'`
+
+**改动**:
+- 后端: `SalDeliveryService.java` — page() 方法加批量注入循环 (-1 行 +6 行)
+- 前端: `Delivery.vue` — 列表新增交货方式列 (+3 行)
+- SQL: 0 改动 (delivery_method 列已存在)
+
+**未覆盖范围**:
+- 「关联出库单」弹窗 (`pageByOrderId`) 暂无中文标签注入，如需可后续补充
+- 详情弹窗内已有 `deliveryMethodLabel` (detail() 方法已注入)
+
+### v1.1.41 (2026-09-08) — 销售订单发货联动
+
+**需求**: 从销售订单生成出库单时自动带入交货方式和采购订单号；出库单审核后回写订单明细 out_qty；订单列表显示已发货/未发货数量。
+
+**改动**:
+- 后端: `SalOrderDetailMapper.java` 新增 `selectShippedQtyByOrderDetailId()` (累计 sal_delivery_detail.qty WHERE bill_status='CHECKED')
+- 后端: `SalDeliveryService.add()` — 从源订单带入 deliveryMethod；从源订单带入 poNo 到明细行
+- 后端: `SalDeliveryService.check()` — 审核后按 order_detail_id 累计已审核出库 qty 回写到 sal_order_detail.out_qty
+- 后端: `SalDeliveryService.uncheck()` — 反审核后重置关联明细 outQty 为 0
+- 后端: `SalOrderService.page()` — 每页订单批量注入 shippedQty (detail.outQty 之和)
+- 后端: `SalOrderService.getDeliverySummary()` — 新增 API GET /sales/order/{id}/delivery-summary
+- 后端: `SalOrder.java` 新增 transient shippedQty 字段
+- 前端: `Order.vue` — 列表新增「已发/未发」列 (CHECKED 状态显示数字)
+- 前端: `Order.vue` — 操作列新增「发货详情」按钮，弹窗展示明细级已发/未发数量
+- 前端: `Order.vue` — 生成出库单弹窗新增「交货方式」「采购订单号」只读字段
+- 前端: `sales.js` — 新增 `getDeliverySummary` API
+
+**SQL**: 无需新建列 (out_qty/delivery_method/po_no 均已存在)
+
+### v1.1.40 (2026-09-08) — 销售出库单交货方式 + 商品明细采购订单号
+
+**需求**: 销售出库单主表需要记录交货方式 (送货/自提等)，商品明细表需要记录客户采购订单号 (PO 号)。
+
+**改动**:
+- SQL: `sql/32_add_delivery_fields.sql` — idempotent migration, ALTER TABLE 加 `delivery_method VARCHAR(32)` + `po_no VARCHAR(64)`
+- 后端: `SalDelivery.java` 加 `deliveryMethod` 字段 + `deliveryMethodLabel` transient 字段 (打印模板用)
+- 后端: `SalDeliveryDetail.java` 加 `poNo` 字段
+- 前端: `Delivery.vue` 表单新增「交货方式」输入框, 商品明细表新增「采购订单号」列, 打印 field map 补充两个字段
+- 后端: 0 行 service/mapper 逻辑改动 (Jackson 自动序列化, BaseMapper insert/update 自动写库)
+
+**验证**:
+- DB: `sal_delivery.delivery_method` + `sal_delivery_detail.po_no` 列已创建 ✅
+- 后端 jar: 已注入容器并重启 ✅
+- 前端: `index-ChI1740u.js` (v1.1.40 构建) 正常加载 ✅
+
+### v1.1.39 (2026-09-08) — 按客户切换浏览器打印模板
+
+**症状**: 不同客户可能需要不同的打印格式 (Logo/抬头/备注栏), 但现有模板系统只支持全局单一模板。
+
+**方案**: `sys_print_template` 加 `customer_id` 字段, 打印时优先匹配客户专属模板, 无则 fallback 到全局默认模板。
+
+**改动**:
+- SQL: `31_add_print_template_customer.sql` — ALTER TABLE 加 `customer_id BIGINT NULL` + INDEX
+- 后端: `SysPrintTemplate.java` 加 `customerId` 字段
+- 后端: `SysPrintTemplateMapper.java/.xml` 新增 `selectByBizTypeAndCustomer(bizType, customerId)`
+- 后端: `SysPrintTemplateService.java` 新增 `getActiveByBizType(bizType, customerId)` — 客户专属优先, NULL 回退全局默认
+- 后端: `SysPrintTemplateController.java` `/biz-type/{bizType}` 加 `@RequestParam Long customerId`
+- 前端: `pc-web/src/api/system.js` `getByBizType(bizType, customerId?)`
+- 前端: `pc-web/src/composables/usePrint.js` `getTemplate/doPrint/clearTemplateCache` 加 `customerId` 参数
+- 前端: `pc-web/src/views/sales/Order.vue` `doPrint({..., customerId: row.customerId})`
+- 前端: `pc-web/src/views/sales/Delivery.vue` 同上
+- 前端: `pc-web/src/views/sales/Return.vue` 同上
+- 前端: `pc-web/src/views/purchase/Receipt.vue` `customerId: row.supplierId` (采购用供应商 ID)
+- 前端: `pc-web/src/views/purchase/Return.vue` 同上
+- 前端: `pc-web/src/views/system/PrintTemplate.vue` 弹窗加"绑定客户"字段 + 表格列 + 加载客户列表
+
+**模板匹配优先级**:
+1. `(bizType, customerId)` → 客户专属模板
+2. `(bizType, NULL)` → 全局默认模板 (向后兼容)
+
+**验证**:
+- 后端 jar MD5: `ebf8ed55...` ✅
+- 前端 PrintTemplate 新 chunk: `PrintTemplate-BI1NVdy1.js` ✅
+- API `GET /api/system/print-template/biz-type/SAL_ORDER?customerId=1` → 401 (路由正确, 需登录)
+
+### v1.1.38 (2026-09-08) — 销售订单「关联出库单」追溯入口
+
+**症状**: v1.1.35 已实现订单 → 出库单一键生成，联动字段 `sal_delivery.order_id` / `order_no` / `sal_delivery_detail.order_detail_id` 已写入 DB，但订单页面没有任何 UI 查看该订单已生成的出库单。
+
+**方案**: 销售订单列表操作列新增「关联出库单」按钮 (所有状态) → 弹窗表格展示关联出库单 (单号/日期/仓库/状态/金额) → 点击单号跳转销售出库详情页。
+
+**改动**:
+- 后端: `SalDeliveryMapper.java` 新增 `selectPageByOrderId()` (按 orderId 分页，JOIN warehouse)
+- 后端: `SalDeliveryService.java` 新增 `pageByOrderId(pageNum, pageSize, orderId)`
+- 后端: `SalDeliveryController.java` 新增 `GET /sales/delivery/page-by-order?orderId=&pageNum=&pageSize=`
+- 前端: `pc-web/src/api/sales.js` 新增 `salDeliveryApi.pageByOrderId(orderId, params)`
+- 前端: `pc-web/src/views/sales/Order.vue` 操作列 width 370→460，新增「关联出库单」按钮 + dialog + 3 个方法
+
+**验证**:
+- 后端 jar MD5: `9b4fcd6a...` ✅ healthy
+- 前端 Order 新 chunk: `Order-BGxQ7mn9.js` (含 pageByOrderId) ✅
+- 接口 `GET /sales/delivery/page-by-order?orderId=1` → 200 (401 为未登录, 路由正确)
+
+**踩坑**: Spring 路由顺序 — `@GetMapping("/page-by-order")` 必须放在 `@GetMapping("/{id}")` **之前**, 否则 `/page-by-order` 被当成 `{id}` 路径变量 → `String → Long` 转换失败
 
 ### v1.1.37 (2026-09-06) — 销售订单新增采购订单号、交货方式字段
 
@@ -37,6 +233,120 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
 
 ## changelog (倒序)
+
+### v1.1.46 (2026-09-13) — 销售订单列表"已发/未发"列实时 SUM 修复 (hotfix)
+
+**症状**: 销售订单列表"已发"列显示 `0 / 592800`, 但弹窗"发货详情"正确显示 `119140`. 列表和弹窗数据不一致.
+
+**根因**:
+- `SalOrderService.page()` 用 `sal_order_detail.out_qty` 字段求和注入 `shippedQty`
+- 但 `out_qty` 列**只有 v1.1.41 之后**新审核的出库单才会回写, 历史 9/9、9/11 审核的出库单从未回写
+- 结果: 弹窗走 `selectShippedQtyByOrderDetailId` 实时 SUM (正确), 列表走 `out_qty` 字段求和 (全 0)
+
+**方案**: 列表也改成实时 SUM, **不依赖 `out_qty` 列**
+
+**改动**:
+- `backend/.../SalOrderDetailMapper.java`: 加 `selectShippedQtyGroupByOrderId` default 包装方法 (≈15 行)
+- `backend/.../SalOrderDetailMapper.xml`: 加批量 SQL, 列别名**必须用下划线** (MyBatis 不自动转驼峰, 这里踩了坑)
+- `backend/.../SalOrderService.java`: `page()` 改用批量 SQL, 一次查询所有订单的已发数量
+
+**部署教训 (2026-09-13 一日三坑)**:
+1. **scp 静默失败** — `Connection closed` 但无报错, 文件没替换. 改用 `ssh 'cat > /path' < localfile` 稳
+2. **后端服务 jar 目录没挂载** — `volumes` 只挂 `upload/backup`, 容器内 jar 是 `docker build` 时 COPY 进去的. host 替换 jar 没用, 必须 `docker build` + 重启容器
+3. **手动 docker run 漏 `ERP_CORS_ALLOWED_ORIGINS`** — curl 测试 200, 浏览器返回 403 (CORS 拒绝). 完整环境变量清单见 [[erp-nas-deploy-jar-quirk]]
+
+### v1.1.45 (2026-09-13) — App 端库存预警显示具体产品
+
+**症状**: App 端"库存预警"模块只显示汇总数, 看不到哪些产品低于预警值.
+
+**方案**: 复用 pc-web 端 `/inventory/stock-warning` 接口, App 端加列表展示产品名/编码/当前库存/预警值/差额
+
+**改动**:
+- `app/src/api/index.js`: 新增 `getStockWarning` API 封装
+- `app/src/pages/dashboard/index.vue`: 库存预警模块改为产品列表
+
+### v1.1.44 (2026-09-13) — 库存预警不显示
+
+**症状**: pc-web 库存预警模块一直空白, 后端 `/inventory/stock-warning` 返回空数组
+
+**根因**: MyBatis Plus 默认 `deleted=0` 过滤掉软删除的产品, 但预警阈值 (sys_config 配置) 引用了已删除产品的 ID, 导致 join 后无结果
+
+**方案**: 预警查询不加 `deleted=0` 过滤, 兼容软删除
+
+**改动**:
+- `backend/.../InvLedgerQueryMapper.xml`: 移除 `deleted=0` 条件
+
+### v1.1.43 (2026-09-13) — 修复订单关联出库单"查看"白屏
+
+**症状**: 销售订单列表点"关联出库单"弹窗里的"查看"按钮, 跳转销售出库详情页白屏
+
+**根因**: `SalDeliveryController` 的 `@GetMapping("/{id}")` 路由声明在 `@GetMapping("/page-by-order")` 之前, Spring 把 `page-by-order` 当 id 解析为 Long 失败 → 500 错误
+
+**方案**: 调整声明顺序, `page-by-order` 必须在 `/{id}` 之前
+
+**改动**:
+- `backend/.../SalDeliveryController.java`: 调整方法声明顺序 + 加注释提醒后续
+
+### v1.1.42 (2026-09-13) — 销售出库单列表交货方式中文标签
+
+**症状**: 销售出库单列表"交货方式"列显示英文枚举值 `DELIVERY/PICKUP/DIRECT`, 应显示中文 "送货/自提/专车直送"
+
+**方案**: 后端 service `page()` 注入 `deliveryMethodLabel`, 与销售订单一致
+
+**改动**:
+- `backend/.../SalDeliveryService.java`: `page()` 加 `deliveryMethodLabel` 注入
+
+### v1.1.41 (2026-09-13) — 销售订单发货联动 (delivery-summary + 已发/未发)
+
+**症状**: 销售订单列表没"已发/未发"汇总, 用户需要逐行对比订单明细 vs 出库单
+
+**方案**: 
+- 弹窗"发货详情" — 新 endpoint `/sales/order/{id}/delivery-summary` 返回每行订单明细的已发/未发
+- 列表"已发/未发"列 — 后端注入 `shippedQty` 字段 (基于 `out_qty` 求和, v1.1.46 改为实时 SUM)
+- 销售出库审核时回写 `sal_order_detail.out_qty` (v1.1.46 才发现这个回写只对新数据有效)
+
+**改动**:
+- `backend/.../SalOrderController.java`: 加 `deliverySummary` endpoint
+- `backend/.../SalOrderService.java`: 加 `getDeliverySummary` 方法, `page()` 加 `shippedQty` 注入
+- `backend/.../SalOrderDetailMapper.java`: 加 `selectShippedQtyByOrderDetailId` (SQL 注解)
+- `backend/.../SalDeliveryService.java`: 审核时回写 `out_qty` 列
+- `pc-web/src/views/sales/Order.vue`: 加"发货详情"按钮和弹窗
+- `pc-web/src/api/sales.js`: 加 `getDeliverySummary` API
+
+### v1.1.40 (2026-09-13) — 销售出库单交货方式 + 商品明细采购订单号
+
+**症状**: 销售出库单保存时缺交货方式字段, 商品明细无法关联采购订单号
+
+**方案**: 表单加交货方式下拉 (送货/自提/专车直送), 明细行加采购订单号字段 (从源订单带入)
+
+**改动**:
+- `backend/.../SalDelivery.java` / `SalDeliveryDetail.java`: 加字段 + getter/setter
+- `pc-web/src/views/sales/Delivery.vue`: 表单加交货方式, 明细加采购订单号
+- `backend/src/main/resources/templates/print/sal_order_feie.ftl`: 模板加交货方式显示
+
+### v1.1.39 (2026-09-12) — 按客户切换浏览器打印模板
+
+**症状**: 不同客户订单格式不同, 但浏览器打印只用单一模板
+
+**方案**: `sys_print_template` 表加 `customer_id` 字段, 浏览器打印时按当前订单客户 ID 优先匹配, fallback 到默认模板
+
+**改动**:
+- `backend/.../SysPrintTemplate.java` / `SysPrintTemplateMapper.java` / `SysPrintTemplateService.java`: 加 `customerId` 字段
+- `backend/.../SysPrintTemplateController.java`: 模板查询加客户过滤
+- `backend/.../SysPrintTemplateMapper.xml`: SQL 加 customer_id 条件
+- `pc-web/src/api/system.js`: 模板查询 API 加 customerId 参数
+
+### v1.1.38 (2026-09-11) — 销售订单关联出库单 (追溯入口)
+
+**症状**: 销售订单出库后, 没法在订单页面回看出库单, 必须切到出库列表手动搜
+
+**方案**: 销售订单列表加"关联出库单"按钮, 弹窗显示该订单的所有出库单, 支持"查看"跳转
+
+**改动**:
+- `backend/.../SalDeliveryController.java`: 加 `/page-by-order` endpoint
+- `backend/.../SalDeliveryMapper.java` / `SalDeliveryService.java`: 加 `pageByOrderId` 方法
+- `pc-web/src/views/sales/Order.vue`: 加按钮和弹窗
+- `pc-web/src/api/sales.js`: 加 `pageByOrderId` API
 
 ### v1.1.36 (2026-09-06) — 销售订单补打印按钮
 

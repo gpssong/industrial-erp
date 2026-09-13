@@ -12,4 +12,19 @@
         ORDER BY b.bill_date DESC LIMIT 1
     </select>
 
+    <!-- v1.1.41+hotfix: 批量按订单汇总已审核出库数量 (用于销售订单列表"已发/未发"列)
+         列别名用下划线 (与 SalOrderDetailMapper.java default 方法里的 key 保持一致) -->
+    <select id="selectShippedQtyRawGroupByOrderId" resultType="java.util.LinkedHashMap">
+        SELECT sod.order_id AS order_id, COALESCE(SUM(sdd.qty), 0) AS shipped_qty
+        FROM sal_order_detail sod
+        JOIN sal_delivery_detail sdd ON sdd.order_detail_id = sod.id
+        JOIN sal_delivery sd ON sd.id = sdd.delivery_id
+        WHERE sod.order_id IN
+        <foreach collection="orderIds" item="oid" open="(" separator="," close=")">
+            #{oid}
+        </foreach>
+        AND sd.bill_status = 'CHECKED' AND sd.deleted = 0 AND sdd.deleted = 0 AND sod.deleted = 0
+        GROUP BY sod.order_id
+    </select>
+
 </mapper>

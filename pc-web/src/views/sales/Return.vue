@@ -217,7 +217,8 @@ async function onPrint(row) {
       bill: r.data || {},
       fieldMap: SAL_RETURN_HEADER_MAP,
       detailsKey: 'details',
-      detailFieldMap: SAL_RETURN_DETAIL_MAP
+      detailFieldMap: SAL_RETURN_DETAIL_MAP,
+      customerId: r.data?.customerId || row.customerId || undefined
     })
   } catch (e) {
     ElMessage.error(e.message || '打印失败')

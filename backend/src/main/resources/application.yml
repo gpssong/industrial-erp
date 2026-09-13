@@ -78,6 +78,9 @@ mybatis-plus:
       update-strategy: not_null
 
 sa-token:
+  # v1.1.46: 禁用 Sa-Token 内置 CORS 检查 (返回 "Invalid CORS request")
+  # 改用 Spring MVC 的 CorsFilter + nginx 层处理
+  is-check-cors: false
   token-name: Authorization
   timeout: 2592000
   is-concurrent: true

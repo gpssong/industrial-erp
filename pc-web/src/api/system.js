@@ -81,7 +81,10 @@ export const loginLogApi = {
 export const printTemplateApi = {
   page: (params) => request.get('/system/print-template/page', { params }),
   detail: (id) => request.get(`/system/print-template/${id}`),
-  getByBizType: (bizType) => request.get(`/system/print-template/biz-type/${bizType}`),
+  getByBizType: (bizType, customerId) => {
+    const params = customerId ? { customerId } : undefined
+    return request.get(`/system/print-template/biz-type/${bizType}`, { params })
+  },
   add: (data) => request.post('/system/print-template', data),
   update: (data) => request.put('/system/print-template', data),
   delete: (id) => request.delete(`/system/print-template/${id}`)

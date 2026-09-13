@@ -71,5 +71,19 @@ public class SalDeliveryBillLoader implements BillLoader {
             var w = warehouseMapper.selectById(bill.getWarehouseId());
             if (w != null) bill.setWarehouseName(w.getWarehouseName());
         }
+        // v1.1.42: 交货方式枚举值 → 中文 label (与 SalOrderService 保持一致)
+        if (bill.getDeliveryMethod() != null) {
+            bill.setDeliveryMethodLabel(mapDeliveryMethod(bill.getDeliveryMethod()));
+        }
+    }
+
+    private static String mapDeliveryMethod(String code) {
+        if (code == null) return "";
+        switch (code) {
+            case "DELIVERY": return "送货";
+            case "PICKUP":   return "自提";
+            case "DIRECT":   return "专车直送";
+            default:         return code;
+        }
     }
 }

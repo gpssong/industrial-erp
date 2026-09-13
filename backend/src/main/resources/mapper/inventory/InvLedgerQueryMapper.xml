@@ -7,9 +7,16 @@
         ORDER BY last_in_date
     </select>
     <select id="selectStockAll" resultType="java.util.Map">
-        SELECT s.*, w.warehouse_name AS wh_name
-        FROM inv_stock s LEFT JOIN base_warehouse w ON w.id = s.warehouse_id
-        WHERE s.deleted = 0
-        ORDER BY s.product_id, s.warehouse_id
+        SELECT s.id AS stock_id, s.warehouse_id, s.warehouse_name, s.product_id, s.product_code, s.product_name,
+               s.qty, s.available_qty, s.avg_cost, s.total_cost, s.create_time,
+               w.warehouse_name AS wh_name,
+               p.safety_stock AS p_safety_stock
+        FROM inv_stock s
+        LEFT JOIN base_warehouse w ON w.id = s.warehouse_id
+        LEFT JOIN base_product p ON p.id = s.product_id
+        WHERE s.deleted = 0 AND s.qty > 0
+            AND p.safety_stock IS NOT NULL AND p.safety_stock > 0
+            AND s.qty &lt; p.safety_stock
+        ORDER BY s.qty ASC, s.product_id, s.warehouse_id
     </select>
 </mapper>

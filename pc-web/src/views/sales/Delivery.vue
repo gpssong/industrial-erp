@@ -37,6 +37,9 @@
           <template #default="{ row }">{{ row.firstProductModel || '-' }}</template>
         </el-table-column>
         <el-table-column prop="warehouseName" label="仓库" min-width="120" show-overflow-tooltip />
+        <el-table-column label="交货方式" width="100">
+          <template #default="{ row }"><span>{{ row.deliveryMethodLabel || '-' }}</span></template>
+        </el-table-column>
         <el-table-column prop="totalQty" label="数量" width="100" align="right" />
         <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
         <el-table-column prop="costAmount" label="成本" width="100" align="right" />
@@ -96,7 +99,19 @@
         <el-row :gutter="12">
           <el-col :span="6"><el-form-item label="收货地址"><el-input v-model="form.address" /></el-form-item></el-col>
           <el-col :span="6"><el-form-item label="收货电话"><el-input v-model="form.phone" /></el-form-item></el-col>
+          <!-- v1.1.40: 交货方式 (下拉枚举, 避免用户手动输入英文) -->
+          <el-col :span="6">
+            <el-form-item label="交货方式">
+              <el-select v-model="form.deliveryMethod" placeholder="请选择" style="width:100%">
+                <el-option label="送货" value="DELIVERY" />
+                <el-option label="自提" value="PICKUP" />
+                <el-option label="专车直送" value="DIRECT" />
+              </el-select>
+            </el-form-item>
+          </el-col>
           <el-col :span="6"><el-form-item label="整单折扣"><el-input-number v-model="form.discountAmount" :step-strictly="false" :formatter="stripZeroFormat" :parser="stripZeroParse" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="12">
           <el-col :span="6"><el-form-item label="抹零"><el-input-number v-model="form.tailAmount" :step-strictly="false" :formatter="stripZeroFormat" :parser="stripZeroParse" /></el-form-item></el-col>
         </el-row>
 
@@ -146,6 +161,10 @@
             </el-table-column>
             <el-table-column label="库位" width="100">
               <template #default="{ row }"><el-input v-model="row.locationName" size="small" /></template>
+            </el-table-column>
+            <!-- v1.1.40: 采购订单号 (客户 PO 号) -->
+            <el-table-column label="采购订单号" width="140">
+              <template #default="{ row }"><el-input v-model="row.poNo" size="small" placeholder="可选" /></template>
             </el-table-column>
             <el-table-column label="操作" width="60"><template #default="{ row, $index }"><el-button link type="danger" size="small" @click="form.details.splice($index,1)">删</el-button></template></el-table-column>
           </el-table>
@@ -216,6 +235,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { salDeliveryApi } from '@/api/sales'
 import { useUserStore } from '@/store/user'
 import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
@@ -290,6 +310,10 @@ const stripTrailingZero2 = (v) => {
 }
 
 const userStore = useUserStore()
+// v1.1.43: useRoute 在模块级别调用 (非 onMounted 回调内), 避免 Vite HMR 时
+// hot.accept 重新执行 setup() 导致 useRoute() 在路由初始化前调用返回 undefined.
+const _route = useRoute()
+const _detailId = _route.query?.id
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '', customerId: null, billStatus: '', productName: '' })
 const data = ref({ records: [], total: 0 })
@@ -308,6 +332,7 @@ const historyLoading = ref(false)
 const form = reactive({
   id: null, billNo: '', billDate: new Date().toISOString().substring(0, 10),
   customerId: null, customerName: '', warehouseId: null, address: '', phone: '',
+  deliveryMethod: '',  // v1.1.40: 交货方式
   discountAmount: 0, tailAmount: 0, remark: '',
   details: []
 })
@@ -353,6 +378,7 @@ async function onAdd() {
   form.warehouseId = null
   form.address = ''
   form.phone = ''
+  form.deliveryMethod = ''  // v1.1.40
   form.discountAmount = 0
   form.tailAmount = 0
   customerHistory.value = []   // v1.1.7+ 重置历史销售列表
@@ -602,7 +628,9 @@ async function onEdit(row) {
   // 先把 form 字段重置成新增状态, 再覆盖
   form.id = null; form.billNo = ''; form.billDate = new Date().toISOString().substring(0, 10)
   form.customerId = null; form.customerName = ''; form.warehouseId = null
-  form.address = ''; form.phone = ''; form.discountAmount = 0; form.tailAmount = 0; form.remark = ''
+  form.address = ''; form.phone = '';
+  form.deliveryMethod = '';  // v1.1.40
+  form.discountAmount = 0; form.tailAmount = 0; form.remark = ''
   form.details.splice(0, form.details.length)
 
   await loadCustomers()
@@ -632,6 +660,7 @@ async function onEdit(row) {
     qty: x.qty, price: x.price, taxRate: x.taxRate,
     amount: x.amount, taxAmount: x.taxAmount, amountTax: x.amountTax,
     batchNo: x.batchNo, locationName: x.locationName,
+    poNo: x.poNo || '',  // v1.1.40
     remark: x.remark, _units: []
   })))
   // v1.1.19+: 统一走 injectProductIntoDetail, 预加载 productList + 修正 unitId=0 脏数据
@@ -700,6 +729,7 @@ const SAL_DELIVERY_HEADER_MAP = {
   warehouseName: 'warehouseName',
   address: 'address',
   phone: 'phone',
+  deliveryMethodLabel: 'deliveryMethodLabel',  // v1.1.42: 交货方式中文标签 (送货/自提等)
   totalQty: 'totalQty',
   totalAmount: 'totalAmount',
   remark: 'remark'
@@ -717,7 +747,8 @@ const SAL_DELIVERY_DETAIL_MAP = {
   amount: 'amount',
   taxRate: 'taxRate',
   batchNo: 'batchNo',
-  locationName: 'locationName'
+  locationName: 'locationName',
+  poNo: 'poNo'  // v1.1.40
 }
 async function onPrint(row) {
   try {
@@ -727,7 +758,8 @@ async function onPrint(row) {
       bill: r.data || {},
       fieldMap: SAL_DELIVERY_HEADER_MAP,
       detailsKey: 'details',
-      detailFieldMap: SAL_DELIVERY_DETAIL_MAP
+      detailFieldMap: SAL_DELIVERY_DETAIL_MAP,
+      customerId: r.data?.customerId || row.customerId || undefined
     })
   } catch (e) {
     ElMessage.error(e.message || '打印失败')
@@ -803,7 +835,15 @@ function onScan() {
   ElMessage.info('请配置扫码枪或App扫码 (H5/微信小程序可用 getCameraProfile)')
 }
 
-onMounted(async () => { await loadCustomers(); loadData() })
+onMounted(async () => {
+  await loadCustomers()
+  // v1.1.43: 从订单「关联出库单」弹窗跳入时, URL 带 ?id=xxx, 自动打开详情
+  if (_detailId) {
+    await onView({ id: Number(_detailId) })
+  } else {
+    loadData()
+  }
+})
 </script>
 
 <style scoped>

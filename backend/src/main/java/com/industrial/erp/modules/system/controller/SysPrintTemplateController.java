@@ -46,10 +46,12 @@ public class SysPrintTemplateController {
     /**
      * 按 biz_type 取该单据类型当前生效的模板 (业务单据打印按钮调用)
      * <p>类级 {@code @SaCheckLogin} 已保证登录, 业务读取不再额外要求权限.
+     * v1.1.39: 支持 customerId 参数, 优先返回客户专属模板, 无则回退全局默认.
      */
     @GetMapping("/biz-type/{bizType}")
-    public R<SysPrintTemplate> getByBizType(@PathVariable String bizType) {
-        return R.ok(service.getActiveByBizType(bizType));
+    public R<SysPrintTemplate> getByBizType(@PathVariable String bizType,
+                                             @RequestParam(required = false) Long customerId) {
+        return R.ok(service.getActiveByBizType(bizType, customerId));
     }
 
     @SaCheckPermission(value = {"system:print:add"}, orRole = "admin")

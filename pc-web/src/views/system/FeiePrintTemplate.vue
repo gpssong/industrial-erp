@@ -228,6 +228,7 @@ const FIELD_DOC = {
       { name: 'customerPhone', desc: '客户电话' },
       { name: 'warehouseName', desc: '仓库' },
       { name: 'salesUser', desc: '业务员' },
+      { name: 'deliveryMethodLabel', desc: '交货方式' },
       { name: 'totalQty', desc: '总数量' },
       { name: 'totalAmount', desc: '总金额' },
       { name: 'totalAmountTax', desc: '含税总额' },

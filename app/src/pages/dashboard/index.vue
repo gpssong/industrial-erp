@@ -27,6 +27,18 @@
     <view class="card" v-if="kpi.warningCount">
       <text class="title">⚠️ 库存预警 ({{ kpi.warningCount }})</text>
       <text class="muted">有 {{ kpi.warningCount }} 个商品库存低于安全线</text>
+      <!-- v1.1.44+: 显示具体产品列表 (点击跳库存详情) -->
+      <view v-for="item in warningItems" :key="item.id || (item.productId + '-' + item.warehouseId)"
+            class="warning-item" @click="openWarningDetail(item)">
+        <view class="warning-row1">
+          <text class="warning-code">{{ item.productCode || '-' }}</text>
+          <text class="warning-name">{{ item.productName || '-' }}</text>
+        </view>
+        <view class="warning-row2">
+          <text class="warning-wh">📍 {{ item.warehouseName || '仓库' }}</text>
+          <text class="warning-qty">库存 <text class="num-red">{{ formatNum(item.qty) }}</text> / 安全 {{ formatNum(item.safetyStock) }}</text>
+        </view>
+      </view>
     </view>
   </view>
 </template>
@@ -60,8 +72,32 @@ function recomputeReportEntryVisible() {
 
 const user = ref({})
 const kpi = ref({ todaySales: 0, totalSales: 0, arBalance: 0, stockSkuCount: 0, warningCount: 0 })
+// v1.1.44+: 库存预警具体产品列表 (编码/名称/仓库/当前库存/安全库存)
+const warningItems = ref([])
 const today = new Date().toISOString().substring(0, 10)
 const greeting = ref('您好')
+
+// 数字格式化: 整数直接显示, 小数最多保留 2 位 (避免显示 63000.0000)
+function formatNum(n) {
+  if (n == null) return '0'
+  const num = Number(n)
+  if (!isFinite(num)) return '0'
+  if (Number.isInteger(num)) return String(num)
+  return num.toFixed(2).replace(/\.?0+$/, '')
+}
+
+// 点击预警项跳库存详情 (复用"查库存"页面)
+function openWarningDetail(item) {
+  if (!item) return
+  try {
+    uni.setStorageSync('erp_stock_filter', {
+      productId: item.productId,
+      productCode: item.productCode,
+      productName: item.productName
+    })
+  } catch (e) {}
+  navigateTo('/pages/inventory/query')
+}
 
 // v1.0.10+: PC 端菜单路径 -> App 端页面映射 (兼容老版本)
 const PATH_TO_APP = {
@@ -176,6 +212,29 @@ onMounted(async () => {
   if (kpiVisible.value) {
     try {
       kpi.value = await api.dashboard()
+      // v1.1.44+: 库存预警数字 > 0 时, 并行拉具体产品列表
+      if (kpi.value && kpi.value.warningCount > 0) {
+        try {
+          const list = await api.warningList()
+          // /inventory/warning/list 返回 [{productId, productCode, productName, qty, p_safety_stock (来自 base_product JOIN), safety_stock (来自 inv_stock, 通常 0), warehouseName, ...}]
+          // 这里只取前 10 条避免渲染过多
+          warningItems.value = (Array.isArray(list) ? list : []).slice(0, 10).map(it => {
+            // 优先用 base_product.safety_stock (JOIN 别名 p_safety_stock), 兼容 inv_stock.safety_stock (通常 0)
+            const safetyVal = it.p_safety_stock != null ? it.p_safety_stock
+              : (it.safety_stock != null ? it.safety_stock : 0)
+            return {
+              id: it.id,
+              productId: it.product_id || it.productId,
+              productCode: it.product_code || it.productCode || '-',
+              productName: it.product_name || it.productName || '-',
+              warehouseId: it.warehouse_id || it.warehouseId,
+              warehouseName: it.wh_name || it.warehouseName || it.warehouse_name || '仓库',
+              qty: it.qty != null ? Number(it.qty) : 0,
+              safetyStock: Number(safetyVal) || 0
+            }
+          })
+        } catch (e) { /* 静默, 仅显示数字 */ }
+      }
     } catch (e) {
       // 403 (无权限) / 网络错: 静默, 并隐藏 KPI 区块避免后续空数据报错
       kpiVisible.value = false
@@ -214,4 +273,48 @@ onMounted(async () => {
 .quick-item { display: flex; flex-direction: column; align-items: center; padding: 10px 0; background: #f9f9f9; border-radius: 6px; }
 .quick-icon { font-size: 24px; margin-bottom: 4px; }
 .quick-item text:last-child { font-size: 12px; color: #555; }
+
+/* v1.1.44+ 库存预警产品列表 */
+.warning-item {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #fff8f0;
+  border-left: 3px solid #e67e22;
+  border-radius: 4px;
+}
+.warning-row1 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.warning-code {
+  font-size: 12px;
+  color: #888;
+  font-family: monospace;
+  flex-shrink: 0;
+}
+.warning-name {
+  font-size: 14px;
+  color: #333;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.warning-row2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+}
+.warning-wh { color: #888; }
+.warning-qty { color: #555; }
+.num-red {
+  color: #c0392b;
+  font-weight: bold;
+  font-size: 13px;
+}
 </style>

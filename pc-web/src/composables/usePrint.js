@@ -36,27 +36,37 @@ export const BIZ_TYPE_LABEL = Object.freeze({
 
 /**
  * 取指定 biz_type 当前生效模板, 30 秒内存缓存
+ * v1.1.39: 支持 customerId, 优先返回客户专属模板
  * @returns {Promise<Object|null>}
  */
-export async function getTemplate(bizType) {
+export async function getTemplate(bizType, customerId) {
+  const key = customerId ? `${bizType}:${customerId}` : bizType
   const now = Date.now()
-  const hit = cache[bizType]
+  const hit = cache[key]
   if (hit && now - hit.ts < CACHE_TTL) return hit.data
   try {
-    const r = await printTemplateApi.getByBizType(bizType)
+    const r = await printTemplateApi.getByBizType(bizType, customerId || undefined)
     const data = r && r.data ? r.data : null
-    cache[bizType] = { ts: now, data }
+    cache[key] = { ts: now, data }
     return data
   } catch (e) {
-    cache[bizType] = { ts: now, data: null }
+    cache[key] = { ts: now, data: null }
     return null
   }
 }
 
-/** 清除缓存 (模板保存/删除后调用) */
-export function clearTemplateCache(bizType) {
-  if (bizType) delete cache[bizType]
-  else Object.keys(cache).forEach(k => delete cache[k])
+/**
+ * 清除缓存 (模板保存/删除后调用)
+ * v1.1.39: 支持清除指定 customerId 的缓存
+ */
+export function clearTemplateCache(bizType, customerId) {
+  if (bizType && customerId) {
+    delete cache[`${bizType}:${customerId}`]
+  } else if (bizType) {
+    Object.keys(cache).forEach(k => { if (k.startsWith(bizType)) delete cache[k] })
+  } else {
+    Object.keys(cache).forEach(k => delete cache[k])
+  }
 }
 
 /**
@@ -152,10 +162,11 @@ function normalizeElement(el) {
  * @param {Object} opts.fieldMap        主表字段映射
  * @param {string} [opts.detailsKey]    单据明细数组字段名, 无明细可省略
  * @param {Object} [opts.detailFieldMap] 明细行字段映射
+ * @param {number|null} [opts.customerId] 客户ID (v1.1.39, 用于按客户切换模板); 采购单据传 supplierId
  * @returns {Promise<void>}
  */
-export async function doPrint({ bizType, bill, fieldMap, detailsKey, detailFieldMap }) {
-  const tpl = await getTemplate(bizType)
+export async function doPrint({ bizType, bill, fieldMap, detailsKey, detailFieldMap, customerId }) {
+  const tpl = await getTemplate(bizType, customerId)
   if (!tpl) {
     ElMessage.warning(`未配置 ${BIZ_TYPE_LABEL[bizType] || bizType} 的打印模板, 请联系管理员`)
     return

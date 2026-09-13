@@ -18,6 +18,8 @@ public class SysPrintTemplate {
     private String name;
     /** 业务类型: SAL_DELIVERY / PUR_RECEIPT / PUR_RETURN / SAL_RETURN / PRD_ORDER */
     private String bizType;
+    /** 客户ID (NULL=全局默认, 非NULL=客户专属模板) — v1.1.39 */
+    private Long customerId;
     /** 模板 JSON (myprint-design Template.content) */
     private String content;
     private BigDecimal paperWidth;
@@ -42,6 +44,8 @@ public class SysPrintTemplate {
     public void setName(String name) { this.name = name; }
     public String getBizType() { return bizType; }
     public void setBizType(String bizType) { this.bizType = bizType; }
+    public Long getCustomerId() { return customerId; }
+    public void setCustomerId(Long customerId) { this.customerId = customerId; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
     public BigDecimal getPaperWidth() { return paperWidth; }

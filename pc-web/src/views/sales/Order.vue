@@ -16,12 +16,19 @@
         <el-table-column prop="billDate" label="日期" width="120" />
         <el-table-column prop="customerName" label="客户" />
         <el-table-column prop="totalQty" label="数量" width="100" align="right" />
+        <!-- v1.1.41: 已发货 / 未发货数量 -->
+        <el-table-column label="已发/未发" width="100" align="center">
+          <template #default="{ row }">
+            <span v-if="row.billStatus==='CHECKED'" style="font-size:12px;color:#67c23a">{{ row.shippedQty || 0 }} / {{ (row.totalQty || 0) - (row.shippedQty || 0) }}</span>
+            <span v-else style="font-size:12px;color:#909399">—</span>
+          </template>
+        </el-table-column>
         <!-- v1.1.19+: 含税单价口径, totalAmount = totalAmountTax = 开单金额, 只显示「金额」一列 -->
         <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
         <el-table-column label="状态" width="80">
           <template #default="{ row }"><el-tag :type="row.billStatus==='DRAFT'?'info':'success'">{{ row.billStatus === 'DRAFT' ? '草稿' : '已审核' }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="操作" width="370" fixed="right">
+        <el-table-column label="操作" width="460" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('sales:order:edit')" link type="primary" size="small" @click="onEdit(row)">编辑</el-button>
             <el-button v-if="row.billStatus==='DRAFT' && userStore.hasPerm('sales:order:delete')" link type="danger" size="small" @click="onDelete(row)">删除</el-button>
@@ -29,6 +36,10 @@
             <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('sales:order:uncheck')" link type="warning" size="small" @click="onUncheck(row)">反审核</el-button>
             <!-- v1.1.35: 已审核订单一键生成销售出库 (走现有 salDeliveryApi.add) -->
             <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('sales:delivery:add')" link type="primary" size="small" @click="onGenerateDelivery(row)">生成出库单</el-button>
+            <!-- v1.1.38: 查看该订单已关联的出库单 (追溯) -->
+            <el-button v-if="userStore.hasPerm('sales:delivery:list')" link type="info" size="small" @click="onViewLinkedDeliveries(row)">关联出库单</el-button>
+            <!-- v1.1.41: 查看该订单发货详情 (已发/未发数量) -->
+            <el-button v-if="row.billStatus==='CHECKED' && userStore.hasPerm('sales:order:list')" link type="success" size="small" @click="onViewDeliverySummary(row)">发货详情</el-button>
             <!-- v1.1.36: 打印 (浏览器 + 飞鹅云, 与 Delivery.vue 同模式) -->
             <el-dropdown v-if="['DRAFT','CHECKED'].includes(row.billStatus)" trigger="click" @command="(cmd) => onPrintCommand(cmd, row)">
               <el-button link type="warning" size="small">
@@ -143,6 +154,23 @@
             <el-input-number v-model="deliveryForm.discountAmount" :min="0" :step-strictly="false" />
           </el-form-item></el-col>
         </el-row>
+        <el-row :gutter="12">
+          <!-- v1.1.40: 交货方式 (下拉可改, 默认来自源订单) -->
+          <el-col :span="8"><el-form-item label="交货方式">
+            <el-select v-model="deliveryForm.deliveryMethod" style="width:100%">
+              <el-option label="送货" value="DELIVERY" />
+              <el-option label="自提" value="PICKUP" />
+              <el-option label="专车直送" value="DIRECT" />
+            </el-select>
+            <span style="color:#999;font-size:12px">源订单交货方式, 可修改</span>
+          </el-form-item></el-col>
+          <!-- v1.1.41: 采购订单号 (只读, 来自源订单) -->
+          <el-col :span="8"><el-form-item label="采购订单号">
+            <el-input :value="deliveryForm.poNo || '—'" disabled />
+            <span style="color:#999;font-size:12px">源订单采购订单号, 自动写入明细</span>
+          </el-form-item></el-col>
+          <el-col :span="8"></el-col>
+        </el-row>
 
         <el-form-item label="商品明细">
           <el-table :data="deliveryForm.details" size="small" border max-height="380">
@@ -178,6 +206,15 @@
                 <el-input v-model="row.locationName" size="small" />
               </template>
             </el-table-column>
+            <!-- v1.1.47: 采购订单号 (客户 PO 号, 从源订单明细自动带入, 用户可改) -->
+            <el-table-column label="采购订单号" width="140">
+              <template #default="{ row }"><el-input v-model="row.poNo" size="small" placeholder="可选" /></template>
+            </el-table-column>
+            <el-table-column label="操作" width="60">
+              <template #default="{ $index }">
+                <el-button link type="danger" size="small" @click="removeDeliveryDetail($index)">删除</el-button>
+              </template>
+            </el-table-column>
           </el-table>
           <p style="color:#999;font-size:12px;margin-top:6px">
             提示: 数量默认为订单全量, 如部分发货请手工调整. 源订单 {{ sourceOrder?.billNo || '-' }} 关联字段已自动写入.
@@ -190,6 +227,97 @@
       <template #footer>
         <el-button @click="generateDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="onConfirmGenerate" :loading="submitting">保存为草稿</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- v1.1.38: 查看该订单已关联的出库单 (追溯入口) -->
+    <el-dialog v-model="linkedDeliveryDialogVisible"
+      :title="linkedSourceOrder ? '关联出库单 (源 ' + linkedSourceOrder.billNo + ')' : '关联出库单'"
+      width="960px" destroy-on-close>
+      <div v-loading="linkedDeliveryLoading" style="min-height:120px;">
+        <el-table :data="linkedDeliveries" size="small" border stripe v-if="!linkedDeliveryLoading">
+          <el-table-column type="index" label="#" width="50" />
+          <el-table-column prop="billNo" label="出库单号" width="180">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small"
+                @click="jumpToDelivery(row.id)">{{ row.billNo }}</el-button>
+            </template>
+          </el-table-column>
+          <el-table-column prop="billDate" label="日期" width="120" />
+          <el-table-column prop="customerName" label="客户" width="140" />
+          <el-table-column prop="warehouseName" label="仓库" width="100" />
+          <el-table-column label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.billStatus==='DRAFT'?'info':'success'" size="small">
+                {{ row.billStatus==='DRAFT'?'草稿':'已审核' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="totalQty" label="数量" width="80" align="right" />
+          <el-table-column prop="totalAmount" label="金额" width="110" align="right">
+            <template #default="{ row }">
+              <span>¥{{ (row.totalAmount || 0).toFixed(2) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="80">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small"
+                @click="jumpToDelivery(row.id)">查看</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!linkedDeliveryLoading && linkedDeliveries.length === 0"
+          description="该订单暂无关联出库单" :image-size="80" />
+      </div>
+      <p style="color:#999;font-size:12px;margin-top:8px">
+        提示: 点击单号或「查看」跳转到销售出库详情页. 源订单 {{ linkedSourceOrder?.billNo || '-' }}.
+      </p>
+      <template #footer>
+        <el-button @click="linkedDeliveryDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="reloadLinkedDeliveries" :loading="linkedDeliveryLoading">刷新</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- v1.1.41: 发货详情弹窗 (已发/未发数量) -->
+    <el-dialog v-model="deliverySummaryDialogVisible"
+      :title="deliverySummaryOrder ? '发货详情 (源 ' + deliverySummaryOrder.billNo + ')' : '发货详情'"
+      width="800px" destroy-on-close>
+      <div v-loading="deliverySummaryLoading" style="min-height:120px;">
+        <el-table :data="deliverySummaryData" size="small" border stripe v-if="!deliverySummaryLoading">
+          <el-table-column type="index" label="#" width="50" />
+          <el-table-column prop="productCode" label="编码" width="120" />
+          <el-table-column prop="productName" label="名称" />
+          <el-table-column prop="spec" label="规格" width="120" />
+          <el-table-column prop="unitName" label="单位" width="60" />
+          <el-table-column label="订单数量" width="100" align="right">
+            <template #default="{ row }">{{ row.qty != null ? Number(row.qty).toFixed(2).replace(/\.?0+$/, '') : '0' }}</template>
+          </el-table-column>
+          <el-table-column label="已发货" width="100" align="right">
+            <template #default="{ row }"><span style="color:#67c23a">{{ row.shippedQty != null ? Number(row.shippedQty).toFixed(2).replace(/\.?0+$/, '') : '0' }}</span></template>
+          </el-table-column>
+          <el-table-column label="未发货" width="100" align="right">
+            <template #default="{ row }">
+              <span :style="{ color: Number(row.unshippedQty) > 0 ? '#e6a23c' : '#909399' }">
+                {{ row.unshippedQty != null ? Number(row.unshippedQty).toFixed(2).replace(/\.?0+$/, '') : '0' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="80">
+            <template #default="{ row }">
+              <el-tag v-if="Number(row.unshippedQty) <= 0" type="success" size="small">已发完</el-tag>
+              <el-tag v-else type="warning" size="small">部分发货</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!deliverySummaryLoading && deliverySummaryData.length === 0"
+          description="该订单暂无明细" :image-size="80" />
+      </div>
+      <p style="color:#999;font-size:12px;margin-top:8px">
+        提示: 已发货数量来源于已审核出库单的明细 qty 累计. 源订单 {{ deliverySummaryOrder?.billNo || '-' }}.
+      </p>
+      <template #footer>
+        <el-button @click="deliverySummaryDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="reloadDeliverySummary" :loading="deliverySummaryLoading">刷新</el-button>
       </template>
     </el-dialog>
 
@@ -208,6 +336,7 @@
 
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { salOrderApi, salDeliveryApi } from '@/api/sales'
 import { useUserStore } from '@/store/user'
 import { customerApi, warehouseApi, productApi } from '@/api/base'
@@ -224,7 +353,13 @@ const normNum = (v) => {
   return isFinite(n) ? n : 0
 }
 
+// v1.1.40: 交货方式枚举值 ↔ 中文标签双向映射 (与后端 SalOrderService.mapDeliveryMethod 一致)
+const DELIVERY_METHOD_MAP = { 'DELIVERY': '送货', 'PICKUP': '自提', 'DIRECT': '专车直送' }
+const mapDeliveryMethod   = (code) => DELIVERY_METHOD_MAP[code] || code
+const mapCodeFromLabel    = (label) => Object.entries(DELIVERY_METHOD_MAP).find(([, v]) => v === label)?.[0] || label
+
 const userStore = useUserStore()
+const router = useRouter()
 
 const query = reactive({ pageNum: 1, pageSize: 20, billNo: '' })
 const data = ref({ records: [], total: 0 })
@@ -246,9 +381,25 @@ const deliveryForm = reactive({
   warehouseId: null, address: '', phone: '',
   discountAmount: 0, tailAmount: 0, remark: '',
   details: [],
+  // v1.1.41: 交货方式 / 采购订单号 (从源订单自动带入)
+  deliveryMethod: '', poNo: '',
   // 联动字段 (后端 BaseMapper.insert 自动写入 sal_delivery.order_id/order_no)
   orderId: null, orderNo: ''
 })
+
+// v1.1.38: 关联出库单弹窗状态
+const linkedDeliveryDialogVisible = ref(false)
+const linkedSourceOrder = ref(null)        // 源订单 (显示标题)
+const linkedDeliveryLoading = ref(false)
+const linkedDeliveries = ref([])
+const linkedOrderId = ref(null)            // 当前查询的订单 ID
+
+// v1.1.41: 发货详情弹窗状态
+const deliverySummaryDialogVisible = ref(false)
+const deliverySummaryOrder = ref(null)
+const deliverySummaryLoading = ref(false)
+const deliverySummaryData = ref([])
+const deliverySummaryOrderId = ref(null)
 
 async function loadData() {
   loading.value = true
@@ -331,6 +482,10 @@ async function onGenerateDelivery(row) {
     deliveryForm.remark = ''
     deliveryForm.orderId = o.id
     deliveryForm.orderNo = o.billNo
+    // v1.1.40: 交货方式用中文 label (后端 detail() 注入 deliveryMethodLabel)
+    const methodLabel = o.deliveryMethodLabel || mapDeliveryMethod(o.deliveryMethod || '')
+    deliveryForm.deliveryMethod = methodLabel ? mapCodeFromLabel(methodLabel) : (o.deliveryMethod || '')
+    deliveryForm.poNo = o.poNo || ''
     // 订单明细 → 出库明细 (默认值 = 全量; 用户可手工改数量做部分发货)
     deliveryForm.details = (o.details || []).map((d, idx) => ({
       productId: d.productId,
@@ -344,6 +499,7 @@ async function onGenerateDelivery(row) {
       taxRate: d.taxRate != null ? Number(d.taxRate) : 13,
       lineNo: idx + 1,
       orderDetailId: d.id,                  // 联动字段, 后端自动写入 sal_delivery_detail
+      poNo: d.poNo || '',                   // v1.1.47: 采购订单号从源订单明细自动带入
       batchNo: '',
       locationName: '',
       remark: ''
@@ -395,6 +551,53 @@ async function onConfirmGenerate() {
   } finally { submitting.value = false }
 }
 
+// v1.1.35: 删除出库明细行 (生成出库单弹窗内)
+function removeDeliveryDetail(index) {
+  deliveryForm.details.splice(index, 1)
+}
+
+// v1.1.38: 查看该订单已关联的出库单 (追溯)
+async function onViewLinkedDeliveries(row) {
+  linkedOrderId.value = row.id
+  linkedSourceOrder.value = row
+  linkedDeliveryDialogVisible.value = true
+  await reloadLinkedDeliveries()
+}
+
+async function reloadLinkedDeliveries() {
+  if (!linkedOrderId.value) return
+  linkedDeliveryLoading.value = true
+  try {
+    const r = await salDeliveryApi.pageByOrderId(linkedOrderId.value, { pageNum: 1, pageSize: 50 })
+    linkedDeliveries.value = r.data?.records || []
+  } catch (e) {
+    ElMessage.error('加载关联出库单失败: ' + (e.message || '未知错误'))
+  } finally { linkedDeliveryLoading.value = false }
+}
+
+function jumpToDelivery(deliveryId) {
+  router.push({ path: '/sales/delivery', query: { id: deliveryId } })
+}
+
+// v1.1.41: 查看订单发货详情 (已发/未发数量)
+async function onViewDeliverySummary(row) {
+  deliverySummaryOrderId.value = row.id
+  deliverySummaryOrder.value = row
+  deliverySummaryDialogVisible.value = true
+  await reloadDeliverySummary()
+}
+
+async function reloadDeliverySummary() {
+  if (!deliverySummaryOrderId.value) return
+  deliverySummaryLoading.value = true
+  try {
+    const r = await salOrderApi.getDeliverySummary(deliverySummaryOrderId.value)
+    deliverySummaryData.value = r.data || []
+  } catch (e) {
+    ElMessage.error('加载发货详情失败: ' + (e.message || '未知错误'))
+  } finally { deliverySummaryLoading.value = false }
+}
+
 function addDetail() {
   if (taxSeparation.value === 'true') {
     form.value.details.push({ productId: null, productCode: '', productName: '', qty: null, price: 0, taxRate: 13 })
@@ -408,6 +611,12 @@ async function onProductChange(row) {
   if (!p) return
   row.productCode = p.productCode
   row.productName = p.productName
+  // v1.1.38+: 自动带出 规格/型号/色号/单位 (打印预览用, 之前只带 productCode/productName, 规格列空白)
+  if (p.spec != null)   row.spec = p.spec
+  if (p.model != null)  row.model = p.model
+  if (p.colorNo != null) row.colorNo = p.colorNo
+  // 单位: 优先从商品主单位 id 带出, name 由后端 service 在 detail() 时注入
+  if (!row.unitId && p.mainUnitId != null) row.unitId = p.mainUnitId
   // 优先取该客户对此商品的上次出库单价
   if (form.value.customerId && row.productId) {
     try {
@@ -460,6 +669,9 @@ const SAL_ORDER_HEADER_MAP = {
   warehouseName: 'warehouseName',
   address: 'address',
   phone: 'phone',
+  // v1.1.38+: 交货方式/付款方式 取中文 label
+  deliveryMethod: 'deliveryMethodLabel',
+  payType: 'payTypeLabel',
   totalQty: 'totalQty',
   totalAmount: 'totalAmount',
   remark: 'remark'
@@ -477,6 +689,7 @@ const SAL_ORDER_DETAIL_MAP = {
   amount: 'amount',
   taxRate: 'taxRate',
   batchNo: 'batchNo',
+  poNo: 'poNo',
   locationName: 'locationName'
 }
 async function onPrint(row) {
@@ -487,7 +700,8 @@ async function onPrint(row) {
       bill: r.data || {},
       fieldMap: SAL_ORDER_HEADER_MAP,
       detailsKey: 'details',
-      detailFieldMap: SAL_ORDER_DETAIL_MAP
+      detailFieldMap: SAL_ORDER_DETAIL_MAP,
+      customerId: r.data?.customerId || row.customerId || undefined
     })
   } catch (e) {
     ElMessage.error(e.message || '打印失败')
