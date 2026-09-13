@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.45 (App 端库存预警显示具体产品)
+**当前版本**: v1.1.47 (库存预警 hotfix: 库存=0 但低于安全库存的产品现在能进入预警)
 
 ### v1.1.45 (2026-09-09) — App 端库存预警显示具体产品
 
@@ -233,6 +233,31 @@ Spring Boot 3.2.5 + MyBatis Plus 3.5.9 + JDK 17 + Vue 3 + uni-app (Capacitor 6)
 完整部署文档见 `~/.claude/projects/-Users-tongban/memory/erp-nas-deployment-overview.md`
 
 ## changelog (倒序)
+
+### v1.1.47 (2026-09-13) — 库存预警: 库存=0 但低于安全库存的产品现在能进预警
+
+**症状**: 商品 `4-06-003-0018` (塑料袋 22*28*0.16) 安全库存 70000, 当前库存 0, 应该是最严重的预警信号, 但 PC / App 端库存预警列表都不显示.
+
+**根因**:
+- `InvLedgerQueryMapper.xml` 的 `selectStockAll` 和 `ReportMapper.xml` 的 `dashboardKpi.warningCount` 都从 `inv_stock` 表出发 INNER JOIN, 同时 WHERE 加了 `AND s.qty > 0` 过滤
+- 库存=0 但仍有 inv_stock 行的产品 (如出库后保留 0 行) 全部被排除
+- 库存=0 且根本没 inv_stock 行的产品更永远不会出现
+- v1.1.44 修复软删除 JOIN 排除时, "把 INNER JOIN 改为 LEFT JOIN" 是正确的, 但**没去掉 `qty > 0` 过滤**, 留下了这个死角
+- MySQL `sql_mode=only_full_group_by` 进一步限制: HAVING/ORDER BY 不能引用 SELECT 别名
+
+**方案**: 以 `base_product` 为驱动表 LEFT JOIN inv_stock, 包一层子查询避开 `only_full_group_by`:
+- 内层: GROUP BY p.id + SUM(s.qty) + MIN(w.warehouse_name)
+- 外层: WHERE qty < p_safety_stock + ORDER BY shortage DESC
+- 同时把 `p.deleted=0 AND p.status=1` 显式写在 WHERE (确保停用商品不出现)
+
+**改动**:
+- `backend/src/main/resources/mapper/inventory/InvLedgerQueryMapper.xml` — `selectStockAll` 改为"以 product 驱动 + 子查询包外层" (line 11-30)
+- `backend/src/main/resources/mapper/report/ReportMapper.xml` — `dashboardKpi.warningCount` 子查询改为同样逻辑 (line 80-89)
+- 前端: 0 改动 (PC 端 `Index.vue` 已做 `p_safety_stock` fallback, App 端 `dashboard/index.vue` 也兼容, SQL 输出字段一致)
+
+**验证**:
+- 端到端 `GET /api/inventory/warning/list` → 200, 返回 `4-06-003-0018` qty=0 safety_stock=70000 shortage=70000
+- `GET /api/report/dashboard` → `warningCount: 1`
 
 ### v1.1.46 (2026-09-13) — 销售订单列表"已发/未发"列实时 SUM 修复 (hotfix)
 
