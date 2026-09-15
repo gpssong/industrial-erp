@@ -2,6 +2,85 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.52.2 (2026-09-15) — 飞鹅打印 403: 赵偲荣(仓库主管/财务)缺 RBAC 权限
+
+**症状**: 赵偲荣账号 (user_id=2073693353985228802, 角色 4=仓库主管 / 6=财务) 在 home.93gushi.com:8088 打开「飞鹅打印预览」弹窗(生产单 `PD202609150006`), 点「确认打印」后 toast 提示 `打印失败: Request failed with status code 403`。前端 axios 错误被 `ElNotification.error` 吞了具体 reason。
+
+**根因**: 不是 CORS, 是 RBAC 权限缺失。
+- `FeiePrintController.printBill` 注解 `@SaCheckPermission(value = {"production:order:feie-print"}, orRole = "admin")`
+- 菜单 959 (`飞鹅打印`, `perms=production:order:feie-print`) **之前只授予给角色 1(超级管理员) 和角色 2(采购经理)**
+- 仓库主管(4) / 财务(6) 都没 menu 959 → Sa-Token 校验 `@SaCheckPermission` 失败 → 403
+
+**修复** (纯数据修复, 无代码改动, 已应用到 home NAS `erp-mysql`):
+```sql
+INSERT INTO sys_role_menu (role_id, menu_id, client_type)
+SELECT 4, 959, 'BOTH' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE role_id=4 AND menu_id=959);
+
+INSERT INTO sys_role_menu (role_id, menu_id, client_type)
+SELECT 6, 959, 'BOTH' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE role_id=6 AND menu_id=959);
+```
+**副作用**: 赵偲荣需要**退出再重新登录** (Sa-Token 在 session 启动时读权限点, 已登录的旧 session 不生效)。
+
+**踩坑**:
+- `sys_role_menu` 实际 schema 比源码 entity 多一个 `client_type VARCHAR(8)` 字段 (v1.1.11 双端授权改造, 取值 `PC/APP/BOTH`, 默认 `PC`)
+- 同 role+menu 可能存在多行 (PC + APP 各一行), 插入 BOTH 前必须 `WHERE NOT EXISTS` 防重复
+- `create_time` 字段在 `sys_role_menu` 不存在 (v1.1.11 改造后去掉, entity 也没这个字段), SQL 不能写
+- 备份: 部署前已 `CREATE TABLE sys_role_menu_bak_20260915 AS SELECT * FROM sys_role_menu;` (141 行)
+
+**回滚**:
+```sql
+DELETE FROM sys_role_menu WHERE menu_id=959 AND role_id IN (4, 6) AND client_type='BOTH';
+```
+
+**前端配套**(可选, 不在本版本):
+- `pc-web/src/api/index.js` 或打印相关 Vue: 403 时 toast 显示「无权限, 请联系管理员授予『飞鹅打印』权限」而不是 `Request failed with status code 403`
+- 角色管理页 (sys/Role.vue) 勾选「飞鹅打印」时默认勾 BOTH (跟 v1.1.11 改造一致)
+
+### v1.1.52.1 (2026-09-15) — 飞牛热备站 n150.93gushi.com 同步部署 (后端 jar + 前端 dist)
+
+**症状**: 用户反馈 "n150.93gushi.com:8088 工作台库存预警卡片为空 + 生产单列表操作员列全 -"。
+
+**根因**: 飞牛热备站 (192.168.0.32, `/vol2/erp-system/`) 部署落后主站 ~3 周:
+- 后端 jar: 8/22 v1.1.19.4 时代 (100.5MB), 缺 v1.1.44 dashboard 实时预警 + v1.1.50/51/52 修复
+- 前端 dist: 8/22 时代 (`Index-DBC3Xl1C.js` 4618 字节), 缺 v1.1.44 实时 `warningList` 调用 + v1.1.51 操作员列
+
+**修复** (纯部署同步, 无代码改动):
+
+1. **后端 jar** (101MB, v1.1.52 commit `fade2af`):
+   ```bash
+   # 本地编译好
+   # 上传:
+   sshpass -O scp backend/target/industrial-erp-1.0.4.jar gpssong@192.168.0.32:/vol2/erp-system/erp-backend.jar
+   # 重建镜像 (旧 image hash 不会被 restart 拉到, 必须 --no-cache + rm -f + run):
+   sshpass -p '850225sonG' ssh gpssong@192.168.0.32 "echo '850225sonG' | sudo -S -p '' /usr/bin/docker build --no-cache -t erp-system-backend:latest -f /vol2/erp-system/backend.Dockerfile /vol2/erp-system/"
+   sshpass -p '850225sonG' ssh gpssong@192.168.0.32 "echo '850225sonG' | sudo -S -p '' /usr/bin/docker rm -f erp-backend-failover"
+   sshpass -p '850225sonG' ssh gpssong@192.168.0.32 "echo '850225sonG' | sudo -S -p '' /usr/bin/docker run -d --name erp-backend-failover --restart unless-stopped --network f92636759441ef70c8b2f2d58ee910bc304194cfe59be81f0714735525722ee1 -p 8080:8080 -e SPRING_PROFILES_ACTIVE=prod ... erp-system-backend:latest"
+   ```
+2. **前端 dist** (7.9MB, v1.1.51 `Index-BGP5wSoh.js`):
+   ```bash
+   # 本地 build
+   cd pc-web && npm run build
+   tar -czf /tmp/pc-web-dist-v1152.tar.gz -C dist .
+   sshpass -O scp /tmp/pc-web-dist-v1152.tar.gz gpssong@192.168.0.32:/tmp/
+   # 上传 + ACL 兜底 (在 home 解压再 cp, 避免 Synology ACL 拦 assets/):
+   sshpass -p '850225sonG' ssh gpssong@192.168.0.32 "rm -rf ~/pc-extract && mkdir ~/pc-extract && tar -xzf /tmp/pc-web-dist-v1152.tar.gz -C ~/pc-extract && sudo -S -p '' cp -r ~/pc-extract/. /vol2/erp-system/pc-web/dist/ && sudo -S -p '' docker restart erp-pc-web-failover"
+   ```
+
+**验证**:
+- `/api/inventory/warning/list` → 1 条预警 (塑料袋22*28*0.16, 缺 42000)
+- `/api/report/dashboard` → `warningCount=1` (实时统计)
+- 新建生产单 → `createBy=2 createByName=gpssong` ✅ (v1.1.52 FieldFill 修复生效)
+- 历史旧单 `createBy=None` → 前端兜底显示 `-`
+
+**踩坑**:
+- 飞牛 docker 在 `/usr/bin/docker` (非 `/usr/local/bin/docker`, 跟群晖不同), `sudo` 必须 `echo 密码 | sudo -S -p ''` 方式 stdin 输密码
+- mac 端 `python3 -m http.server` 在此环境 listen 后 socket 立即 CLOSED (sandbox 限制?), 不可靠; **改用 scp** (101MB jar + 4.5MB tarball 都成功)
+- `docker restart` 用旧 image hash 不拉新, 必须 `docker rm -f` + `docker run` 用 `:latest` 重新拉
+- `/api/dashboard/kpi` 是 404 (旧路径), v1.1.44+ 正确路径是 `/api/report/dashboard` (report 模块)
+- 飞牛 dist 备份: `/vol2/erp-system/pc-web/dist.bak.20260915_v1151`
+
+**回滚**: `sudo docker run -d ... erp-system-backend:<old-tag>` (旧 tag 保留) + `sudo cp -r /vol2/erp-system/pc-web/dist.bak.20260915_v1151 /vol2/erp-system/pc-web/dist` + `sudo docker restart erp-pc-web-failover`
+
 ### v1.1.52 (2026-09-15) — 全 entity 补 `@TableField(fill=...)`, 修复 `create_by` 全表 NULL
 
 **症状**: v1.1.51 上线当天用户实测反馈 "新增了生产单, 操作员没有显示出来"。查 API `GET /api/production/order/page` 返回 `createBy=null createByName=null`; 直查 DB `SELECT create_by FROM prd_order ORDER BY id DESC LIMIT 5` 全是 NULL。进一步查 `sal_order` / `pur_receipt` / `inv_check` / `fin_arap` 等所有单据表, **create_by 全部 NULL**。
