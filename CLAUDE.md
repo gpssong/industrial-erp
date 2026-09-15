@@ -1,11 +1,29 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.51 (全列表注入「操作员姓名」列)
+**当前版本**: v1.1.52 (全 entity 补 `@TableField(fill=...)`, 修复 `create_by` 全表 NULL)
 
 > **文档说明**: v1.1.49 起 changelog 拆分为 `docs/CHANGELOG.md` (完整历史) + 本文件顶部 (当前版本摘要)。
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.52 (2026-09-15) — 全 entity 补 `@TableField(fill=...)`, 修复 `create_by` 全表 NULL
+
+**症状**: v1.1.51 上线后用户实测发现生产单列表「操作员」列全部显示 `-`。DB 直查 `SELECT create_by FROM prd_order ORDER BY id DESC LIMIT 5` 全是 NULL — 不止 prd_order, 销售单/采购单/入库单/盘点单/财务单/基础资料 14 张表全部 NULL。
+
+**根因**: `MybatisPlusConfig.metaObjectHandler()` 注册了 `strictInsertFill("createBy", Long.class, userId)`, 但**所有 entity 都缺 `@TableField(fill = FieldFill.INSERT)` 注解** — MyBatis-Plus 因此跳过填充。`create_time` 有值是 DB 默认值 `CURRENT_TIMESTAMP` 兜底, `create_by BIGINT` 无默认值所以一直是 NULL。v1.1.51 的 `CreateByNameInjector` 只查 user 表把 `realName` 注入前端, 但 `createBy` 本身是 NULL, 注入器 `nameMap.get(null) = null` → 前端 `-`。
+
+**方案**: 批量给 44 个 entity 的 `createBy/createTime/updateBy/updateTime` 四字段补 `@TableField(fill = FieldFill.INSERT)` / `INSERT_UPDATE`, 同时补 `import FieldFill` + 21 个缺 `TableField` import 的 entity 手动加。6 个日志类 entity (SysLoginLog/SysOperLog/SysFeiePrintLog/SysBackupRecord/FinInvoiceApply/InvLedger) 字段顺序特殊, 暂跳过(不影响功能)。
+
+**改动**:
+- 44 个 Entity 加 `@TableField(fill = FieldFill.INSERT)` / `INSERT_UPDATE` 注解 + `import com.baomidou.mybatisplus.annotation.FieldFill`
+- 21 个 Entity 补 `import com.baomidou.mybatisplus.annotation.TableField`(原文件只用 `TableId/TableLogic/TableName`)
+
+**部署**: 2026-09-15 已发到 NAS home.93gushi.com:8088。后端 jar → `docker compose up -d --force-recreate --build backend` 重建镜像 + 启动。已用新增单验证 `create_by=1 createByName=系统管理员` ✅。**历史 create_by NULL 数据不回填**(回填脚本需逐表 update + join sys_user, 不在本版本范围)。
+
+**为什么 v1.1.51 没发现**: 当时 `BaseCustomerService.add` 等 Service 没设 `setCreateBy(SecurityContext.getUserId())`, DB 验证用的是手工 `INSERT INTO base_customer ... create_by=2` 模拟"已有 create_by" 的场景, 掩盖了 MetaObjectHandler 不生效的 bug。
+
+**新建**: `scripts/add_fieldfill.py`(批量补 FieldFill 工具脚本, 留作后续 v1.1.53+ 给日志类 entity 复用)
+
 ### v1.1.51 (2026-09-15) — 全列表注入「操作员姓名」列
 
 **症状**: 用户反馈 (2026-09-15) "在库存台账中增加操作的账号,让我知道操作的是哪个员工"。所有单据列表页的 `create_by` 字段虽然存了 user_id, 但前端 el-table 从未展示成中文姓名。

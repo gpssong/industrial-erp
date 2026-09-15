@@ -2,6 +2,52 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.52 (2026-09-15) — 全 entity 补 `@TableField(fill=...)`, 修复 `create_by` 全表 NULL
+
+**症状**: v1.1.51 上线当天用户实测反馈 "新增了生产单, 操作员没有显示出来"。查 API `GET /api/production/order/page` 返回 `createBy=null createByName=null`; 直查 DB `SELECT create_by FROM prd_order ORDER BY id DESC LIMIT 5` 全是 NULL。进一步查 `sal_order` / `pur_receipt` / `inv_check` / `fin_arap` 等所有单据表, **create_by 全部 NULL**。
+
+**根因**: `MybatisPlusConfig.java:44` 注册了 `MetaObjectHandler`, `insertFill` 调用 `strictInsertFill(metaObject, "createBy", Long.class, userId)`。但**所有 entity 都缺 `@TableField(fill = FieldFill.INSERT)` 注解** — MyBatis-Plus 的 `TableInfo` 在启动期扫字段时, 看不到 fill 配置, 不会调用 handler。表现:
+- `create_by BIGINT`: 无 DB 默认值 + handler 不生效 → 永远 NULL
+- `create_time DATETIME`: DB 默认值 `CURRENT_TIMESTAMP` 兜底 → 有值
+- `update_by`: 同 create_by, NULL
+- `update_time`: 同 create_time, 但有 `on update CURRENT_TIMESTAMP` 自动维护
+
+**方案**:
+- 写一个一次性脚本 (`scripts/add_fieldfill.py`) 批量给 44 个 entity 补 `@TableField(fill = FieldFill.INSERT)` (createBy/createTime) + `INSERT_UPDATE` (updateBy/updateTime), 同时补 `import FieldFill`
+- 21 个 entity 原本只用 `TableId/TableLogic/TableName`, 没 `TableField` import, 手动加
+- 6 个日志类 entity (SysLoginLog/SysOperLog/SysFeiePrintLog/SysBackupRecord/FinInvoiceApply/InvLedger) 字段顺序或类型特殊, 脚本 no-match 跳过(不影响功能, 后续 v1.1.53+ 再补)
+
+**改动** (44 个文件 + 1 个新脚本):
+- 8 个模块全覆盖: base / finance / inventory / outsource / production / purchase / sales / system
+- 详见 git diff: `git show --stat v1.1.52 | grep 'A entity\|M entity'`
+
+**部署** (2026-09-15 已发到 NAS `home.93gushi.com:8088`):
+- 后端 jar (101MB) → scp 到 NAS → `docker compose up -d --force-recreate --build backend` 重建镜像 + 启动
+- 健康检查: 30 秒后 `healthy`, `SecurityPreflightValidator` v1.1.49+ 通过
+- API 实测: `POST /api/production/order` → 立即查 `GET /api/production/order/page` → `createBy=1 createByName=系统管理员` ✅
+- DB 实测: `SELECT bill_no, create_by FROM prd_order ORDER BY id DESC LIMIT 2` → `PD202609150004 create_by=1` ✅, 老单 `PD202609150003 create_by=NULL`(符合预期, 不回填)
+
+**为什么 v1.1.51 没发现**:
+v1.1.51 的 CHANGELOG "实测" 段写 "DB 手动插一条 `base_customer (customer_code='WITHOPERX', create_by=2)` → API 返回 `createBy=2 createByName=gpssong` ✅" — 这是**手工 insert 模拟已有数据**, 验证了 injector 逻辑, 但**绕过了 MetaObjectHandler**, 所以没发现 create_by 在新增时根本没填值。教训: 测试应该走完整 Service 路径 (`BaseCustomerService.add`), 不要只 mock INSERT。
+
+**新增**:
+- `scripts/add_fieldfill.py` (一次性脚本, 留作日志类 entity 后续补 fill 时复用)
+
+**已知遗留**:
+- **历史数据 create_by 全部 NULL** — 不回填。如需回填, SQL 模板:
+  ```sql
+  UPDATE prd_order po
+  LEFT JOIN sys_user u ON u.id = (SELECT id FROM sys_user WHERE username = 'gpssong' LIMIT 1)
+  SET po.create_by = u.id
+  WHERE po.create_by IS NULL AND po.create_time >= '2026-09-13';
+  ```
+  (按业务需要决定是否执行, 本版本不动)
+
+**风险**:
+- 44 个 entity 文件改动, 但都是模板化微改(4 行加注解 + 1 行 import), 风险可控
+- 历史脏数据仍显示 `-`, 不影响新增数据
+- 没有改动 Service 层逻辑(`order.setCreateBy(SecurityContext.getUserId())` 等), 完全依赖 MetaObjectHandler, 符合 v1.1.49 起的架构方向
+
 ### v1.1.51 (2026-09-15) — 全列表注入「操作员姓名」列
 
 **症状**: 用户 (2026-09-15) 要求"在库存台账中增加操作的账号,让我知道操作的是哪个员工"。现状是 14 个单据列表页 (库存台账/销售订单/销售出库/销售退货/采购订单/采购入库/采购退货/盘点/生产加工单/应收应付/发票/客户/供应商/商品) 的 `create_by` 字段虽然存了 user_id, 但前端 el-table 从未展示成中文姓名 — 用户需要查 sys_user 表才能反查谁开的单/谁审的核,体验差。

@@ -1,6 +1,8 @@
 package com.industrial.erp.modules.inventory.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -38,9 +40,20 @@ public class InvStock {
     private BigDecimal safetyStock;
     @Version
     private Integer version;
+    @TableField(fill = FieldFill.INSERT)
+
     private Long createBy;
+
+    @TableField(fill = FieldFill.INSERT)
+
     private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private Long updateBy;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private LocalDateTime updateTime;
     @TableLogic
     private Integer deleted = 0;

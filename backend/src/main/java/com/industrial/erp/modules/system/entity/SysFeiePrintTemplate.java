@@ -1,6 +1,8 @@
 package com.industrial.erp.modules.system.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -23,9 +25,20 @@ public class SysFeiePrintTemplate {
     private Integer status;
     private Integer isDefault;
     private String remark;
+    @TableField(fill = FieldFill.INSERT)
+
     private Long createBy;
+
+    @TableField(fill = FieldFill.INSERT)
+
     private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private Long updateBy;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private LocalDateTime updateTime;
     private Integer deleted;
 

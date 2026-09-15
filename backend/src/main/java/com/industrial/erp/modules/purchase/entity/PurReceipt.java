@@ -2,6 +2,7 @@ package com.industrial.erp.modules.purchase.entity;
 import com.industrial.erp.modules.purchase.entity.PurReceiptDetail;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
@@ -36,9 +37,20 @@ public class PurReceipt {
     private String billStatus;
     private String deliveryNo;
     private String remark;
+    @TableField(fill = FieldFill.INSERT)
+
     private Long createBy;
+
+    @TableField(fill = FieldFill.INSERT)
+
     private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private Long updateBy;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private LocalDateTime updateTime;
     @Version
     private Integer version;

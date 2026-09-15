@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.system.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
@@ -31,9 +32,20 @@ public class SysMenu {
     /** v1.0.10+: 角色-菜单关联的 client_type (来自 sys_role_menu, 非主表列) */
     @TableField(exist = false)
     private String clientType;
+    @TableField(fill = FieldFill.INSERT)
+
     private Long createBy;
+
+    @TableField(fill = FieldFill.INSERT)
+
     private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private Long updateBy;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private LocalDateTime updateTime;
     @TableLogic
     private Integer deleted = 0;
