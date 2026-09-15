@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.hutool.core.util.StrUtil;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.finance.entity.FinArap;
@@ -13,6 +14,7 @@ import com.industrial.erp.modules.finance.mapper.FinArapMapper;
 import com.industrial.erp.modules.finance.mapper.FinCashFlowMapper;
 import com.industrial.erp.modules.finance.service.FinArapService;
 import com.industrial.erp.modules.finance.service.FinInvoiceService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.common.Constants;
@@ -31,13 +33,15 @@ public class FinArapController {
 
     public FinArapController(FinArapMapper arapMapper, FinCashFlowMapper cashFlowMapper,
                              FinArapService arapService, FinInvoiceService invoiceService,
-                             BillNoGenerator billNoGenerator, PermissionService permService) {
+                             BillNoGenerator billNoGenerator, PermissionService permService,
+                             SysUserMapper userMapper) {
         this.arapMapper = arapMapper;
         this.cashFlowMapper = cashFlowMapper;
         this.arapService = arapService;
         this.invoiceService = invoiceService;
         this.billNoGenerator = billNoGenerator;
         this.permService = permService;
+        this.userMapper = userMapper;
     }
 
     private final FinArapMapper arapMapper;
@@ -46,6 +50,7 @@ public class FinArapController {
     private final FinInvoiceService invoiceService;
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
+    private final SysUserMapper userMapper;
 
     @SaCheckPermission(value = {"finance:arap:list"}, orRole = "admin")
     @GetMapping("/page")
@@ -72,7 +77,9 @@ public class FinArapController {
             w.and(q -> q.like(FinArap::getCustomerName, keyword).or().like(FinArap::getSupplierName, keyword).or().like(FinArap::getSourceBillNo, keyword));
         }
         w.orderByDesc(FinArap::getId);
-        return R.ok(PageResult.of(arapMapper.selectPage(p, w)));
+        IPage<FinArap> pageResult = arapMapper.selectPage(p, w);
+        CreateByNameInjector.inject(userMapper, pageResult.getRecords(), FinArap::getCreateBy, FinArap::setCreateByName);
+        return R.ok(PageResult.of(pageResult));
     }
 
     /**

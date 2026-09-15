@@ -2,6 +2,47 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.51 (2026-09-15) — 全列表注入「操作员姓名」列
+
+**症状**: 用户 (2026-09-15) 要求"在库存台账中增加操作的账号,让我知道操作的是哪个员工"。现状是 14 个单据列表页 (库存台账/销售订单/销售出库/销售退货/采购订单/采购入库/采购退货/盘点/生产加工单/应收应付/发票/客户/供应商/商品) 的 `create_by` 字段虽然存了 user_id, 但前端 el-table 从未展示成中文姓名 — 用户需要查 sys_user 表才能反查谁开的单/谁审的核,体验差。
+
+**方案**:
+- 新增 `com.industrial.erp.common.CreateByNameInjector<T>` 泛型工具类 — 封装 `collect createBy ID → userMapper.selectBatchIds(...) → 注入 setCreateByName(realName)` 模板 (零 N+1, 一页只查一次 user 表)
+- 13 个 Entity 加 `@TableField(exist = false) private transient String createByName;` + getter/setter (不入库)
+- 13 个 Controller `page()` 方法注入 `SysUserMapper` 调用 injector;**fin_invoice/fin_arap** 因 Service/Controller 自己拼分页, 同样改造;**fin_invoice** 注入放在拿到 IPage 后
+- 14 个 Vue 文件 el-table 在「状态」列之前新增 `<el-table-column prop="createByName" label="操作员" width="100">`, `null`/`-` 兜底
+- `Order.vue` 的「关联出库单」弹窗表格也加 (它走 `pageByOrder` 端点, 后端也已注入)
+
+**改动**:
+- 后端新增 `common/CreateByNameInjector.java` (~80 行, 静态 + 实例两套 API)
+- Entity 加字段: SalOrder / SalDelivery / SalReturn / PurOrder / PurReceipt / PurReturn / PrdOrder / InvCheck / InvLedger / FinArap / FinInvoice / BaseCustomer / BaseSupplier / BaseProduct
+- Controller 改造: SalOrderController / SalDeliveryController (page + pageByOrder) / SalReturnController / PurOrderController / PurReceiptController / PurReturnController / PrdOrderController / InvCheckController / InvStockController (ledgerPage) / FinArapController / FinInvoiceController / BaseCustomerController / BaseSupplierController / BaseProductController (page + appSearch)
+- 前端 14 个 Vue: sales/Order.vue (主表 + 关联出库单弹窗) + sales/Delivery.vue + sales/Return.vue + purchase/Order.vue + purchase/Receipt.vue + purchase/Return.vue + inventory/Check.vue + inventory/Ledger.vue + finance/Arap.vue + finance/Invoice.vue + production/Order.vue + base/Customer.vue + base/Supplier.vue + base/Product.vue
+- 4 个 Entity (FinInvoice / BaseCustomer / BaseSupplier / BaseProduct) 加了 `@TableField` import
+
+**部署** (2026-09-15 已发到 NAS `home.93gushi.com:8088`):
+- 后端 jar (96MB) → HTTP server 上传到 NAS → `docker build --no-cache` → 容器重启
+- 前端 dist (4.4MB) → NAS wget → `cp -r` 到 `/volume3/docker/erp-system/pc-web/dist` → 容器重启 (chunk `index-DXe12Cbw.js`)
+- JWT secret 强制更新 (`SecurityPreflightValidator` v1.1.49 起拒绝弱密钥), 所有用户**重新登录**
+
+**实测**:
+- DB 手动插一条 `base_customer (customer_code='WITHOPERX', create_by=2)` → API 返回 `createBy=2 createByName=gpssong` ✅
+- 历史脏数据 (2026-09-13 之前所有 create_by NULL) → 前端显示 `-` (符合方案 A 预期, 不补历史)
+- 新录入数据目前还是 NULL — `BaseCustomerService.add` / `BaseSupplierService.add` / `BaseProductService.add` 等 Service 没设 `setCreateBy(SecurityContext.getUserId())`, 这是 pre-existing 问题 (v1.1.49 之前就这样), 不在本任务范围 — 想让"新数据也带操作员"是独立的 Service 层增强
+
+**风险**:
+- 一页 1 次 user 表查询, N+1 不会发生 (BatchIds 一次查所有不同 ID)
+- NULL / 用户被删 → 字段保持 null → 前端 `-` 兜底
+- 改动涉及 32 个文件 (1 新建 + 14 Entity + 14 Controller + 14 Vue), 但每个文件都是模板化微改 (~20 行), 回滚只需 `git revert`
+
+**v1.1.51 部署踩坑 (填到 `erp-nas-deploy-v149-quirks.md`)**:
+- `gpssong` 不能写 NAS `/tmp` (drwxr-xr-x owned 501:20), 用 sudo + bind mount path `/volume3/docker/erp-system/backup/` 当中转
+- `mkdir -p` backup 后 docker run 才能起 (之前 backup 不存在)
+- `SPRING_DATASOURCE_URL` 里的 `&` 不能转义成 `&\`, 否则 MyBatis `BooleanPropertyDefinition` 抛 `No enum constant FALSE\` 启动失败
+- SecurityPreflightValidator 起作用, 弱密钥直接 IllegalStateException; 本次用 `openssl rand -hex 32` 生成新值
+- 容器 bind mount 路径是 `/volume3/docker/erp-system/pc-web/dist` 不是 `/tmp/pc-web-new`, 后者是 v1.1.36 临时路径, **要 `cp -r` 到正确路径才能生效**
+- NAS docker 不在默认 PATH, 必须 `export PATH=/usr/local/bin:$PATH`
+
 ### v1.1.50 (2026-09-13) — 销售订单关联出库单跳转修复
 
 **症状**: PC 端销售订单 → 「关联出库单」弹窗 → 点「查看」/单号, 跳转到 `/sales/delivery?id=xxx` 后, 详情弹窗显示空的「新增销售出库单」(No Data), 拿不到对应出库单。

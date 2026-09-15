@@ -2,6 +2,7 @@ package com.industrial.erp.modules.finance.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.finance.dto.FinInvoiceIssueDTO;
@@ -9,6 +10,7 @@ import com.industrial.erp.modules.finance.entity.FinArap;
 import com.industrial.erp.modules.finance.entity.FinInvoice;
 import com.industrial.erp.modules.finance.service.FinInvoiceService;
 import com.industrial.erp.modules.finance.vo.FinInvoiceIssuedVO;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,9 +26,11 @@ import java.util.Map;
 public class FinInvoiceController {
 
     private final FinInvoiceService invoiceService;
+    private final SysUserMapper userMapper;
 
-    public FinInvoiceController(FinInvoiceService invoiceService) {
+    public FinInvoiceController(FinInvoiceService invoiceService, SysUserMapper userMapper) {
         this.invoiceService = invoiceService;
+        this.userMapper = userMapper;
     }
 
     /**
@@ -50,6 +54,7 @@ public class FinInvoiceController {
             @RequestParam(required = false) String invoiceStatus,
             @RequestParam(required = false) String keyword) {
         IPage<FinInvoice> p = invoiceService.page(pageNum, pageSize, invoiceType, invoiceStatus, keyword);
+        CreateByNameInjector.inject(userMapper, p.getRecords(), FinInvoice::getCreateBy, FinInvoice::setCreateByName);
         return R.ok(PageResult.of(p));
     }
 

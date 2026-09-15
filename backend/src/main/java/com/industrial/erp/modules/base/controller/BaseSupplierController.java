@@ -1,10 +1,12 @@
 package com.industrial.erp.modules.base.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.base.entity.BaseSupplier;
 import com.industrial.erp.modules.base.service.BaseSupplierService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,17 +15,22 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/base/supplier")
 public class BaseSupplierController {
 
-    public BaseSupplierController(BaseSupplierService service) {
-        this.service = service;
-    }
     private final BaseSupplierService service;
+    private final SysUserMapper userMapper;
+
+    public BaseSupplierController(BaseSupplierService service, SysUserMapper userMapper) {
+        this.service = service;
+        this.userMapper = userMapper;
+    }
 
     @SaCheckPermission(value = {"base:supplier:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<BaseSupplier>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                             @RequestParam(defaultValue = "20") Integer pageSize,
                                             @RequestParam(required = false) String keyword) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, keyword)));
+        PageResult<BaseSupplier> pr = PageResult.of(service.page(pageNum, pageSize, keyword));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), BaseSupplier::getCreateBy, BaseSupplier::setCreateByName);
+        return R.ok(pr);
     }
 
     @SaCheckPermission(value = {"base:supplier:list"}, orRole = "admin")

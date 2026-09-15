@@ -33,6 +33,9 @@
         <el-table-column prop="width" label="宽度" width="80" />
         <el-table-column prop="density" label="厚度" width="80" />
         <el-table-column prop="colorNo" label="色号" width="80" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="salesPrice" label="价格" width="100" align="right" />
         <el-table-column prop="safetyStock" label="安全库存" width="100" align="right" />
         <el-table-column label="状态" width="80">

@@ -25,6 +25,9 @@
         </el-table-column>
         <!-- v1.1.19+: 含税单价口径, totalAmount = totalAmountTax = 开单金额, 只显示「金额」一列 -->
         <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }"><el-tag :type="row.billStatus==='DRAFT'?'info':'success'">{{ row.billStatus === 'DRAFT' ? '草稿' : '已审核' }}</el-tag></template>
         </el-table-column>
@@ -258,6 +261,9 @@
             <template #default="{ row }">
               <span>¥{{ (row.totalAmount || 0).toFixed(2) }}</span>
             </template>
+          </el-table-column>
+          <el-table-column prop="createByName" label="操作员" width="90">
+            <template #default="{ row }">{{ row.createByName || '-' }}</template>
           </el-table-column>
           <el-table-column label="操作" width="80">
             <template #default="{ row }">

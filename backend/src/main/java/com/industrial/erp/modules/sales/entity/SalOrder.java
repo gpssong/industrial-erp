@@ -70,6 +70,10 @@ public class SalOrder {
     @TableField(exist = false)
     private transient BigDecimal shippedQty;
 
+    /** 操作员姓名 (list page 注入, 不入库) */
+    @TableField(exist = false)
+    private transient String createByName;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getBillNo() { return billNo; }
@@ -150,4 +154,8 @@ public class SalOrder {
     /** v1.1.41: 已发货数量 (list page 注入) */
     public BigDecimal getShippedQty() { return shippedQty; }
     public void setShippedQty(BigDecimal shippedQty) { this.shippedQty = shippedQty; }
+
+    /** 操作员姓名 (list page 注入) */
+    public String getCreateByName() { return createByName; }
+    public void setCreateByName(String createByName) { this.createByName = createByName; }
 }

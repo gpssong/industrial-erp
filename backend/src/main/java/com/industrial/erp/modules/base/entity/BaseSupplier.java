@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.base.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -32,6 +33,10 @@ public class BaseSupplier {
     private LocalDateTime updateTime;
     @TableLogic
     private Integer deleted = 0;
+
+    /** 操作员姓名 (list page 注入, 不入库) */
+    @TableField(exist = false)
+    private transient String createByName;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -73,4 +78,8 @@ public class BaseSupplier {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+
+    /** 操作员姓名 (list page 注入) */
+    public String getCreateByName() { return createByName; }
+    public void setCreateByName(String createByName) { this.createByName = createByName; }
 }

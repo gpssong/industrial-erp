@@ -1,10 +1,12 @@
 package com.industrial.erp.modules.purchase.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.service.PurReceiptService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,11 +17,13 @@ import java.math.BigDecimal;
 @RequestMapping("/purchase/receipt")
 public class PurReceiptController {
 
-    public PurReceiptController(PurReceiptService service) {
-        this.service = service;
-    }
-
     private final PurReceiptService service;
+    private final SysUserMapper userMapper;
+
+    public PurReceiptController(PurReceiptService service, SysUserMapper userMapper) {
+        this.service = service;
+        this.userMapper = userMapper;
+    }
 
     @SaCheckPermission(value = {"purchase:receipt:list"}, orRole = "admin")
     @GetMapping("/page")
@@ -29,7 +33,9 @@ public class PurReceiptController {
                                          @RequestParam(required = false) Long supplierId,
                                          @RequestParam(required = false) String billStatus,
                                          @RequestParam(required = false) String productName) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, supplierId, billStatus, productName)));
+        PageResult<PurReceipt> pr = PageResult.of(service.page(pageNum, pageSize, billNo, supplierId, billStatus, productName));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), PurReceipt::getCreateBy, PurReceipt::setCreateByName);
+        return R.ok(pr);
     }
 
     @SaCheckPermission(value = {"purchase:receipt:list"}, orRole = "admin")

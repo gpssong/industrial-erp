@@ -77,6 +77,10 @@ public class PrdOrder {
     @TableLogic
     private Integer deleted = 0;
 
+    /** 操作员姓名 (list page 注入, 不入库) */
+    @TableField(exist = false)
+    private transient String createByName;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getBillNo() { return billNo; }
@@ -184,4 +188,8 @@ public class PrdOrder {
     public void setBomRemark(String bomRemark) { this.bomRemark = bomRemark; }
     public List<PrdRequisitionDetail> getRequisitionDetails() { return requisitionDetails; }
     public void setRequisitionDetails(List<PrdRequisitionDetail> requisitionDetails) { this.requisitionDetails = requisitionDetails; }
+
+    /** 操作员姓名 (list page 注入) */
+    public String getCreateByName() { return createByName; }
+    public void setCreateByName(String createByName) { this.createByName = createByName; }
 }

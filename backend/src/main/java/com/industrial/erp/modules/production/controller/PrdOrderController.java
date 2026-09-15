@@ -1,11 +1,13 @@
 package com.industrial.erp.modules.production.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.production.entity.PrdOrder;
 import com.industrial.erp.modules.production.service.PrdOrderService;
 import com.industrial.erp.modules.production.service.ProductionPdfService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.*;
@@ -21,13 +23,15 @@ import java.nio.charset.StandardCharsets;
 @RequestMapping("/production/order")
 public class PrdOrderController {
 
-    public PrdOrderController(PrdOrderService service, ProductionPdfService pdfService) {
-        this.service = service;
-        this.pdfService = pdfService;
-    }
-
     private final PrdOrderService service;
     private final ProductionPdfService pdfService;
+    private final SysUserMapper userMapper;
+
+    public PrdOrderController(PrdOrderService service, ProductionPdfService pdfService, SysUserMapper userMapper) {
+        this.service = service;
+        this.pdfService = pdfService;
+        this.userMapper = userMapper;
+    }
 
     @GetMapping("/page")
     public R<PageResult<PrdOrder>> page(@RequestParam(defaultValue = "1") Integer pageNum,
@@ -35,7 +39,9 @@ public class PrdOrderController {
                                         @RequestParam(required = false) String billNo,
                                         @RequestParam(required = false) String billStatus,
                                         @RequestParam(required = false) String productName) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, billStatus, productName)));
+        PageResult<PrdOrder> pr = PageResult.of(service.page(pageNum, pageSize, billNo, billStatus, productName));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), PrdOrder::getCreateBy, PrdOrder::setCreateByName);
+        return R.ok(pr);
     }
 
     @GetMapping("/{id}")

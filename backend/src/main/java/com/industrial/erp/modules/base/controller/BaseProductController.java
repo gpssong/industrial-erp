@@ -2,11 +2,13 @@ package com.industrial.erp.modules.base.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseProductUnit;
 import com.industrial.erp.modules.base.service.BaseProductService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,13 +21,15 @@ import java.util.Map;
 @RequestMapping("/base/product")
 public class BaseProductController {
 
-    public BaseProductController(BaseProductService service, ObjectMapper objectMapper) {
-        this.service = service;
-        this.objectMapper = objectMapper;
-    }
-
     private final BaseProductService service;
     private final ObjectMapper objectMapper;
+    private final SysUserMapper userMapper;
+
+    public BaseProductController(BaseProductService service, ObjectMapper objectMapper, SysUserMapper userMapper) {
+        this.service = service;
+        this.objectMapper = objectMapper;
+        this.userMapper = userMapper;
+    }
 
     @SaCheckPermission(value = {"base:product:list"}, orRole = "admin")
     @GetMapping("/page")
@@ -33,7 +37,9 @@ public class BaseProductController {
                                            @RequestParam(defaultValue = "20") Integer pageSize,
                                            @RequestParam(required = false) String keyword,
                                            @RequestParam(required = false) Long categoryId) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, keyword, categoryId)));
+        PageResult<BaseProduct> pr = PageResult.of(service.page(pageNum, pageSize, keyword, categoryId));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), BaseProduct::getCreateBy, BaseProduct::setCreateByName);
+        return R.ok(pr);
     }
 
     @SaCheckPermission(value = {"base:product:list"}, orRole = "admin")
@@ -76,6 +82,8 @@ public class BaseProductController {
                                                 @RequestParam(defaultValue = "20") Integer pageSize,
                                                 @RequestParam(required = false) String keyword) {
         // App 端商品搜索: 只要登录就能查 (不需要 base:product:list)
-        return R.ok(PageResult.of(service.pageWithoutPerm(pageNum, pageSize, keyword)));
+        PageResult<BaseProduct> pr = PageResult.of(service.pageWithoutPerm(pageNum, pageSize, keyword));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), BaseProduct::getCreateBy, BaseProduct::setCreateByName);
+        return R.ok(pr);
     }
 }
