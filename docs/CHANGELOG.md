@@ -2,6 +2,56 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.52.4 (2026-09-15) — 生产单删除误报「数据已存在,请检查编码/名称是否重复」
+
+**症状**: 赵偲荣在 home.93gushi.com:8088 删生产单 PD202609150005/0006,提示 `数据已存在, 请检查编码/名称是否重复`,删不掉。
+
+**根因**: `prd_order` 唯一索引 `uniq_prd_order_bill_no (bill_no, deleted)` 本意「同单号最多一条活行」,但逻辑删除 `deleted` 固定取 `1`:
+1. 删过 PD...0005 (id A, `deleted=1`)
+2. 同单号又新建一条 (id B, `deleted=0`)
+3. 再删 B → 逻辑删把 B 改成 `deleted=1` → 撞 `(bill_no,1)` 唯一键(因 A 已是 1)→ MySQL `DuplicateKeyException` → `GlobalExceptionHandler.handleDuplicateKeyException` 统一包成「数据已存在」(误报)。
+
+**修复** (`PrdOrderService.delete()`):软删本行**之前**先物理删掉同 `bill_no` 下其它已软删历史行(tombstone,物理删安全),腾出 `(bill_no,1)` 槽位:
+```java
+orderMapper.delete(new LambdaQueryWrapper<PrdOrder>()
+        .eq(PrdOrder::getBillNo, order.getBillNo())
+        .ne(PrdOrder::getId, orderId)
+        .eq(PrdOrder::getDeleted, 1));
+orderMapper.update(null, new LambdaUpdateWrapper<PrdOrder>()
+        .eq(PrdOrder::getId, orderId).set(PrdOrder::getDeleted, 1));
+```
+
+**数据清理** (home + 飞牛 双库,手工执行一次):
+```sql
+DELETE FROM prd_order WHERE bill_no IN ('PD202609150005','PD202609150006') AND deleted=1;
+```
+清掉卡住的重复 tombstone,每 bill_no 只剩一条。
+
+**踩坑**:
+- 报错文案来自 `GlobalExceptionHandler` `DuplicateKeyException` 处理器 → 把所有唯一键冲突统一包成「数据已存在,请检查编码/名称是否重复」,本例是**删除**撞码不是新增,文案具误导性
+- 飞牛 / home backend 均为**镜像内置 jar**(`COPY ...jar app.jar`),`docker restart` 不换 jar,必须 `docker build` + `docker rm -f` + `docker run` 重建容器
+- 飞牛 `docker compose up -d backend-failover` 报 `no configuration file provided`(service 挂 `profiles:[failover]`),只能按 compose env 手动 `docker run`
+
+**回滚**: `delete()` 恢复为单行 `orderMapper.update(...)`。
+
+### v1.1.52.3 (2026-09-15) — 操作员姓名注入回退: `real_name` 空时回退 `username`
+
+**症状**: 赵偲荣生产单列表「操作员」列仍 `-`(v1.1.52 修了 `create_by` NULL,姓名仍空)。
+
+**根因**: `sys_user` 里赵偲荣/罗飞/秦运桂/师雨晨/侯丽君 5 个早期账号 `real_name` 为 NULL(仅 `username` 有中文姓名)。`CreateByNameInjector` 只取 `u.getRealName()` → 这些人 `create_by` 注入成 null → 前端 `row.createByName || '-'` → `-`。
+
+**修复** (代码级, `CreateByNameInjector.resolveName(SysUser)`):优先 `realName`,为空回退 `username`:
+```java
+static String resolveName(SysUser u) {
+    String name = u.getRealName();
+    if (name == null || name.trim().isEmpty()) name = u.getUsername();
+    return (name == null || name.trim().isEmpty()) ? null : name;
+}
+```
+代码级根治,无需回填 `sys_user` 数据;历史 + 未来单据都生效。双站 jar 已换(101085440 字节)。
+
+**回滚**: `resolveName` 只用 `getRealName()`。
+
 ### v1.1.52.2 (2026-09-15) — 飞鹅打印 403: 赵偲荣(仓库主管/财务)缺 RBAC 权限
 
 **症状**: 赵偲荣账号 (user_id=2073693353985228802, 角色 4=仓库主管 / 6=财务) 在 home.93gushi.com:8088 打开「飞鹅打印预览」弹窗(生产单 `PD202609150006`), 点「确认打印」后 toast 提示 `打印失败: Request failed with status code 403`。前端 axios 错误被 `ElNotification.error` 吞了具体 reason。

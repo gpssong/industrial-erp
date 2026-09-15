@@ -1,10 +1,56 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.52.2 (飞鹅打印 403 RBAC 修复 — 给「仓库主管」「财务」角色授予 `production:order:feie-print` 菜单 959,无代码改动)
+**当前版本**: v1.1.52.4 (生产单删除 DuplicateKey 误报修复 — `delete()` 软删前物理清理同 `bill_no` 历史 tombstone,解决「数据已存在,请检查编码/名称是否重复」)
 
-**前序版本**: v1.1.52.1 (飞牛热备站 n150.93gushi.com 同步部署 — 后端 jar + pc-web dist,无代码改动) / v1.1.52 (全 entity 补 `@TableField(fill=...)`, 修复 `create_by` 全表 NULL)
+**前序版本**: v1.1.52.3 (操作员姓名注入回退 — `CreateByNameInjector` real_name 空时回退 username,修复赵偲荣等 5 人操作员列显示 `-`) / v1.1.52.2 (飞鹅打印 403 RBAC 修复) / v1.1.52.1 (飞牛热备站同步部署)
 
 ## changelog (倒序)
+### v1.1.52.4 (2026-09-15) — 生产单删除误报「数据已存在,请检查编码/名称是否重复」
+
+**症状**: 赵偲荣在 home.93gushi.com:8088 删生产单 PD202609150005/0006,提示 `数据已存在, 请检查编码/名称是否重复`,删不掉。
+
+**根因**: `prd_order` 唯一索引 `uniq_prd_order_bill_no (bill_no, deleted)` 本意「同单号最多一条活行」,但逻辑删除 `deleted` 固定取 `1`:
+1. 删过 PD...0005 (id A, `deleted=1`)
+2. 同单号又新建一条 (id B, `deleted=0`)
+3. 再删 B → 逻辑删把 B 改成 `deleted=1` → 撞 `(bill_no,1)` 唯一键(因 A 已是 1)→ MySQL `DuplicateKeyException` → 全局异常处理误报成「数据已存在」。
+
+**修复** (`PrdOrderService.delete()`,代码级):软删本行**之前**先物理删掉同 `bill_no` 下其它已软删历史行(它们本就是 tombstone,物理删安全),腾出 `(bill_no,1)` 槽位:
+```java
+orderMapper.delete(new LambdaQueryWrapper<PrdOrder>()
+        .eq(PrdOrder::getBillNo, order.getBillNo())
+        .ne(PrdOrder::getId, orderId)
+        .eq(PrdOrder::getDeleted, 1));
+orderMapper.update(null, new LambdaUpdateWrapper<PrdOrder>()
+        .eq(PrdOrder::getId, orderId).set(PrdOrder::getDeleted, 1));
+```
+
+**数据清理** (home + 飞牛 双库,手工执行一次):`DELETE FROM prd_order WHERE bill_no IN ('PD202609150005','PD202609150006') AND deleted=1;` 清掉卡住的重复 tombstone,每 bill_no 只剩一条。
+
+**踩坑**:
+- 报错文案来自 `GlobalExceptionHandler.handleDuplicateKeyException` → `R.fail("数据已存在, 请检查编码/名称是否重复")`,它把**所有**唯一键冲突都统一包成这句,容易误导(本例是删重复单号,不是新增撞码)
+- 飞牛 backend 是**镜像内置 jar**(`backend.Dockerfile` `COPY erp-backend.jar app.jar`),`docker restart` 不拉新 jar,必须 `docker build` + `docker rm -f` + `docker run` 重建;home 同理(Dockerfile 烘焙 jar)
+- `docker compose up -d backend-failover` 报 `no configuration file provided: not found`(飞牛 compose 里该 service 挂 `profiles: [failover]` 且不暴露服务名给 `up`),只能按 compose 的 env 手动 `docker run`
+
+**回滚**: 恢复 `delete()` 为单行 `orderMapper.update(...)` 即可。
+
+### v1.1.52.3 (2026-09-15) — 操作员姓名注入回退: `real_name` 空时回退 `username`
+
+**症状**: 赵偲荣的生产单在列表「操作员」列仍显示 `-`(v1.1.52 已修 `create_by` NULL,但姓名还是空)。
+
+**根因**: `sys_user` 里赵偲荣/罗飞/秦运桂/师雨晨/侯丽君 5 个早期账号 `real_name` 为 NULL(只有 `username` 有中文姓名)。`CreateByNameInjector` 只取 `u.getRealName()` 注入 → 这些人的 `create_by` 注入成 null → 前端 `row.createByName || '-'` → 显示 `-`。
+
+**修复** (代码级, `CreateByNameInjector.resolveName(SysUser)`):优先 `realName`,为空则回退 `username`:
+```java
+static String resolveName(SysUser u) {
+    String name = u.getRealName();
+    if (name == null || name.trim().isEmpty()) name = u.getUsername();
+    return (name == null || name.trim().isEmpty()) ? null : name;
+}
+```
+代码级根治,无需逐条回填 `sys_user` 数据;历史 + 未来单据都生效。双站 jar 已换(101085440 字节)。
+
+**回滚**: `resolveName` 只用 `getRealName()` 即可。
+
 ### v1.1.52.2 (2026-09-15) — 飞鹅打印 403: 赵偲荣(仓库主管/财务)缺 RBAC 权限
 
 **症状**: 赵偲荣账号 (user_id=2073693353985228802,角色 4=仓库主管 / 6=财务) 在 home.93gushi.com:8088 打飞鹅生产单,弹窗「飞鹅打印预览」点「确认打印」→ 前端 axios 收到 **403 Forbidden**(`POST /api/feie/print/PRD_ORDER/{id}`)。错误被 `ElNotification.error('打印失败: Request failed with status code 403')` 吞,看不到具体原因。
