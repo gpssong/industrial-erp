@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.sales.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
@@ -53,9 +54,20 @@ public class SalDeliveryDetail {
     private String remark;
     /** v1.1.40: 采购订单号 (客户 PO 号, 用于追溯) */
     private String poNo;
+    @TableField(fill = FieldFill.INSERT)
+
     private Long createBy;
+
+    @TableField(fill = FieldFill.INSERT)
+
     private LocalDateTime createTime;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private Long updateBy;
+
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+
     private LocalDateTime updateTime;
     @TableLogic
     private Integer deleted = 0;
