@@ -1,10 +1,12 @@
 package com.industrial.erp.modules.base.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.service.BaseCustomerService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,17 +15,22 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/base/customer")
 public class BaseCustomerController {
 
-    public BaseCustomerController(BaseCustomerService service) {
-        this.service = service;
-    }
     private final BaseCustomerService service;
+    private final SysUserMapper userMapper;
+
+    public BaseCustomerController(BaseCustomerService service, SysUserMapper userMapper) {
+        this.service = service;
+        this.userMapper = userMapper;
+    }
 
     @SaCheckPermission(value = {"base:customer:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<BaseCustomer>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                             @RequestParam(defaultValue = "20") Integer pageSize,
                                             @RequestParam(required = false) String keyword) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, keyword)));
+        PageResult<BaseCustomer> pr = PageResult.of(service.page(pageNum, pageSize, keyword));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), BaseCustomer::getCreateBy, BaseCustomer::setCreateByName);
+        return R.ok(pr);
     }
 
     @SaCheckPermission(value = {"base:customer:list"}, orRole = "admin")

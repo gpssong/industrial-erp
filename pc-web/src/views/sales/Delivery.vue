@@ -44,6 +44,9 @@
         <el-table-column prop="totalAmount" label="金额" width="120" align="right" />
         <el-table-column prop="costAmount" label="成本" width="100" align="right" />
         <el-table-column prop="profitAmount" label="毛利" width="100" align="right" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.billStatus==='CHECKED'?'success':'info'">{{ row.billStatus === 'CHECKED' ? '已审核' : '草稿' }}</el-tag>

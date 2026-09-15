@@ -18,6 +18,9 @@
         <el-table-column prop="firstProductName" label="商品名称" show-overflow-tooltip />
         <el-table-column prop="totalQty" label="数量" width="100" align="right" />
         <el-table-column prop="totalAmountTax" label="退货金额" width="120" align="right" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }"><el-tag :type="row.billStatus==='CHECKED'?'success':'info'">{{ row.billStatus === 'CHECKED' ? '已审核' : '草稿' }}</el-tag></template>
         </el-table-column>

@@ -1,10 +1,12 @@
 package com.industrial.erp.modules.sales.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.service.SalDeliveryService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,11 +17,13 @@ import java.math.BigDecimal;
 @RequestMapping("/sales/delivery")
 public class SalDeliveryController {
 
-    public SalDeliveryController(SalDeliveryService service) {
-        this.service = service;
-    }
-
     private final SalDeliveryService service;
+    private final SysUserMapper userMapper;
+
+    public SalDeliveryController(SalDeliveryService service, SysUserMapper userMapper) {
+        this.service = service;
+        this.userMapper = userMapper;
+    }
 
     @SaCheckPermission(value = {"sales:delivery:list"}, orRole = "admin")
     @GetMapping("/page")
@@ -29,7 +33,9 @@ public class SalDeliveryController {
                                           @RequestParam(required = false) Long customerId,
                                           @RequestParam(required = false) String billStatus,
                                           @RequestParam(required = false) String productName) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, customerId, billStatus, productName)));
+        PageResult<SalDelivery> pr = PageResult.of(service.page(pageNum, pageSize, billNo, customerId, billStatus, productName));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), SalDelivery::getCreateBy, SalDelivery::setCreateByName);
+        return R.ok(pr);
     }
 
     /** v1.1.38: 按源订单 ID 查询关联出库单列表 (追溯入口) — 必须在 /{id} 之前声明，否则 Spring 把 page-by-order 当 id */
@@ -39,7 +45,9 @@ public class SalDeliveryController {
             @RequestParam Long orderId,
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "20") Integer pageSize) {
-        return R.ok(PageResult.of(service.pageByOrderId(pageNum, pageSize, orderId)));
+        PageResult<SalDelivery> pr = PageResult.of(service.pageByOrderId(pageNum, pageSize, orderId));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), SalDelivery::getCreateBy, SalDelivery::setCreateByName);
+        return R.ok(pr);
     }
 
     @SaCheckPermission(value = {"sales:delivery:list"}, orRole = "admin")

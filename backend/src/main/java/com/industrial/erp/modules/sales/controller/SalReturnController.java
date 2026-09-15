@@ -1,10 +1,12 @@
 package com.industrial.erp.modules.sales.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.sales.entity.SalReturn;
 import com.industrial.erp.modules.sales.service.SalReturnService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,11 +15,13 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/sales/return")
 public class SalReturnController {
 
-    public SalReturnController(SalReturnService service) {
-        this.service = service;
-    }
-
     private final SalReturnService service;
+    private final SysUserMapper userMapper;
+
+    public SalReturnController(SalReturnService service, SysUserMapper userMapper) {
+        this.service = service;
+        this.userMapper = userMapper;
+    }
 
     @SaCheckPermission(value = {"sales:return:list"}, orRole = "admin")
     @GetMapping("/page")
@@ -26,7 +30,9 @@ public class SalReturnController {
                                          @RequestParam(required = false) String billNo,
                                          @RequestParam(required = false) Long customerId,
                                          @RequestParam(required = false) String billStatus) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, customerId, billStatus)));
+        PageResult<SalReturn> pr = PageResult.of(service.page(pageNum, pageSize, billNo, customerId, billStatus));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), SalReturn::getCreateBy, SalReturn::setCreateByName);
+        return R.ok(pr);
     }
 
     @SaCheckPermission(value = {"sales:return:list"}, orRole = "admin")

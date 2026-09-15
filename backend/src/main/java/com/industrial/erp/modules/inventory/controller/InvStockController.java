@@ -13,12 +13,17 @@ import com.industrial.erp.modules.inventory.entity.InvStock;
 import com.industrial.erp.modules.inventory.mapper.InvLedgerMapper;
 import com.industrial.erp.modules.inventory.mapper.InvLedgerQueryMapper;
 import com.industrial.erp.modules.inventory.mapper.InvStockMapper;
+import com.industrial.erp.modules.system.entity.SysUser;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.security.PermissionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Tag(name = "库存查询/台账/预警")
 @RestController
@@ -28,12 +33,14 @@ public class InvStockController {
     private final InvStockMapper stockMapper;
     private final InvLedgerMapper ledgerMapper;
     private final InvLedgerQueryMapper ledgerQueryMapper;
+    private final SysUserMapper userMapper;
     private final PermissionService permService;
 
-    public InvStockController(InvStockMapper stockMapper, InvLedgerMapper ledgerMapper, InvLedgerQueryMapper ledgerQueryMapper, PermissionService permService) {
+    public InvStockController(InvStockMapper stockMapper, InvLedgerMapper ledgerMapper, InvLedgerQueryMapper ledgerQueryMapper, SysUserMapper userMapper, PermissionService permService) {
         this.stockMapper = stockMapper;
         this.ledgerMapper = ledgerMapper;
         this.ledgerQueryMapper = ledgerQueryMapper;
+        this.userMapper = userMapper;
         this.permService = permService;
     }
 
@@ -89,6 +96,29 @@ public class InvStockController {
         w.eq("tenant_id", com.industrial.erp.security.SecurityContext.getTenantId());
         w.orderByDesc("id");
         Page<Map<String, Object>> result = ledgerMapper.selectMapsPage(p, w);
+        // 注入操作员姓名 (前端表格新增「操作员」列)。selectMapsPage 返回的 Map 字段是 create_by (snake_case).
+        List<Map<String, Object>> records = result.getRecords();
+        if (records != null && !records.isEmpty()) {
+            Set<Long> userIds = records.stream()
+                    .map(m -> m.get("create_by"))
+                    .filter(o -> o instanceof Number)
+                    .map(o -> ((Number) o).longValue())
+                    .collect(Collectors.toSet());
+            if (!userIds.isEmpty()) {
+                Map<Long, String> nameMap = new HashMap<>();
+                for (SysUser u : userMapper.selectBatchIds(userIds)) {
+                    if (u != null && u.getId() != null) {
+                        nameMap.put(u.getId(), u.getRealName());
+                    }
+                }
+                for (Map<String, Object> row : records) {
+                    Object cb = row.get("create_by");
+                    if (cb instanceof Number) {
+                        row.put("create_by_name", nameMap.get(((Number) cb).longValue()));
+                    }
+                }
+            }
+        }
         return R.ok(PageResult.of(result));
     }
 

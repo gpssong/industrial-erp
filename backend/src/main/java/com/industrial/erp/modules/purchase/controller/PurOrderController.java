@@ -1,10 +1,12 @@
 package com.industrial.erp.modules.purchase.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.purchase.entity.PurOrder;
 import com.industrial.erp.modules.purchase.service.PurOrderService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,9 +17,11 @@ import java.math.BigDecimal;
 @RequestMapping("/purchase/order")
 public class PurOrderController {
     private final PurOrderService service;
+    private final SysUserMapper userMapper;
 
-    public PurOrderController(PurOrderService service) {
+    public PurOrderController(PurOrderService service, SysUserMapper userMapper) {
         this.service = service;
+        this.userMapper = userMapper;
     }
 
     @SaCheckPermission(value = {"purchase:order:list"}, orRole = "admin")
@@ -27,7 +31,9 @@ public class PurOrderController {
                                         @RequestParam(required = false) String billNo,
                                         @RequestParam(required = false) Long supplierId,
                                         @RequestParam(required = false) String billStatus) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, supplierId, billStatus)));
+        PageResult<PurOrder> pr = PageResult.of(service.page(pageNum, pageSize, billNo, supplierId, billStatus));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), PurOrder::getCreateBy, PurOrder::setCreateByName);
+        return R.ok(pr);
     }
 
     @SaCheckPermission(value = {"purchase:order:list"}, orRole = "admin")

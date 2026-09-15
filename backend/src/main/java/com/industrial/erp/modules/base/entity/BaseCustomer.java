@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.base.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -38,6 +39,10 @@ public class BaseCustomer {
     // v1.1.20+ P0-6: 乐观锁, 防并发大单信用占用超限
     @Version
     private Integer version;
+
+    /** 操作员姓名 (list page 注入, 不入库) */
+    @TableField(exist = false)
+    private transient String createByName;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -85,4 +90,8 @@ public class BaseCustomer {
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
     public Integer getVersion() { return version; }
     public void setVersion(Integer version) { this.version = version; }
+
+    /** 操作员姓名 (list page 注入) */
+    public String getCreateByName() { return createByName; }
+    public void setCreateByName(String createByName) { this.createByName = createByName; }
 }

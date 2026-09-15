@@ -76,6 +76,9 @@
         </el-table-column>
         <el-table-column prop="paidAmount" label="已收/付" width="110" align="right" />
         <el-table-column prop="balance" label="未结" width="110" align="right" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="结算状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.billStatus==='PAID'?'success':row.billStatus==='PARTIAL'?'warning':'danger'">

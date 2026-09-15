@@ -1,11 +1,23 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.50 (销售订单 → 关联出库单跳转 + 雪花 ID 精度修复)
+**当前版本**: v1.1.51 (全列表注入「操作员姓名」列)
 
 > **文档说明**: v1.1.49 起 changelog 拆分为 `docs/CHANGELOG.md` (完整历史) + 本文件顶部 (当前版本摘要)。
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.51 (2026-09-15) — 全列表注入「操作员姓名」列
+
+**症状**: 用户反馈 (2026-09-15) "在库存台账中增加操作的账号,让我知道操作的是哪个员工"。所有单据列表页的 `create_by` 字段虽然存了 user_id, 但前端 el-table 从未展示成中文姓名。
+
+**方案**: 新增 `com.industrial.erp.common.CreateByNameInjector<T>` 泛型工具类 — 封装 `collect createBy ID → userMapper.selectBatchIds(...) → 注入 setCreateByName(realName)` 模板 (一页只查一次 user 表, 无 N+1)。
+
+**改动**: 13 Entity 加 `@TableField(exist=false) transient String createByName` + 13 Controller `page()` 注入 SysUserMapper + 14 Vue el-table 新增「操作员」列。详见 `docs/CHANGELOG.md#v1151`。
+
+**部署**: 2026-09-15 已发到 NAS home.93gushi.com:8088。JWT secret 强制更新 → 用户**必须重新登录**。历史脏数据 (create_by NULL) 显示 `-` 兜底。
+
+**新建模块**: `backend/.../common/CreateByNameInjector.java`
+
 ### v1.1.50 (2026-09-13) — 销售订单关联出库单跳转修复
 
 **症状**: PC 端销售订单 → 「关联出库单」弹窗 → 点「查看」/单号, 跳转到 `/sales/delivery?id=xxx` 后, 详情弹窗显示空的「新增销售出库单」(No Data), 拿不到对应出库单。

@@ -40,6 +40,9 @@
         <el-table-column prop="totalAmount" label="票面金额" width="120" align="right" />
         <el-table-column prop="collectedAmount" label="已收/付" width="120" align="right" />
         <el-table-column prop="balance" label="未收/付" width="120" align="right" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.invoiceStatus==='PAID'?'success':row.invoiceStatus==='PARTIAL'?'warning':row.invoiceStatus==='VOID'?'info':'primary'">

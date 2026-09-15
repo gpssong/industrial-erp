@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.finance.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -57,6 +58,10 @@ public class FinInvoice {
     private Integer deleted = 0;
     private Long tenantId;
 
+    /** 操作员姓名 (list page 注入, 不入库) */
+    @TableField(exist = false)
+    private transient String createByName;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getBillNo() { return billNo; }
@@ -105,4 +110,8 @@ public class FinInvoice {
     public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
     public Integer getVersion() { return version; }
     public void setVersion(Integer version) { this.version = version; }
+
+    /** 操作员姓名 (list page 注入) */
+    public String getCreateByName() { return createByName; }
+    public void setCreateByName(String createByName) { this.createByName = createByName; }
 }

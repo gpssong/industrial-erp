@@ -27,6 +27,9 @@
         <el-table-column prop="bill_type" label="业务" width="120">
           <template #default="{ row }">{{ typeMap[row.bill_type] || row.bill_type }}</template>
         </el-table-column>
+        <el-table-column prop="create_by_name" label="操作员" width="100">
+          <template #default="{ row }">{{ row.create_by_name || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="bill_no" label="单号" width="180" />
         <el-table-column prop="product_name" label="商品" />
         <el-table-column prop="spec" label="规格" width="140">

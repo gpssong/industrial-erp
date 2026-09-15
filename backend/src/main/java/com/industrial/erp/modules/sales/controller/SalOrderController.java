@@ -1,10 +1,12 @@
 package com.industrial.erp.modules.sales.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.sales.entity.SalOrder;
 import com.industrial.erp.modules.sales.service.SalOrderService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,10 +17,13 @@ import java.math.BigDecimal;
 @RequestMapping("/sales/order")
 public class SalOrderController {
 
-    public SalOrderController(SalOrderService service) {
-        this.service = service;
-    }
     private final SalOrderService service;
+    private final SysUserMapper userMapper;
+
+    public SalOrderController(SalOrderService service, SysUserMapper userMapper) {
+        this.service = service;
+        this.userMapper = userMapper;
+    }
 
     @SaCheckPermission(value = {"sales:order:list"}, orRole = "admin")
     @GetMapping("/page")
@@ -27,7 +32,9 @@ public class SalOrderController {
                                         @RequestParam(required = false) String billNo,
                                         @RequestParam(required = false) Long customerId,
                                         @RequestParam(required = false) String billStatus) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, customerId, billStatus)));
+        PageResult<SalOrder> pr = PageResult.of(service.page(pageNum, pageSize, billNo, customerId, billStatus));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), SalOrder::getCreateBy, SalOrder::setCreateByName);
+        return R.ok(pr);
     }
 
     @SaCheckPermission(value = {"sales:order:list"}, orRole = "admin")

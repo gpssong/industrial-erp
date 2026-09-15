@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.inventory.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.inventory.dto.AppCheckSubmitDTO;
@@ -8,6 +9,7 @@ import com.industrial.erp.modules.inventory.entity.InvCheck;
 import com.industrial.erp.modules.inventory.service.InvCheckService;
 import com.industrial.erp.modules.inventory.vo.AppCheckSubmitVO;
 import com.industrial.erp.modules.inventory.vo.WarehouseStockSnapshotVO;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -20,10 +22,13 @@ import java.util.List;
 @RequestMapping("/inventory/check")
 public class InvCheckController {
 
-    public InvCheckController(InvCheckService service) {
-        this.service = service;
-    }
     private final InvCheckService service;
+    private final SysUserMapper userMapper;
+
+    public InvCheckController(InvCheckService service, SysUserMapper userMapper) {
+        this.service = service;
+        this.userMapper = userMapper;
+    }
 
     @Operation(summary = "分页查询盘点单")
     @SaCheckPermission(value = {"inventory:check:list"}, orRole = "admin")
@@ -33,7 +38,9 @@ public class InvCheckController {
                                         @RequestParam(required = false) String billNo,
                                         @RequestParam(required = false) String billStatus,
                                         @RequestParam(required = false) Long warehouseId) {
-        return R.ok(PageResult.of(service.page(pageNum, pageSize, billNo, billStatus, warehouseId)));
+        PageResult<InvCheck> pr = PageResult.of(service.page(pageNum, pageSize, billNo, billStatus, warehouseId));
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), InvCheck::getCreateBy, InvCheck::setCreateByName);
+        return R.ok(pr);
     }
 
     @Operation(summary = "盘点单详情")

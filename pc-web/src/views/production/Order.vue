@@ -23,6 +23,9 @@
         <el-table-column prop="lossQty" label="损耗" width="100" align="right" />
         <el-table-column prop="lossRate" label="损耗率%" width="100" align="right" />
         <el-table-column prop="workshop" label="车间" width="100" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag>{{ ({DRAFT:'草稿',RELEASED:'已开工',PRODUCING:'生产中',FINISHED:'已完成',CLOSED:'已关闭'})[row.billStatus] }}</el-tag>

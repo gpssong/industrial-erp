@@ -20,6 +20,9 @@
           <template #default="{ row }"><el-tag v-if="row.isOutsource===1" type="warning">是</el-tag><span v-else>否</span></template>
         </el-table-column>
         <el-table-column prop="taxRate" label="税率%" width="80" align="right" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="onEdit(row)">编辑</el-button>

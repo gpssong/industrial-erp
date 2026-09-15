@@ -18,6 +18,9 @@
         <el-table-column prop="phone" label="电话" width="120" />
         <el-table-column prop="creditLimit" label="授信额度" width="120" align="right" />
         <el-table-column prop="creditUsed" label="已用" width="100" align="right" />
+        <el-table-column prop="createByName" label="操作员" width="100">
+          <template #default="{ row }">{{ row.createByName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <el-tag :type="row.status===1?'success':'info'">{{ row.status===1?'启用':'停用' }}</el-tag>
