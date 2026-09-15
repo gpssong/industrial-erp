@@ -1,11 +1,54 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.52 (全 entity 补 `@TableField(fill=...)`, 修复 `create_by` 全表 NULL)
+**当前版本**: v1.1.52.2 (飞鹅打印 403 RBAC 修复 — 给「仓库主管」「财务」角色授予 `production:order:feie-print` 菜单 959,无代码改动)
 
-> **文档说明**: v1.1.49 起 changelog 拆分为 `docs/CHANGELOG.md` (完整历史) + 本文件顶部 (当前版本摘要)。
-> 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
+**前序版本**: v1.1.52.1 (飞牛热备站 n150.93gushi.com 同步部署 — 后端 jar + pc-web dist,无代码改动) / v1.1.52 (全 entity 补 `@TableField(fill=...)`, 修复 `create_by` 全表 NULL)
 
 ## changelog (倒序)
+### v1.1.52.2 (2026-09-15) — 飞鹅打印 403: 赵偲荣(仓库主管/财务)缺 RBAC 权限
+
+**症状**: 赵偲荣账号 (user_id=2073693353985228802,角色 4=仓库主管 / 6=财务) 在 home.93gushi.com:8088 打飞鹅生产单,弹窗「飞鹅打印预览」点「确认打印」→ 前端 axios 收到 **403 Forbidden**(`POST /api/feie/print/PRD_ORDER/{id}`)。错误被 `ElNotification.error('打印失败: Request failed with status code 403')` 吞,看不到具体原因。
+
+**根因**: 不是 CORS,是 RBAC 权限缺失。
+- `FeiePrintController.printBill` 注解 `@SaCheckPermission(value = {"production:order:feie-print"}, orRole = "admin")`
+- 菜单 959(`飞鹅打印`,perms=`production:order:feie-print`)**之前只授予给角色 1(超级管理员)+ 角色 2(采购经理)**
+- 仓库主管(4)/财务(6) 没有 menu 959 → Sa-Token 校验失败 → 403
+
+**修复**(纯数据修复,无代码改动):
+```sql
+INSERT INTO sys_role_menu (role_id, menu_id, client_type) VALUES (4, 959, 'BOTH');
+INSERT INTO sys_role_menu (role_id, menu_id, client_type) VALUES (6, 959, 'BOTH');
+```
+**副作用**: 赵偲荣需要**退出再重新登录**(Sa-Token 权限缓存,新 session 才读到新授权)。
+
+**踩坑**:
+- `sys_role_menu` schema 比源码期望多一个 `client_type` 字段(v1.1.11 双端授权改造,取值 `PC/APP/BOTH`)
+- 插入前必须 `WHERE NOT EXISTS` 防重复(同 role+menu 已有 PC 行时不能插 BOTH)
+- 备份:`sys_role_menu_bak_$(date)` 已建(2026-09-15)
+
+**回滚**: 删掉这两行即可。
+
+### v1.1.52.1 (2026-09-15) — 飞牛热备站 n150.93gushi.com 同步部署(后端 jar + 前端 dist)
+
+**症状**: n150.93gushi.com:8088 访问「工作台库存预警」卡片为空 + 生产单列表「操作员」列全部 `-`(v1.1.44 实时预警 + v1.1.51 操作员列未生效)。
+
+**根因**: 飞牛热备站 (192.168.0.32, /vol2/erp-system/) 后端 jar 是 8/22 v1.1.19.4 时代(100.5MB),前端 dist 是 8/22 时代(Index-DBC3Xl1C.js 4618 字节),**比主站滞后 ~3 周**,缺 v1.1.44 (dashboard 库存预警实时化 `warningCount` 从死表 `inv_warning` 改 `inv_stock + base_product.safety_stock` 实时统计) + v1.1.50 (订单关联出库单雪花 ID 精度) + v1.1.51 (操作员列) + v1.1.52 (FieldFill 修复)。
+
+**修复**(纯部署同步,无代码改动):
+- **后端 jar**: 本地 `backend/target/industrial-erp-1.0.4.jar` (101MB, v1.1.52 commit `fade2af`) → `sshpass -O scp` 到飞牛 `/vol2/erp-system/erp-backend.jar` → `sudo docker build --no-cache -t erp-system-backend:latest .` → `sudo docker rm -f erp-backend-failover` → `sudo docker run -d --name erp-backend-failover ... erp-system-backend:latest`(同 8/22 启动参数)。验证: `docker exec erp-backend-failover stat /opt/app/app.jar` → size=101085277(与本地一致),新单 `createBy=2 createByName=gpssong` ✅
+- **前端 dist**: 本地 `pc-web/dist` 跑 `npm run build` (新 chunk `Index-BGP5wSoh.js` 5957 字节,含 `warningList` 实时化调用) → `tar -czf` → `scp` 到飞牛 `/tmp` → `cp -r ~/pc-extract /vol2/erp-system/pc-web/dist`(ACL 兜底,同 memory) → `sudo docker restart erp-pc-web-failover`
+
+**验证**:
+- `/api/inventory/warning/list` → 1 条预警(塑料袋22*28*0.16,缺 42000)
+- `/api/report/dashboard` → `warningCount=1`(实时统计)
+- 生产单 3 条旧单 `createBy=None`(9/15 之前 NULL,符合预期)+ 新单 `createBy=2` ✅
+
+**踩坑**:
+- 飞牛 docker 在 `/usr/bin/docker`(非 `/usr/local/bin/docker`),`sudo -S -p ''` 输密码
+- mac 端 `python3 -m http.server` 在此环境 CLOSED(立即停),不可靠 → 改用 `scp` 成功(4.5MB tarball + 101MB jar)
+- `docker restart` 不会拉新 image(旧 image hash),必须 `docker rm -f` + `docker run` 用新 image
+- `/api/dashboard/kpi` 是 404(旧路径),正确路径 `/api/report/dashboard`(v1.1.44 已迁移到 report 模块)
+
 ### v1.1.52 (2026-09-15) — 全 entity 补 `@TableField(fill=...)`, 修复 `create_by` 全表 NULL
 
 **症状**: v1.1.51 上线后用户实测发现生产单列表「操作员」列全部显示 `-`。DB 直查 `SELECT create_by FROM prd_order ORDER BY id DESC LIMIT 5` 全是 NULL — 不止 prd_order, 销售单/采购单/入库单/盘点单/财务单/基础资料 14 张表全部 NULL。
