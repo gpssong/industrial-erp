@@ -362,6 +362,17 @@ public class PrdOrderService {
         if (!Constants.STATUS_DRAFT.equals(order.getBillStatus())) {
             throw BizException.of("只能删除草稿状态的生产单");
         }
+        // v1.1.52.4 修复: prd_order 唯一索引 uniq_prd_order_bill_no(bill_no, deleted) 只保证
+        // "同一单号最多一条活行", 但允许多条历史软删行共价同 bill_no (deleted 都是 1).
+        // 场景: 用户把 PD202609150005 删了 (id A, deleted=1), 又用同单号新建一条 (id B, deleted=0).
+        // 再删 B 时逻辑删 B 会把 deleted 改成 1, 撞 (bill_no, 1) 唯一键 → DuplicateKeyException →
+        // 前端误报 "数据已存在, 请检查编码/名称是否重复".
+        // 修法: 软删 B 之前, 物理删掉同 bill_no 下所有其它软删历史行 (它们已是 tombstone,
+        // 物理删是安全的), 腾出 (bill_no, 1) 槽位.
+        orderMapper.delete(new LambdaQueryWrapper<PrdOrder>()
+                .eq(PrdOrder::getBillNo, order.getBillNo())
+                .ne(PrdOrder::getId, orderId)
+                .eq(PrdOrder::getDeleted, 1));
         orderMapper.update(null, new LambdaUpdateWrapper<PrdOrder>()
                 .eq(PrdOrder::getId, orderId).set(PrdOrder::getDeleted, 1));
         operLogPublisher.publishDeleteSnapshot("生产加工单", String.valueOf(orderId), order, null);

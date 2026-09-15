@@ -21,6 +21,7 @@ import java.util.function.Function;
  * 模式: 拿到 {@code IPage<T>} records 后,collect 所有非空 {@code getCreateBy()} →
  * {@code userMapper.selectBatchIds} 一次查 → 注入 {@code setCreateByName(realName)}.
  * 历史脏数据 (createBy IS NULL) / 用户被删 → 保持 null,前端显示 {@code -}.
+ * 显示名优先 {@code realName}, 该列为空则回退 {@code username} (见 {@link #resolveName}).
  *
  * <pre>{@code
  * // Entity 必备字段 (例 SalOrder):
@@ -70,7 +71,7 @@ public final class CreateByNameInjector<T> {
         Map<Long, String> nameMap = new HashMap<>(userIds.size() * 2);
         for (SysUser u : userMapper.selectBatchIds(userIds)) {
             if (u != null && u.getId() != null) {
-                nameMap.put(u.getId(), u.getRealName());
+                nameMap.put(u.getId(), resolveName(u));
             }
         }
         for (T row : records) {
@@ -79,6 +80,25 @@ public final class CreateByNameInjector<T> {
                 setter.accept(row, nameMap.get(uid));
             }
         }
+    }
+
+    /**
+     * 解析操作员显示名: 优先 {@code realName}, 为空则回退 {@code username}。
+     * <p>
+     * 历史踩坑 (v1.1.52.x): 部分早期账号 (赵偲荣 / 罗飞 / 秦运桂 / 师雨晨 / 侯丽君)
+     * 的 {@code sys_user.real_name} 为 NULL 或空串, 但 {@code username} 是中文姓名。
+     * 仅用 realName 会导致这些人的 {@code create_by} 注入成 null, 列表操作员列显示 {@code -}。
+     * 回退到 username 后无需逐条回填数据即可显示正确姓名。
+     */
+    static String resolveName(SysUser u) {
+        String name = u.getRealName();
+        if (name == null || name.trim().isEmpty()) {
+            name = u.getUsername();
+        }
+        if (name == null || name.trim().isEmpty()) {
+            return null;
+        }
+        return name;
     }
 
     /**
