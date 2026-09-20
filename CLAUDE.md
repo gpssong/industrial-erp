@@ -1,10 +1,33 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.52.5 (App 端「分配权限」补『库存预警』选项 — Role.vue APP_MENU_WHITELIST 加 `inventory:warning:list`,无后端改动)
+**当前版本**: v1.1.52.6 (库存预警等 F 类型菜单 App 授权无法持久化修复 — `isGrantableMenu` 补 F 类型)
 
-**前序版本**: v1.1.52.4 (生产单删除 DuplicateKey 误报修复 — `delete()` 软删前物理清理同 `bill_no` 历史 tombstone) / v1.1.52.3 (操作员姓名注入回退 — `CreateByNameInjector` real_name 空时回退 username)
+**前序版本**: v1.1.52.5 (App 端「分配权限」补『库存预警』选项 — Role.vue APP_MENU_WHITELIST 加 `inventory:warning:list`,无后端改动)
 
 ## changelog (倒序)
+### v1.1.52.6 (2026-09-20) — 库存预警 App 授权「开启了但重进还是未开启」
+
+**症状**: v1.1.52.5 把库存预警加进 App 端权限树后,用户勾选 → 确定 → 退出重进,又变回未勾选。
+
+**根因**: `SysRoleService.isGrantableMenu()` 只认 `menu_type='B'`(按钮)/ 带 perms 的 `'M'`。但库存预警等 `sql/28_v124_permissions.sql` 生成的功能菜单是 **`menu_type='F'`**(perms 非空,parent_id=0)。`grantMenusByClient` 提交前用 `isGrantableMenu` filter,把 F 类型全丢掉 → **没写进 `sys_role_menu`** → 下次 `selectMenusByRoleIdAndClient` 查不到 → 回填未勾选。DB 佐证:该菜单只有 `client_type=PC` 记录(6 条,PC 提交走不同路径),无 APP。
+
+**修复**(代码级,`SysRoleService.isGrantableMenu`):把 `'F'` 与 `'M'` 同级纳入可授权(带 perms 才放行):
+```java
+if ("B".equals(m.getMenuType())) return true;
+if ("F".equals(m.getMenuType()) || "M".equals(m.getMenuType())) {
+    return m.getPerms() != null && !m.getPerms().trim().isEmpty();
+}
+return false;
+```
+
+**部署**: 新 jar `a690b817ec`(101085538 字节),home + 飞牛 双站 backend 重建后均 healthy、API HTTP 200。
+
+**踩坑**:
+- 同库已有 85 个 F 类型菜单的 PC 授权行(历史数据),但 F 类型 APP 授权此前被 filter 挡住,所以 App 端功能项(库存预警等)一直点不进去
+- home backend 是**镜像内置 jar**,`docker run` 重建时需保留完整 env(含 `SA_TOKEN_JWT_SECRET_KEY`、`JAVA_OPTS`、多值 `ERP_CORS_ALLOWED_ORIGINS`、`SPRING_DATASOURCE_URL=jdbc:mysql://erp-mysql:3306/...`),漏 env 会导致 JWT 校验失败 / CORS 断
+
+**回滚**: `isGrantableMenu` 恢复只认 B/M(删掉 `|| "F".equals(...)` 那半句)。
+
 ### v1.1.52.5 (2026-09-20) — App 端菜单权限补『库存预警』选项
 
 **症状**: App 工作台有「库存预警」卡片(具体产品列表, v1.1.44+ `api.warningList()` → `/inventory/warning/list`),但 PC 端「角色管理 → 分配权限 → App端菜单权限」Tab 里**没有**库存预警的勾选框,无法给角色授予/取消该 App 功能。

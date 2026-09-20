@@ -2,6 +2,23 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.52.6 (2026-09-20) — 库存预警 App 授权「开启了但重进还是未开启」
+
+**症状**: v1.1.52.5 把库存预警加进 App 端权限树后,用户勾选 → 确定 → 退出重进,又变回未勾选。
+
+**根因**: `SysRoleService.isGrantableMenu()` 只认 `menu_type='B'` / 带 perms 的 `'M'`。库存预警等 `sql/28_v124_permissions.sql` 生成的功能菜单是 **`menu_type='F'`** → `grantMenusByClient` 提交前被 `isGrantableMenu` filter 丢弃 → 没写进 `sys_role_menu` → 回填未勾选。
+
+**修复**(代码级,`SysRoleService.isGrantableMenu`):`'F'` 与 `'M'` 同级纳入可授权(带 perms 放行):
+```java
+if ("F".equals(m.getMenuType()) || "M".equals(m.getMenuType())) {
+    return m.getPerms() != null && !m.getPerms().trim().isEmpty();
+}
+```
+
+**部署**: 新 jar `a690b817ec` 双站 backend 重建,均 healthy。
+
+**回滚**: 删掉 `|| "F".equals(...)` 半句。
+
 ### v1.1.52.5 (2026-09-20) — App 端菜单权限补『库存预警』选项
 
 **症状**: App 工作台有「库存预警」卡片(v1.1.44+ `api.warningList()` → `/inventory/warning/list`),但 PC 端「角色管理 → 分配权限 → App端菜单权限」Tab 里**没有**库存预警的勾选框。
