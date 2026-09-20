@@ -1,10 +1,31 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.52.4 (生产单删除 DuplicateKey 误报修复 — `delete()` 软删前物理清理同 `bill_no` 历史 tombstone,解决「数据已存在,请检查编码/名称是否重复」)
+**当前版本**: v1.1.52.5 (App 端「分配权限」补『库存预警』选项 — Role.vue APP_MENU_WHITELIST 加 `inventory:warning:list`,无后端改动)
 
-**前序版本**: v1.1.52.3 (操作员姓名注入回退 — `CreateByNameInjector` real_name 空时回退 username,修复赵偲荣等 5 人操作员列显示 `-`) / v1.1.52.2 (飞鹅打印 403 RBAC 修复) / v1.1.52.1 (飞牛热备站同步部署)
+**前序版本**: v1.1.52.4 (生产单删除 DuplicateKey 误报修复 — `delete()` 软删前物理清理同 `bill_no` 历史 tombstone) / v1.1.52.3 (操作员姓名注入回退 — `CreateByNameInjector` real_name 空时回退 username)
 
 ## changelog (倒序)
+### v1.1.52.5 (2026-09-20) — App 端菜单权限补『库存预警』选项
+
+**症状**: App 工作台有「库存预警」卡片(具体产品列表, v1.1.44+ `api.warningList()` → `/inventory/warning/list`),但 PC 端「角色管理 → 分配权限 → App端菜单权限」Tab 里**没有**库存预警的勾选框,无法给角色授予/取消该 App 功能。
+
+**根因**: App 端权限树不是从 `sys_menu` 动态生成,而是 `pc-web/src/views/system/Role.vue` 里**硬编码**的 `APP_MENU_WHITELIST`(维护规则:任何 App 端新增功能都要在此登记才会在 Tab 显示)。库存预警(v1.1.44 加)漏登记。
+
+**修复**(纯前端,无后端/DB 改动):`Role.vue` `APP_MENU_WHITELIST` 的「库存管理」children 追加一行:
+```js
+// v1.1.52.5+: 库存预警 (App 工作台「库存预警」卡片, 具体产品列表).
+// perms=inventory:warning:list → sys_menu id=2090345792472715300 (home/飞牛 雪花 ID, 非 4011)
+{ name: '库存预警', perms: 'inventory:warning:list', idApp: 'app-4011-warning' }
+```
+`buildAppMenuTree` 按 `perms` 反查真实 `sys_menu.id`(双库均为雪花 ID `2090345792472715300`, status=1),勾选后走 `grantMenusByClient(roleId, 'APP', [真实id])` 持久化到 `sys_role_menu`。`idApp` 只是 el-tree 节点合成 key(防同 perms 多功能冲突),与库内 ID 无关。
+
+**踩坑**:
+- `sql/28_v124_permissions.sql` 里 `库存预警` 写的是 `sort_no=4011`,但那是 **sort_no 不是 id** —— 实际 `sys_menu.id` 是雪花 ID,别把 `4011` 当菜单 ID
+- home / 飞牛 `~` 与 `/tmp` 都不可写(gpssong 非交互 sudo 环境),传 tar 包要落到项目目录 `/volume3/docker/erp-system/` 或 `/vol2/erp-system/`
+- 飞牛 backend 容器是**镜像内置 jar**,`docker restart` 不拉新 jar;本次 v1.1.52.4 部署时容器曾意外丢失重建,须 `docker build` + `docker run` 用 compose 的 env + `--network erp-failover-net` 重建,backend 起来了 nginx 才不再 restart loop
+
+**回滚**: 删掉 Role.vue 那行白名单,重新 build dist 即可。
+
 ### v1.1.52.4 (2026-09-15) — 生产单删除误报「数据已存在,请检查编码/名称是否重复」
 
 **症状**: 赵偲荣在 home.93gushi.com:8088 删生产单 PD202609150005/0006,提示 `数据已存在, 请检查编码/名称是否重复`,删不掉。
