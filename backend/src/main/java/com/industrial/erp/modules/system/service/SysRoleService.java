@@ -161,16 +161,21 @@ public class SysRoleService {
 
     /**
      * v1.1.12+: 判断 menu 是否可作为权限项授权.
-     * 只允许 menu_type='B' (按钮) 和有 perms 的菜单 (实际功能项).
-     * 过滤掉纯 M 类型目录节点 — 它们是 el-tree 父子联动产生的中间节点, 写入会导致下次打开时整父联动.
+     * 只允许 menu_type='B' (按钮) / 'F' (功能项) / 带 perms 的 'M' (菜单节点) — 都是实际功能项.
+     * 过滤掉纯 C 类型目录节点 / 无 perms 的 M — 它们是 el-tree 父子联动产生的中间节点, 写入会导致下次打开时整父联动.
+     *
+     * <p>v1.1.52.5 修: 补 'F' 类型. 库存预警等 `sql/28_v124_permissions.sql` 生成的功能菜单
+     * 是 `menu_type='F'` (perms 非空, parent_id=0), 旧代码只认 B/M, F 走到 return false 分支被
+     * {@link #grantMenusByClient} 的 filter 丢弃, 导致 App 端勾选库存预警后提交时写不进
+     * sys_role_menu, 下次打开回填又显示未勾选 — 即"开启了但重进还是未开启".
      */
     private boolean isGrantableMenu(Long menuId) {
         SysMenu m = menuMapper.selectById(menuId);
         if (m == null) return false;
         // 按钮 (B) 永远可授权
         if ("B".equals(m.getMenuType())) return true;
-        // 菜单节点 (M) 只有带 perms 才算功能项 (例如 工作台/报表/工作台菜单)
-        if ("M".equals(m.getMenuType())) {
+        // 功能项 (F) / 菜单节点 (M) 只有带 perms 才算可授权功能项
+        if ("F".equals(m.getMenuType()) || "M".equals(m.getMenuType())) {
             return m.getPerms() != null && !m.getPerms().trim().isEmpty();
         }
         // 其它类型 (C 目录) 一律过滤
