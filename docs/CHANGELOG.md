@@ -2,6 +2,25 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.52.5 (2026-09-20) — App 端菜单权限补『库存预警』选项
+
+**症状**: App 工作台有「库存预警」卡片(v1.1.44+ `api.warningList()` → `/inventory/warning/list`),但 PC 端「角色管理 → 分配权限 → App端菜单权限」Tab 里**没有**库存预警的勾选框。
+
+**根因**: App 端权限树是 `pc-web/src/views/system/Role.vue` **硬编码**的 `APP_MENU_WHITELIST`(维护规则:任何 App 端新增功能都要在此登记才显示)。库存预警漏登记。
+
+**修复**(纯前端):`Role.vue` 的「库存管理」children 追加:
+```js
+{ name: '库存预警', perms: 'inventory:warning:list', idApp: 'app-4011-warning' }
+```
+`buildAppMenuTree` 按 `perms` 反查真实 `sys_menu.id`(双库雪花 ID `2090345792472715300`, status=1),勾选后 `grantMenusByClient` 持久化到 `sys_role_menu`。
+
+**踩坑**:
+- `sql/28_v124_permissions.sql` 里 `4011` 是 **sort_no 不是菜单 id**,实际 `sys_menu.id` 是雪花 ID
+- home/飞牛 `~` 与 `/tmp` 不可写,传 tar 落到项目目录
+- 飞牛 backend 镜像内置 jar,`docker restart` 不换 jar;本次容器曾丢失,须 `docker build`+`docker run`(compose env + `--network erp-failover-net`)重建,backend 起 nginx 才不再 restart loop
+
+**回滚**: 删 Role.vue 那行白名单,重新 build dist。
+
 ### v1.1.52.4 (2026-09-15) — 生产单删除误报「数据已存在,请检查编码/名称是否重复」
 
 **症状**: 赵偲荣在 home.93gushi.com:8088 删生产单 PD202609150005/0006,提示 `数据已存在, 请检查编码/名称是否重复`,删不掉。

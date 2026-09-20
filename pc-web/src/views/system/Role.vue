@@ -137,7 +137,10 @@ const APP_MENU_WHITELIST = [
   ]},
   { name: '库存管理', children: [
     { name: '查库存',   perms: 'inventory:stock:list',  idApp: 'app-601-stock' },
-    { name: '库存台账', perms: 'inventory:ledger:list', idApp: 'app-602-ledger' }
+    { name: '库存台账', perms: 'inventory:ledger:list', idApp: 'app-602-ledger' },
+    // v1.1.52.5+: 库存预警 (App 工作台「库存预警」卡片, 具体产品列表).
+    // perms=inventory:warning:list → sys_menu id=4011 (sql/28_v124_permissions.sql 已建, parent 0 menu_type F)
+    { name: '库存预警', perms: 'inventory:warning:list', idApp: 'app-4011-warning' }
   ]},
   { name: '生产管理', children: [
     // 外勤盘点: perms=inventory:check:list → sys_menu id=603 path=/inventory/check
