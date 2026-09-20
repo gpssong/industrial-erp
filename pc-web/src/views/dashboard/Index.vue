@@ -1,6 +1,7 @@
 <template>
   <div class="dashboard">
-    <el-row :gutter="12">
+    <!-- v1.1.53: 4 个 section 各自独立可见性, 不再"无 report:view 就整页静默" -->
+    <el-row :gutter="12" v-if="kpiVisible">
       <el-col :span="6" v-for="k in kpis" :key="k.label">
         <el-card class="kpi-card" :body-style="{ padding: '16px' }">
           <div class="kpi-inner" :style="{ borderLeft: `4px solid ${k.color}` }">
@@ -12,7 +13,7 @@
       </el-col>
     </el-row>
 
-    <el-row :gutter="12" style="margin-top:12px">
+    <el-row :gutter="12" style="margin-top:12px" v-if="trendVisible">
       <el-col :span="16">
         <el-card>
           <template #header><b>销售趋势 (近30天)</b></template>
@@ -32,8 +33,8 @@
       </el-col>
     </el-row>
 
-    <el-row :gutter="12" style="margin-top:12px">
-      <el-col :span="12">
+    <el-row :gutter="12" style="margin-top:12px" v-if="warningVisible || rankingVisible">
+      <el-col :span="12" v-if="warningVisible">
         <el-card>
           <template #header><b>库存预警</b></template>
           <el-table :data="warningList" size="small" max-height="240">
@@ -49,7 +50,7 @@
           </el-table>
         </el-card>
       </el-col>
-      <el-col :span="12">
+      <el-col :span="12" v-if="rankingVisible">
         <el-card>
           <template #header><b>销售排行榜 TOP10</b></template>
           <el-table :data="ranking" size="small" max-height="240">
@@ -69,6 +70,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { reportApi } from '@/api/report'
 import { stockApi } from '@/api/inventory'
+import { useUserStore } from '@/store/user'
 import dayjs from 'dayjs'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -77,6 +79,18 @@ import { TitleComponent, TooltipComponent, GridComponent, LegendComponent } from
 import VChart from 'vue-echarts'
 
 use([CanvasRenderer, LineChart, BarChart, TitleComponent, TooltipComponent, GridComponent, LegendComponent])
+
+const userStore = useUserStore()
+
+// v1.1.53: 4 个 section 各自独立 perm 门禁
+//  - kpiVisible     → dashboard:kpi            (新 perm, 之前归 report:view)
+//  - trendVisible   → dashboard:sales-trend    (新 perm)
+//  - rankingVisible → dashboard:sales-ranking  (新 perm)
+//  - warningVisible → inventory:warning:list   (复用已有 perm, sql/28)
+const kpiVisible     = computed(() => userStore.hasPerm('dashboard:kpi'))
+const trendVisible   = computed(() => userStore.hasPerm('dashboard:sales-trend'))
+const rankingVisible = computed(() => userStore.hasPerm('dashboard:sales-ranking'))
+const warningVisible = computed(() => userStore.hasPerm('inventory:warning:list'))
 
 const kpis = ref([
   { label: '今日销售', value: '0.00', sub: '元', color: '#1e6091' },
@@ -110,53 +124,53 @@ const chartOption = computed(() => ({
 }))
 
 onMounted(async () => {
-  // v1.1.11+: 无 report:view 权限时整个 dashboard 静默, 不调接口 (避免 403 干扰)
-  const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
-  const userObj = JSON.parse(localStorage.getItem('erp_user') || '{}')
-  const isSuper = (userObj && (userObj.userId === 1 || userObj.isAdmin === 1 || userObj.userId === '1' || userObj.isAdmin === true))
-  const canView = isSuper || (Array.isArray(perms) && perms.includes('report:view'))
-  console.log('[Dashboard] canView=', canView, 'isSuper=', isSuper, 'perms=', perms.slice(0,5))
-  if (!canView) return
+  // v1.1.53: 各 section 独立加载 + 独立 try/catch 静默 — 无 perm 时不调接口 (避免 403 干扰)
+  // v1.1.11 老逻辑 (整页门禁 report:view) 已废弃: 现在 4 个 section 各自判定
 
-  try {
-    const r = await reportApi.dashboard()
-    const d = r.data || {}
-    kpis.value[0].value = (d.todaySales || 0).toFixed(2)
-    kpis.value[1].value = (d.totalSales || 0).toFixed(2)
-    kpis.value[2].value = (d.todayPurchase || 0).toFixed(2)
-    kpis.value[3].value = (d.arBalance || 0).toFixed(2)
-  } catch (e) { /* 静默 — request.js 也会处理 401/403 不弹 toast */ }
+  if (kpiVisible.value) {
+    try {
+      const r = await reportApi.dashboard()
+      const d = r.data || {}
+      kpis.value[0].value = (d.todaySales || 0).toFixed(2)
+      kpis.value[1].value = (d.totalSales || 0).toFixed(2)
+      kpis.value[2].value = (d.todayPurchase || 0).toFixed(2)
+      kpis.value[3].value = (d.arBalance || 0).toFixed(2)
+    } catch (e) { /* 静默 — request.js 也会处理 401/403 不弹 toast */ }
+  }
 
-  // 销售趋势
-  const end = dayjs().format('YYYY-MM-DD')
-  const start = dayjs().subtract(29, 'day').format('YYYY-MM-DD')
-  const rs = await reportApi.salesSummary({ startDate: start, endDate: end })
-  trend.value = rs.data || []
+  if (trendVisible.value) {
+    try {
+      const end = dayjs().format('YYYY-MM-DD')
+      const start = dayjs().subtract(29, 'day').format('YYYY-MM-DD')
+      const rs = await reportApi.salesSummary({ startDate: start, endDate: end })
+      trend.value = rs.data || []
+    } catch (e) { /* 静默 */ }
+  }
 
-  const rk = await reportApi.salesRanking({ startDate: start, endDate: end, limit: 10 })
-  ranking.value = rk.data || []
+  if (rankingVisible.value) {
+    try {
+      const end = dayjs().format('YYYY-MM-DD')
+      const start = dayjs().subtract(29, 'day').format('YYYY-MM-DD')
+      const rk = await reportApi.salesRanking({ startDate: start, endDate: end, limit: 10 })
+      ranking.value = rk.data || []
+    } catch (e) { /* 静默 */ }
+  }
 
-  // v1.1.44: 加载库存预警 (qty < safety_stock)
-  try {
-    console.log('[Dashboard] 开始加载库存预警...')
-    const w = await stockApi.warningList()
-    console.log('[Dashboard] 预警 API 返回:', w)
-    const raw = w.data || []
-    console.log('[Dashboard] 预警 raw 数量:', raw.length, '首条:', raw[0])
-    warningList.value = raw
-      .map(item => ({
-        productName: item.product_name || item.productName || '-',
-        productCode: item.product_code || item.productCode || '',
-        qty: item.qty != null ? Number(item.qty) : 0,
-        safetyStock: (item.safety_stock != null ? item.safety_stock : item.p_safety_stock) != null ? Number(item.safety_stock != null ? item.safety_stock : item.p_safety_stock) : 0,
-        warehouseName: item.wh_name || item.warehouseName || ''
-      }))
-    console.log('[Dashboard] 预警 mapped:', JSON.stringify(warningList.value))
-    const beforeFilter = warningList.value.length
-    warningList.value = warningList.value.filter(item => item.qty < item.safetyStock)
-    console.log('[Dashboard] 过滤前:', beforeFilter, '过滤后:', warningList.value.length, '数据:', JSON.stringify(warningList.value))
-  } catch (e) {
-    console.error('[Dashboard] 加载库存预警失败:', e)
+  // v1.1.44: 加载库存预警 (qty < safety_stock) — 已有的 inventory:warning:list perm
+  if (warningVisible.value) {
+    try {
+      const w = await stockApi.warningList()
+      const raw = w.data || []
+      warningList.value = raw
+        .map(item => ({
+          productName: item.product_name || item.productName || '-',
+          productCode: item.product_code || item.productCode || '',
+          qty: item.qty != null ? Number(item.qty) : 0,
+          safetyStock: (item.safety_stock != null ? item.safety_stock : item.p_safety_stock) != null ? Number(item.safety_stock != null ? item.safety_stock : item.p_safety_stock) : 0,
+          warehouseName: item.wh_name || item.warehouseName || ''
+        }))
+      warningList.value = warningList.value.filter(item => item.qty < item.safetyStock)
+    } catch (e) { /* 静默 */ }
   }
 })
 </script>

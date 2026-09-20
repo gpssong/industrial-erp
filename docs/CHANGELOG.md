@@ -2,6 +2,42 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.53 (2026-09-20) — 工作台权限细粒度拆分 (KPI / 趋势 / 排行 / 库存预警)
+
+**症状**: PC + App 端工作台原本一刀切鉴权,整个 dashboard 由一个 `report:view` perm 控制。
+业务痛点: 仓库主管被迫也能看到销售金额等敏感数据;销售经理/老板/主管共享同一视图,无法按角色单独授权 dashboard 子模块。
+
+**方案**: 把工作台拆成 4 个独立可选子模块,角色授权页 (PC 端 Tab + App 端 Tab) 都能分别勾选:
+
+| 子模块 | perm 码 | 后端接口 |
+|---|---|---|
+| 销售指标 (4 个 KPI 卡片) | `dashboard:kpi` (新) | `GET /report/dashboard` |
+| 销售趋势 (近30天折线图) | `dashboard:sales-trend` (新) | `GET /report/sales/summary` |
+| 销售排行 TOP10 | `dashboard:sales-ranking` (新) | `GET /report/sales/ranking` |
+| 库存预警 | `inventory:warning:list` (复用 sql/28) | `GET /inventory/warning/list` |
+
+**保留** `report:view` 作为报表中心菜单(`/report/sales`、`/report/inventory` 子页面)的总闸 — 与工作台正交。
+
+**改动**:
+- SQL 新增 `sql/30_v153_dashboard_subperms.sql`: 3 行 sys_menu (F 类型,parent_id=0,is_visible=0) + CROSS JOIN 给内置 6 角色各绑 3 个新 perm (PC client_type)
+- `backend/.../report/controller/ReportController.java`: **删类级 `@SaCheckPermission("report:view")`**;`/dashboard` 加 `dashboard:kpi` + **清掉幽灵 `requirePerm("dashboard:view")`**(v1.0.10 遗留, sql 里无对应 sys_menu 行);`/sales/summary` 加 `dashboard:sales-trend`;`/sales/ranking` 加 `dashboard:sales-ranking`;其余 (inventorySummary/aging/arap/profit) 继续 `report:view`
+- `pc-web/src/views/dashboard/Index.vue`: 重写 onMounted,4 个 section 各自独立 `userStore.hasPerm(...)` 门禁,模板 `v-if` 包裹,失败静默
+- `pc-web/src/views/system/Role.vue` `markDisabled`: 补 F 类型 perm 行识别 (对齐后端 `isGrantableMenu` v1.1.52.6),否则 4 行 F 类型 perm 节点仍 disabled 不可勾
+- `app/src/pages/dashboard/index.vue`: `kpiVisible` 改判 `dashboard:kpi`(原本 `report:view`);新增 `warningVisible` 走 `inventory:warning:list`;库存预警区块 `v-if` 从 `kpi.warningCount` 改为 `warningVisible && warningItems.length`,onMounted 中库存预警加载从 KPI try 内拆出独立 try
+
+**部署**:
+- SQL 跑 home + 飞牛 各一遍;飞牛通过 `docker cp` + `SOURCE /tmp/v153.sql` 注入
+- 后端 jar md5 `e2098890b861` 双站 rebuild + recreate container
+- home backend recreate 时**必须传 `SA_TOKEN_JWT_SECRET_KEY`**(从 `.env` 读,64 字符 hex)— 否则 SecurityPreflightValidator (v1.1.49) 拒绝弱密钥启动
+- home pc-web 启动需 `--hostname backend`
+- 飞牛 pc-web 用自定义 `nginx-failover.conf` + bind mount 新 dist
+- App H5 重打 APK: `~/Desktop/erp-app-20260920.apk` md5 `ac2b3f35bffe`,4.4MB
+
+**回滚**:
+- 后端: `ReportController` 类级加回 `@SaCheckPermission("report:view")`,3 个方法级注解删掉
+- SQL: `DELETE FROM sys_menu WHERE perms LIKE 'dashboard:%' AND deleted = 0` (CASCADE 删 sys_role_menu)
+- 前端: `Index.vue` 恢复 `canView` 整体门禁
+
 ### v1.1.52.6 (2026-09-20) — 库存预警 App 授权「开启了但重进还是未开启」
 
 **症状**: v1.1.52.5 把库存预警加进 App 端权限树后,用户勾选 → 确定 → 退出重进,又变回未勾选。
