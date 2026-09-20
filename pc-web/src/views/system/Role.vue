@@ -327,10 +327,15 @@ function buildMenuTree(list) {
   })
   // v1.1.12+: 标记父目录 (menuType='M' 无 perms) 为 disabled — el-tree 在 check-strictly 模式下
   // 不会勾选 disabled 节点, 用户只能操作叶子 (按钮/有 perms 的功能项)
+  // v1.1.53+: 对齐后端 isGrantableMenu (v1.1.52.6 已认 F 类型), 把 F 类型 perm 行也判为可授权.
+  // 否则 dashboard 子模块 (sales-kpi/sales-trend/sales-ranking/inventory-warning) 这 4 行
+  // F 类型 perm 节点会全显示为 disabled, 用户没法勾选 (虽然后端 isGrantableMenu 已经认).
   function markDisabled(nodes) {
     for (const n of nodes) {
-      // 按钮 (B) 永远可勾; 菜单节点 (M) 有 perms 的也算功能项可勾
-      const grantable = n.menuType === 'B' || (n.menuType === 'M' && n.perms && n.perms.trim())
+      // 按钮 (B) 永远可勾; 菜单节点 (M) 有 perms 的也算功能项可勾; F 类型 perm 载体 (有 perms) 也可勾
+      const grantable = n.menuType === 'B'
+        || (n.menuType === 'M' && n.perms && n.perms.trim())
+        || (n.menuType === 'F' && n.perms && n.perms.trim())
       n.disabled = !grantable
       if (n.children && n.children.length) markDisabled(n.children)
     }

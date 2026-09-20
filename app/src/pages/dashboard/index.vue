@@ -24,10 +24,11 @@
         </view>
       </view>
     </view>
-    <view class="card" v-if="kpi.warningCount">
-      <text class="title">⚠️ 库存预警 ({{ kpi.warningCount }})</text>
-      <text class="muted">有 {{ kpi.warningCount }} 个商品库存低于安全线</text>
-      <!-- v1.1.44+: 显示具体产品列表 (点击跳库存详情) -->
+    <!-- v1.1.53: 库存预警区块独立可见性 — 不再依赖 KPI (kpi.warningCount)
+         即使没 KPI perm 也能单独显示预警列表 (走 inventory:warning:list perm) -->
+    <view class="card" v-if="warningVisible && warningItems.length">
+      <text class="title">⚠️ 库存预警 ({{ warningItems.length }})</text>
+      <text class="muted">{{ warningItems.length }} 个商品库存低于安全线</text>
       <view v-for="item in warningItems" :key="item.id || (item.productId + '-' + item.warehouseId)"
             class="warning-item" @click="openWarningDetail(item)">
         <view class="warning-row1">
@@ -48,19 +49,32 @@ import api from '../../api/index.js'
 import { navigateTo } from '../../utils/nav.js'
 import { applyTabBar, isAdmin } from '../../utils/permission.js'
 
-// v1.1.8+: KPI 区块按 App 端"经营简报"权限控制 (整体显示/隐藏)
-// 检查顺序: erp_permissions 包含 report:view (PC 端白名单已用此 perm 接入 id=951 报表查看按钮) → 管理员豁免
-// 注意: 此处返回 ref, 模板中用 kpiVisible 引用, 不要再写 v-if="hasKpiPerm" (那是函数引用永远 true)
+// v1.1.53: KPI 区块按新 perm dashboard:kpi 控制 (之前是 report:view).
+// 之前 report:view 既管 KPI 又管"经营简报"快捷入口 (PAGE_TO_APP 里),
+// 拆细后: KPI 卡片 → dashboard:kpi, 经营简报入口继续 report:view (它跳 /pages/report/index 不是内嵌)
+// 库存预警区块独立 — 走 inventory:warning:list perm (复用 sql/28 已建行).
+// 销售趋势 / 销售排行 当前 App dashboard 模板没渲染这两个 section (只有 PC 端有),
+// 但 isTrendVisible/isRankingVisible 计算属性保留, 后续如要加卡片直接 v-if 即可.
 const kpiVisible = ref(false)
 function recomputeKpiVisible() {
   if (isAdmin()) { kpiVisible.value = true; return }
   try {
     const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
-    kpiVisible.value = Array.isArray(perms) && perms.includes('report:view')
+    kpiVisible.value = Array.isArray(perms) && perms.includes('dashboard:kpi')
   } catch { kpiVisible.value = false }
 }
 
-// v1.1.8+: 经营简报快捷入口也按 report:view perm 控制
+// v1.1.53: 库存预警区块独立可见性 (不复用 kpiVisible, 让没 KPI perm 也能单独看预警)
+const warningVisible = ref(false)
+function recomputeWarningVisible() {
+  if (isAdmin()) { warningVisible.value = true; return }
+  try {
+    const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+    warningVisible.value = Array.isArray(perms) && perms.includes('inventory:warning:list')
+  } catch { warningVisible.value = false }
+}
+
+// v1.1.8+: 经营简报快捷入口仍按 report:view perm 控制 (它跳 /pages/report/index 不是工作台内嵌)
 const reportEntryVisible = ref(false)
 function recomputeReportEntryVisible() {
   if (isAdmin()) { reportEntryVisible.value = true; return }
@@ -205,45 +219,47 @@ onMounted(async () => {
   loadUser()
   const h = new Date().getHours()
   greeting.value = h < 6 ? '凌晨好' : h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好'
-  // v1.1.8+: 计算 KPI 区块显隐 + 经营简报入口显隐
+  // v1.1.53: 计算各区块显隐 — KPI / 库存预警 / 经营简报入口 各自独立
   recomputeKpiVisible()
+  recomputeWarningVisible()
   recomputeReportEntryVisible()
   // v1.1.11+: 有 KPI 权限才请求数据 + 失败时主动隐藏 KPI 区块 (兼容老版本残留 + perm 时序错位)
   if (kpiVisible.value) {
     try {
       kpi.value = await api.dashboard()
-      // v1.1.44+: 库存预警数字 > 0 时, 并行拉具体产品列表
-      if (kpi.value && kpi.value.warningCount > 0) {
-        try {
-          const list = await api.warningList()
-          // /inventory/warning/list 返回 [{productId, productCode, productName, qty, p_safety_stock (来自 base_product JOIN), safety_stock (来自 inv_stock, 通常 0), warehouseName, ...}]
-          // 这里只取前 10 条避免渲染过多
-          warningItems.value = (Array.isArray(list) ? list : []).slice(0, 10).map(it => {
-            // 优先用 base_product.safety_stock (JOIN 别名 p_safety_stock), 兼容 inv_stock.safety_stock (通常 0)
-            const safetyVal = it.p_safety_stock != null ? it.p_safety_stock
-              : (it.safety_stock != null ? it.safety_stock : 0)
-            return {
-              id: it.id,
-              productId: it.product_id || it.productId,
-              productCode: it.product_code || it.productCode || '-',
-              productName: it.product_name || it.productName || '-',
-              warehouseId: it.warehouse_id || it.warehouseId,
-              warehouseName: it.wh_name || it.warehouseName || it.warehouse_name || '仓库',
-              qty: it.qty != null ? Number(it.qty) : 0,
-              safetyStock: Number(safetyVal) || 0
-            }
-          })
-        } catch (e) { /* 静默, 仅显示数字 */ }
-      }
     } catch (e) {
       // 403 (无权限) / 网络错: 静默, 并隐藏 KPI 区块避免后续空数据报错
       kpiVisible.value = false
     }
   }
+  // v1.1.53: 库存预警列表独立加载 — 即使没 KPI perm 也能单独显示预警
+  if (warningVisible.value) {
+    try {
+      const list = await api.warningList()
+      // /inventory/warning/list 返回 [{productId, productCode, productName, qty, p_safety_stock (来自 base_product JOIN), safety_stock (来自 inv_stock, 通常 0), warehouseName, ...}]
+      // 这里只取前 10 条避免渲染过多
+      warningItems.value = (Array.isArray(list) ? list : []).slice(0, 10).map(it => {
+        // 优先用 base_product.safety_stock (JOIN 别名 p_safety_stock), 兼容 inv_stock.safety_stock (通常 0)
+        const safetyVal = it.p_safety_stock != null ? it.p_safety_stock
+          : (it.safety_stock != null ? it.safety_stock : 0)
+        return {
+          id: it.id,
+          productId: it.product_id || it.productId,
+          productCode: it.product_code || it.productCode || '-',
+          productName: it.product_name || it.productName || '-',
+          warehouseId: it.warehouse_id || it.warehouseId,
+          warehouseName: it.wh_name || it.warehouseName || it.warehouse_name || '仓库',
+          qty: it.qty != null ? Number(it.qty) : 0,
+          safetyStock: Number(safetyVal) || 0
+        }
+      })
+    } catch (e) { /* 静默 — 无 perm 时 403 也不报错 */ }
+  }
   applyTabBar()
   // v1.0.10+: perms 缺失或空时, 主动调 /me 修复 (兼容老版本残留)
   // v1.1.12+: 同时调 /me 时拿到最新 appMenus + permissions, 即使缓存非空也覆盖一次
   // (解决用户在 PC 端改了授权但 App 端不显示的 bug)
+  // v1.1.53+: /me 之后 re-launch 后 recompute 函数会再跑一遍, 新 perm 自动生效
   try {
     const r = await api.me()
     const userObj = r.data || r
