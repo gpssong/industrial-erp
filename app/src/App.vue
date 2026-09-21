@@ -5,6 +5,7 @@
 </template>
 <script setup>
 import { onLaunch, onShow } from '@dcloudio/uni-app'
+import { onAppBack } from './utils/nav.js'
 
 // v1.1.8+: Token 由后端 Set-Cookie (httpOnly) 自动管理, 不再从 storage 读取 erp_token.
 // 自动登录仅检查 erp_user 是否仍在 localStorage (页面刷新后 Cookie 仍有效).
@@ -31,6 +32,18 @@ onLaunch(() => {
   console.log('App Launch')
   // 首次启动, 如果有 token 就跳过登录
   tryAutoLogin()
+
+  // v1.1.54+: 全局拦截 Android 硬件返回键
+  // - 工作台 / 登录页 → 放行 (允许退出 App)
+  // - 其他任何页面 → 重定向到工作台, 阻止 App 直接退出
+  // 注: 仅触发 Android 物理 back 键, 不影响导航栏 back 按钮 (那个仍走 navigateBack)
+  try {
+    if (typeof plus !== 'undefined' && plus.key && plus.key.addEventListener) {
+      plus.key.addEventListener('backbutton', onAppBack)
+    }
+  } catch (e) {
+    console.warn('[App] 注册 backbutton 监听失败:', e)
+  }
 })
 
 onShow(() => {
