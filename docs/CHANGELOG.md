@@ -200,6 +200,40 @@ UPDATE sys_menu SET parent_id = 1
 
 **PUT /system/role/{id}/menus/client 保存验证**: zdg 角色全 4 个 perm 缺失时 PUT 4 个 snowflake id → 后端 200 → DB sys_role_menu 4 行均恢复 ✅
 
+### v1.1.53-feiniu-deploy (2026-09-21) — 飞牛备份栈升级 (jar/dist/SQL/端口修正)
+
+**症状**: 飞牛备份栈自 16 小时前 backend 启动后,内容仍是 v1.1.51:
+- backend jar md5 `a690b817ec6d…` 而非 home 的 `e2098890b861fd9cfdd6ff59f44c5950`
+- pc-web dist md5 `6f8412890933…` 而非 home 的 `d670e756783dc69f8077af5eb5b6f4c9`
+- SQL 4 个 dashboard perm 行 latin1 mojibake + parent_id=0
+
+**升级流程** (4 步全跑通):
+1. **SQL**: scp `sql/30_v153_dashboard_subperms.sql` 到飞牛 /tmp/ → `docker cp` 进 MySQL 容器 → 容器内 `mysql --default-character-set=utf8mb4 < /tmp/v153.sql`
+   - 跑完后有 4 行 utf8mb4 新行 + 4 行旧 mojibake 行,**按 HEX 前缀 `C3A9` 识别删除 mojibake,按 perm dedup 保留一行**
+2. **backend**: docker cp 飞牛容器 `erp-backend` 的 `/opt/app/app.jar` → mac `/tmp/` → tar-over-ssh 传到飞牛 `/tmp/jar-stage/` → `cp` 到 `/vol2/erp-system/backend/erp-backend.jar` → `docker build -f backend.Dockerfile` 重建镜像 → 删旧容器 → 用原 env + **新增 `-e SA_TOKEN_JWT_SECRET_KEY=ecdd…`** 重建容器 → 健康检查 30s 通过
+   - `docker logs` 看 `【安全预检】JWT secret 通过校验 (长度 64 字符, 不在弱密钥黑名单)` + `Industrial ERP Started Success`
+3. **pc-web**: 本地 `pc-web/dist` 107 文件 tar-over-ssh 流到飞牛 `/vol2/erp-system/pc-web/dist-new-staging` → sudo 替换线上 `/vol2/erp-system/pc-web/dist-new` → 重启容器
+4. **业务验证**: 飞牛 backend 8080 + 飞牛 pc-web 18080 双端口,罗飞/123456 账号 4 endpoint 全 200
+
+**踩坑 (5 条新踩)**:
+1. **scp 在飞牛系统也缺 subsystem** (`subsystem request failed on channel 0`) — 跟 Synology 同款问题,必须 `tar over ssh` 流式传
+2. **MySQL mojibake 第二次踩** — SQL 30 INSERT 跑一次产生 4 个 utf8mb4 行,但旧 mojibake 行还在 (HEX 前缀 `C3A9E2…`),需要按 HEX 前缀识别删除 + 按 perm dedup
+3. **飞牛 compose 没传 SA_TOKEN_JWT_SECRET_KEY** — 重建容器时必须手动加 `-e SA_TOKEN_JWT_SECRET_KEY=ecdd48955b16c58239b0b9326ac384f4b59babace53fda067424dd80dcba7c5f`,否则 SecurityPreflightValidator 拒绝启动 (v1.1.49 强校验)
+4. **飞牛 pc-web 容器端口 18080 不是 8080** — 飞牛 `docker-compose.failover.yml` 把 pc-web 映射到 host 18080 (跟 home 同),但 backend 还是 8080,我之前测 8080 拿到的 404 是 backend fallback 到 Spring Whitelabel 错误页,跟 nginx 没关系
+5. **gpssong1 不在飞牛 MySQL** — 飞牛 MySQL 是 home 的 binlog replica,用户列表只有原 7 个 (admin/gpssong/罗飞/秦运桂/赵偲荣/师雨晨/侯丽君),home 后加的 gpssong1 不会同步;**飞牛业务测试用「罗飞/123456」或「admin/admin123」**
+
+**最终校验**:
+| 项 | home | 飞牛 | 一致 |
+|---|---|---|---|
+| backend jar md5 | `e2098890b861fd9cfdd6ff59f44c5950` | 同 | ✅ |
+| pc-web dist md5 | `d670e756783dc69f8077af5eb5b6f4c9` | 同 | ✅ |
+| Settings.vue chunk 命中 `1.1.53-hotfix.1` | 1 次 | 1 次 | ✅ |
+| 4 dashboard endpoint (登录态) | 200 | 200 | ✅ |
+
+**长期记忆**:
+- `erp-feiniu-pc-web-port.md` — 飞牛端口映射 + 容器路径 + 用户列表 + JWT secret 取法
+- `erp-mysql-utf8mb4-mojibake.md` 增加 "mojibake 删除模式" (按 HEX `C3A9` 前缀识别)
+
 ### v1.1.53-hotfix.dist-reroll (2026-09-20 18:58) — home pc-web dist 未真正覆盖 (CHANGELOG 漏写)
 
 **症状**: v1.1.53-hotfix.1 修完后用户报"是不是用了旧的版本,更新好的一些功能又丢失了"。
