@@ -128,7 +128,9 @@ const APP_MENU_WHITELIST = [
     // v1.1.15+: 采购入库单查询 (sys_menu id=402 path=/purchase/receipt perms=purchase:receipt:list)
     // 注意: 与"扫码入库"复用同一 perms, 但 idApp 不同 (app-402-receipt-query)
     // buildAppMenuTree 按 perms 去重时会跳过重复项, 这里用不同 idApp 确保都能显示
-    { name: '采购入库单查询', perms: 'purchase:receipt:list', idApp: 'app-402-receipt-query' },
+    // v1.1.56+: 改用独立 perm purchase:receipt:query (sql/36 seed 新增 F 类型, 与 list 分离),
+    //   解决 App 端 dashboard APP_MENU_TO_PAGE 里「扫码入库」与「采购入库单查询」(perms+path 撞车) 撞车导致非超管看不到入库单入口的 BUG
+    { name: '采购入库单查询', perms: 'purchase:receipt:query', idApp: 'app-402-receipt-query' },,
     // v1.1.54+: App 端审核入口 — perms=purchase:receipt:check (sql/28 seed 已建, F 类型 perm 行)
     // 授权后可让角色在 App 端详情页审核入库单.
     { name: '采购入库审核', perms: 'purchase:receipt:check', idApp: 'app-2014-receipt-check' },

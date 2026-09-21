@@ -1,18 +1,30 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.55 (反审核独立 perm — App 端无 uncheck perm 账号不显示反审核按钮 + PC 端 4 年 BUG 修复)
+**当前版本**: v1.1.56 (采购入库单查询独立 perm — 修复 gpssong1 等有 App 入库单查询权限的账号 App 端看不到「采购入库单」入口, 与 v1.1.54 扫码入库 perms+path 撞车, 对齐销售 502/503 模型)
 
-**前序版本**: v1.1.54 (App 端采购入库/销售出库审核 + PC/App 端菜单权限同步)
-
-**前序版本**: v1.1.53-scan-in-perm (App 端扫码入库 403 hotfix — 制袋工等非标角色 `purchase:receipt:add` APP 授权缺失)
-
-**前序版本**: v1.1.53-sysinfo-version (系统设置-系统信息版本号根据实际部署同步 — 前端/后端/App manifest 三处 version 同步为 1.1.53-hotfix.1, 配套 deploy-version-bump.sh)
-
-**前序版本**: v1.1.53-app-inv-warning (App 端库存预警不显示修复 — `/me` 提前到 `recompute*` 之前)
-
-**前序版本**: v1.1.53 (工作台权限细粒度拆分 — KPI/趋势/排行/库存预警 4 个独立可选 perm)
+**前序版本**: v1.1.55 (反审核独立 perm — App 端无 uncheck perm 账号不显示反审核按钮 + PC 端 4 年 BUG 修复)
 
 ## changelog (倒序)
+### v1.1.56 (2026-09-21) — 采购入库单查询独立 perm (`purchase:receipt:query`) 修复 App 端入口缺失
+
+**症状**: gpssong1 (WAREHOUSE_MGR) 在 PC 端勾选了「采购入库单查询」App 菜单权限,但 App 端工作台没有「采购入库单」入口。销售侧对称的「销售出库单查询」入口正常显示。
+
+**根因** (Phase 1 调研):
+- App 工作台 `app/src/pages/dashboard/index.vue` 的 `APP_MENU_TO_PAGE` 按 **(perms, path) 双匹配** 生成快捷入口,`visibleMenus` 用 `find()` 取第一个匹配。
+- sys_menu 里「扫码入库」和「采购入库单查询」**复用同一条 sys_menu 402** (perms=`purchase:receipt:list`, path=`/purchase/receipt`)。
+- `APP_MENU_TO_PAGE` 同时有两条命中 402: L135 扫码入库 (`/pages/scan/in`) + L146 采购入库单 (`/pages/purchase/receipt-list`),`find()` 永远返回 L135 → **L146 采购入库单被永久遮蔽**,任何非超管都看不到。
+- 销售没出事: 销售出库单 (502, `sales:delivery:list`) vs 扫码出库 (503, `sales:return:list`) perms 不同,不撞车。
+
+**方案** (对齐销售 502/503 模型, 给采购入库单查询独立 perm):
+1. **新建 `sql/36_v156_receipt_query_perm.sql`**:
+   - sys_menu 新增 `purchase:receipt:query` (F 类型, parent_id=0, is_visible=0, sort_no=2016 紧邻 uncheck 2015)
+   - 给所有 `purchase:receipt:list` APP 角色自动补 `purchase:receipt:query` APP ("有 list 才有 query", 沿用 sql/33 模式, 保证仓管/制袋工入库单查询入口出现, 扫码入库不受影响)
+2. **App 端** (`dashboard/index.vue` L146 + `utils/permission.js` receipt-list/detail PAGE_PERMS): `purchase:receipt:list` → `purchase:receipt:query`,与 L135 扫码入库分离
+3. **PC 端** (`pc-web/src/views/system/Role.vue` APP_MENU_WHITELIST): 「采购入库单查询」`perms` 改 `purchase:receipt:query`
+4. **后端不动**: 查询端点 (`PurReceiptController /page + /{id}`) 仍走 `purchase:receipt:list` (扫码入库也调它); `query` perm 纯是**入口显隐**级载体, 与销售的 502/503 对称
+
+**部署**: home + 飞牛 各跑 sql/36; App APK + pc-web dist 重打部署双站; gpssong1 等 App 用户**退出 App 重新登录**一次让新 perm 生效。
+
 ### v1.1.55 (2026-09-21) — 反审核独立 perm (`xxx:uncheck`) + PC 端 4 年 BUG 修复
 
 **症状**: v1.1.54 上线后,用户反馈 — App 端无反审核权限的账号也显示了反审核按钮(因为审核/反审核共用 `xxx:check` 一个 perm)。业务上希望"能审核" ≠ "敢反审核":反审核是回退库存/AP/AR 的高风险操作,通常只给老板/主管/超管。
