@@ -98,6 +98,7 @@ sa-token:
     path: /
 
 erp:
+  version: ${ERP_VERSION:1.1.53-hotfix.1}
   upload:
     path: ${ERP_UPLOAD_PATH:/opt/industrial-erp/upload}
   cors:

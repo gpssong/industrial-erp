@@ -2,6 +2,102 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.53-app-inv-warning (2026-09-21) — App 端库存预警不显示修复 (`/me` 提前到 `recompute*` 之前)
+
+**症状**: 用户 gpssong1 (id=2101579680441774082, role=4=仓库主管) 在 PC 端「角色管理 → 分配权限 → App 端菜单权限」勾选了「库存预警」(perms=`inventory:warning:list`, sys_menu id=2090345792472715300, client_type=APP),但手机 App 工作台不显示「库存预警」卡片。
+
+**根因** (3 层确认):
+1. **数据库验证** — `sys_role_menu` 已正确写入: `(role_id=4, menu_id=2090345792472715300, client_type='APP')` ✅
+2. **后端验证** — `gpssong1` token 调 `/api/auth/me` 返回的 `permissions` 数组包含 `'inventory:warning:list'` ✅, 调 `/api/inventory/warning/list` 返回 200 + 2 条预警数据 ✅
+3. **前端代码层** — `app/src/pages/dashboard/index.vue` 的 `onMounted` 执行顺序错了:
+   ```
+   loadUser()
+   recomputeKpiVisible()       // ← 读 erp_permissions storage
+   recomputeWarningVisible()   // ← 读 erp_permissions storage, 用陈旧值
+   recomputeReportEntryVisible()
+   if (kpiVisible) await api.dashboard()
+   if (warningVisible) await api.warningList()
+   applyTabBar()
+   try {
+     const r = await api.me()  // ← 后面才刷新 storage, 太晚
+     localStorage.setItem('erp_permissions', ...)
+   }
+   ```
+   **老 APK 缓存的 `erp_permissions` 不含 `inventory:warning:list`**, `recomputeWarningVisible()` 读到陈旧值 → `warningVisible=false` → 整块 `<view v-if="warningVisible && warningItems.length">` 不渲染 → 即使后面 `/me` 返回了正确 perm,也不会重算 `warningVisible` ref
+
+**修复** (`app/src/pages/dashboard/index.vue`):
+- **提取** `loadWarningItems()` 函数,把 KPI 数据加载和预警数据加载都拉成命名函数
+- **关键顺序调整**: `onMounted` 开头**先** `await api.me()`,把最新 `permissions` / `appMenus` / `user` 写进 storage, **再** 跑 `recomputeKpiVisible` / `recomputeWarningVisible` / `recomputeReportEntryVisible`
+- 然后跑 `applyTabBar` + 后续 `reLaunch` 守卫(只比较 `appMenus` 变化触发)
+- **容错**: `/me` 失败时 `meResult=null`, `recompute*` 仍跑老路径(向后兼容,不阻塞 UI)
+
+**改动**: 仅 1 个文件 `app/src/pages/dashboard/index.vue`,`-25 行 +50 行`(核心: 重排 onMounted 顺序, 提取 loadWarningItems, 简化末尾 re-launch 守卫)
+
+**部署**:
+- APK: `~/Desktop/erp-app-20260921.apk` md5 `0372902863090862e8114ace2c5e59b1` (4.4MB, 含 hotfix)
+- NAS H5 容器 `erp-app-h5` rebuild + recreate: 容器内 `pages-dashboard-index.BFh9nwHZ.js` md5 `21febe59a6553900f1d991dee197fc86` ✅
+- 后端 / DB 无改动(数据本来就对)
+
+**验证**:
+- APK 内嵌 chunk vs dist md5 一致: `21febe59a6553900f1d991dee197fc86` ✅
+- H5 chunk 字符串位置验证: `erp_permissions`(写 storage, pos=3444) < `inventory:warning:list`(perm check, pos=4469) < `warningList()`(加载, pos=4806) ✅ 顺序正确
+- `erp-app-h5` 容器 `Up 4 seconds (health: starting)` ✅
+- `/api/inventory/warning/list` gpssong1 token 调通: 200 + 2 条数据 ✅
+
+**用户操作**:
+- **APK 用户**: 卸载旧 ERP → 安装 `~/Desktop/erp-app-20260921.apk` → 打开 → 登录 gpssong1 → 工作台应见「⚠️ 库存预警 (2)」卡片
+- **H5 浏览器用户**: 强制刷新 (`Cmd+Shift+R`) → 登录 → 工作台应见预警卡片
+- PC web 端: 不受影响(只改 App 端)
+
+**踩坑**:
+- macOS tar 打包带 `LIBARCHIVE.xattr.com.apple.provenance` 扩展头,Linux `tar` 不识别但能解压 (warning 不影响)
+- Docker `COPY dist/build/h5` 不会自动 bind mount, 容器内 dist 还是旧版 → 必须 `docker build --no-cache` + `docker rm -f` + `docker run` recreate
+- `python3 -m http.server` 的 `--bind 0.0.0.0` 必须显式,否则默认只监听 127.0.0.1,NAS 跨网段连不上
+- mac en0 IP 不是固定的 192.168.0.5 (我之前误以为是 .23),`ipconfig getifaddr en0` 才是真相
+
+**回滚**: git 回退 `app/src/pages/dashboard/index.vue` 即可,不用动 APK(用户装回上一个版本 APK)
+
+### v1.1.53-sysinfo-version (2026-09-21) — 系统信息版本号同步实际部署版本
+
+**症状**: 用户截图反馈 — 「系统设置 → 系统信息」显示 前端版本 `1.0.0`、后端版本 `1.0.9`,与实际部署的 `v1.1.53-hotfix.1` 不符,运维排错时不知道线上是哪一版。
+
+**根因**:
+1. **前端** `pc-web/package.json` 的 `"version": "1.0.0"` 是 v1.0.0 项目脚手架初始值,从未同步过。`pc-web/vite.config.js:61` 的 `__APP_VERSION__: JSON.stringify(require('./package.json').version)` 把这个常量编译时注入,Settings.vue 第 21 行 `{{ frontendVersion }}` 直接渲染 — 所以页面显示的"前端版本"实质就是 `package.json.version`, 与 Git tag/CHANGELOG/部署包命名完全脱节
+2. **后端** `backend/.../SystemVersionInitializer.java:45` 的 `@Value("${erp.version:1.0.9}")` 默认值是项目脚手架初始值,从未同步过。该值在启动时被 upsert 到 `sys_config` 表 `SYSTEM_VERSION_INFO` 行的 `version` 字段,前端 Settings.vue 第 22 行 `{{ backendInfo.version }}` 读的就是它
+3. **App** `app/package.json` 的 `"version": "1.0.10"` 和 `app/src/manifest.json` 的 `"versionName": "1.0.4"` 也从未与 PC 端同步过
+
+**修复** (5 处文件):
+- `pc-web/package.json`: `1.0.0` → `1.1.53-hotfix.1`
+- `backend/src/main/java/com/industrial/erp/config/SystemVersionInitializer.java:45`: 默认值 `1.0.9` → `1.1.53-hotfix.1`
+- `backend/src/main/resources/application.yml:100`: 新增 `erp.version: ${ERP_VERSION:1.1.53-hotfix.1}` (允许部署时用环境变量覆盖)
+- `app/package.json`: `1.0.10` → `1.1.53-hotfix.1`
+- `app/src/manifest.json`: `versionName` `1.0.4` → `1.1.53-hotfix.1`, `versionCode` `104` → `11531` (1.1.53-hotfix.1 数字拼接,uni-app android 要求单调递增)
+
+**部署**:
+- **PC-web** (一键脚本): `./deploy-version-bump.sh` — npm build → tar over ssh 上传 → grep 验证 → docker restart → curl md5 对照
+- **后端**: 重新 `mvn package -DskipTests` → docker build → recreate backend 容器 (启动时 SystemVersionInitializer 自动 upsert 新版本到 sys_config)
+- **App**: `./scripts/build-app.sh` 重打 APK
+
+**踩坑 (实操踩到, 写脚本前先看这段)**:
+1. **pc-web 容器 bind mount 源不是 docker-compose.yml 写的路径**: `docker-compose.yml` 写的是 `/volume3/docker/erp-system/pc-web/dist:/usr/share/nginx/html:ro`, 但线上实际跑的是历史 docker run 命令 `-v /tmp/pc-web-new:/usr/share/nginx/html:ro` (Sep 6 初次部署命令)。`docker inspect erp-pc-web | grep Mounts` 才能拿到真实 bind 源。**部署脚本必须用 `docker inspect` 取出的实际路径,不能相信 docker-compose.yml**
+2. **rsync/scp 在 Synology DSM 上不友好**:
+   - `rsync` 通过 sshpass 传密码时 PAM "Permission denied" 偶发 (sshpass 不直接支持 rsync 的 SSH 协议嵌套)
+   - `scp` 在 DSM 上报 `subsystem request failed` (没装 OpenSSH 的 scp subsystem)
+   - **最终方案**: `tar -cf -` + `sshpass ssh ... 'tar xf -'` (管道流, SSH 原生支持 stdout, 最稳)
+3. **dist 目录 owner 是 `tongban:20`, gpssong 没写权限**: 上一次部署用了 tongban 账户, 留下的文件 owner 不是 gpssong. 替换必须 `sudo find -delete && sudo cp -a`
+4. **gpssong 用户的 `/tmp` 是只读** (NAS DSM 默认 `/tmp` 是 root:wheel 755), staging 也要 sudo 创建 + chmod 777
+5. **macOS tar 默认带 LIBARCHIVE.xattr 扩展头**, 上传到 Linux 会刷 80+ 行 `Ignoring unknown extended header keyword`, 用 `--no-xattrs` 静默掉
+6. **部署后必须 md5 对照本地 vs 线上 vs nginx 服务**: 三者都一致才算成功 (否则可能是 nginx open file cache 没失效, 或 bind mount 路径错了)
+
+**验证**:
+- 上传后 grep `1.1.53-hotfix.1` 在 dist/assets/*.js 应有命中 → `Settings.vue` 渲染即生效
+- 后端 jar 重启后,`SELECT config_value FROM sys_config WHERE config_key='SYSTEM_VERSION_INFO'` 的 JSON `version` 字段应为 `"1.1.53-hotfix.1"`
+
+**踩坑**:
+- 单改代码**不会自动生效** — 前端需 npm build、后端需 mvn package、App 需 cap sync + gradle assembleDebug
+- `versionCode` 必须单调递增(uni-app android 限制),从 `104` 直接跳 `11531` 是合法的 (数字编码 1.1.53-hotfix.1)
+- 后端默认值改了,但 `application.yml` 用 `${ERP_VERSION:1.1.53-hotfix.1}` 给了双重保护 — 部署时可通过环境变量覆盖(例如临时打成 hotfix.2 时不动 jar)
+
 ### v1.1.53 (2026-09-20) — 工作台权限细粒度拆分 (KPI / 趋势 / 排行 / 库存预警)
 
 **症状**: PC + App 端工作台原本一刀切鉴权,整个 dashboard 由一个 `report:view` perm 控制。
@@ -37,6 +133,135 @@
 - 后端: `ReportController` 类级加回 `@SaCheckPermission("report:view")`,3 个方法级注解删掉
 - SQL: `DELETE FROM sys_menu WHERE perms LIKE 'dashboard:%' AND deleted = 0` (CASCADE 删 sys_role_menu)
 - 前端: `Index.vue` 恢复 `canView` 整体门禁
+
+### v1.1.53-mojibake-hotfix (2026-09-21) — dashboard 子模块 menu_name latin1 乱码修复
+
+**症状**: 上线后用户进系统管理 → 角色管理 → 分配权限,看到 3 个新增 perm 节点菜单名是乱码 (é”€å”®æŒ‡æ ‡ / é”€å”®è¶‹åŠ¿ / é”€å”®æŽ’è¡Œ) 而不是"销售指标/趋势/排行"。`HEX(menu_name)` 返回 `C3A9E2809DE282AC...` 而不是 utf8mb4 字节 `E99480E594AE...`。
+
+**根因**: MySQL 8 容器默认字符集 latin1, `docker exec -i erp-mysql mysql ...` 没指定 `--default-character-set=utf8mb4` 时, 客户端以 latin1 解释 utf8 字节并**写回 latin1 → utf8 双层编码** (Mojibake)。
+- `inventory:warning:list` 行 `menu_name='库存预警'` 正确 (HEX `E5BA93E5AD98...`), 因为 sql/28 跑的人用了 `--default-character-set=utf8mb4`
+- v1.1.53 新增的 3 行没用,所以乱码
+- **UPDATE WHERE perms='...'** 不受字符集影响,可以正确定位行
+
+**修复** (按 perms 定位,直接 UPDATE):
+```sql
+-- 必须指定 --default-character-set=utf8mb4 (UPDATE 自身不需要,但 mysql client 默认连接要)
+UPDATE sys_menu SET menu_name='销售指标' WHERE perms='dashboard:kpi';
+UPDATE sys_menu SET menu_name='销售趋势' WHERE perms='dashboard:sales-trend';
+UPDATE sys_menu SET menu_name='销售排行' WHERE perms='dashboard:sales-ranking';
+```
+
+**修复后 HEX 校验**: `E99480E594AEE68C87E6A087` = 销售指标 ✅
+
+**预防**:
+- `sql/30_v153_dashboard_subperms.sql` 文件顶部加注释,提醒必须 `--default-character-set=utf8mb4`
+- 跑 SQL 前一律用 `docker exec -i erp-mysql mysql industrial_erp -uroot -p$PW --default-character-set=utf8mb4 < $SQL_FILE`
+- 跑完 SELECT HEX(menu_name) 校验,不是 utf8mb4 字节 (E5BA93 = 库) 就要修复
+
+**负向业务验证** (2026-09-21): 临时把 WAREHOUSE_MGR 的 3 个 dashboard:* perm 移除, 用 gpssong1 账号重新登录 → 4 endpoint 状态:
+| endpoint | 移除前 | 移除后 (预期 403) | 恢复后 |
+|---|---|---|---|
+| `/report/dashboard` (KPI) | 200 | 403 ✅ | 200 |
+| `/report/sales/summary` (trend) | 200 | 403 ✅ | 200 |
+| `/report/sales/ranking` (ranking) | 200 | 403 ✅ | 200 |
+| `/inventory/warning/list` (warning) | 200 | 200 ✅ (保留) | 200 |
+
+**业务闭环确认**: 仓库主管未来如果只勾 inventory:warning:list 不勾 dashboard:*,登录 PC 端工作台会**只看到库存预警卡片**,销售 KPI/趋势/排行 section 静默消失。
+
+### v1.1.53-parent-fix (2026-09-21) — dashboard 4 行 F-type perm 从 root 移到「工作台」下
+
+**症状**: 用户截图反馈 — 系统管理 → 角色管理 → 分配权限,工作台分类下没看到新增的销售指标/趋势/排行选项。
+
+**根因**:
+- `sql/30` 第一版把 4 行 F-type perm (dashboard:kpi/销售趋势/销售排行/inventory:warning:list) `parent_id=0`,作为 root 级菜单存在
+- `Role.vue` 的 `buildMenuTree` 按 `parentId` 把它们和其他根菜单 (工作台/系统管理/...) 一起堆在 el-tree 顶层
+- el-tree 视口只显示「工作台 → 飞鹅打印机 → ...」+ 「系统管理 → ...」,4 行 dashboard perm 排在飞鹅打印机下面但**和飞鹅打印机同一层级**,截图里看到飞鹅打印机展开 7 个子节点 (查询/新增/编辑/删除/测试/日志/模板),但仪表盘的 4 行被滚动条遮住看不见
+
+**修复** (改 parent_id):
+```sql
+UPDATE sys_menu SET parent_id = 1
+  WHERE perms IN ('dashboard:kpi','dashboard:sales-trend','dashboard:sales-ranking','inventory:warning:list')
+    AND parent_id = 0;
+```
+
+**预期效果**: 4 行移到工作台分类下, Role.vue 的 el-tree 展开工作台后能看到:
+```
+▼ 工作台 (id=1)
+   ☑ 飞鹅打印机 (id=952 menuType=M)
+   ☐ 库存预警 (id=... menuType=F perms=inventory:warning:list)
+   ☐ 销售指标 (id=... menuType=F perms=dashboard:kpi)
+   ☐ 销售趋势 (id=... menuType=F perms=dashboard:sales-trend)
+   ☐ 销售排行 (id=... menuType=F perms=dashboard:sales-ranking)
+```
+
+**前端不需要 rebuild**: `Role.vue` 的 `buildMenuTree` 每次打开分配权限对话框都会 `await menuApi.list()` 重新拉,**前端代码无任何变化**,改 DB 即可。
+
+**SQL 文件同步修复**: `sql/30_v153_dashboard_subperms.sql` 第 35-45 行 INSERT 的 `parent_id` 改为 `1`,新增 1b 段 UPDATE parent_id 兼容已部署环境。
+
+**PUT /system/role/{id}/menus/client 保存验证**: zdg 角色全 4 个 perm 缺失时 PUT 4 个 snowflake id → 后端 200 → DB sys_role_menu 4 行均恢复 ✅
+
+### v1.1.53-hotfix.dist-reroll (2026-09-20 18:58) — home pc-web dist 未真正覆盖 (CHANGELOG 漏写)
+
+**症状**: v1.1.53-hotfix.1 修完后用户报"是不是用了旧的版本,更新好的一些功能又丢失了"。
+实际是 home 主站 pc-web 容器虽然重启了,但 bind-mount 的 `/tmp/pc-web-new/` 内容仍是 **Sep 6 16:02 的旧版本**(只有目录 mtime 是 17:06,文件 mtime 全是 Sep 6)。工作台看不到 dashboard 子模块拆分的 perm 门禁。
+
+**根因**:
+- v1.1.53 部署时 `tar xzf` 命令可能半成功(目录被 `mkdir -p` 触发了 mtime 更新,但文件没覆盖)
+- CHANGELOG v1.1.53 段写"pc-web 部署" + "容器已重启",但**没有当场 md5 验证文件本身是否真的换了**
+
+**诊断步骤**:
+```bash
+# 1. 对比本地 vs 线上 dist 文件 md5 (不是目录 mtime)
+md5sum /Users/tongban/.../pc-web/dist/index.html        # 本地 17:00 build
+ssh NAS md5sum /tmp/pc-web-new/index.html               # 线上
+# 不一致 = 没覆盖
+
+# 2. grep 关键 v1.1.53 字符串,看线上 chunk 是否含新代码
+ssh NAS 'grep -l dashboard:kpi /tmp/pc-web-new/assets/*.js'
+# 空 = 没新代码
+```
+
+**修复**:
+- 重新打包本地 dist → tar pipe 上传到 `/volume3/docker/erp-system/upload/pc-web-v1153.tar.gz`(gpssong 可写)
+- SSH 到 NAS,sudo 备份 `/tmp/pc-web-new` → `/tmp/pc-web-new.bak`,解压新版到 `/tmp/pc-web-new`,`chown -R 1000:1000`(容器跑在 uid=1000)
+- `docker restart erp-pc-web` (bind-mount 自动生效,无需 rebuild)
+- 验证: `curl http://home.93gushi.com:8088/assets/Index-DadcDsRj.js | grep dashboard:kpi` 命中 3 个 perm ✅
+
+**教训 (CHANGELOG 写"部署完成"前必做)**:
+1. **md5 对比文件**: 本地 dist/index.html md5 == 线上 /tmp/pc-web-new/index.html md5
+2. **grep 验证 chunk**: `grep -l "dashboard:kpi" /tmp/pc-web-new/assets/*.js` 必须有命中
+3. **curl 验证服务**: `curl http://host:port/assets/Index-xxx.js | grep 关键字符串` 在 dist 上命中
+4. **看容器状态**: `docker ps` 显示 Up + healthy
+
+**待办 (飞牛)**:
+- 飞牛 erp-backend-failover 当前是 v1.1.52.6 (md5 `a690b817ec`),需要升 v1.1.53 (md5 `e2098890b861`)
+- 飞牛 pc-web dist 状态未知,需核 (fail2ban 锁暂未核对)
+
+### v1.1.53-hotfix.1 (2026-09-20 17:48) — 登录 403: 后端 CORS env 漏传
+
+**症状**: v1.1.53 部署后 5 分钟,所有用户从浏览器登录 `http://home.93gushi.com:8088` 全部 403 Forbidden。
+DevTools Network 看 `POST /api/auth/login` → 403;Response body 是 `{"code":500,"msg":"账号已停用"}` (误导)。
+
+**根因**:
+- `application.yml:103-104` 的 `cors.allowed-origins` 默认值仅含 `localhost` / `127.0.0.1` 端口
+- 完整域名白名单 (`home.93gushi.com:8088`, `n150.93gushi.com:8088` 等) 通过 `${ERP_CORS_ALLOWED_ORIGINS:默认值}` env var 注入
+- `/volume3/docker/erp-system/.env` 里此 env **存在**(完整 18 个 origin)
+- **v1.1.53 部署 `docker run` 命令漏传 `ERP_CORS_ALLOWED_ORIGINS`**(只传了 `SA_TOKEN_JWT_SECRET_KEY` / MySQL / Redis)
+- 容器启动后 Spring Security 用默认 allowlist → 浏览器带 `Origin: http://home.93gushi.com:8088` 直接 403
+- Spring 在抛 403 前已写入 LoginService user-lookup 结果到 body → 前端误以为是「账号停用」
+
+**修复**:
+- `docker rm -f erp-backend` 后用 `--env-file /volume3/docker/erp-system/.env` 重新启动(一次性灌入所有 env,避开逗号转义陷阱)
+- backend 容器跑 32 分钟后改成此启动命令 → `:: Industrial ERP Started Success ::` 启动成功
+
+**验证**:
+- `curl -H "Origin: http://home.93gushi.com:8088" http://192.168.0.150:8080/api/auth/captcha` → 200 ✅
+- `curl -H "Origin: http://n150.93gushi.com:8088" /api/auth/captcha` → 200 ✅
+
+**教训**:
+- 任何用 `${VAR:default}` 占位符的配置项,**部署时一律用 `--env-file`** 而不是逐个 `-e` (env 值经常含逗号/IP/密码特殊字符)
+- SA_TOKEN_JWT_SECRET_KEY (v1.1.49) + ERP_CORS_ALLOWED_ORIGINS (v1.1.53) 都是启动关键 env
+- 排错看到 403 + 业务错误信息时,**先 curl `Origin` 验证 CORS** 再去查 user table,两类问题 403 表现一样但修法差 10 倍
 
 ### v1.1.52.6 (2026-09-20) — 库存预警 App 授权「开启了但重进还是未开启」
 

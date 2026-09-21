@@ -1,8 +1,10 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.53 (工作台权限细粒度拆分 — KPI/趋势/排行/库存预警 4 个独立可选 perm)
+**当前版本**: v1.1.53-sysinfo-version (系统设置-系统信息版本号根据实际部署同步 — 前端/后端/App manifest 三处 version 同步为 1.1.53-hotfix.1, 配套 deploy-version-bump.sh)
 
-**前序版本**: v1.1.52.6 (库存预警等 F 类型菜单 App 授权无法持久化修复 — `isGrantableMenu` 补 F 类型)
+**前序版本**: v1.1.53-app-inv-warning (App 端库存预警不显示修复 — `/me` 提前到 `recompute*` 之前)
+
+**前序版本**: v1.1.53 (工作台权限细粒度拆分 — KPI/趋势/排行/库存预警 4 个独立可选 perm)
 
 ## changelog (倒序)
 ### v1.1.53 (2026-09-20) — 工作台权限细粒度拆分 (KPI / 趋势 / 排行 / 库存预警)
