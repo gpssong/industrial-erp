@@ -80,19 +80,28 @@
         <view class="remark">{{ order.remark }}</view>
       </view>
 
-      <!-- 审核/反审核按钮 (v1.1.54+) -->
+      <!-- 审核/反审核按钮 (v1.1.55+ 拆分 perm, DRAFT 看 :check, CHECKED 看 :uncheck) -->
       <view v-if="order.billStatus==='DRAFT' || order.billStatus==='CHECKED'" class="card action-card">
-        <view v-if="!canAudit" class="muted" style="text-align:center;padding:8px 0">
-          无审核权限, 请联系管理员
-        </view>
-        <view v-else class="row" style="gap:8px">
-          <button v-if="order.billStatus==='DRAFT'"
-            class="btn-action btn-check"
-            :disabled="busy" @click="onAudit('check')">审核</button>
-          <button v-if="order.billStatus==='CHECKED'"
-            class="btn-action btn-uncheck"
-            :disabled="busy" @click="onAudit('uncheck')">反审核</button>
-        </view>
+        <!-- DRAFT 状态: 仅审核按钮 (要 :check perm) -->
+        <template v-if="order.billStatus==='DRAFT'">
+          <view v-if="!canCheck" class="muted" style="text-align:center;padding:8px 0">
+            无审核权限, 请联系管理员
+          </view>
+          <view v-else class="row" style="gap:8px">
+            <button class="btn-action btn-check"
+              :disabled="busy" @click="onAudit('check')">审核</button>
+          </view>
+        </template>
+        <!-- CHECKED 状态: 仅反审核按钮 (要 :uncheck perm) -->
+        <template v-else-if="order.billStatus==='CHECKED'">
+          <view v-if="!canUncheck" class="muted" style="text-align:center;padding:8px 0">
+            无反审核权限, 请联系管理员
+          </view>
+          <view v-else class="row" style="gap:8px">
+            <button class="btn-action btn-uncheck"
+              :disabled="busy" @click="onAudit('uncheck')">反审核</button>
+          </view>
+        </template>
       </view>
     </template>
   </view>
@@ -109,11 +118,19 @@ const loadError = ref(false)
 const loading = ref(true)
 const busy = ref(false)
 
-// v1.1.54+: 复用 xxx:check perm (PC 端 onCheck handler 也是这一 perm), 反审核也走 :check
-const AUDIT_PERM = 'purchase:receipt:check'
-function canAudit() {
+// v1.1.55+: 拆分为 check / uncheck 两个独立 perm
+//   - 审核   → purchase:receipt:check
+//   - 反审核 → purchase:receipt:uncheck (sql/35 seed 新增, 老板/主管专属)
+// 反审核是更高级操作 (回退库存/AP/AR), 业务上不应和审核混在一起
+const CHECK_PERM = 'purchase:receipt:check'
+const UNCHECK_PERM = 'purchase:receipt:uncheck'
+function canCheck() {
   if (isAdmin()) return true
-  return getPermissions().includes(AUDIT_PERM)
+  return getPermissions().includes(CHECK_PERM)
+}
+function canUncheck() {
+  if (isAdmin()) return true
+  return getPermissions().includes(UNCHECK_PERM)
 }
 
 function statusTag(s) {
