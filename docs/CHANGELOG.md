@@ -2,6 +2,38 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.56 (2026-09-21) — 采购入库单查询独立 perm (`purchase:receipt:query`) 修复 App 端入口缺失
+
+**症状**: gpssong1 (WAREHOUSE_MGR) 在 PC 端勾选了「采购入库单查询」App 菜单权限, 但 App 端工作台没有「采购入库单」入口。销售侧对称的「销售出库单查询」入口正常。
+
+**根因** (Phase 1 调研):
+- App 工作台 `app/src/pages/dashboard/index.vue` 的 `APP_MENU_TO_PAGE` 按 **(perms, path) 双匹配** 生成快捷入口, `visibleMenus` 用 `find()` 取第一个匹配。
+- sys_menu 里「扫码入库」和「采购入库单查询」**复用同一条 sys_menu 402** (perms=`purchase:receipt:list`, path=`/purchase/receipt`)。
+- `APP_MENU_TO_PAGE` 同时有两条命中 402: L135 扫码入库 (`/pages/scan/in`) + L146 采购入库单 (`/pages/purchase/receipt-list`), `find()` 永远返回 L135 → **L146 采购入库单被永久遮蔽**, 任何非超管账号都看不到「采购入库单」入口。
+- 销售没出事: 销售出库单 (sys_menu 502, `sales:delivery:list`) vs 扫码出库 (sys_menu 503, `sales:return:list`) perms 不同, 不撞车, 所以销售两个 App 入口都能显示。
+
+**方案** (对齐销售 502/503 模型, 给采购入库单查询独立 perm):
+1. **新建 `sql/36_v156_receipt_query_perm.sql`**:
+   - sys_menu 新增 `purchase:receipt:query` (F 类型, parent_id=0, is_visible=0, sort_no=2016 紧邻 uncheck 2015)
+   - 给所有 `purchase:receipt:list` APP 授权角色自动补 `purchase:receipt:query` APP ("有 list 才有 query", 沿用 sql/33 模式, 保证仓管/制袋工入库单查询入口出现, 扫码入库不受影响)
+   - 校验查询确认 WAREHOUSE_MGR/zdg 等 list APP 角色同时拿到 query APP
+2. **App 端**:
+   - `app/src/pages/dashboard/index.vue` `APP_MENU_TO_PAGE` L146: `purchase:receipt:list` → `purchase:receipt:query`, 与 L135 扫码入库 (仍 `purchase:receipt:list`) 分离
+   - `app/src/utils/permission.js` `PAGE_PERMS` receipt-list/receipt-detail: `purchase:receipt:list` → `purchase:receipt:query`
+3. **PC 端**: `pc-web/src/views/system/Role.vue` `APP_MENU_WHITELIST`「采购入库单查询」`perms` 改 `purchase:receipt:query`
+4. **后端不动**: 查询端点 (`PurReceiptController /page + /{id}`) 仍走 `purchase:receipt:list` (扫码入库也调它); `query` perm 纯是**入口显隐**级 perm 载体, 与销售的 502/503 双 sys_menu 模型对称
+
+**部署**:
+- home + 飞牛 各跑 `sql/36_v156_receipt_query_perm.sql` (飞牛走 `bash --noprofile --norc` + `LANG=C` sudo 模式, 避免 stdin mangling)
+- 校验: home WAREHOUSE_MGR `pur_list_app=1, pur_query_app=1`; 飞牛同 (注: 飞牛与 home 的 `pur_list_app` 各角色授权有既有差异, 属预期, sql/36 的 query APP 授权镜像 list APP, 不影响 gpssong1)
+- App APK 重打 (`bash scripts/build-app.sh`), 校验 `purchase:receipt:query` 在 dashboard + permission chunk, `purchase:receipt:list` 仍在 (扫码入库/库存 tab 不变), 部署 home + 飞牛
+- pc-web dist 重打 (`npm run build`), 校验 `purchase:receipt:query` 在 Role chunk, 部署 home (`/tmp/pc-web-new`) + 飞牛 (`/vol2/erp-system/pc-web/dist-new` sudo swap), `docker restart` 两站
+- **App 用户退出重新登录一次**, Sa-Token session 缓存的 perm 数组从 DB 重新加载, 采购入库单查询入口才会出现
+
+**用户操作**:
+- **gpssong1 等 App 端仓管/制袋工账号退出 App 重新登录一次** — 采购入库单入口才可见
+- 重新安装 `/Users/tongban/Desktop/erp-app-20260921.apk` (MD5 `66e7048304c64ba0234be9459ca229ef`) 才能拿到新 dashboard 匹配逻辑
+
 ### v1.1.55 (2026-09-21) — 反审核独立 perm (`xxx:uncheck`) + PC 端 4 年 BUG 修复
 
 **症状**: v1.1.54 上线后,用户反馈 App 端"无反审核权限的账号不显示反审核按钮" 应当实现 (但 v1.1.54 审核/反审核共用 `xxx:check` 一个 perm, 无法精细控制"能审核" vs "敢反审核")。业务上反审核是回退库存/AP/AR 的高风险操作,通常只给老板/主管/超管。

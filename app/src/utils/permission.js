@@ -52,9 +52,10 @@ const PAGE_PERMS = {
   // v1.1.14+: 销售出库单查询 (仅读, 列表/详情共用 sales:delivery:list)
   '/pages/sales/delivery-list': 'sales:delivery:list',
   '/pages/sales/delivery-detail': 'sales:delivery:list',
-  // v1.1.15+: 采购入库单查询 (仅读, 列表/详情共用 purchase:receipt:list, 与扫码入库共用同一 perm)
-  '/pages/purchase/receipt-list': 'purchase:receipt:list',
-  '/pages/purchase/receipt-detail': 'purchase:receipt:list'
+  // v1.1.15+: 采购入库单查询 (仅读, 列表/详情) — v1.1.56 改用独立 perm purchase:receipt:query
+  //           (扫码入库 /pages/scan/in 仍用 purchase:receipt:list, 两者入口分离, 对齐销售 502/503 模型)
+  '/pages/purchase/receipt-list': 'purchase:receipt:query',
+  '/pages/purchase/receipt-detail': 'purchase:receipt:query'
 }
 
 // 是否为管理员

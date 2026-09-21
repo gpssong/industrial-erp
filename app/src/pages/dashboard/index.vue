@@ -143,7 +143,9 @@ const APP_MENU_TO_PAGE = [
   // v1.1.14+: 销售出库单查询 (sys_menu id=502 path=/sales/delivery)
   { perms: 'sales:delivery:list',    path: '/sales/delivery',       page: { path: '/pages/sales/delivery-list', title: '销售出库单', icon: '📋' } },
   // v1.1.15+: 采购入库单查询 (sys_menu id=402 path=/purchase/receipt perms=purchase:receipt:list)
-  { perms: 'purchase:receipt:list',  path: '/purchase/receipt',     page: { path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' } }
+  // v1.1.56+: 改用独立 perm purchase:receipt:query, 与 L135 扫码入库 (同 perms+path 撞车) 分离,
+  //           对齐销售模型 (出库单 502 vs 扫码出库 503 各独立 perm), 修复非超管看不到采购入库单入口的 BUG
+  { perms: 'purchase:receipt:query', path: '/purchase/receipt',     page: { path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' } }
 ]
 
 // 根据 PC 端分配的菜单权限, 动态生成可见的 App 端快捷功能
