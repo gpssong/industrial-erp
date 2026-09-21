@@ -179,6 +179,12 @@ export const api = {
   // v1.1.15+: App 端采购入库单查询列表
   purchaseReceiptPage: (params) => request({ url: '/purchase/receipt/page', data: params }),
   purchaseReceiptDetail: (id) => request({ url: '/purchase/receipt/' + id }),
+  // v1.1.54+: App 端审核/反审核 (PC 端已 end-to-end, 这里只补前端调用入口)
+  // 复用后端 POST /purchase/receipt/{id}/check 等, 后端 perm 用 xxx:check (反审核也复用同一 perm)
+  purchaseReceiptCheck:   (id) => request({ url: '/purchase/receipt/' + id + '/check',   method: 'POST' }),
+  purchaseReceiptUncheck: (id) => request({ url: '/purchase/receipt/' + id + '/uncheck', method: 'POST' }),
+  salesDeliveryCheck:     (id) => request({ url: '/sales/delivery/'   + id + '/check',   method: 'POST' }),
+  salesDeliveryUncheck:   (id) => request({ url: '/sales/delivery/'   + id + '/uncheck', method: 'POST' }),
   // 生产
   prdOrderPage: (params) => request({ url: '/production/order/page', data: params }),
   prdOrderDetail: (id) => request({ url: '/production/order/' + id }),

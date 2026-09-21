@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.53-scan-in-perm (App 端扫码入库 403 hotfix — 制袋工等非标角色 `purchase:receipt:add` APP 授权缺失)
+**当前版本**: v1.1.54 (App 端采购入库/销售出库审核 + PC/App 端菜单权限同步)
+
+**前序版本**: v1.1.53-scan-in-perm (App 端扫码入库 403 hotfix — 制袋工等非标角色 `purchase:receipt:add` APP 授权缺失)
 
 **前序版本**: v1.1.53-sysinfo-version (系统设置-系统信息版本号根据实际部署同步 — 前端/后端/App manifest 三处 version 同步为 1.1.53-hotfix.1, 配套 deploy-version-bump.sh)
 
@@ -9,6 +11,29 @@
 **前序版本**: v1.1.53 (工作台权限细粒度拆分 — KPI/趋势/排行/库存预警 4 个独立可选 perm)
 
 ## changelog (倒序)
+### v1.1.54 (2026-09-21) — App 端采购入库/销售出库审核 + PC/App 端菜单权限同步
+
+**症状**: PC 端采购入库/销售出库审核功能 end-to-end 完整(后端 `/{id}/check` + `/{id}/uncheck` + PC `onCheck/onUncheck`),但 App 端**完全没有审核入口** — App 扫单/开单后单据 DRAFT,必须回 PC 审核,老板/经理出差或外勤时无法闭环。
+
+**方案**:
+1. **App 详情页加审核/反审核按钮**(`app/src/pages/purchase/receipt-detail.vue` + `app/src/pages/sales/delivery-detail.vue`):
+   - DRAFT 单据显示绿色【审核】,CHECKED 显示黄色【反审核】
+   - 二次确认用 `uni.showModal` (等同 PC `ElMessageBox.confirm`)
+   - perm 检查 `purchase:receipt:check` / `sales:delivery:check`,无 perm 显示"无审核权限, 请联系管理员"
+   - 复用 xxx:check perm,反审核无独立 perm(项目惯例)
+2. **App API 加 4 个方法**(`app/src/api/index.js`): `purchaseReceiptCheck/Uncheck` + `salesDeliveryCheck/Uncheck`,调 `POST /{id}/check` 等
+3. **PC 端 App 端菜单权限 Tab 加 2 个白名单条目**(`pc-web/src/views/system/Role.vue` `APP_MENU_WHITELIST`):
+   - 采购管理 → 采购入库审核 (`purchase:receipt:check`)
+   - 销售管理 → 销售出库审核 (`sales:delivery:check`)
+4. **sql/34 自动授权**(`sql/34_v154_app_audit_perm.sql`):
+   - 凡是有 `purchase:receipt:list` APP 授权的角色,补 `purchase:receipt:check` APP 授权
+   - 凡是有 `sales:delivery:list` APP 授权的角色,补 `sales:delivery:check` APP 授权
+   - `INSERT IGNORE + JOIN sys_menu` 同 sql/33 模式,涵盖 v1.1.27 后所有新建角色
+
+**部署**: home + 飞牛 MySQL 都跑了 sql/34;App 端重打装机 (sxr-app-h5 容器/新 APK);pc-web dist 不需要重打 (Role.vue 是 PC 端授权页);后端 jar 不需要重打 (0 改动)。受影响的 App 用户**退出 App 重新登录**一次刷权限。
+
+**后端 0 改动** — `/{id}/check` + `/{id}/uncheck` + perm `xxx:check` (含反审核) 已存在。
+
 ### v1.1.53-scan-in-perm (2026-09-21) — App 端扫码入库 403 hotfix
 
 **症状**: 秦运桂(制袋工 zdg)App 端「扫码入库」打开 OK,提交提示「无权限访问」。

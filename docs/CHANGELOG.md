@@ -2,6 +2,35 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.54 (2026-09-21) — App 端采购入库/销售出库审核 + PC/App 端菜单权限同步
+
+**症状**: PC 端采购入库/销售出库审核功能 end-to-end 完整(后端 `/{id}/check` + `/{id}/uncheck` + PC `onCheck/onUncheck`),但 App 端**完全没有审核入口**。App 扫单/开单后单据 DRAFT,必须回 PC 审核,老板/经理出差或外勤时无法闭环。
+
+**方案**:
+1. **App 详情页加审核/反审核按钮** (`app/src/pages/purchase/receipt-detail.vue` + `app/src/pages/sales/delivery-detail.vue`):
+   - DRAFT 显示绿色【审核】,CHECKED 显示黄色【反审核】
+   - 二次确认用 `uni.showModal`(等同 PC `ElMessageBox.confirm`),审核文案与 PC 端 `onCheck`/`onUncheck` handler 严格对齐(库存+成本+AP/AR 影响)
+   - perm 检查 `purchase:receipt:check` / `sales:delivery:check`,无 perm 显示"无审核权限, 请联系管理员"
+   - 复用 xxx:check perm,反审核无独立 perm(项目惯例)
+2. **App API 加 4 个方法** (`app/src/api/index.js`): `purchaseReceiptCheck/Uncheck` + `salesDeliveryCheck/Uncheck`,调 `POST /{id}/check` 等
+3. **PC 端 App 端菜单权限 Tab 加 2 个白名单条目** (`pc-web/src/views/system/Role.vue` `APP_MENU_WHITELIST`):
+   - 采购管理 → 采购入库审核 (`purchase:receipt:check`)
+   - 销售管理 → 销售出库审核 (`sales:delivery:check`)
+4. **sql/34 自动授权** (`sql/34_v154_app_audit_perm.sql`):
+   - 凡是有 `purchase:receipt:list` APP 授权的角色,补 `purchase:receipt:check` APP 授权
+   - 凡是有 `sales:delivery:list` APP 授权的角色,补 `sales:delivery:check` APP 授权
+   - `INSERT IGNORE + JOIN sys_menu` 同 sql/33 模式,涵盖 v1.1.27 后所有新建角色
+
+**部署**: home + 飞牛 MySQL 都跑了 sql/34 (home 验证: 6 内置角色 + 制袋工 `has_pur_check_app=1`);App 重打装机;pc-web dist 不需要重打;后端 jar 不需要重打 (0 改动)。受影响的 App 用户**退出 App 重新登录**一次刷权限。
+
+**后端 0 改动** — `/{id}/check` + `/{id}/uncheck` + perm `xxx:check` (含反审核) 已存在 (PurReceiptController.java:67-79, SalDeliveryController.java:79-91, sql/28_v124_permissions.sql:33/46)。
+
+**关键踩坑 (这次没踩)**:
+- `purchase:receipt:check` 在 sys_menu 已存在 (sql/28 seed),不需要新建 perm 行
+- `markDisabled` v1.1.53 已认 F 类型,白名单里直接出现这两个 perm 就能勾
+- 不需要重打后端 jar,纯前端 + SQL 即可
+- 飞牛 MySQL 是 binlog replica,sal/fin/permissions 可能有 binlog 滞后;idempotent 跑两遍安全
+
 ### v1.1.53-scan-in-perm (2026-09-21) — App 端扫码入库 403 hotfix (制袋工等非标角色 add perm 缺失)
 
 **症状**: 秦运桂(角色=`制袋工 zdg`, role_id=`2079395004410298370`)在 App 端「扫码入库」打开 OK,但点「确认入库」弹「提交失败: 无权限访问」。
