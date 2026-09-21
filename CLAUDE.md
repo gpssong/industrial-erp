@@ -1,8 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.56 (采购入库单查询独立 perm — 修复 gpssong1 等有 App 入库单查询权限的账号 App 端看不到「采购入库单」入口, 与 v1.1.54 扫码入库 perms+path 撞车, 对齐销售 502/503 模型)
+**当前版本**: v1.1.56 hotfix (F 类型 perm 载体 perm-only 兜底 — 修复 v1.1.56 首次部署后 gpssong1 等有 query APP perm 账号 App 端仍看不到「采购入库单」入口, 因 sys_menu query 行 path='' 不进 (perms,path) 双匹配, 新增 perm-only 兜底分支对齐 `report:view` 模式)
 
-**前序版本**: v1.1.55 (反审核独立 perm — App 端无 uncheck perm 账号不显示反审核按钮 + PC 端 4 年 BUG 修复)
+**前序版本**: v1.1.56 (采购入库单查询独立 perm — 修复 gpssong1 等有 App 入库单查询权限的账号 App 端看不到「采购入库单」入口, 与 v1.1.54 扫码入库 perms+path 撞车, 对齐销售 502/503 模型)
 
 ## changelog (倒序)
 ### v1.1.56 (2026-09-21) — 采购入库单查询独立 perm (`purchase:receipt:query`) 修复 App 端入口缺失
@@ -24,6 +24,24 @@
 4. **后端不动**: 查询端点 (`PurReceiptController /page + /{id}`) 仍走 `purchase:receipt:list` (扫码入库也调它); `query` perm 纯是**入口显隐**级载体, 与销售的 502/503 对称
 
 **部署**: home + 飞牛 各跑 sql/36; App APK + pc-web dist 重打部署双站; gpssong1 等 App 用户**退出 App 重新登录**一次让新 perm 生效。
+
+**v1.1.56 hotfix (2026-09-21 晚)** — F 类型 perm 载体 `path=''` 不进 (perms,path) 双匹配, 改 perm-only 兜底入口:
+
+**症状**: v1.1.56 首次部署后 gpssong1 重装 APK + 重登 App, 「采购入库单」入口**仍未出现**。超管账号正常。
+
+**根因**:
+- `purchase:receipt:query` 是 F 类型 perm 载体, sys_menu 行 `path=''` (因为纯 perm 载体, 没路由)。
+- 后端 `selectMenusByUserIdAndClient` 返回的 menu 行带 `path=''`, dashboard `visibleMenus` L184-194 loop `entry.path === m.path` 永远 false。
+- v1.1.56 在 `APP_MENU_TO_PAGE` L148 写过 `{ perms: 'purchase:receipt:query', path: '/purchase/receipt' }`, 但 `entry.path='/purchase/receipt'` ≠ `m.path=''` → 永远不命中双匹配。
+- 对比 `report:view` (sys_menu 951, path='', menuType=F) — `report:view` 走 L196-204 的 perm-only 兜底, 所以经营简报入口能出来。`purchase:receipt:query` 之前没这个 perm-only 兜底, 所以漏了。
+
+**修复** (`app/src/pages/dashboard/index.vue`):
+- L196-204 之后追加 perm-only 兜底分支 (镜像 `report:view` 模式)
+- 移除 `APP_MENU_TO_PAGE` L148 的 `purchase:receipt:query` 条目 (dead code)
+
+**部署**: App APK 重打 (MD5 `9fa92d720ad5a1e279b769c597197a8a`), home + 飞牛 双站部署; **后端 + pc-web 不动**。
+
+**经验 (R6)**: App 端"perm 载体"型 sys_menu (F 类型, path='', 仅做授权) **不要**走 `APP_MENU_TO_PAGE` 双匹配 (永远 path 不匹配), 必须走 perm-only 兜底分支 (同 `report:view`)。新增"perm 载体型" App 入口时, 把这条规则写进模板 — 不要再依赖 (perms,path) 双匹配。
 
 ### v1.1.55 (2026-09-21) — 反审核独立 perm (`xxx:uncheck`) + PC 端 4 年 BUG 修复
 

@@ -142,10 +142,11 @@ const APP_MENU_TO_PAGE = [
   { perms: 'report:view',            path: '/_report_kpi',          page: { path: '/pages/report/index', title: '经营简报', icon: '📊' } },
   // v1.1.14+: 销售出库单查询 (sys_menu id=502 path=/sales/delivery)
   { perms: 'sales:delivery:list',    path: '/sales/delivery',       page: { path: '/pages/sales/delivery-list', title: '销售出库单', icon: '📋' } },
-  // v1.1.15+: 采购入库单查询 (sys_menu id=402 path=/purchase/receipt perms=purchase:receipt:list)
-  // v1.1.56+: 改用独立 perm purchase:receipt:query, 与 L135 扫码入库 (同 perms+path 撞车) 分离,
-  //           对齐销售模型 (出库单 502 vs 扫码出库 503 各独立 perm), 修复非超管看不到采购入库单入口的 BUG
-  { perms: 'purchase:receipt:query', path: '/purchase/receipt',     page: { path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' } }
+  // v1.1.56+: 采购入库单查询 — sys_menu id=2090345792472715351 是 F 类型 perm 载体 (path=''),
+  //           与 L135 扫码入库 (402, purchase:receipt:list) 分离, 对齐销售 502/503 双 sys_menu 模型.
+  //           因为 F 载体 path 为空, 不进 (perms,path) 双匹配, 由下面 visibleMenus 里的
+  //           "purchase:receipt:query perm-only 补一个入口" 逻辑处理 (同 report:view 模式).
+  //           这里保留条目仅作文档说明 — 实际匹配走 perms-only 分支, 不会命中.
 ]
 
 // 根据 PC 端分配的菜单权限, 动态生成可见的 App 端快捷功能
@@ -199,6 +200,15 @@ const visibleMenus = computed(() => {
     if (Array.isArray(perms) && perms.includes('report:view') && !seen.has('/pages/report/index')) {
       seen.add('/pages/report/index')
       result.push(PATH_TO_APP['/_report_kpi'])
+    }
+  } catch (e) {}
+  // v1.1.56+: purchase:receipt:query 与 report:view 同理 — F 类型 perm 载体 sys_menu 行
+  // path 为空, 不会进 (perms, path) 双匹配, 按 perm-only 补一个入口
+  try {
+    const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+    if (Array.isArray(perms) && perms.includes('purchase:receipt:query') && !seen.has('/pages/purchase/receipt-list')) {
+      seen.add('/pages/purchase/receipt-list')
+      result.push({ path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' })
     }
   } catch (e) {}
   return result
