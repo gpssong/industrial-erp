@@ -2,6 +2,42 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.53-scan-in-perm (2026-09-21) — App 端扫码入库 403 hotfix (制袋工等非标角色 add perm 缺失)
+
+**症状**: 秦运桂(角色=`制袋工 zdg`, role_id=`2079395004410298370`)在 App 端「扫码入库」打开 OK,但点「确认入库」弹「提交失败: 无权限访问」。
+
+**根因** (3 层确认):
+1. **DB 验证** — `sys_role_menu` 里秦运桂/制袋工角色只有 `purchase:receipt:list` (menu_id=402, APP),**没有** `purchase:receipt:add` (menu_id=`2090345792472715280`, F 类型按钮权限) 的 APP 授权
+2. **后端 controller** — `PurReceiptController:45 @SaCheckPermission("purchase:receipt:add", orRole="admin")`,调 `POST /api/purchase/receipt` 必走 add perm 校验。`orRole="admin"` 只短路 sys_role.role_code='admin' 那一行,秦运桂 role_code='zdg' 不命中
+3. **sql/28 历史 hotfix 范围不足** — v1.1.27 修过同款 bug,但当时 INSERT 只补 6 个内置角色 (SUPER_ADMIN/PURCHASE_MGR/SALES_MGR/WAREHOUSE_MGR/PRODUCTION_MGR/FINANCE),**漏掉了 v1.1.27 之后新建的非标角色**(制袋工 zdg / 吹膜工 cmg)。本次新建制袋工时就中招
+
+**修复** (`sql/33_v153_scan_in_perm.sql` hotfix,已部署到 home 主站 MySQL):
+```sql
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id, client_type)
+SELECT DISTINCT rm.role_id, 2090345792472715280, 'APP'
+FROM sys_role_menu rm
+WHERE rm.menu_id = 402           -- purchase:receipt:list 的 menu_id
+  AND rm.client_type = 'APP';     -- 只看 APP 端授权, 避免给纯 PC 角色加 APP
+```
+
+**部署后验证** (2026-09-21):
+- DB 验证: `SELECT u.username, GROUP_CONCAT(m.perms) ... WHERE u.username='秦运桂'` → `permissions` 包含 `purchase:receipt:add` ✅
+- 7 个角色同时被修复: 6 个内置 + 制袋工(zdg)
+- 吹膜工(cmg) 因为没人给它授 list APP 权限, has_list=0 has_add=0(预期,不补 — 没人扫码入库就不该有)
+- 后端 / 前端 0 改动(纯数据修复)
+- **用户操作**: 秦运桂等 App 用户**退出 App 重新登录**一次刷权限
+
+**预防** (后续考虑):
+- PC 角色管理「App 端菜单权限」Tab 中「扫码入库」/「扫码出库」功能, 勾选时自动补齐关联的 `*:add` 按钮权限(后端 `grantMenusByClient` 加联动逻辑)
+- 同模式也要应用到 `sales:delivery:add` / `sales:order:add` / `production:order:add` / `inventory:check:add` 等其他"页面菜单 + 按钮权限"组合 — 后续 v1.1.54+ 按需扩展
+
+**踩坑**:
+- `orRole="admin"` 在 Sa-Token 注解里**只短路 sys_role.role_code='admin'**, 不是 `id=1`(id=1 是超级管理员, role_code='SUPER_ADMIN'),命名误导。**纯靠 orRole 短路**的话需要建一个 role_code='admin' 的角色,或者老老实实授权 add perm
+- 飞牛 MySQL 是 home binlog replica,只同步原 7 用户 — 飞牛登录要 admin/gpssong (秦运桂根本不存在于飞牛),所以本次修复只在 home 部署,飞牛无需动
+- 用户级别验证只能靠"退出 App 重新登录" — Sa-Token session 缓存的 permission 列表,DB 改了用户必须重新登录才生效
+
+**回滚**: `DELETE FROM sys_role_menu WHERE menu_id = 2090345792472715280 AND client_type = 'APP' AND role_id NOT IN (1,2,3,4,5,6)` (保留 6 个内置角色 add 授权,只删给非标角色追加的)
+
 ### v1.1.53-app-inv-warning (2026-09-21) — App 端库存预警不显示修复 (`/me` 提前到 `recompute*` 之前)
 
 **症状**: 用户 gpssong1 (id=2101579680441774082, role=4=仓库主管) 在 PC 端「角色管理 → 分配权限 → App 端菜单权限」勾选了「库存预警」(perms=`inventory:warning:list`, sys_menu id=2090345792472715300, client_type=APP),但手机 App 工作台不显示「库存预警」卡片。
