@@ -2,6 +2,52 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.55 (2026-09-21) — 反审核独立 perm (`xxx:uncheck`) + PC 端 4 年 BUG 修复
+
+**症状**: v1.1.54 上线后,用户反馈 App 端"无反审核权限的账号不显示反审核按钮" 应当实现 (但 v1.1.54 审核/反审核共用 `xxx:check` 一个 perm, 无法精细控制"能审核" vs "敢反审核")。业务上反审核是回退库存/AP/AR 的高风险操作,通常只给老板/主管/超管。
+
+**调研关键发现** (Phase 1):
+1. **后端 Service 层早就在用 `:uncheck` perm**: `PurReceiptService.java:322` + `SalDeliveryService.java:386` 都 `permService.requirePerm("xxx:uncheck")`,但 controller 层 `@SaCheckPermission("xxx:check")` 用 AOP 先拦截,service 层永远到不了 → 现状 controller 注解才是真生效 perm
+2. **PC 端前端早就在用 `:uncheck` perm 检查**: `pc-web/src/views/purchase/Receipt.vue:45` + `pc-web/src/views/sales/Delivery.vue:60` 都 `userStore.hasPerm('xxx:uncheck')`,但 sys_menu 从未 seed 过该 perm → **PC 端反审核按钮 4 年来对所有非超管账号永久隐藏** (隐性 BUG)
+3. **PermissionService.hasPerm 有 fallback**: `:add`/`:edit`/`:delete` 自动 fallback 到 `:list`,但 `:uncheck` **不** fallback 到 `:check`,必须真有 perm 才放行 → 新 perm 必须 seed + 绑角色
+
+**方案**:
+1. **新建 `sql/35_v155_uncheck_perm.sql`**:
+   - sys_menu 新增 `purchase:receipt:uncheck` (F 类型, parent_id=0, is_visible=0, sort_no=2015)
+   - sys_menu 新增 `sales:delivery:uncheck` (F 类型, parent_id=0, is_visible=0, sort_no=1015)
+   - 给所有 check APP 角色补 uncheck APP ("有 check 才有 uncheck", 沿用 sql/34 模式)
+   - 给 6 个内置角色补 uncheck PC (CROSS JOIN, 修复 4 年 BUG)
+   - 校验查询 (6 内置: pc=1; zdg/cmg: app=1)
+2. **后端 controller 注解对齐** (`backend/.../purchase/controller/PurReceiptController.java:74` + `.../sales/controller/SalDeliveryController.java:86`):
+   - `@SaCheckPermission("xxx:check")` → `@SaCheckPermission("xxx:uncheck")` for `POST /{id}/uncheck`
+   - service 层 `requirePerm("xxx:uncheck")` 不变 (早已是 :uncheck),形成"双保险"语义一致
+3. **App 详情页拆分 perm 显示** (`app/src/pages/purchase/receipt-detail.vue` + `sales/delivery-detail.vue`):
+   - 拆 `canAudit()` → `canCheck()` (看 `:check`) + `canUncheck()` (看 `:uncheck`)
+   - DRAFT 状态 → 审核按钮 (canCheck), 文案"无审核权限"
+   - CHECKED 状态 → 反审核按钮 (canUncheck), 文案"无反审核权限"
+   - 二次确认 `uni.showModal` 文案与 PC 端 `onCheck`/`onUncheck` handler 一致 (库存/AP/AR 影响)
+4. **PC 端 Role.vue 白名单加 2 行** (`pc-web/src/views/system/Role.vue` APP_MENU_WHITELIST):
+   - 采购管理 → 采购入库反审核 (`purchase:receipt:uncheck`)
+   - 销售管理 → 销售出库反审核 (`sales:delivery:uncheck`)
+   - PC 端 Receipt.vue:45 + Delivery.vue:60 的 `userStore.hasPerm('xxx:uncheck')` 检查无需改,这次部署自动生效
+
+**部署**: home + 飞牛 MySQL 都跑了 sql/35 (home 验证: 6 内置角色 `pur_*_pc=1` AND `sal_*_pc=1`; 制袋工 zdg `pur_uncheck_app=1`);后端 jar 重打 (docker build --no-cache + run --env-file .env);App APK 重打装机;pc-web dist 重打部署。
+
+**用户操作**:
+- App 用户**退出 App 重新登录**一次刷权限 (`isAdmin()` 短路确保超管立即可见)
+- PC 端内置非超管账号 (PURCHASE_MGR/SALES_MGR 等) 现在 PC 端入库单/出库单列表会看到反审核按钮 (4 年 BUG 修复, 通知里说清楚)
+
+**设计原则** (R5):
+- **何时拆 perm**: 操作风险不对称 (反审核回退库存 vs 审核) / 频率不对称 (99% 用户只正向) / 可观察性不对称 (反审核需更高级别审计)
+- **何时不拆**: add/edit 对称低风险; print/export 派生只读; 已有 perm 不批量重塑
+- **后续模块** (红冲/补差等) 一律拆 `:uncheck` 独立 perm; 删除类暂不拆; 不批量改造历史 perm
+
+**关键踩坑** (这次没踩):
+- `INSERT IGNORE + JOIN sys_menu ON perms='xxx:uncheck'` 不 hardcode menu_id (兼容 sql/28 后续调整)
+- 飞牛 MySQL 是 binlog replica, 单独跑 sql/35 防 lag (历史 v1.1.49 踩过)
+- 后端 controller 注解改了, 但 service 层 `requirePerm` 早已是 :uncheck, 无需改 service
+- PC 端 userStore.hasPerm 直接 `permissions.includes(p)`, 任何 perms 字符串都能 query, 无需改 userStore
+
 ### v1.1.54 (2026-09-21) — App 端采购入库/销售出库审核 + PC/App 端菜单权限同步
 
 **症状**: PC 端采购入库/销售出库审核功能 end-to-end 完整(后端 `/{id}/check` + `/{id}/uncheck` + PC `onCheck/onUncheck`),但 App 端**完全没有审核入口**。App 扫单/开单后单据 DRAFT,必须回 PC 审核,老板/经理出差或外勤时无法闭环。

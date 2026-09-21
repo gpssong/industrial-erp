@@ -130,15 +130,20 @@ const APP_MENU_WHITELIST = [
     // buildAppMenuTree 按 perms 去重时会跳过重复项, 这里用不同 idApp 确保都能显示
     { name: '采购入库单查询', perms: 'purchase:receipt:list', idApp: 'app-402-receipt-query' },
     // v1.1.54+: App 端审核入口 — perms=purchase:receipt:check (sql/28 seed 已建, F 类型 perm 行)
-    // 授权后可让角色在 App 端详情页审核入库单. 反审核复用同一 perm.
-    { name: '采购入库审核', perms: 'purchase:receipt:check', idApp: 'app-2014-receipt-check' }
+    // 授权后可让角色在 App 端详情页审核入库单.
+    { name: '采购入库审核', perms: 'purchase:receipt:check', idApp: 'app-2014-receipt-check' },
+    // v1.1.55+: App 端反审核独立 perm — sql/35 seed 新增 purchase:receipt:uncheck (F 类型)
+    // 与"采购入库审核"对称, 老板/主管可单独勾选, 仓管员/制袋工不应勾 (反审核回退库存/AP)
+    { name: '采购入库反审核', perms: 'purchase:receipt:uncheck', idApp: 'app-2015-receipt-uncheck' }
   ]},
   { name: '销售管理', children: [
     { name: '扫码出库', perms: 'sales:return:list', idApp: 'app-503-return' },
     // v1.1.14+: 销售出库单查询 (sys_menu id=502 path=/sales/delivery perms=sales:delivery:list)
     { name: '销售出库单查询', perms: 'sales:delivery:list', idApp: 'app-502-delivery' },
     // v1.1.54+: App 端审核入口 — perms=sales:delivery:check
-    { name: '销售出库审核', perms: 'sales:delivery:check', idApp: 'app-1014-delivery-check' }
+    { name: '销售出库审核', perms: 'sales:delivery:check', idApp: 'app-1014-delivery-check' },
+    // v1.1.55+: App 端反审核独立 perm — sql/35 seed 新增 sales:delivery:uncheck (F 类型)
+    { name: '销售出库反审核', perms: 'sales:delivery:uncheck', idApp: 'app-1015-delivery-uncheck' }
   ]},
   { name: '库存管理', children: [
     { name: '查库存',   perms: 'inventory:stock:list',  idApp: 'app-601-stock' },

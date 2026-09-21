@@ -70,8 +70,8 @@ public class PurReceiptController {
         return R.ok();
     }
 
-    /** v1.1.11+ 反审核 */
-    @SaCheckPermission(value = {"purchase:receipt:check"}, orRole = "admin")
+    /** v1.1.55+ 反审核拆分独立 perm (sql/35 seed 新增 purchase:receipt:uncheck) */
+    @SaCheckPermission(value = {"purchase:receipt:uncheck"}, orRole = "admin")
     @PostMapping("/{id}/uncheck")
     public R<Void> uncheck(@PathVariable Long id) {
         service.uncheck(id);
