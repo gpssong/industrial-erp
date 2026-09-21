@@ -215,10 +215,50 @@ function loadUser() {
   }
 }
 
+async function loadWarningItems() {
+  if (!warningVisible.value) return
+  try {
+    const list = await api.warningList()
+    // /inventory/warning/list 返回 [{productId, productCode, productName, qty, p_safety_stock (来自 base_product JOIN), safety_stock (来自 inv_stock, 通常 0), warehouseName, ...}]
+    // 这里只取前 10 条避免渲染过多
+    warningItems.value = (Array.isArray(list) ? list : []).slice(0, 10).map(it => {
+      // 优先用 base_product.safety_stock (JOIN 别名 p_safety_stock), 兼容 inv_stock.safety_stock (通常 0)
+      const safetyVal = it.p_safety_stock != null ? it.p_safety_stock
+        : (it.safety_stock != null ? it.safety_stock : 0)
+      return {
+        id: it.id,
+        productId: it.product_id || it.productId,
+        productCode: it.product_code || it.productCode || '-',
+        productName: it.product_name || it.productName || '-',
+        warehouseId: it.warehouse_id || it.warehouseId,
+        warehouseName: it.wh_name || it.warehouseName || it.warehouse_name || '仓库',
+        qty: it.qty != null ? Number(it.qty) : 0,
+        safetyStock: Number(safetyVal) || 0
+      }
+    })
+  } catch (e) { /* 静默 — 无 perm 时 403 也不报错 */ }
+}
+
 onMounted(async () => {
   loadUser()
   const h = new Date().getHours()
   greeting.value = h < 6 ? '凌晨好' : h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好'
+
+  // v1.1.54 hotfix: 必须在 recompute* 之前先调 /me 同步最新 permissions.
+  // 之前顺序是 recomputeWarningVisible() 先跑 (读陈旧 erp_permissions), 后面 /me 才刷新 storage —
+  // 老 APK 缓存里没 inventory:warning:list → warningVisible 永远 false → 库存预警区块不渲染,
+  // 即使 PC 端已勾选权限且 /me 返回了新 perm.
+  // 现在: /me 先写 storage, recompute* 再读, 命中即渲染.
+  let meResult = null
+  try {
+    const r = await api.me()
+    meResult = r.data || r
+    localStorage.setItem('erp_permissions', JSON.stringify(meResult.permissions || []))
+    // App 端优先用 appMenus
+    localStorage.setItem('erp_menus', JSON.stringify(meResult.appMenus || meResult.menus || []))
+    localStorage.setItem('erp_user', JSON.stringify(meResult))
+  } catch (e) { /* 忽略 — 不阻塞 UI (storage 还是老值, recompute 仍走老路径) */ }
+
   // v1.1.53: 计算各区块显隐 — KPI / 库存预警 / 经营简报入口 各自独立
   recomputeKpiVisible()
   recomputeWarningVisible()
@@ -233,52 +273,26 @@ onMounted(async () => {
     }
   }
   // v1.1.53: 库存预警列表独立加载 — 即使没 KPI perm 也能单独显示预警
-  if (warningVisible.value) {
-    try {
-      const list = await api.warningList()
-      // /inventory/warning/list 返回 [{productId, productCode, productName, qty, p_safety_stock (来自 base_product JOIN), safety_stock (来自 inv_stock, 通常 0), warehouseName, ...}]
-      // 这里只取前 10 条避免渲染过多
-      warningItems.value = (Array.isArray(list) ? list : []).slice(0, 10).map(it => {
-        // 优先用 base_product.safety_stock (JOIN 别名 p_safety_stock), 兼容 inv_stock.safety_stock (通常 0)
-        const safetyVal = it.p_safety_stock != null ? it.p_safety_stock
-          : (it.safety_stock != null ? it.safety_stock : 0)
-        return {
-          id: it.id,
-          productId: it.product_id || it.productId,
-          productCode: it.product_code || it.productCode || '-',
-          productName: it.product_name || it.productName || '-',
-          warehouseId: it.warehouse_id || it.warehouseId,
-          warehouseName: it.wh_name || it.warehouseName || it.warehouse_name || '仓库',
-          qty: it.qty != null ? Number(it.qty) : 0,
-          safetyStock: Number(safetyVal) || 0
-        }
-      })
-    } catch (e) { /* 静默 — 无 perm 时 403 也不报错 */ }
-  }
+  await loadWarningItems()
   applyTabBar()
+
   // v1.0.10+: perms 缺失或空时, 主动调 /me 修复 (兼容老版本残留)
   // v1.1.12+: 同时调 /me 时拿到最新 appMenus + permissions, 即使缓存非空也覆盖一次
   // (解决用户在 PC 端改了授权但 App 端不显示的 bug)
   // v1.1.53+: /me 之后 re-launch 后 recompute 函数会再跑一遍, 新 perm 自动生效
+  // v1.1.54 hotfix: /me 已在上面同步完成, 这里只处理 erp_menus 变化导致的 re-launch
   try {
-    const r = await api.me()
-    const userObj = r.data || r
-    localStorage.setItem('erp_permissions', JSON.stringify(userObj.permissions || []))
-    // App 端优先用 appMenus
-    localStorage.setItem('erp_menus', JSON.stringify(userObj.appMenus || userObj.menus || []))
-    localStorage.setItem('erp_user', JSON.stringify(userObj))
-    // 无变化不需强制刷新 (computed 自动响应, 因为 storage 不是响应式, 但 localStorage 是同步写)
-    // 注意: visibleMenus 是 computed, 依赖 erp_menus storage.
-    // uni 环境下 localStorage 写入不触发 vue 响应式 → 需手动 re-launch
-    // 但重复 re-launch 会闪烁. 仅在菜单实际变化时 re-launch
-    const cachedKeys = uni.getStorageSync('erp_menus_keys') || ''
-    const newKeys = (userObj.appMenus || userObj.menus || []).map(m => m.id).sort().join(',')
-    if (cachedKeys !== newKeys) {
-      uni.setStorageSync('erp_menus_keys', newKeys)
-      // 强制重载 dashboard 让 visibleMenus 重新计算
-      uni.reLaunch({ url: '/pages/dashboard/index' })
+    if (meResult && meResult.appMenus) {
+      const cachedKeys = uni.getStorageSync('erp_menus_keys') || ''
+      const newKeys = meResult.appMenus.map(m => m.id).sort().join(',')
+      if (cachedKeys !== newKeys) {
+        uni.setStorageSync('erp_menus_keys', newKeys)
+        // 强制重载 dashboard 让 visibleMenus 重新计算
+        uni.reLaunch({ url: '/pages/dashboard/index' })
+        return // re-launch 会重跑 onMounted, 后面的代码不再执行
+      }
     }
-  } catch (e) { /* 忽略 — 不阻塞 UI */ }
+  } catch (e) { /* 忽略 */ }
 })
 </script>
 <style scoped>

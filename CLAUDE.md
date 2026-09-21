@@ -1,12 +1,22 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.53-sysinfo-version (系统设置-系统信息版本号根据实际部署同步 — 前端/后端/App manifest 三处 version 同步为 1.1.53-hotfix.1, 配套 deploy-version-bump.sh)
+**当前版本**: v1.1.53-scan-in-perm (App 端扫码入库 403 hotfix — 制袋工等非标角色 `purchase:receipt:add` APP 授权缺失)
+
+**前序版本**: v1.1.53-sysinfo-version (系统设置-系统信息版本号根据实际部署同步 — 前端/后端/App manifest 三处 version 同步为 1.1.53-hotfix.1, 配套 deploy-version-bump.sh)
 
 **前序版本**: v1.1.53-app-inv-warning (App 端库存预警不显示修复 — `/me` 提前到 `recompute*` 之前)
 
 **前序版本**: v1.1.53 (工作台权限细粒度拆分 — KPI/趋势/排行/库存预警 4 个独立可选 perm)
 
 ## changelog (倒序)
+### v1.1.53-scan-in-perm (2026-09-21) — App 端扫码入库 403 hotfix
+
+**症状**: 秦运桂(制袋工 zdg)App 端「扫码入库」打开 OK,提交提示「无权限访问」。
+
+**方案**: `sql/33_v153_scan_in_perm.sql` 给所有有 `purchase:receipt:list` APP 授权的角色,自动补 `purchase:receipt:add` APP 授权。`INSERT IGNORE + WHERE menu_id=402 AND client_type='APP'` 兼容历史 hotfix + 涵盖未来新建非标角色(制袋工/吹膜工)。
+
+**部署**: home MySQL 已跑(7 个角色同时修复,含制袋工),后端/前端 0 改动。秦运桂等 App 用户**退出 App 重新登录**一次刷权限。
+
 ### v1.1.53 (2026-09-20) — 工作台权限细粒度拆分 (KPI / 趋势 / 排行 / 库存预警)
 
 **症状**: PC + App 端工作台原本**一刀切**鉴权,整个 dashboard 由一个 `report:view` perm 控制。
