@@ -24,12 +24,28 @@
 
 USE `industrial_erp`;
 
+-- ⚠️ MySQL 8 容器默认字符集 latin1, 跑本脚本必须显式指定 utf8mb4:
+--   docker exec -i erp-mysql mysql industrial_erp -uroot -p$PW --default-character-set=utf8mb4 < 30_v153_dashboard_subperms.sql
+-- 否则 menu_name 会以 latin1 字节写入, 渲染成 mojibake (é”€å”®æŒ‡æ ‡).
+-- 如果已踩坑, 用 perms 定位行直接 UPDATE (按 perms 不受字符集影响):
+--   UPDATE sys_menu SET menu_name='销售指标' WHERE perms='dashboard:kpi';
+--   UPDATE sys_menu SET menu_name='销售趋势' WHERE perms='dashboard:sales-trend';
+--   UPDATE sys_menu SET menu_name='销售排行' WHERE perms='dashboard:sales-ranking';
+
 -- 1. 新增 3 行 sys_menu (KPI/趋势/排行)
 -- 注: id 留空走 AUTO_INCREMENT 雪花 ID; sort_no 用 3001/3002/3003 沿用 F 类型约定
+-- 父菜单 = 工作台 (id=1, sys_menu 表里 path=/dashboard 的那个根).
+-- 必须在工作台下显示才能让用户在角色授权页 (Role.vue) 看到这 3 行
+-- (否则 parent_id=0 会变成 root level,el-tree 渲染时挤在工作台/system管理等同级,
+--  不会折叠在工作台下,用户找不到).
+-- 库存预警 (inventory:warning:list, sql/28 创建) 历史 parent_id=0,也需要 UPDATE 到 1.
 INSERT IGNORE INTO `sys_menu`(`parent_id`,`menu_name`,`menu_type`,`path`,`component`,`perms`,`icon`,`sort_no`,`is_visible`,`status`) VALUES
-(0, '销售指标',  'F', '', NULL, 'dashboard:kpi',           NULL, 3001, 0, 1),
-(0, '销售趋势',  'F', '', NULL, 'dashboard:sales-trend',   NULL, 3002, 0, 1),
-(0, '销售排行',  'F', '', NULL, 'dashboard:sales-ranking', NULL, 3003, 0, 1);
+(1, '销售指标',  'F', '', NULL, 'dashboard:kpi',           NULL, 3001, 0, 1),
+(1, '销售趋势',  'F', '', NULL, 'dashboard:sales-trend',   NULL, 3002, 0, 1),
+(1, '销售排行',  'F', '', NULL, 'dashboard:sales-ranking', NULL, 3003, 0, 1);
+
+-- 1b. (idempotent) 把已存在的 4 行 F-type perm 移到工作台下, 兼容 sql/28 单独跑过的环境
+UPDATE sys_menu SET parent_id = 1 WHERE perms IN ('dashboard:kpi','dashboard:sales-trend','dashboard:sales-ranking','inventory:warning:list') AND parent_id = 0;
 
 -- 2. 内置 6 个角色都绑定这 3 个新 perm (PC client_type)
 --    之前这些角色都绑了 report:view, 现在拆细后需要各自显式绑子模块 perm.
