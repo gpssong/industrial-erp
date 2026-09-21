@@ -79,6 +79,21 @@
         <view class="section-title">备注</view>
         <view class="remark">{{ order.remark }}</view>
       </view>
+
+      <!-- 审核/反审核按钮 (v1.1.54+) -->
+      <view v-if="order.billStatus==='DRAFT' || order.billStatus==='CHECKED'" class="card action-card">
+        <view v-if="!canAudit" class="muted" style="text-align:center;padding:8px 0">
+          无审核权限, 请联系管理员
+        </view>
+        <view v-else class="row" style="gap:8px">
+          <button v-if="order.billStatus==='DRAFT'"
+            class="btn-action btn-check"
+            :disabled="busy" @click="onAudit('check')">审核</button>
+          <button v-if="order.billStatus==='CHECKED'"
+            class="btn-action btn-uncheck"
+            :disabled="busy" @click="onAudit('uncheck')">反审核</button>
+        </view>
+      </view>
     </template>
   </view>
 </template>
@@ -87,10 +102,19 @@
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
+import { getPermissions, isAdmin } from '../../utils/permission.js'
 
 const order = ref({})
 const loadError = ref(false)
 const loading = ref(true)
+const busy = ref(false)
+
+// v1.1.54+: 复用 xxx:check perm (PC 端 onCheck handler 也是这一 perm), 反审核也走 :check
+const AUDIT_PERM = 'purchase:receipt:check'
+function canAudit() {
+  if (isAdmin()) return true
+  return getPermissions().includes(AUDIT_PERM)
+}
 
 function statusTag(s) {
   const map = { DRAFT: '草稿', CHECKED: '已审核' }
@@ -102,12 +126,60 @@ function formatMoney(v) {
   return Number(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
+// v1.1.54+: 二次确认 + 调后端 /{id}/check 或 /{id}/uncheck, 与 PC 端 onCheck/onUncheck 行为对齐
+function onAudit(action) {
+  if (busy.value) return
+  const isUncheck = action === 'uncheck'
+  const content = isUncheck
+    ? `确认反审核采购入库单 ${order.value.billNo}?\n\n此操作仅回退单据状态至「草稿」, 不会自动回退已增加的库存或应付账款. 如需调整, 请走后继红冲单.`
+    : `确认审核采购入库单 ${order.value.billNo}?\n\n审核后将:\n• 增加库存\n• 更新商品成本\n• 生成应付 (AP → 供应商)`
+  uni.showModal({
+    title: isUncheck ? '反审核确认' : '审核确认',
+    content,
+    confirmText: isUncheck ? '确认反审核' : '确认审核',
+    cancelText: '取消',
+    confirmColor: isUncheck ? '#e6a23c' : '#67c23a',
+    success: async (res) => {
+      if (!res.confirm) return
+      busy.value = true
+      try {
+        if (isUncheck) {
+          await api.purchaseReceiptUncheck(order.value.id)
+          uni.showToast({ title: '反审核成功', icon: 'success' })
+        } else {
+          await api.purchaseReceiptCheck(order.value.id)
+          uni.showToast({ title: '审核成功', icon: 'success' })
+        }
+        await reload()
+      } catch (e) {
+        uni.showToast({ title: (e && e.msg) || '操作失败', icon: 'none' })
+      } finally {
+        busy.value = false
+      }
+    }
+  })
+}
+
+async function reload() {
+  const id = order.value.id
+  loading.value = true
+  try {
+    const r = await api.purchaseReceiptDetail(id)
+    order.value = (r && (r.data || r)) || {}
+    loadError.value = false
+  } catch (e) {
+    loadError.value = true
+    uni.showToast({ title: e.message || '加载失败', icon: 'none' })
+  } finally {
+    loading.value = false
+  }
+}
+
 onLoad(async (q) => {
   loading.value = true
   try {
     const id = q && q.id
     if (!id) throw new Error('缺少单据 ID')
-    // v1.1.15+: 复用 api.salesDeliveryDetail 同模式
     const r = await api.purchaseReceiptDetail(id)
     order.value = (r && (r.data || r)) || {}
     loadError.value = false
@@ -146,4 +218,11 @@ onLoad(async (q) => {
 .detail-amount { color: #1e6091; font-weight: bold; font-size: 14px; }
 .remark { color: #303133; font-size: 14px; line-height: 1.6; }
 .empty { text-align: center; color: #999; padding: 40px; font-size: 13px; }
+
+/* v1.1.54+: 审核/反审核按钮 */
+.action-card { padding: 12px; }
+.btn-action { flex: 1; color: #fff; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 15px; }
+.btn-check { background: #67c23a; }
+.btn-uncheck { background: #e6a23c; }
+.btn-action:disabled { opacity: 0.5; }
 </style>
