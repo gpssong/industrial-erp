@@ -1,12 +1,86 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.59 (R11 终极根因修复 — `app/src/pages/{purchase/sales}/{receipt,delivery}-detail.vue` v-if 表达式 `canCheck`/`canUncheck` 改为显式 `canCheck()`/`canUncheck()` 调用, 解决 Vue 3 编译器把 setup 函数引用编译成 closure 而非函数调用导致 v-if 永远 truthy 的 bug; APK MD5 `c02bbc8f30b0f8050c35df6b8c760682`, 用户装新版 APK 后反审核按钮彻底消失, 仅看 DB / 后端 / storage 数据无法发现这个 BUG)
+**当前版本**: v1.1.60 (App 端物理 back 区分栈深度 + 工作台吞掉事件 — 详情页按 back 先 navigateBack 回列表(栈深>=3) 或 switchTab 工作台(栈深=2), 工作台页按 back 不退出 App 而是吞掉事件; 改 `app/src/utils/nav.js` L34-104 `onAppBack` 函数, 替换 v1.1.54+ 粗暴"任意非工作台都 switchTab 工作台"的逻辑; APK MD5 `c80a208869199d3e165c809db5b3b775`)
 
-**前序版本**: v1.1.56 hotfix-1 (R10 sys_menu.perms 无 UNIQUE 索引, sql/35 `INSERT IGNORE` 时未拦截同 perm 旧 B 行, 导致 v1.1.55 后 PC 弹窗"采购入库反审核"出现 2 次: id=6050 旧 B 类型 + id=...5349 新 F 类型; sql/42 数据级清理保留 F 行(权威 perm 载体) + 删除 B 行 + sys_role_menu.menu_id 迁移引用. 设计原则 R10: sys_menu.perms 必须有 UNIQUE 索引, 后续 seed perm 行必须先 SELECT 查重, 不能依赖 INSERT IGNORE 兜底; sql/42 仅清理 user 截图定位的 uncheck 行, 其他 19 行 B 类型(check/edit/delete/print) 待 v1.1.57+ 单独审计)
+**前序版本**: v1.1.59 (R11 终极根因修复 — `app/src/pages/{purchase/sales}/{receipt,delivery}-detail.vue` v-if 表达式 `canCheck`/`canUncheck` 改为显式 `canCheck()`/`canUncheck()` 调用, 解决 Vue 3 编译器把 setup 函数引用编译成 closure 而非函数调用导致 v-if 永远 truthy 的 bug; APK MD5 `c02bbc8f30b0f8050c35df6b8c760682`, 用户装新版 APK 后反审核按钮彻底消失, 仅看 DB / 后端 / storage 数据无法发现这个 BUG)
 
-**再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
+**再前序**: v1.1.56 hotfix-1 (R10 sys_menu.perms 无 UNIQUE 索引, sql/35 `INSERT IGNORE` 时未拦截同 perm 旧 B 行, 导致 v1.1.55 后 PC 弹窗"采购入库反审核"出现 2 次: id=6050 旧 B 类型 + id=...5349 新 F 类型; sql/42 数据级清理保留 F 行(权威 perm 载体) + 删除 B 行 + sys_role_menu.menu_id 迁移引用. 设计原则 R10: sys_menu.perms 必须有 UNIQUE 索引, 后续 seed perm 行必须先 SELECT 查重, 不能依赖 INSERT IGNORE 兜底; sql/42 仅清理 user 截图定位的 uncheck 行, 其他 19 行 B 类型(check/edit/delete/print) 待 v1.1.57+ 单独审计)
+
+**再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.60 (2026-09-23) — App 端物理 back 区分栈深度 + 工作台吞掉事件
+
+**症状**: v1.1.54+ 全局 back 拦截 (`app/src/utils/nav.js`) 行为粗暴: 任何非工作台页面按物理 back 都直接 `uni.switchTab('/pages/dashboard/index')`, **跳过中间栈**; 工作台页按物理 back 直接 `return false` 让系统**退出 App**。用户反馈: "在非工作台页面点击返回时回到工作台页面, 而不是直接退出 App" — 想"先回列表再回工作台", 工作台按 back 不应退出。
+
+**修复 — 区分栈深度 + 工作台吞掉事件**:
+```js
+// app/src/utils/nav.js onAppBack (替换 v1.1.54~v1.1.59 旧逻辑)
+// 规则表:
+//   1. 登录页 → return false (放行系统退出 App)
+//   2. 工作台页 → return true (吞掉事件, 不退出 App)
+//   3. 栈深 >= 3 → uni.navigateBack({delta:1}) + return true
+//   4. 栈深 = 2 → uni.switchTab(HOME_PAGE) + return true
+//   兜底 (栈深=1 但非工作台) → uni.switchTab(HOME_PAGE) + return true
+export function onAppBack() {
+  if (!isNative()) return false
+  let pages = []
+  try { pages = typeof getCurrentPages === 'function' ? getCurrentPages() : [] } catch (e) { return false }
+  if (!pages || pages.length === 0) return false
+  const cur = pages[pages.length - 1]
+  const curRoute = cur ? ('/' + (cur.route || '')) : ''
+  const stackLen = pages.length
+  if (curRoute === '/pages/login/index') return false                       // 规则 1
+  if (curRoute === HOME_PAGE) return true                                  // 规则 2
+  if (stackLen >= 3) { uni.navigateBack({ delta: 1 }); return true }       // 规则 3
+  if (stackLen === 2) { uni.switchTab({ url: HOME_PAGE }); return true }   // 规则 4
+  uni.switchTab({ url: HOME_PAGE }); return true                            // 兜底
+}
+```
+
+**行为对比表**:
+| 场景 | 物理 back (新) | 物理 back (旧 v1.1.54~v1.1.59) |
+|------|---------------|-------------------------------|
+| 工作台 | 吞掉事件不退出 ✅ | 退出 App ❌ |
+| 工作台 → 详情 (栈深=2) | switchTab 工作台 ✅ | switchTab 工作台 ✅ |
+| 工作台 → 列表 → 详情 (栈深=3) | navigateBack 回列表 ✅ | switchTab 工作台(跳过列表) ❌ |
+| 列表(栈深=2) | switchTab 工作台 ✅ | switchTab 工作台 ✅ |
+| 登录页 | 退出 App ✅ | 退出 App ✅ |
+
+**为什么 navbar back 无需拦截**: uni-app 默认 navbar `<` 走 `uni.navigateBack({delta:1})`, 在栈深=2 时 pop 回工作台 (等价 switchTab), 栈深=3 时 pop 回列表 (与新规则一致)。所以仅物理 back 需要拦截, navbar back 行为**已经正确**, 不改。
+
+**iOS 滑动返回**: 暂不支持 (uni-app iOS 滑动返回无公开拦截 API), 后续版本评估加自定义 navbar 左上角"←"按钮兜底。
+
+**部署**:
+- 改 1 文件: `app/src/utils/nav.js` L34-104 (重写 `onAppBack` 函数体, 其他不动)
+- `bash scripts/build-app.sh` → APK MD5 `c80a208869199d3e165c809db5b3b775`, 4369503 字节
+- 输出: `/Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20260923.apk` + `~/Desktop/erp-app-20260923.apk`
+- NAS H5 部署: `python3 -m http.server` 上传 tar → sudo 解压到 /tmp/staging → cp -r 到 `/volume3/docker/erp-system/app/dist/build/h5` → `docker build --no-cache` → `docker rm -f erp-app-h5 && docker run ...` → 验证线上 chunk = `index-Dope0GFF.js` ✅
+- 不动: 后端 jar / pc-web dist / DB / SQL (纯前端编译产物修复)
+
+**端到端验证 (CDP 2026-09-23)**:
+- 线上 chunk hash = `index-Dope0GFF.js` (本地 dist 一致) ✅
+- onAppBack 规则分支模拟 (CDP 无 `getCurrentPages`, 模拟函数验证):
+  - V1 工作台按 back → 规则 2 吞掉 ✅
+  - V3 栈深=2 → 规则 4 switchTab 工作台 ✅
+  - V4 栈深=3 → 规则 3 navigateBack 回上一页 ✅
+  - V6 栈深=4 → 规则 3 navigateBack (递归) ✅
+  - V7 登录页 → 规则 1 放行退出 ✅
+  - 兜底: 栈深=1 但非 HOME → switchTab 工作台 ✅
+- 手动设备测试: 用户装新 APK, 工作台按 back 不退出 ✅, 工作台→扫码入库→入库单详情→按 back 先回扫码入库 ✅
+
+**设计原则 (R12 — 写入设计原则)**:
+- **物理 back 是"回退", 不是"退出"**: 移动 App 惯例, 工作台 (App 唯一常驻首页) 按 back 应吞掉不退出, 退出走系统多任务右上角滑掉 或 "我的 → 退出登录"
+- **栈深度 = 路由回退意图**: 栈深 >= 3 (有中间列表) → 走 navigateBack 保留中间页; 栈深 = 2 (工作台直达详情) → 走 switchTab 工作台避免 pop 后栈空弹回登录
+- **switchTab vs navigateBack 选择**: 列表/详情按 back 要回工作台时, 优先 `uni.switchTab`(避开栈空跳登录的边缘 case), 不依赖 `uni.navigateBack` 的栈底不确定性
+- **物理 back 与 navbar back 不分彼此**: navbar back 在 uni-app 默认走 `navigateBack`, 已与新规则等价或更优 (保留动画), 无需自定义拦截
+
+**踩坑**:
+- v1.1.54+ 旧 `onAppBack` 在 `App.vue:42` 通过 `plus.key.addEventListener('backbutton', ...)` 注册, 无需改动; 仅替换函数体即可生效
+- NAS 部署时 mac tar 含 `LIBARCHIVE.xattr.com.apple.provenance` xattr, NAS tar 告警可忽略
+- gpssong 在 home NAS `/tmp` 只读 (root:wheel 755), 必须用 `/volume3/docker/erp-system/upload/` 中转 + `sudo bash` 解压到 `/tmp/staging` + `cp -r` 到 dist (避免 ACL 锁直接解压丢 assets/)
+- `dist/build/h5` 必须 `docker build --no-cache` 才能让新内容进镜像 (`Dockerfile` 用 `COPY dist/build/h5 /usr/share/nginx/html`)
+
 ### v1.1.59 (2026-09-23) — R11 终极根因修复: v-if 函数引用永远 truthy
 
 **症状**: v1.1.58 hotfix APK 装到 gpssong1 (WAREHOUSE_MGR + FINANCE) 手机, 进 RKP202609220004 详情, 底部**仍显示【反审核】黄色按钮**。即使 storage 全清干净 (`erp_permissions`/`erp_app_permissions`/`erp_menus` 各 12 项不含 uncheck), 按钮**仍然显示**。后端 `/auth/me` 返回 12 perm 不含 uncheck, DB 干净, APK chunk MD5 匹配, 所有数据层面都已修复, 但按钮仍显示。

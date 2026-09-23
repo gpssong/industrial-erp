@@ -2,6 +2,60 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.60 (2026-09-23) — App 端物理 back 区分栈深度 + 工作台吞掉事件
+
+**症状**: v1.1.54+ 全局 back 拦截 (`app/src/utils/nav.js`) 行为粗暴: 任何非工作台页面按物理 back 都直接 `uni.switchTab('/pages/dashboard/index')` **跳过中间栈**; 工作台页按物理 back 直接 `return false` 让系统**退出 App**。用户反馈: "在非工作台页面点击返回时回到工作台页面, 而不是直接退出 App"。
+
+**核心改动 — `app/src/utils/nav.js` L34-104 `onAppBack` 函数体**:
+
+| 规则 | 场景 | 动作 |
+|------|------|------|
+| 1 | 登录页 | `return false` 放行系统退出 App |
+| 2 | 工作台页 | `return true` 吞掉事件, 不退出 App |
+| 3 | 栈深 >= 3 | `uni.navigateBack({delta:1})` 回上一页 |
+| 4 | 栈深 = 2 | `uni.switchTab(HOME_PAGE)` 回工作台 |
+| 兜底 | 栈深 = 1 但非工作台 | `uni.switchTab(HOME_PAGE)` 兜底 |
+
+**行为对比表**:
+| 场景 | 物理 back (v1.1.60 新) | 物理 back (v1.1.54~v1.1.59 旧) |
+|------|----------------------|------------------------------|
+| 工作台 | 吞掉事件不退出 ✅ | 退出 App ❌ |
+| 工作台 → 详情 (栈深=2) | switchTab 工作台 ✅ | switchTab 工作台 ✅ |
+| 工作台 → 列表 → 详情 (栈深=3) | navigateBack 回列表 ✅ | switchTab 工作台(跳过列表) ❌ |
+| 列表(栈深=2) | switchTab 工作台 ✅ | switchTab 工作台 ✅ |
+| 登录页 | 退出 App ✅ | 退出 App ✅ |
+
+**关键设计**:
+- **navbar back 不动**: uni-app 默认 navbar `<` 走 `uni.navigateBack`, 行为已与新规则等价或更优 (保留动画), 无需自定义拦截
+- **iOS 滑动返回**: 暂不支持 (uni-app iOS 滑动返回无公开拦截 API), 后续版本评估加自定义 navbar 左上角"←"按钮兜底
+- **H5 环境**: `if (!isNative()) return false` 放行浏览器历史, 行为正常
+- **App.vue 注册无需改**: `plus.key.addEventListener('backbutton', onAppBack)` (L42) 已正确, 仅替换函数体即生效
+
+**部署**:
+- 改 1 文件: `app/src/utils/nav.js` L34-104 (重写 `onAppBack` 函数体, 其他不动)
+- `bash scripts/build-app.sh` → APK MD5 `c80a208869199d3e165c809db5b3b775`, 4369503 字节
+- 输出: `/Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20260923.apk` + `~/Desktop/erp-app-20260923.apk`
+- NAS H5 部署: `python3 -m http.server` 上传 tar → sudo 解压到 /tmp/staging → cp -r 到 `/volume3/docker/erp-system/app/dist/build/h5` → `docker build --no-cache` → `docker rm -f erp-app-h5 && docker run ...`
+- 验证线上 chunk = `index-Dope0GFF.js` (本地 dist 一致) ✅
+- 不动: 后端 jar / pc-web dist / DB / SQL (纯前端编译产物修复)
+
+**端到端验证 (CDP 2026-09-23)**:
+- onAppBack 规则分支模拟 (CDP 内 `getCurrentPages` 在 uni-app H5 容器内为 [], 改用 simulate 函数验证规则正确性):
+  - V1 工作台按 back → 规则 2 吞掉 ✅
+  - V3 栈深=2 → 规则 4 switchTab 工作台 ✅
+  - V4 栈深=3 → 规则 3 navigateBack 回上一页 ✅
+  - V6 栈深=4 → 规则 3 navigateBack (递归) ✅
+  - V7 登录页 → 规则 1 放行退出 ✅
+  - 兜底: 栈深=1 但非 HOME → switchTab 工作台 ✅
+- 手动设备测试 (用户装新 APK):
+  - 工作台按 back → 不退出 ✅
+  - 工作台 → 扫码入库 → 入库单详情 → 按 back → 先回扫码入库 ✅
+
+**踩坑**:
+- NAS 部署时 mac tar 含 `LIBARCHIVE.xattr.com.apple.provenance` xattr, NAS tar 告警可忽略
+- gpssong 在 home NAS `/tmp` 只读 (root:wheel 755), 必须用 `/volume3/docker/erp-system/upload/` 中转 + `sudo bash` 解压到 `/tmp/staging` + `cp -r` 到 dist (避免 ACL 锁直接解压丢 assets/)
+- `dist/build/h5` 必须 `docker build --no-cache` 才能让新内容进镜像
+
 ### v1.1.59 (2026-09-23) — R11 终极根因修复: v-if 函数引用永远 truthy
 
 **症状**: v1.1.58 hotfix APK 装到 gpssong1 (WAREHOUSE_MGR + FINANCE) 手机, 进 RKP202609220004 详情, 底部**仍显示【反审核】黄色按钮**。所有数据层面 (后端 `/auth/me` 返回 12 perm 不含 uncheck + DB 干净 + storage 全清干净 + APK chunk MD5 匹配) 都已修复, 但按钮**仍然显示**。
