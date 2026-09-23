@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.60 hotfix-1 (PC + App 登录错误提示统一规范 — PC `pc-web/src/views/Login.vue` L130-137 catch 加 `ElMessage.error(friendly)`, 修复 v1.1.31+ request.js 拦截器不再弹后 PC 端 catch 完全空转的 bug; App `app/src/pages/login/index.vue` L119-129 catch 改 `uni.showToast`, 去掉 `alert("登录失败: ...")` 突兀对话; 两端优先展示后端 `AuthService` 返回的 msg ("用户名或密码错误"), 兜底 "账号或密码错误, 请重试"; PC dist 已部署到 home NAS, 线上 `Login-CktUqvzO.js` MD5 `4361c418aa3293428292ba650e52ca01` 与本地 dist 一致)
+**当前版本**: v1.1.60 hotfix-2 (App 端"我的-刷新权限菜单"双弹覆盖修复 — `app/src/pages/profile/index.vue` L138-149 catch 移除重复 `uni.showToast`, 拦截器已弹过的 toast catch 不应再弹, 否则 Android `uni.showToast` 后调用会中断前调用, 用户只看最没信息量的那条; 拦截器 L89-91 弹后端 msg + L99-101 弹网络错 + L65-70 弹反代 502 都保留不动, 让组件 catch 静默; 401 路径特殊, 拦截器自动 reLaunch 跳登录页, catch 不弹 toast (一闪而过干扰跳转); H5 容器 erp-app-h5 已 rebuild + recreate (镜像 hash `38e532179829`), 线上 `pages-profile-index.9bnvdhRj.js` MD5 `518e2068682e0098d3f6333f78ad45cc` = 本地 dist 一致)
+
+**前序版本**: v1.1.60 hotfix-1 (PC + App 登录错误提示统一规范 — PC `pc-web/src/views/Login.vue` L130-137 catch 加 `ElMessage.error(friendly)`, 修复 v1.1.31+ request.js 拦截器不再弹后 PC 端 catch 完全空转的 bug; App `app/src/pages/login/index.vue` L119-129 catch 改 `uni.showToast`, 去掉 `alert("登录失败: ...")` 突兀对话; 两端优先展示后端 `AuthService` 返回的 msg ("用户名或密码错误"), 兜底 "账号或密码错误, 请重试"; PC dist 已部署到 home NAS, 线上 `Login-CktUqvzO.js` MD5 `4361c418aa3293428292ba650e52ca01` 与本地 dist 一致)
 
 **前序版本**: v1.1.60 (App 端物理 back 区分栈深度 + 工作台吞掉事件 — 详情页按 back 先 navigateBack 回列表(栈深>=3) 或 switchTab 工作台(栈深=2), 工作台页按 back 不退出 App 而是吞掉事件; 改 `app/src/utils/nav.js` L34-104 `onAppBack` 函数, 替换 v1.1.54+ 粗暴"任意非工作台都 switchTab 工作台"的逻辑; APK MD5 `c80a208869199d3e165c809db5b3b775`)
 
@@ -9,6 +11,60 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.60 hotfix-2 (2026-09-23) — App 端"我的-刷新权限菜单"双弹覆盖修复
+
+**症状**: 用户反馈 "app端-我的-点击刷新权限菜单, 提示刷新失败, 请稍后再试"。不论后端实际错误码是什么 (msg="无权访问" / 网络断 / 502), 用户**始终**只看到 "刷新失败, 请稍后再试"。
+
+**根因 (与 v1.1.31 PC Login catch 空转同根 — 这次是"反向")**:
+- `app/src/api/index.js` 拦截器**已弹** toast:
+    - 反代 502 / 非 JSON → "服务暂不可用, 请稍后重试" (L65-70)
+    - 后端业务错 → `d.msg || '请求失败'` (L89-91)
+    - 网络层失败 → "网络连接失败, 请检查网络" (L99-101)
+- `app/src/pages/profile/index.vue` catch **又弹** "刷新失败, 请稍后重试"
+- Android `uni.showToast` 后调用会**中断**前调用 — 用户只看到后 catch 弹的"刷新失败", 完全**丢失**后端 msg 的诊断价值
+
+**修复 (1 文件, L138-149 catch)**:
+```js
+} catch (e) {
+  if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+  // 拦截器已经弹过 toast, 这里只做 console 诊断, 不再二次弹 (避免覆盖)
+  const code = e && e.code
+  const backendMsg = e && e.msg
+  console.warn('[onRefreshPerms] 失败, code=', code, 'msg=', backendMsg, 'err=', e)
+  // 401: 拦截器 reLaunch 跳登录页, 一闪而过的 toast 反而干扰跳转
+  if (code === 401) return
+}
+```
+
+**为什么不改拦截器**: 18 个页面 catch 都依赖拦截器弹 toast (dashboard / scan / production / system 等), 全局改风险大且超出当前需求范围。只改 profile 的 catch 把冲突控制在 1 个页面, 其他现有行为完全不变。
+
+**部署**:
+- 改 1 文件: `app/src/pages/profile/index.vue`
+- `cd app && npm run build:h5` → 新 chunk `pages-profile-index.9bnvdhRj.js` (3353 字节)
+- 上传 tarball → NAS `app/dist/build/h5/` (避开 tarball 完整性 + `rm -rf` 清空避免新旧 chunk 并存)
+- `docker build --no-cache -t erp-app-h5:latest .` → 镜像 hash `38e532179829`
+- `docker rm -f erp-app-h5 && docker run -d --name erp-app-h5 --network erp-system_erp-net -p 18090:80 erp-app-h5:latest`
+- 不动: 后端 jar / PC dist / DB / SQL (纯前端编译产物修复)
+
+**端到端验证 (2026-09-23)**:
+- ✅ H5 容器 rebuild + recreate 成功 (镜像 `38e532179829`, 容器 Up)
+- ✅ 线上 `http://192.168.0.150:18090/assets/pages-profile-index.9bnvdhRj.js` MD5 `518e2068682e0098d3f6333f78ad45cc` = 本地 dist
+- ✅ chunk 内容含 `onRefreshPerms] 失败, code=, msg=, err=, 401===s)return` 修复后的 catch 逻辑
+- ✅ 用户体验: 后端业务错 → 显示后端实际 msg; 网络断 → "网络连接失败, 请检查网络"; 反代 502 → "服务暂不可用, 请稍后重试"; 401 → 自动跳登录页
+- ⏸ App APK: 代码已就位, 待触发 `bash scripts/build-app.sh` 重打
+
+**踩坑** (H5 dist 部署):
+- `cp -r /tmp/staging/h5-new/h5 /volume3/.../dist/build/` **没清空旧目录** → 新旧 chunk 并存, Dockerfile COPY 时**两个都进**镜像。**修复**: `rm -rf .../dist/build/h5 && cp -r .../h5 .../dist/build/`
+- macOS tar写 `LIBARCHIVE.xattr.com.apple.provenance` 扩展头 → NAS tar 警告**可忽略**,文件实际正常解压 (md5 一致)
+- gpssong `/tmp` 不能 mkdir, 必须 `echo "..." | sudo -S -p "" mkdir ...`
+- `docker build` 默认走**legacy builder** (NAS docker 版本), 加 `--no-cache` 即可,不需要 buildx
+
+**设计原则 (R13 延伸 — 写入设计原则)**:
+- **拦截器已弹过的 toast, 组件 catch 不要重复弹** — 否则后 toast 会覆盖前 toast, 用户看不到最有价值的那条
+- **401 路径特殊**: 拦截器会自动 reLaunch 跳登录页, catch 不应再弹任何 toast (一闪而过干扰跳转体验)
+- **catch 仍应保留 `console.warn` 详细诊断** (含 code/msg/err) — 便于排查
+- **R13 全局重塑** (拦截器不弹, 组件 catch 统一弹) 留后续版本按 18 个页面审计后统一改 — 当前 R13 延伸原则是"过渡方案", 减少全局改动风险
+
 ### v1.1.60 hotfix-1 (2026-09-23) — PC + App 登录错误提示统一规范
 
 **症状**: 用户反馈 "项目登录的时候账号密码错误时弹窗提示账号密码错误", 进一步反馈 "PC 端登录错误提示也优化一下"。排查发现:
