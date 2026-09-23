@@ -2,6 +2,38 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.60 hotfix-2 (2026-09-23) — App 端"我的-刷新权限菜单"双弹覆盖修复
+
+**症状**: 用户反馈 "app端-我的-点击刷新权限菜单, 提示刷新失败, 请稍后再试"。不论后端实际错误码是什么 (msg="无权访问" / 网络断 / 502), 用户**始终**只看到 "刷新失败, 请稍后再试"。
+
+**根因 (与 v1.1.31 PC Login catch 空转同根 — 这次是"反向"双弹)**:
+- `app/src/api/index.js` 拦截器**已弹** toast (反代 502 / 后端业务错 / 网络层失败)
+- `app/src/pages/profile/index.vue` catch **又弹** "刷新失败, 请稍后重试"
+- Android `uni.showToast` 后调用会**中断**前调用 — 用户只看到后 catch 弹的"刷新失败", 完全**丢失**后端 msg 的诊断价值
+
+**修复 (1 文件, `app/src/pages/profile/index.vue` L138-149 catch)**:
+- 移除重复 `uni.showToast` 调用
+- 保留 `console.warn` 详细诊断 (含 code/msg/err)
+- 401 路径静默: 拦截器 reLaunch 跳登录页, catch 不弹任何 toast (一闪而过反而干扰跳转)
+
+**为什么不改拦截器**: 18 个页面 catch 都依赖拦截器弹 toast (dashboard / scan / production / system 等), 全局改风险大且超出当前需求范围。
+
+**部署**:
+- 改 1 文件: `app/src/pages/profile/index.vue`
+- `cd app && npm run build:h5` → 新 chunk `pages-profile-index.9bnvdhRj.js` (3353 字节)
+- 上传 + NAS `app/dist/build/h5/` + `docker build --no-cache -t erp-app-h5:latest .` + `docker rm -f erp-app-h5 && docker run ...`
+- 镜像 hash `38e532179829`, 容器 Up 正常, 端口 18090
+
+**端到端验证 (2026-09-23)**:
+- ✅ H5 容器 rebuild + recreate 成功
+- ✅ 线上 `pages-profile-index.9bnvdhRj.js` MD5 `518e2068682e0098d3f6333f78ad45cc` = 本地 dist
+- ✅ chunk 含 `onRefreshPerms] 失败, code=, msg=, err=, 401===s)return` 修复逻辑
+
+**设计原则 (R13 延伸)**:
+- **拦截器已弹过的 toast, 组件 catch 不要重复弹** — 否则后 toast 会覆盖前 toast
+- **401 路径特殊**: 拦截器 reLaunch 跳登录页, catch 不应再弹任何 toast
+- **R13 全局重塑** (拦截器不弹, 组件 catch 统一弹) 留后续版本按 18 个页面审计后统一改
+
 ### v1.1.60 hotfix-1 (2026-09-23) — PC + App 登录错误提示统一规范
 
 **症状**: 用户反馈 "项目登录的时候账号密码错误时弹窗提示账号密码错误", 进一步反馈 "PC 端登录错误提示也优化一下"。排查发现两个 bug:

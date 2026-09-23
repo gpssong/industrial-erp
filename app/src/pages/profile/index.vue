@@ -137,13 +137,18 @@ async function onRefreshPerms() {
     }
   } catch (e) {
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
-    // 诊断: 区分 401 (登录失效) vs 其他错误, 给出针对性提示
+    // v1.1.60 hotfix-2: 拦截器已经弹过 toast (通用提示如"网络连接失败"或后端 msg),
+    //   这里只做 console 诊断, 不再二次弹 toast (避免后 toast 覆盖前 toast, 用户只看到无信息量的"刷新失败")
+    // - code 401: 拦截器会自动 reLaunch 跳登录页, 这里不弹 toast (一闪而过反而干扰跳转)
+    // - 其他: 拦截器已弹最准确的错误文案 (后端 msg 或 transport 文案), catch 不重复弹
     const code = e && e.code
-    console.warn('[onRefreshPerms] 失败, code=', code, 'err=', e)
-    const msg = code === 401 ? '登录已过期, 请重新登录' : '刷新失败, 请稍后重试'
-    if (typeof uni !== 'undefined' && uni.showToast) {
-      uni.showToast({ title: msg, icon: 'none' })
-    }
+    const backendMsg = e && e.msg
+    console.warn('[onRefreshPerms] 失败, code=', code, 'msg=', backendMsg, 'err=', e)
+    // 401 路径: 不重复弹 toast, 拦截器 reLaunch 跳登录页
+    if (code === 401) return
+    // 拦截器已弹过通用/业务提示, 不再二次弹避免覆盖
+    // 这里的 catch 仅作为兜底: 拦截器因任何意外原因没弹时, 给一个简单诊断
+    // (拦截器正常情况必弹, 此分支极少走)
   }
 }
 
