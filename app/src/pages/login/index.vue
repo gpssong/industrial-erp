@@ -118,7 +118,14 @@ async function onLogin() {
     navigateTo('/pages/dashboard/index')
   } catch (e) {
     console.error('[LOGIN] 登录失败:', e)
-    alert('登录失败: ' + (e.msg || e.message || JSON.stringify(e)))
+    // 优先用后端返回的 msg (e.g. "用户名或密码错误"), 没有则兜底 "账号或密码错误, 请重试"
+    const rawMsg = (e && (e.msg || e.message)) || ''
+    const friendly = rawMsg || '账号或密码错误, 请重试'
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: friendly, icon: 'none', duration: 2500 })
+    } else {
+      alert(friendly)
+    }
   }
 }
 </script>
