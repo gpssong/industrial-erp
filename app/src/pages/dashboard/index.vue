@@ -261,13 +261,30 @@ onMounted(async () => {
   // 老 APK 缓存里没 inventory:warning:list → warningVisible 永远 false → 库存预警区块不渲染,
   // 即使 PC 端已勾选权限且 /me 返回了新 perm.
   // 现在: /me 先写 storage, recompute* 再读, 命中即渲染.
+  //
+  // v1.1.55 hotfix 2026-09-21 晚: 多写一份 erp_app_permissions (从 appMenus 派生的纯 APP 端 perm 数组).
+  //   后端 selectPermsByUserId 不分端 (PC+APP 混合), erp_permissions 含 PC 端 perm.
+  //   例如 WAREHOUSE_MGR (仓管员) PC 端有 uncheck 但 APP 端无 uncheck, 混合数组会
+  //   让 App 端反审核按钮误显示. 详情页 canCheck/canUncheck 改用 getAppPermissions(),
+  //   这里派生并写 storage. 老 APK fallback 仍能工作 (getAppPermissions fallback 到 erp_menus 实时派生).
   let meResult = null
   try {
     const r = await api.me()
     meResult = r.data || r
     localStorage.setItem('erp_permissions', JSON.stringify(meResult.permissions || []))
     // App 端优先用 appMenus
-    localStorage.setItem('erp_menus', JSON.stringify(meResult.appMenus || meResult.menus || []))
+    const appMenus = meResult.appMenus || meResult.menus || []
+    localStorage.setItem('erp_menus', JSON.stringify(appMenus))
+    // v1.1.55 hotfix: 派生纯 APP 端 perm 数组 (从 appMenus.perms 逗号分隔展开)
+    const appPermSet = new Set()
+    for (const m of (Array.isArray(appMenus) ? appMenus : [])) {
+      if (!m.perms) continue
+      for (const p of String(m.perms).split(',')) {
+        const t = p.trim()
+        if (t) appPermSet.add(t)
+      }
+    }
+    localStorage.setItem('erp_app_permissions', JSON.stringify(Array.from(appPermSet)))
     localStorage.setItem('erp_user', JSON.stringify(meResult))
   } catch (e) { /* 忽略 — 不阻塞 UI (storage 还是老值, recompute 仍走老路径) */ }
 

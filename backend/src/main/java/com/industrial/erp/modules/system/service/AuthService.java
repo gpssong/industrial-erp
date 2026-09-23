@@ -154,7 +154,10 @@ public class AuthService {
                 if (dept != null) vo.setDeptName(dept.getDeptName());
             }
             vo.setRoles(userMapper.selectRoleCodesByUserId(user.getId()));
-            vo.setPermissions(userMapper.selectPermsByUserId(user.getId()));
+            // v1.1.55 hotfix-3 R9: 按请求 header X-Client-Type 分流 perm,
+            //   APP → 纯 APP perms (不含 PC uncheck 等), PC/缺省 → 混合 (向后兼容)
+            String clientType = resolveClientType(request);
+            vo.setPermissions(permsByClientType(user.getId(), clientType));
             // v1.0.10+: 分离 PC 和 App 菜单权限
             vo.setPcMenus(menuMapper.selectMenusByUserIdAndClient(user.getId(), "PC"));
             vo.setAppMenus(menuMapper.selectMenusByUserIdAndClient(user.getId(), "APP"));
@@ -256,7 +259,7 @@ public class AuthService {
         StpUtil.logout();
     }
 
-    public LoginVO currentUser() {
+    public LoginVO currentUser(HttpServletRequest request) {
         if (!StpUtil.isLogin()) throw BizException.of(401, "未登录");
         Long uid = Long.valueOf(StpUtil.getLoginId().toString());
         SysUser user = userMapper.selectById(uid);
@@ -264,7 +267,10 @@ public class AuthService {
         LoginVO vo = new LoginVO();
         BeanUtil.copyProperties(user, vo, "password");
         vo.setRoles(userMapper.selectRoleCodesByUserId(uid));
-        vo.setPermissions(userMapper.selectPermsByUserId(uid));
+        // v1.1.55 hotfix-3 R9: /me 也按 header X-Client-Type 分流 perm,
+        //   避免 App 端 /me 写 storage 时把 PC uncheck 灌进去
+        String clientType = resolveClientType(request);
+        vo.setPermissions(permsByClientType(uid, clientType));
         // v1.0.10+: 分离 PC/App 菜单
         vo.setPcMenus(menuMapper.selectMenusByUserIdAndClient(uid, "PC"));
         vo.setAppMenus(menuMapper.selectMenusByUserIdAndClient(uid, "APP"));
@@ -279,6 +285,32 @@ public class AuthService {
             vo.setClientScope("BOTH");
         }
         return vo;
+    }
+
+    /**
+     * v1.1.55 hotfix-3 R9: 从请求 header 解析客户端类型
+     * <p>App 端 axios 拦截器统一塞 X-Client-Type: APP, PC 端不塞 (默认 PC).
+     * <p>兼容历史: header 缺失/非法值时, 返回 null (由 permsByClientType 走混合分支)
+     */
+    private String resolveClientType(HttpServletRequest request) {
+        if (request == null) return null;
+        String h = request.getHeader("X-Client-Type");
+        if (h == null) return null;
+        h = h.trim().toUpperCase();
+        if ("APP".equals(h) || "PC".equals(h)) return h;
+        return null;
+    }
+
+    /**
+     * v1.1.55 hotfix-3 R9: 按客户端类型返回 perm 列表
+     * <p>APP/PC → 走 selectPermsByUserIdAndClient 严格过滤 (避免反审核 perm 串端)
+     * <p>null/其他 → 走 selectPermsByUserId 混合 (向后兼容无 header 的 PC 旧调用)
+     */
+    private List<String> permsByClientType(Long uid, String clientType) {
+        if ("APP".equals(clientType) || "PC".equals(clientType)) {
+            return menuMapper.selectPermsByUserIdAndClient(uid, clientType);
+        }
+        return userMapper.selectPermsByUserId(uid);
     }
 
     private void incrFail(String key) {

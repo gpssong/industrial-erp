@@ -37,12 +37,23 @@
     <div class="card" @click="onLogout" style="cursor:pointer;text-align:center">
       <span style="color:#c0392b">退出登录</span>
     </div>
+
+    <!-- 版本号 (v1.1.58+) — 单一信息源在 APP_VERSION, 升级时改一处即可 -->
+    <div class="version-info">
+      v{{ APP_VERSION }}
+    </div>
   </div>
 </template>
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { navigateTo } from '../../utils/nav.js'
 import { applyTabBar, isAdmin } from '../../utils/permission.js'
+
+// v1.1.58+: 单一版本号信息源
+//   升级 ERP 时只改这里, "我的" 页面自动展示当前版本
+//   同步: 打包脚本 scripts/build-app.sh 的 APK 文件名用 $(date +%Y%m%d) 不依赖此常量
+//   CLAUDE.md 顶部版本号靠人工同步
+const APP_VERSION = '1.1.58'
 
 const user = ref({})
 
@@ -103,6 +114,21 @@ async function onRefreshPerms() {
     // v1.0.10+: App 端优先用 appMenus
     persist('erp_menus', userObj.appMenus || userObj.menus || [])
     persist('erp_permissions', userObj.permissions || [])
+    // v1.1.58 hotfix: onRefreshPerms 必须也覆盖 erp_app_permissions!
+    //   否则 storage 残留老数据 (v1.1.55-1.1.57 时期派生的, 含已撤销的 uncheck perm),
+    //   getAppPermissions() 第 1 段优先读 erp_app_permissions 会一直返回老 perm,
+    //   导致按钮 (反审核/审核) 错误显示.
+    //   派生逻辑与 dashboard/index.vue onMounted L278-287 保持一致.
+    const appMenus = userObj.appMenus || userObj.menus || []
+    const appPermSet = new Set()
+    for (const m of (Array.isArray(appMenus) ? appMenus : [])) {
+      if (!m.perms) continue
+      for (const p of String(m.perms).split(',')) {
+        const t = p.trim()
+        if (t) appPermSet.add(t)
+      }
+    }
+    persist('erp_app_permissions', Array.from(appPermSet))
     // 重新渲染 tabBar
     applyTabBar()
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
@@ -135,4 +161,13 @@ onMounted(() => {
 .menu-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
 .menu-item:last-child { border-bottom: none; }
 .arrow { color: #ccc; font-size: 18px; }
+/* v1.1.58+: 版本号展示 (居中, 灰色小字, 不可点) */
+.version-info {
+  text-align: center;
+  color: #bbb;
+  font-size: 12px;
+  margin-top: 16px;
+  padding: 8px 0;
+  user-select: none;
+}
 </style>

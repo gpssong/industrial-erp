@@ -43,6 +43,17 @@
 -- ⚠️ MySQL 8 容器默认 latin1, 必须:
 --   docker exec -i erp-mysql mysql industrial_erp -uroot -p$PW \
 --     --default-character-set=utf8mb4 < 35_v155_uncheck_perm.sql
+--
+-- ⚠️⚠️⚠️ v1.1.55 hotfix 2026-09-21 晚 (sql/38 撤销 WAREHOUSE_MGR uncheck APP) ⚠️⚠️⚠️
+--   sql/35 第 2-3 段 ("有 check APP 补 uncheck APP") 对所有 check APP 角色自动补 uncheck,
+--   其中 WAREHOUSE_MGR (仓库主管) 业务上"可审核但不敢反审核", 但自动授权给补了.
+--   用户反馈: App 端销售出库详情显示了【反审核】按钮, 业务上仓管员不应有.
+--   修复: 跑 sql/38_v155_hotfix_revoke_warehouse_uncheck.sql 物理 DELETE
+--         WAREHOUSE_MGR 的 purchase:receipt:uncheck APP + sales:delivery:uncheck APP 两行.
+--   PC 端 uncheck 保留 (PC 业务流需要, 仓管员可通过 PC 反审核).
+--
+--   后续设计原则 (R7): sql/35 这种"自动补"策略仅适用于**6 个内置业务角色** (老板/超管/采购经理/销售经理/财务/生产主管),
+--   WAREHOUSE_MGR 这类"可正向不能反向"角色应**手动**走 PC 端 Role.vue 勾选反审核 APP. 不再依赖 sql 触发器自动补.
 -- =====================================================================
 
 USE `industrial_erp`;

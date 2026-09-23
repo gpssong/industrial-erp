@@ -2,6 +2,139 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.59 (2026-09-23) — R11 终极根因修复: v-if 函数引用永远 truthy
+
+**症状**: v1.1.58 hotfix APK 装到 gpssong1 (WAREHOUSE_MGR + FINANCE) 手机, 进 RKP202609220004 详情, 底部**仍显示【反审核】黄色按钮**。所有数据层面 (后端 `/auth/me` 返回 12 perm 不含 uncheck + DB 干净 + storage 全清干净 + APK chunk MD5 匹配) 都已修复, 但按钮**仍然显示**。
+
+**根因 (R11)**: Vue 3 编译器对 v-if 表达式里的 setup 局部函数引用不会自动包 `()` 调用, 因为 setup 里 `function canCheck(){}` 是局部声明, render 通过闭包访问而非 reactive proxy, 编译器按字面表达式编译成 closure 引用。
+
+```js
+// 源码 (R11 bug):
+v-if="(order.billStatus==='DRAFT' && canCheck) || (order.billStatus==='CHECKED' && canUncheck)"
+
+// 编译产物 (Vite ES module minified):
+"DRAFT"===billStatus && D || "CHECKED"===billStatus && A
+// D/A 是函数引用 (closure), JS 里永远 truthy, v-if 永远渲染
+```
+
+**修复**: 显式调用 `canCheck()` / `canUncheck()`:
+
+```vue
+<!-- 改后 (R11 fix): -->
+<view v-if="(order.billStatus==='DRAFT' && canCheck()) || (order.billStatus==='CHECKED' && canUncheck())">
+```
+
+编译产物变成 `"DRAFT"===billStatus && (b()...) || "CHECKED"===billStatus && (h()...)`, 真正调用函数, 函数返回 false 时 v-if 正确不渲染。
+
+**部署**:
+- 改 2 文件: `app/src/pages/purchase/receipt-detail.vue` L88 + `app/src/pages/sales/delivery-detail.vue` L88
+- `bash scripts/build-app.sh` → APK MD5 `c02bbc8f30b0f8050c35df6b8c760682`, 4369473 字节
+- 输出: `/Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20260923.apk`
+- 不动: 后端 jar / pc-web dist / DB / SQL (纯前端编译产物修复)
+
+**端到端验证 (2026-09-23, CDP)**: WebView devtools socket (绕过 Origin header raw websocket) 实测 — 新 APK 装上后 `uncheckBtn=0`, action-card 不渲染 ✅
+
+**R11 设计原则 (写入 CLAUDE.md)**:
+- Vue 3 v-if 直接引用 setup 函数 → 永远 truthy
+- 永远用 `fn()` 显式调用, 或改用 `computed(() => ...)`
+- 这个 BUG 与 storage / 后端 / DB / chunk 全部无关, 是 Vue 3 编译器边界 case
+- 排查按钮误显示问题: 1) CDP 读 DOM; 2) grep 编译产物 v-if; 3) 看是否函数引用被当成 truthy
+
+### v1.1.55 hotfix-3 (2026-09-22) — R9 后端按 X-Client-Type 分流 permissions + sql/39 撤 WAREHOUSE_MGR PC uncheck
+
+**症状**: hotfix-2 (前端 getAppPermissions 派生) 部署后, gpssong1 (WAREHOUSE_MGR) 仍能通过老 APK storage 残留绕过, App 端入库单/出库单详情显示【反审核】按钮; 同时用户报告 PC 端反审核按钮也显示, 即使 popup 里"采购入库反审核/销售出库反审核" UNCHECKED。
+
+**根因** (Phase 2 调研 + live API 验证):
+1. 后端 `selectPermsByUserId` 不过滤 client_type, 返回 PC+APP 混合 111 个 perm; WAREHOUSE_MGR 因 sql/35 1.3 cross-join 绑了 PC `:uncheck` 授权
+2. App 端 `getAppPermissions()` fallback 链脆弱 (老 APK storage 残留 → fallback 混合 perm → 按钮误显)
+3. PC 端 `userStore.hasPerm` 查混合数组 → PC uncheck 命中 → 按钮也误显; popup 取消勾选不同步 sys_role_menu 行
+
+**修复** (R9 后端彻底按端分流 + sql/39 物理撤 PC uncheck):
+1. **后端 `SysMenuMapper.xml` + `SysMenuMapper.java`** 新增 `selectPermsByUserIdAndClient(userId, clientType)` — 复用 `rm.client_type IN ('BOTH', #{clientType})` 过滤
+2. **后端 `AuthService.java`** 抽 `resolveClientType` + `permsByClientType` 工具方法, login + currentUser 都按 header 选 SQL
+3. **后端 `AuthController.java`** `/me` 接 HttpServletRequest 透传 header
+4. **App 端 `src/api/index.js`** 2 处加 `header['X-Client-Type'] = 'APP'` (uni.request + fetch)
+5. **`sql/39_v155_hotfix3_revoke_warehouse_uncheck_pc.sql`** 物理 DELETE WAREHOUSE_MGR PC `:uncheck` 两行, 保留 5 其他内置角色
+
+**live 验证** (home 192.168.0.150:8080, gpssong1 登录):
+| 调用 | perms 数 | 含 `:uncheck` |
+|---|---|---|
+| `/me` 不带 header (混合) | 109 | 无 ✓ |
+| `/me` 带 `X-Client-Type: APP` | **12** | 无 ✓ |
+| `/me` 带 `X-Client-Type: PC` | 108 | 无 ✓ |
+
+**R9 设计原则**: 后端返回的 `permissions` 必须按请求方端别分流 (`APP`/`PC`), 不能 PC+APP 混合给; 前端任何 storage 派生只能作 fallback, 不能作唯一来源 (受 APK 升级/重装/老版残留影响); 后端分流触发点 = 请求 header (X-Client-Type), 不依赖用户 clientScope。
+
+### v1.1.55 hotfix-2 (2026-09-21 晚) — App 端 canCheck/canUncheck 走 APP 端 perm (非 PC+APP 混合)
+
+**症状**: sql/38 撤销 WAREHOUSE_MGR uncheck APP 后, gpssong1 退出 App 重登, **App 端销售出库详情仍显示【反审核】按钮**。
+
+**根因 — 后端 selectPermsByUserId 不分端**:
+```sql
+-- SysUserMapper.xml selectPermsByUserId
+SELECT DISTINCT m.perms
+FROM sys_user_role ur
+INNER JOIN sys_role_menu rm ON rm.role_id = ur.role_id
+INNER JOIN sys_menu m ON m.id = rm.menu_id AND m.deleted = 0
+WHERE ur.user_id = #{userId} AND m.perms IS NOT NULL AND m.perms != ''
+```
+**没有 `WHERE rm.client_type='APP'` 过滤**, 返回 PC+APP 混合 perm. sql/38 撤销了 APP 端 uncheck, 但 PC 端 uncheck 仍绑 WAREHOUSE_MGR → gpssong1 的 perm 数组里**仍然有** `sales:delivery:uncheck`.
+
+App 端 `canUncheck() = getPermissions().includes('sales:delivery:uncheck')` 命中 → 按钮误显示。
+
+**修复 — 前端从 erp_menus (按 APP 严格过滤) 派生纯 APP 端 perm 数组**:
+1. **`app/src/utils/permission.js`** 新增 `getAppPermissions()` 函数, 从 `erp_menus` (后端 `selectMenusByUserIdAndClient(uid, "APP")` 返回) 的每条菜单 `perms` 字段(逗号分隔)展开。fallback 链: `erp_app_permissions` storage → `erp_menus` 实时派生 → `erp_permissions` (兼容老 APK)。
+2. **`app/src/pages/dashboard/index.vue` onMounted** 多写一份 `erp_app_permissions` storage: `/me` 响应拿到 `meResult.appMenus`, 遍历 `perms` 字段(逗号分隔)→ 去重 → 写入 `localStorage.setItem('erp_app_permissions', ...)`。
+3. **`app/src/pages/sales/delivery-detail.vue` + `purchase/receipt-detail.vue`** `canCheck()` + `canUncheck()` 改用 `getAppPermissions()` 而非 `getPermissions()`。
+
+**部署**: APK 重打 MD5 `8ad88f01d723a8264b23dfae130b3241` (4369487 字节, home + 飞牛双站部署)。
+
+**不动的部分**:
+- PC 端 `userStore.hasPerm` 仍走 `erp_permissions` 混合数组 — 业务上 PC 端 perm 检查不区分端(只要有权限就放行), 这正是 PC 端 uncheck 业务保留的目的
+- 后端 SQL 不动: 改 `selectPermsByUserId` 加 `client_type` 过滤会破坏 PC 端 `hasPerm` 业务逻辑(PC 端要查全部 perm 包括 PC 专用)
+
+**经验 (R8)**:
+- 后端 `selectPermsByUserId` 不分端是**历史设计** (返回全部 perm 给前端, 前端按需自取)
+- 优点: PC + APP 一套 API, PC 端 hasPerm 业务不受影响
+- 缺点: App 端**必须**用 `erp_menus` (按 client_type 严格过滤) 派生 perm 数组, 不能直接用 `erp_permissions`
+- 后续任何 App 端按钮显隐 / 页面 perm 检查都应走 `getAppPermissions()` (App 端专用), 不要直接调 `getPermissions()` (混合端)
+
+**文件清单**:
+- `app/src/utils/permission.js` (新增 `getAppPermissions()` 函数, 110 行内)
+- `app/src/pages/dashboard/index.vue` (onMounted 多写 `erp_app_permissions` storage)
+- `app/src/pages/sales/delivery-detail.vue` + `app/src/pages/purchase/receipt-detail.vue` (canCheck/canUncheck 改 `getAppPermissions()`)
+- APK 重打 MD5 `8ad88f01d723a8264b23dfae130b3241` 双站部署
+- 后端 / pc-web / DB **不动**
+
+### v1.1.55 hotfix (2026-09-21 晚) — 撤销 WAREHOUSE_MGR 自动 uncheck APP
+
+**症状**: gpssong1 (WAREHOUSE_MGR) 在 PC 端分配权限弹窗里**没勾**「采购入库反审核」「销售出库反审核」, 但 App 端销售出库详情 (CKP202609210003 已审核) **显示了黄色【反审核】按钮**。用户判断: 这是 BUG, 没勾就不该出现按钮。
+
+**根因**:
+- sql/35 第 2-3 段 "有 check APP 补 uncheck APP" 自动授权策略, 对 WAREHOUSE_MGR (仓库主管) **业务不合理** — 仓管员"能审核 ≠ 敢反审核" (反审核回退库存/AP/AR, 高风险)
+- 这条策略对 6 个内置业务角色 (SUPER_ADMIN/PURCHASE_MGR/SALES_MGR/FINANCE/PRODUCTION_MGR) 业务合理, 但 WAREHOUSE_MGR 不该自动给
+- PC 端 Role.vue 显示的勾选状态反映 sys_role_menu 实际绑定, 用户从未真点过保存, 系统维持 sql/35 自动授权结果
+
+**修复**:
+1. **sql/37_v155_hotfix_uncheck_app_full.sql** — 全量触发器给所有"有 check APP 没 uncheck APP"角色补 uncheck APP (兼容历史漏配, 比如 sql/35 第一次跑时 uncheck F 类型 sys_menu 行没 seed 出来的情况)
+2. **sql/38_v155_hotfix_revoke_warehouse_uncheck.sql** — 物理 DELETE WAREHOUSE_MGR 的 `purchase:receipt:uncheck APP` + `sales:delivery:uncheck APP` 两行 (F 类型 2090345792472715355 + B 类型 6050, 飞牛上两行都有), PC 端 uncheck 保留
+3. 部署: home + 飞牛 双站完成, 校验 WAREHOUSE_MGR 现在 `pur_uncheck_app=0, sal_uncheck_app=0, pur_uncheck_pc=1, sal_uncheck_pc=1`
+4. 用户操作: gpssong1 **退出 App 重登一次** → App 端反审核按钮消失 (Sa-Token session 缓存的 perm 数组从 DB 重新加载)
+5. **PC 端不变** — uncheck 仍绑, 业务上仓库主管可通过 PC 反审核 (PC 业务流需要)
+
+**经验 (R7)**:
+- **自动补授权策略只适用于 6 个内置业务角色**, 这些角色业务上"能审核就能反审核"
+- WAREHOUSE_MGR 这类"可正向不能反向"角色应**手动**走 PC 端 Role.vue 勾选 uncheck APP, **不要依赖 sql 触发器自动补**
+- 后续新增反向操作 perm (红冲/补差/撤销), 拆分原则: **业务上"能正向 ≠ 敢反向"的角色** 必须**手动**勾选 uncheck, 任何自动补授权都会变成 BUG
+- 不要写 `INSERT IGNORE` 让它自动扩散授权范围 — 业务权限应显式授予, 不应隐式扩散
+
+**文件清单**:
+- `sql/37_v155_hotfix_uncheck_app_full.sql` (新增, 全量触发器补 uncheck APP)
+- `sql/38_v155_hotfix_revoke_warehouse_uncheck.sql` (新增, DELETE WAREHOUSE_MGR uncheck APP)
+- `sql/35_v155_uncheck_perm.sql` (顶部加 hotfix 警告 + R7 原则)
+- `docs/CHANGELOG.md` + `CLAUDE.md` + 记忆 `erp-app-audit-perm.md` (更新)
+- 后端 / App / pc-web **不动** — 纯 SQL 修复
+
 ### v1.1.56 (2026-09-21) — 采购入库单查询独立 perm (`purchase:receipt:query`) 修复 App 端入口缺失
 
 **症状**: gpssong1 (WAREHOUSE_MGR) 在 PC 端勾选了「采购入库单查询」App 菜单权限, 但 App 端工作台没有「采购入库单」入口。销售侧对称的「销售出库单查询」入口正常。
