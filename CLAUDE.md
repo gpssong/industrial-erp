@@ -1,14 +1,83 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.60 (App 端物理 back 区分栈深度 + 工作台吞掉事件 — 详情页按 back 先 navigateBack 回列表(栈深>=3) 或 switchTab 工作台(栈深=2), 工作台页按 back 不退出 App 而是吞掉事件; 改 `app/src/utils/nav.js` L34-104 `onAppBack` 函数, 替换 v1.1.54+ 粗暴"任意非工作台都 switchTab 工作台"的逻辑; APK MD5 `c80a208869199d3e165c809db5b3b775`)
+**当前版本**: v1.1.60 hotfix-1 (PC + App 登录错误提示统一规范 — PC `pc-web/src/views/Login.vue` L130-137 catch 加 `ElMessage.error(friendly)`, 修复 v1.1.31+ request.js 拦截器不再弹后 PC 端 catch 完全空转的 bug; App `app/src/pages/login/index.vue` L119-129 catch 改 `uni.showToast`, 去掉 `alert("登录失败: ...")` 突兀对话; 两端优先展示后端 `AuthService` 返回的 msg ("用户名或密码错误"), 兜底 "账号或密码错误, 请重试"; PC dist 已部署到 home NAS, 线上 `Login-CktUqvzO.js` MD5 `4361c418aa3293428292ba650e52ca01` 与本地 dist 一致)
 
-**前序版本**: v1.1.59 (R11 终极根因修复 — `app/src/pages/{purchase/sales}/{receipt,delivery}-detail.vue` v-if 表达式 `canCheck`/`canUncheck` 改为显式 `canCheck()`/`canUncheck()` 调用, 解决 Vue 3 编译器把 setup 函数引用编译成 closure 而非函数调用导致 v-if 永远 truthy 的 bug; APK MD5 `c02bbc8f30b0f8050c35df6b8c760682`, 用户装新版 APK 后反审核按钮彻底消失, 仅看 DB / 后端 / storage 数据无法发现这个 BUG)
+**前序版本**: v1.1.60 (App 端物理 back 区分栈深度 + 工作台吞掉事件 — 详情页按 back 先 navigateBack 回列表(栈深>=3) 或 switchTab 工作台(栈深=2), 工作台页按 back 不退出 App 而是吞掉事件; 改 `app/src/utils/nav.js` L34-104 `onAppBack` 函数, 替换 v1.1.54+ 粗暴"任意非工作台都 switchTab 工作台"的逻辑; APK MD5 `c80a208869199d3e165c809db5b3b775`)
 
 **再前序**: v1.1.56 hotfix-1 (R10 sys_menu.perms 无 UNIQUE 索引, sql/35 `INSERT IGNORE` 时未拦截同 perm 旧 B 行, 导致 v1.1.55 后 PC 弹窗"采购入库反审核"出现 2 次: id=6050 旧 B 类型 + id=...5349 新 F 类型; sql/42 数据级清理保留 F 行(权威 perm 载体) + 删除 B 行 + sys_role_menu.menu_id 迁移引用. 设计原则 R10: sys_menu.perms 必须有 UNIQUE 索引, 后续 seed perm 行必须先 SELECT 查重, 不能依赖 INSERT IGNORE 兜底; sql/42 仅清理 user 截图定位的 uncheck 行, 其他 19 行 B 类型(check/edit/delete/print) 待 v1.1.57+ 单独审计)
 
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.60 hotfix-1 (2026-09-23) — PC + App 登录错误提示统一规范
+
+**症状**: 用户反馈 "项目登录的时候账号密码错误时弹窗提示账号密码错误", 进一步反馈 "PC 端登录错误提示也优化一下"。排查发现:
+- App 端 `app/src/pages/login/index.vue` L121 用 `alert('登录失败: ' + ...)` 原生对话, 突兀 + 冗余 "登录失败:" 前缀
+- PC 端 `pc-web/src/views/Login.vue` L130-136 catch **完全没弹任何提示**! 注释说 "业务错误由 request.js 拦截器弹 ElMessage.error", 但 `pc-web/src/utils/request.js` v1.1.31 设计已改成 **不在拦截器弹, 让组件 catch 统一弹**, Login.vue 没跟着改, 导致 catch 块完全空转, 用户输入错误密码只看到 loading 消失, 没有任何反馈
+
+**修复 — 两端统一**:
+| 端 | 文件 | 弹窗方式 | 文案 |
+|----|------|---------|------|
+| App | `app/src/pages/login/index.vue` L119-129 | `uni.showToast` 优先, H5 退化为 `alert` | 后端 msg → 兜底 "账号或密码错误, 请重试" |
+| PC  | `pc-web/src/views/Login.vue` L130-137 | `ElMessage.error` | 后端 msg → 兜底 "账号或密码错误, 请重试" |
+
+**PC 端修复代码** (关键: 补回 v1.1.31 拦截器改造时漏掉的 catch 弹窗):
+```js
+} catch (e) {
+  if (import.meta.env.DEV) console.error('[LOGIN_ERR]', e)
+  // v1.1.31+: request.js 不再拦截器弹 ElMessage, 由组件 catch 统一弹
+  // 优先用后端返回的 msg (e.g. "用户名或密码错误"), 兜底 "账号或密码错误, 请重试"
+  const rawMsg = (e && (e.msg || e.message)) || ''
+  const friendly = rawMsg || '账号或密码错误, 请重试'
+  ElMessage.error(friendly)
+}
+```
+
+**App 端修复代码**:
+```js
+} catch (e) {
+  console.error('[LOGIN] 登录失败:', e)
+  const rawMsg = (e && (e.msg || e.message)) || ''
+  const friendly = rawMsg || '账号或密码错误, 请重试'
+  if (typeof uni !== 'undefined' && uni.showToast) {
+    uni.showToast({ title: friendly, icon: 'none', duration: 2500 })
+  } else {
+    alert(friendly)
+  }
+}
+```
+
+**后端文案来源** (`com.industrial.erp.modules.system.service.AuthService` BizException 抛出):
+- L106: "登录失败次数过多, 请5分钟后再试"
+- L112: "用户名或密码错误"
+- L115: "账号已停用"
+- L119: "用户名或密码错误"
+
+**部署**:
+- 改 2 文件: `app/src/pages/login/index.vue` + `pc-web/src/views/Login.vue`
+- `cd pc-web && npm run build` → dist/assets/Login-CktUqvzO.js (4311 字节)
+- 部署 PC: `python3 base64` 流式上传 tar 到 NAS `/tmp/staging/` → sudo 解压 → `docker restart erp-pc-web`
+- 部署 App: 待触发 `bash scripts/build-app.sh` (代码已就位, APK 还没重打)
+- 不动: 后端 jar / DB / SQL (前端交互层修复)
+
+**端到端验证 (2026-09-23)**:
+- ✅ PC dist 编译成功, Login chunk 含 "账号或密码错误" 文案 (grep -c = 1)
+- ✅ PC 部署后线上 `http://home.93gushi.com:8088/assets/Login-CktUqvzO.js` MD5 `4361c418aa3293428292ba650e52ca01` = 本地 dist (完全一致)
+- ✅ PC 用户体验: 输入错误密码 → Element Plus 红色错误提示 "用户名或密码错误"
+- ⏸ App 端: 代码已就位, 待编译 APK + 装机测试
+
+**踩坑** (home NAS pc-web dist 部署):
+- gpssong 密码 `19850225aB` (vs 飞牛 `850225sonG` 别混!)
+- gpssong `/tmp` 只读 + SFTP subsystem 被禁, 大文件传输需用 Python Popen + base64 + ssh -T + sudo -S
+- fail2ban 60-90s 解锁, 5 次错密码立即锁
+- 完整步骤见 memory `erp-home-nas-pc-web-deploy-pitfalls.md`
+
+**设计原则 (R13 — 写入设计原则)**:
+- **PC + App 错误提示必须后端 msg 优先**: 业务错误码 (`code: 400`) 通常携带用户可读 msg, 不要用前端模板拼 "登录失败: <msg>" 冗余前缀
+- **PC 端 `request.js` v1.1.31+ 设计**: 拦截器不弹 ElMessage, 让组件 catch 统一弹 (避免双弹); **任何组件 catch 块必须独立处理错误展示**, 不能假设拦截器会弹
+- **App 端用 `uni.showToast`**: 非阻塞吐司优于 `alert`, 符合移动 App 交互惯例; H5 退化为 `alert` 兜底
+- **错误文案兜底**: 后端 msg 为空时给 "账号或密码错误, 请重试" 这类明确提示, 不要给 "操作失败" 这种空话
+
 ### v1.1.60 (2026-09-23) — App 端物理 back 区分栈深度 + 工作台吞掉事件
 
 **症状**: v1.1.54+ 全局 back 拦截 (`app/src/utils/nav.js`) 行为粗暴: 任何非工作台页面按物理 back 都直接 `uni.switchTab('/pages/dashboard/index')`, **跳过中间栈**; 工作台页按物理 back 直接 `return false` 让系统**退出 App**。用户反馈: "在非工作台页面点击返回时回到工作台页面, 而不是直接退出 App" — 想"先回列表再回工作台", 工作台按 back 不应退出。

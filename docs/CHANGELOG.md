@@ -2,6 +2,75 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.60 hotfix-1 (2026-09-23) — PC + App 登录错误提示统一规范
+
+**症状**: 用户反馈 "项目登录的时候账号密码错误时弹窗提示账号密码错误", 进一步反馈 "PC 端登录错误提示也优化一下"。排查发现两个 bug:
+- **App 端** `app/src/pages/login/index.vue` L121 用 `alert('登录失败: ' + ...)` 原生对话, 突兀 + 冗余 "登录失败:" 前缀
+- **PC 端** `pc-web/src/views/Login.vue` L130-136 catch **完全没弹任何提示**! 注释说 "业务错误由 request.js 拦截器弹 ElMessage.error", 但 `pc-web/src/utils/request.js` v1.1.31+ 已改成 **不在拦截器弹, 让组件 catch 统一弹**, Login.vue 没跟着改, 导致 catch 块完全空转, 用户输入错误密码只看到 loading 消失, 没有任何反馈
+
+**修复 — 两端统一规范**:
+
+| 端 | 文件 | 弹窗方式 | 文案来源 |
+|----|------|---------|---------|
+| App | `app/src/pages/login/index.vue` L119-129 | `uni.showToast` 优先, H5 退化为 `alert` | 后端 msg → 兜底 "账号或密码错误, 请重试" |
+| PC  | `pc-web/src/views/Login.vue` L130-137 | `ElMessage.error` | 后端 msg → 兜底 "账号或密码错误, 请重试" |
+
+**PC 端修复** (关键: 补回 v1.1.31 拦截器改造时漏掉的 catch 弹窗):
+```js
+} catch (e) {
+  if (import.meta.env.DEV) console.error('[LOGIN_ERR]', e)
+  // v1.1.31+: request.js 不再拦截器弹 ElMessage, 由组件 catch 统一弹
+  const rawMsg = (e && (e.msg || e.message)) || ''
+  const friendly = rawMsg || '账号或密码错误, 请重试'
+  ElMessage.error(friendly)
+}
+```
+
+**App 端修复**:
+```js
+} catch (e) {
+  console.error('[LOGIN] 登录失败:', e)
+  const rawMsg = (e && (e.msg || e.message)) || ''
+  const friendly = rawMsg || '账号或密码错误, 请重试'
+  if (typeof uni !== 'undefined' && uni.showToast) {
+    uni.showToast({ title: friendly, icon: 'none', duration: 2500 })
+  } else {
+    alert(friendly)
+  }
+}
+```
+
+**后端文案来源** (`com.industrial.erp.modules.system.service.AuthService` BizException 抛出):
+- L106: "登录失败次数过多, 请5分钟后再试"
+- L112: "用户名或密码错误"
+- L115: "账号已停用"
+- L119: "用户名或密码错误"
+
+**部署**:
+- 改 2 文件: `app/src/pages/login/index.vue` + `pc-web/src/views/Login.vue`
+- `cd pc-web && npm run build` → dist/assets/Login-CktUqvzO.js (4311 字节)
+- PC 部署: Python Popen + base64 + ssh -T + sudo -S 流式传 tar 到 NAS `/tmp/staging/` → sudo 解压到 `/tmp/pc-web-new` → `chown 1000:1000` → `docker restart erp-pc-web`
+- App 部署: 待触发 `bash scripts/build-app.sh` (代码已就位, APK 还没重打)
+- 不动: 后端 jar / DB / SQL (前端交互层修复)
+
+**端到端验证 (2026-09-23)**:
+- ✅ PC dist 编译成功, Login chunk 含 "账号或密码错误" 文案 (`grep -c = 1`)
+- ✅ PC 部署后线上 `http://home.93gushi.com:8088/assets/Login-CktUqvzO.js` MD5 `4361c418aa3293428292ba650e52ca01` = 本地 dist (完全一致)
+- ✅ PC 用户体验: 输入错误密码 → Element Plus 红色错误提示 "用户名或密码错误"
+- ⏸ App 端: 代码已就位, 待编译 APK + 装机测试
+
+**设计原则 (R13)**:
+- **错误提示必须后端 msg 优先**: 业务错误码 (`code: 400`) 通常携带用户可读 msg, 不要用前端模板拼 "登录失败: <msg>" 冗余前缀
+- **PC 端 `request.js` v1.1.31+ 设计**: 拦截器不弹 ElMessage, 让组件 catch 统一弹 (避免双弹); **任何组件 catch 块必须独立处理错误展示**, 不能假设拦截器会弹
+- **App 端用 `uni.showToast`**: 非阻塞吐司优于 `alert`, 符合移动 App 交互惯例; H5 退化为 `alert` 兜底
+- **错误文案兜底**: 后端 msg 为空时给 "账号或密码错误, 请重试" 这类明确提示, 不要给 "操作失败" 这种空话
+
+**踩坑 (home NAS pc-web dist 部署)**:
+- gpssong 密码 `19850225aB` (vs 飞牛 `850225sonG` 别混!)
+- gpssong `/tmp` 只读 + SFTP subsystem 被禁, 大文件传输需用 Python Popen + base64 + ssh -T + sudo -S
+- fail2ban 60-90s 解锁, 5 次错密码立即锁
+- 完整步骤见 memory `erp-home-nas-pc-web-deploy-pitfalls.md`
+
 ### v1.1.60 (2026-09-23) — App 端物理 back 区分栈深度 + 工作台吞掉事件
 
 **症状**: v1.1.54+ 全局 back 拦截 (`app/src/utils/nav.js`) 行为粗暴: 任何非工作台页面按物理 back 都直接 `uni.switchTab('/pages/dashboard/index')` **跳过中间栈**; 工作台页按物理 back 直接 `return false` 让系统**退出 App**。用户反馈: "在非工作台页面点击返回时回到工作台页面, 而不是直接退出 App"。

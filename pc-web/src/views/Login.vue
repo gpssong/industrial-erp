@@ -130,7 +130,11 @@ async function onLogin() {
   } catch (e) {
     // P1-5: 生产环境不打印完整 AxiosError (含请求体 = 登录用户名密码)
     if (import.meta.env.DEV) console.error('[LOGIN_ERR]', e)
-    // 业务错误由 request.js 拦截器弹 ElMessage.error, 此处无需重复
+    // v1.1.31+: request.js 不再拦截器弹 ElMessage, 由组件 catch 统一弹
+    // 优先用后端返回的 msg (e.g. "用户名或密码错误"), 兜底 "账号或密码错误, 请重试"
+    const rawMsg = (e && (e.msg || e.message)) || ''
+    const friendly = rawMsg || '账号或密码错误, 请重试'
+    ElMessage.error(friendly)
   } finally {
     loading.value = false
   }
