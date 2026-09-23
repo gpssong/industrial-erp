@@ -75,6 +75,18 @@ async function onLogin() {
     // v1.0.10+: 优先使用 appMenus, 兼容旧版 menus 字段
     persist('erp_menus', r.appMenus || r.menus || [])
     persist('erp_client_scope', r.clientScope || 'BOTH')
+    // v1.1.58 hotfix: 登录时也写 erp_app_permissions, 避免 v1.1.55-1.1.57 老 APK 覆盖升级后
+    //   storage 残留老 uncheck perm, 导致反审核按钮误显示 (与 dashboard/index.vue L278-287 同模式)
+    const _appMenus = r.appMenus || r.menus || []
+    const _appPermSet = new Set()
+    for (const _m of (Array.isArray(_appMenus) ? _appMenus : [])) {
+      if (!_m.perms) continue
+      for (const _p of String(_m.perms).split(',')) {
+        const _t = _p.trim()
+        if (_t) _appPermSet.add(_t)
+      }
+    }
+    persist('erp_app_permissions', Array.from(_appPermSet))
 
     // v1.0.10+: clientScope 检查 — 如果角色被限制为仅 PC, 不允许 App 登录
     const scope = r.clientScope || 'BOTH'
@@ -91,6 +103,17 @@ async function onLogin() {
       // App 端: /me 也取 appMenus
       persist('erp_menus', userObj.appMenus || userObj.menus || r.appMenus || r.menus || [])
       persist('erp_permissions', userObj.permissions || r.permissions || [])
+      // v1.1.58 hotfix: /me 后再覆盖一次 erp_app_permissions (跟 dashboard / profile onRefreshPerms 一致)
+      const _appMenus2 = userObj.appMenus || userObj.menus || r.appMenus || r.menus || []
+      const _appPermSet2 = new Set()
+      for (const _m of (Array.isArray(_appMenus2) ? _appMenus2 : [])) {
+        if (!_m.perms) continue
+        for (const _p of String(_m.perms).split(',')) {
+          const _t = _p.trim()
+          if (_t) _appPermSet2.add(_t)
+        }
+      }
+      persist('erp_app_permissions', Array.from(_appPermSet2))
     } catch (e) { /* 忽略, 使用登录返回数据 */ }
     navigateTo('/pages/dashboard/index')
   } catch (e) {

@@ -76,17 +76,24 @@
           <!-- v1.1.12+: check-strictly=true 关闭父子联动, 只允许勾叶子 (按钮/功能项)
                原 bug: 默认联动 + 父目录节点写入 sys_role_menu → 再次打开父目录联动子按钮全部 checked
                这里把父目录 (menuType='M') 当纯容器, 不参与勾选状态 -->
+          <!-- v1.1.56+ B: 默认只展开一级 (9 个 root 目录), 二级业务目录按需点击 checkbox 旁展开箭头展开.
+               原 default-expand-all=true 在角色授权页全展开 ~95 节点, 看着极乱 -->
           <el-tree ref="pcMenuTreeRef" :data="allMenus" node-key="id" show-checkbox
             check-strictly
-            :props="{ label: 'menuName', children: 'children', disabled: 'disabled' }" default-expand-all
+            :props="{ label: 'menuName', children: 'children', disabled: 'disabled' }"
+            :default-expanded-keys="defaultExpanded"
+            :expand-on-click-node="false"
             style="max-height: 400px; overflow-y: auto;">
           </el-tree>
         </el-tab-pane>
         <el-tab-pane label="App端菜单权限" name="appMenu">
           <!-- v1.1.12+: check-strictly + 父分组节点 disabled, 防止父被勾选导致子联动误勾 -->
+          <!-- v1.1.56+ B: App 端 Tab 同 PC 端, 默认只展开一级 (商品管理/采购管理/销售管理/库存管理/生产管理/报表中心) -->
           <el-tree ref="appMenuTreeRef" :data="appMenus" node-key="id" show-checkbox
             check-strictly
-            :props="{ label: 'menuName', children: 'children', disabled: 'disabled' }" default-expand-all
+            :props="{ label: 'menuName', children: 'children', disabled: 'disabled' }"
+            :default-expanded-keys="defaultExpanded"
+            :expand-on-click-node="false"
             style="max-height: 400px; overflow-y: auto;">
           </el-tree>
         </el-tab-pane>
@@ -188,6 +195,9 @@ const selectedUserIds = ref([])
 const allMenus = ref([])
 const appMenus = ref([])
 const allUsers = ref([])
+// v1.1.56+ B: 默认展开 9 个 root 一级目录 (工作台/系统管理/基础资料/采购管理/销售管理/库存管理/生产管理/财务/报表中心)
+//   二级业务目录 (采购入库/销售出库/库存预警等) 默认折叠, 弹窗看着清爽
+const defaultExpanded = ref([1, 2, 3, 4, 5, 6, 7, 8, 9])
 
 function loadData() {
   loading.value = true

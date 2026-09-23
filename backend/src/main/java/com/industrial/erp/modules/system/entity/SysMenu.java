@@ -29,8 +29,11 @@ public class SysMenu {
      * (前端 dashboard.vue 按此字段决定是否调用 /report/dashboard 接口)
      */
     private Integer dashboardPerm;
-    /** v1.0.10+: 角色-菜单关联的 client_type (来自 sys_role_menu, 非主表列) */
-    @TableField(exist = false)
+    /**
+     * v1.1.56+ sys_menu 端别: BOTH/PC/APP. 菜单定义本身的归属端, 与 sys_role_menu.client_type
+     * 同语义但表达"这条菜单应该在哪个端可见", 用于 Role.vue PC 端弹窗过滤.
+     * (默认 BOTH, sql/41 v158 引入该列, 飞鹅菜单例外回填 PC)
+     */
     private String clientType;
     @TableField(fill = FieldFill.INSERT)
 

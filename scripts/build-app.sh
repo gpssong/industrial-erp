@@ -1,13 +1,16 @@
 #!/bin/bash
 # ============================================================
 # v1.1.49: 一键重新打包 ERP App APK
+# v1.1.56+: 默认输出路径改为飞牛同步 Mac 同步盘
+#           /Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/
+#           (用户 2026-09-22 指定, 替代原 Documents 路径)
 #
 # 背景: v1.1.48 踩坑 — APK 内嵌 H5 资源陈旧 (8月31日), 代码早写了
 #        await api.warningList() 但 App 用户看不到. 原因: cap sync + assembleDebug
 #        漏了任何一步, APK 就是旧的. 这个脚本把全流程固化.
 #
 # 用法: ./scripts/build-app.sh [输出 APK 路径]
-# 默认输出: /Users/tongban/Documents/根据前端开发erp 2/erp-app-$(date +%Y%m%d).apk
+# 默认输出: /Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-$(date +%Y%m%d).apk
 # 也输出到: ~/Desktop/erp-app-$(date +%Y%m%d).apk
 # ============================================================
 set -euo pipefail
@@ -15,8 +18,9 @@ set -euo pipefail
 cd "$(dirname "$0")/../app"
 
 DATE=$(date +%Y%m%d)
-DEFAULT_DEST_DIR="/Users/tongban/Documents/根据前端开发erp 2"
-DEST="${1:-$DEFAULT_DEST_DIR/erp-app-$DATE.apk}"
+# v1.1.56+: 默认目标 = 飞牛同步盘 (用户 2026-09-22 指定)
+DEFAULT_DEST="/Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-$DATE.apk"
+DEST="${1:-$DEFAULT_DEST}"
 DESKTOP_DEST="$HOME/Desktop/erp-app-$DATE.apk"
 
 echo "==> [1/5] Java 17 环境"

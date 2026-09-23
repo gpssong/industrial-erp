@@ -71,12 +71,41 @@ export function isAdmin() {
 }
 
 // 获取权限列表
+// v1.1.55 hotfix 2026-09-21 晚: 返回的是 PC+APP 混合 perm (后端 selectPermsByUserId 不分端),
+// 仅用于"业务逻辑层"判断 (如 dashboard perm-only 兜底入口), 不应直接用于 App 端按钮显隐
 export function getPermissions() {
   try {
     const raw = uni.getStorageSync('erp_permissions')
     if (typeof raw === 'string') return JSON.parse(raw || '[]')
     if (Array.isArray(raw)) return raw
     return []
+  } catch (e) { return [] }
+}
+
+// v1.1.58 hotfix: 简化 getAppPermissions() — 删掉 erp_app_permissions 优先路径
+//   历史: v1.1.55 hotfix 加了 erp_app_permissions 优先路径, 但只在 dashboard onMounted + profile onRefreshPerms
+//         里写. 老 APK (v1.1.56-1.1.57) 覆盖升级时, storage 残留老 uncheck perm,
+//         getAppPermissions 优先读 → 反审核按钮误显示.
+//   现在: 永远从 erp_menus (login + dashboard 已保证最新) 实时派生, 永远从 erp_menus 取, 不依赖 erp_app_permissions.
+//         erp_permissions 仅作兜底 (兼容老 APK 早期版本没 erp_menus 时的过渡).
+export function getAppPermissions() {
+  try {
+    // 1. 优先: 从 erp_menus 实时派生 (login 已写入, dashboard onMounted 也会覆盖)
+    const menusRaw = uni.getStorageSync('erp_menus')
+    const menus = typeof menusRaw === 'string' ? JSON.parse(menusRaw || '[]') : (Array.isArray(menusRaw) ? menusRaw : [])
+    if (menus.length) {
+      const set = new Set()
+      for (const m of menus) {
+        if (!m.perms) continue
+        for (const p of String(m.perms).split(',')) {
+          const t = p.trim()
+          if (t) set.add(t)
+        }
+      }
+      if (set.size) return Array.from(set)
+    }
+    // 2. 兜底: 读 erp_permissions (混合端, 兼容老 APK 过渡期)
+    return getPermissions()
   } catch (e) { return [] }
 }
 

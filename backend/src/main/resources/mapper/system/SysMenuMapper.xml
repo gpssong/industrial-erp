@@ -49,4 +49,12 @@
         WHERE rm.role_id = #{roleId} AND rm.client_type IN ('BOTH', #{clientType}) AND m.status = 1
         ORDER BY m.sort_no, m.id
     </select>
+    <!-- v1.1.55 hotfix-3 R9: 按客户端类型返回用户的 perm 字符串列表 (去重) -->
+    <select id="selectPermsByUserIdAndClient" resultType="java.lang.String">
+        SELECT DISTINCT m.perms
+        FROM sys_user_role ur
+        INNER JOIN sys_role_menu rm ON rm.role_id = ur.role_id AND rm.client_type IN ('BOTH', #{clientType})
+        INNER JOIN sys_menu m ON m.id = rm.menu_id AND m.deleted = 0
+        WHERE ur.user_id = #{userId} AND m.status = 1 AND m.perms IS NOT NULL AND m.perms != ''
+    </select>
 </mapper>

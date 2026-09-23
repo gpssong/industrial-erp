@@ -80,24 +80,24 @@
         <view class="remark">{{ order.remark }}</view>
       </view>
 
-      <!-- 审核/反审核按钮 (v1.1.55+ 拆分 perm, DRAFT 看 :check, CHECKED 看 :uncheck) -->
-      <view v-if="order.billStatus==='DRAFT' || order.billStatus==='CHECKED'" class="card action-card">
+      <!-- 审核/反审核按钮 (v1.1.55+ 拆分 perm, DRAFT 看 :check, CHECKED 看 :uncheck)
+           v1.1.58+ 用户反馈: 完全隐藏无 perm 时的按钮区, 不要显示"无权限"提示.
+           之前 v-if='!canCheck/!canUncheck' 还渲染提示文字, 体验割裂. 现在改为:
+           - 任一 perm (check 或 uncheck) 有 → 显示按钮区
+           - 都没 → 整张 card 不渲染 (用户看不到任何痕迹)
+           v1.1.59 R11 hotfix: v-if 里 setup 函数必须显式调用 `()` — 函数引用 (canCheck/canUncheck) 在表达式里永远 truthy, 编译为 D/A 引用而非 D()/A() 调用, 会让按钮永远渲染. -->
+      <view v-if="(order.billStatus==='DRAFT' && canCheck()) || (order.billStatus==='CHECKED' && canUncheck())"
+            class="card action-card">
         <!-- DRAFT 状态: 仅审核按钮 (要 :check perm) -->
         <template v-if="order.billStatus==='DRAFT'">
-          <view v-if="!canCheck" class="muted" style="text-align:center;padding:8px 0">
-            无审核权限, 请联系管理员
-          </view>
-          <view v-else class="row" style="gap:8px">
+          <view class="row" style="gap:8px">
             <button class="btn-action btn-check"
               :disabled="busy" @click="onAudit('check')">审核</button>
           </view>
         </template>
         <!-- CHECKED 状态: 仅反审核按钮 (要 :uncheck perm) -->
         <template v-else-if="order.billStatus==='CHECKED'">
-          <view v-if="!canUncheck" class="muted" style="text-align:center;padding:8px 0">
-            无反审核权限, 请联系管理员
-          </view>
-          <view v-else class="row" style="gap:8px">
+          <view class="row" style="gap:8px">
             <button class="btn-action btn-uncheck"
               :disabled="busy" @click="onAudit('uncheck')">反审核</button>
           </view>
@@ -111,7 +111,7 @@
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
-import { getPermissions, isAdmin } from '../../utils/permission.js'
+import { getAppPermissions, isAdmin } from '../../utils/permission.js'
 
 const order = ref({})
 const loadError = ref(false)
@@ -122,15 +122,20 @@ const busy = ref(false)
 //   - 审核   → purchase:receipt:check
 //   - 反审核 → purchase:receipt:uncheck (sql/35 seed 新增, 老板/主管专属)
 // 反审核是更高级操作 (回退库存/AP/AR), 业务上不应和审核混在一起
+//
+// v1.1.55 hotfix 2026-09-21 晚: 必须用 getAppPermissions() 而非 getPermissions()
+//   后端 selectPermsByUserId 不分端 (PC+APP 混合), 仓管员 (WAREHOUSE_MGR) PC 端有 uncheck
+//   但 APP 端无 uncheck — 用混合数组会让 App 按钮误显示.
+//   getAppPermissions() 从 erp_menus (按 APP 严格过滤) 派生, 才是 App 端正确判断依据.
 const CHECK_PERM = 'purchase:receipt:check'
 const UNCHECK_PERM = 'purchase:receipt:uncheck'
 function canCheck() {
   if (isAdmin()) return true
-  return getPermissions().includes(CHECK_PERM)
+  return getAppPermissions().includes(CHECK_PERM)
 }
 function canUncheck() {
   if (isAdmin()) return true
-  return getPermissions().includes(UNCHECK_PERM)
+  return getAppPermissions().includes(UNCHECK_PERM)
 }
 
 function statusTag(s) {

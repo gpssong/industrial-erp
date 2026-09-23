@@ -31,6 +31,9 @@ function request({ url, method = 'GET', data = {}, contentType }) {
   // 真机/小程序环境: 用 uni.request
   // 不显式带 Authorization header, 由浏览器/Capacitor WebView 自动附带 httpOnly cookie.
   const header = {}
+  // v1.1.55 hotfix-3 R9: 让后端 AuthService 按 X-Client-Type=APP 返回纯 APP perms,
+  //   避免 PC uncheck 等 perm 串到 App 端 (storage 派生 + 老 APK 残留问题根除)
+  header['X-Client-Type'] = 'APP'
   if (contentType === 'json') header['Content-Type'] = 'application/json'
   return new Promise((resolve, reject) => {
     uni.request({
@@ -108,7 +111,8 @@ function fetchRequest(url, method, data) {
   return fetch(url, {
     method,
     credentials: 'include',  // httpOnly cookie
-    headers: { 'Content-Type': 'application/json' },
+    // v1.1.55 hotfix-3 R9: 同上, fetch (H5) 也要带 X-Client-Type=APP
+    headers: { 'Content-Type': 'application/json', 'X-Client-Type': 'APP' },
     body: data && method !== 'GET' ? JSON.stringify(data) : undefined
   })
   .then(r => {

@@ -38,8 +38,9 @@ public class AuthController {
 
     @Operation(summary = "获取当前登录用户")
     @GetMapping("/me")
-    public R<LoginVO> me() {
-        return R.ok(authService.currentUser());
+    public R<LoginVO> me(HttpServletRequest request) {
+        // v1.1.55 hotfix-3 R9: 透传 X-Client-Type header 给 service, 让 App /me 返回 APP-only perms
+        return R.ok(authService.currentUser(request));
     }
 
     @Operation(summary = "生成图形验证码")
