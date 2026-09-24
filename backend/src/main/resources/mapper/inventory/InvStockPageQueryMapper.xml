@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.inventory.mapper.InvStockPageQueryMapper">
+
+    <!--
+        v1.1.62: 库存查询 — 以 base_product 为驱动表, LEFT JOIN inv_stock 聚合库存.
+        关键点:
+          1. WHERE 走 base_product (p.deleted = 0 AND p.status = 1), 不走 inv_stock
+          2. LEFT JOIN inv_stock (s.deleted = 0), 即使无 inv_stock 行也能命中 (库存=0 产品)
+          3. GROUP BY 产品维度, 库存聚合到产品级
+          4. 关键字 LIKE product_code/product_name/spec 任意命中
+          5. 仓库过滤放 LEFT JOIN ON 子句 (不放 WHERE), 否则会重新引入"无库存行产品"被过滤
+        返回字段命名遵循既有 PC 端 Stock.vue 表格 prop 约定 (camelCase).
+    -->
+    <select id="selectStockPage" resultType="java.util.Map">
+        SELECT
+            p.id             AS productId,
+            p.product_code   AS productCode,
+            p.product_name   AS productName,
+            p.spec           AS spec,
+            p.main_unit_id  AS unitId,
+            u.unit_name      AS unitName,
+            s.warehouse_id   AS warehouseId,
+            w.warehouse_name AS warehouseName,
+            COALESCE(SUM(s.qty), 0)           AS qty,
+            COALESCE(SUM(s.available_qty), 0) AS availableQty,
+            COALESCE(SUM(s.lock_qty), 0)      AS lockQty,
+            -- 平均成本按 SUM(qty*avg_cost) / SUM(qty) 算 (库存=0 时 AVG 无意义, 返回 0)
+            CASE WHEN COALESCE(SUM(s.qty), 0) > 0
+                 THEN SUM(s.qty * s.avg_cost) / SUM(s.qty)
+                 ELSE 0 END                  AS avgCost,
+            COALESCE(SUM(s.total_cost), 0)    AS totalCost,
+            MIN(s.batch_no)                   AS batchNo,
+            MIN(s.last_in_date)               AS lastInDate
+        FROM base_product p
+        LEFT JOIN inv_stock s
+               ON s.product_id = p.id AND s.deleted = 0
+               <if test="warehouseId != null">
+                 AND s.warehouse_id = #{warehouseId}
+               </if>
+        LEFT JOIN base_warehouse w ON w.id = s.warehouse_id
+        LEFT JOIN base_unit u ON u.id = p.unit_id
+        WHERE p.deleted = 0 AND p.status = 1
+        <if test="keyword != null and keyword != ''">
+            AND (
+                p.product_code LIKE CONCAT('%', #{keyword}, '%')
+                OR p.product_name LIKE CONCAT('%', #{keyword}, '%')
+                OR p.spec LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        GROUP BY p.id, p.product_code, p.product_name, p.spec,
+                 p.main_unit_id, u.unit_name, s.warehouse_id, w.warehouse_name
+        ORDER BY COALESCE(SUM(s.qty), 0) DESC, p.id DESC
+    </select>
+</mapper>
