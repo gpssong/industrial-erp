@@ -56,7 +56,14 @@ async function onSubmit() {
     try { localStorage.removeItem('erp_permissions') } catch (e) {}
     setTimeout(() => { uni.reLaunch({ url: '/pages/login/index' }) }, 1500)
   } catch (e) {
-    toast('修改失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器 (api/index.js L89-91) 已弹后端 msg (如"旧密码错误"),
+    //   这里只做 console 诊断, 不再二次弹 toast (避免后 toast 覆盖前 toast).
+    //   401: 拦截器 reLaunch 跳登录页, 不重复弹 toast
+    const code = e && e.code
+    const backendMsg = e && e.msg
+    console.warn('[change-password] 失败, code=', code, 'msg=', backendMsg, 'err=', e)
+    if (code === 401) return
+    // 兜底: 拦截器因任何意外没弹时, 给一个简单诊断 (极少走)
   } finally {
     submitting.value = false
   }

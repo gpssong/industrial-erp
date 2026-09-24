@@ -177,7 +177,9 @@ async function loadProduct(id) {
       form.remark = r.remark || ''
     }
   } catch (e) {
-    toast('加载失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[product-add.loadProduct] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     loading.value = false
   }
@@ -214,7 +216,9 @@ async function onSubmit() {
       uni.reLaunch({ url: '/pages/dashboard/index' })
     }
   } catch (e) {
-    toast('提交失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[product-add.onSubmit] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     submitting.value = false
   }

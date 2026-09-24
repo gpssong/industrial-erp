@@ -29,8 +29,18 @@ const kpi = ref({ todaySales: 0, todayPurchase: 0, arBalance: 0, apBalance: 0 })
 const stockList = ref([])
 const today = new Date().toISOString().substring(0, 10)
 onMounted(async () => {
-  kpi.value = await api.dashboard()
-  stockList.value = (await api.inventorySummary()) || []
+  // v1.1.61 R13 全局重塑: 之前无 try-catch, 拦截器 reject 会静默吞 (空 page)
+  //   补 try-catch, 拦截器已弹 toast (后端 msg / 网络错), 这里只 console + 兜底空值
+  try {
+    kpi.value = await api.dashboard()
+  } catch (e) {
+    console.warn('[report.kpi] 失败:', e)
+  }
+  try {
+    stockList.value = (await api.inventorySummary()) || []
+  } catch (e) {
+    console.warn('[report.stockList] 失败:', e)
+  }
   applyTabBar()
 })
 </script>
