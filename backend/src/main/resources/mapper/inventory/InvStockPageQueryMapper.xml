@@ -39,7 +39,7 @@
                  AND s.warehouse_id = #{warehouseId}
                </if>
         LEFT JOIN base_warehouse w ON w.id = s.warehouse_id
-        LEFT JOIN base_unit u ON u.id = p.unit_id
+        LEFT JOIN base_unit u ON u.id = p.main_unit_id
         WHERE p.deleted = 0 AND p.status = 1
         <if test="keyword != null and keyword != ''">
             AND (

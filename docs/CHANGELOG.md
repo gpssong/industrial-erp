@@ -18,10 +18,11 @@ w.gt(InvStock::getQty, java.math.BigDecimal.ZERO);  // qty > 0 严格过滤
 **改动**: 3 文件 (1 新 mapper 接口 + 1 新 XML + 1 改 controller)。Schema/SQL/前端不动。
 
 **验证**:
-- ✅ 后端 jar md5 `547b552b82e4e82cf385e583a62ab513`
-- ✅ Docker image `erp-system-backend:latest` rebuild (id `17b5191ba5da`)
-- ✅ 容器 erp-backend healthy, 启动日志 `Started IndustrialErpApplication in 32.239s`
+- ✅ 后端 jar md5 `fc5245f493f5b243de6810d18c0c3ffa` (第一版 `547b552b` 漏改 LEFT JOIN ON 子句, hotfix 已重建)
+- ✅ Docker image `erp-system-backend:latest` rebuild (id `817f8a1b20f1`)
+- ✅ 容器 erp-backend healthy, 启动日志 `Started IndustrialErpApplication in 31.82s`
 - ✅ 模拟 SQL (mysql 直跑) 命中用户截图案例: 塑料袋30*38*0.16 (id `20754693159949580161`, qty=0.0000) ✓
+- ✅ EXPLAIN 验证 ON 子句正确: `u.PRIMARY = industrial_erp.p.main_unit_id`
 
 ### v1.1.61 (2026-09-24) — App 端 R13 全局重塑 (22 处 catch 双弹全部静默化)
 

@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.62 (库存查询 SQL 改写 — `/inventory/stock/page` 以 `base_product` 为驱动表 LEFT JOIN `inv_stock` 聚合, 删除 v1.1.61 及之前 `w.gt(InvStock::getQty, 0)` 严格过滤, 让**库存为 0 且无 inv_stock 行的产品**也能命中查询结果; 库存为 0 时 qty/availableQty/lockQty/avgCost/totalCost 列全 0/空, 产品名/编码/规格仍正常显示; 新增 `InvStockPageQueryMapper` + 配套 XML, controller 改返回 `PageResult<Map<String, Object>>` 以兼容 PC `Stock.vue` 表格 prop + App `inventory/query.vue` 卡片; PC 端 + App 端共享一个 endpoint 同时受益; 后端 jar md5 `547b552b82e4e82cf385e583a62ab513`, docker image `erp-system-backend:latest` 已 rebuild (id `17b5191ba5da`) + 容器已 `docker rm` + `docker run --env-file` 重建; 线上 mysql 直跑模拟 SQL 已命中用户截图案例"塑料袋30*38*0.16" (id `20754693159949580161`, qty=0.0000); 踩坑记录: `base_product.unit_id` 实际为 `main_unit_id` (v1.1.62 修复后第一版 SQL 字段名错导致 `Unknown column 'p.unit_id'`, 已修正) + `docker compose up -d` 因 `${VAR:?长消息}` 含空格被 v2.20.1 yaml parser 解析坏 (绕过方法: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file` 不走 compose), `docker restart` 不切换 image (锁定原始 image hash))
+**当前版本**: v1.1.62 (库存查询 SQL 改写 — `/inventory/stock/page` 以 `base_product` 为驱动表 LEFT JOIN `inv_stock` 聚合, 删除 v1.1.61 及之前 `w.gt(InvStock::getQty, 0)` 严格过滤, 让**库存为 0 且无 inv_stock 行的产品**也能命中查询结果; 库存为 0 时 qty/availableQty/lockQty/avgCost/totalCost 列全 0/空, 产品名/编码/规格仍正常显示; 新增 `InvStockPageQueryMapper` + 配套 XML, controller 改返回 `PageResult<Map<String, Object>>` 以兼容 PC `Stock.vue` 表格 prop + App `inventory/query.vue` 卡片; PC 端 + App 端共享一个 endpoint 同时受益; 后端 jar md5 `fc5245f493f5b243de6810d18c0c3ffa`, docker image `erp-system-backend:latest` 已 rebuild (id `817f8a1b20f1`) + 容器已 `docker rm` + `docker run --env-file` 重建; 线上 mysql 直跑模拟 SQL 已命中用户截图案例"塑料袋30*38*0.16" (id `2075469315994950161`, qty=0.0000); 踩坑记录: `base_product.unit_id` 实际为 `main_unit_id` (**3 处都要改**: SELECT AS / LEFT JOIN ON / GROUP BY, 第一版漏改 L42 LEFT JOIN ON 导致线上报 `Unknown column 'p.unit_id' in 'on clause'`**) + `docker compose up -d` 因 `${VAR:?长消息}` 含空格被 v2.20.1 yaml parser 解析坏 (绕过方法: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file` 不走 compose), `docker restart` 不切换 image (锁定原始 image hash))
 
 **前序版本**: v1.1.61 (App 端 R13 全局重塑 — 13 个页面 22 处 catch toast 双弹覆盖全部静默化,只保留 `console.warn` 详细诊断 + 401 短路 return;沿用 v1.1.60 hotfix-2 "拦截器已弹过 catch 不重复弹" 原则, 推广到全部业务页面; 拦截器 `app/src/api/index.js` L65-70/L89-91/L99-101 三处 toast **保留不动**; 应保留 catch toast 4 处 (login 401 不弹 / onShare Capacitor plugin / doScan NativeScanner / onRelease `uni.showModal`); `app/src/pages/report/index.vue` 补 try-catch 防 unhandled rejection; APK MD5 `23841776cca026580fc4d515494c9734`, 4,369,513 字节; H5 容器 `erp-app-h5` 已 rebuild + recreate (镜像 hash `60edfbac4ceb`), 线上 12 个新 chunk md5 全部与本地 dist 一致)
 
@@ -48,14 +48,17 @@ return R.ok(PageResult.of(stockMapper.selectPage(p, w)));
 - `ORDER BY COALESCE(SUM(s.qty), 0) DESC, p.id DESC` 有库存优先, 其次按 ID
 
 **部署 (NAS 192.168.0.150)**:
-- 后端 jar md5 `547b552b82e4e82cf385e583a62ab513` (101086934 bytes)
-- `docker build --no-cache -t erp-system-backend:latest /volume3/docker/erp-system/backend` → image id `17b5191ba5da`
+- 后端 jar md5 `fc5245f493f5b243de6810d18c0c3ffa` (101086940 bytes; 第一版 `547b552b` 漏改 LEFT JOIN ON, 已修)
+- `docker build --no-cache -t erp-system-backend:latest /volume3/docker/erp-system/backend` → image id `817f8a1b20f1`
 - `docker rm -f erp-backend` + `docker run --name erp-backend --network erp-system_erp-net -p 8080:8080 -v /volume3/docker/erp-system/data/backup:/opt/app/backup -v /volume3/docker/erp-system/data/upload:/opt/app/upload --env-file /tmp/erp-deploy/erp-backend-env.list erp-system-backend:latest`
-- 容器内 jar md5 验证一致 ✓, Started IndustrialErpApplication in 32.239s :: Industrial ERP Started Success ✓
+- 容器内 jar md5 验证一致 ✓, Started IndustrialErpApplication in 31.82s :: Industrial ERP Started Success ✓
 - 模拟 SQL (mysql 直跑) 命中用户截图案例: `塑料袋30*38*0.16` (id `20754693159949580161`, qty=0.0000) ✓
 
 **踩坑 (已修)**:
-1. **字段名错**: `base_product.unit_id` 不存在, 实际是 `main_unit_id` (L31, L36 GROUP BY) — 第一版 SQL 启动时 `Unknown column 'p.unit_id'`, 已 hotfix 重建
+1. **字段名错 — 3 处都要改**: `base_product.unit_id` 不存在, 实际是 `main_unit_id`, 必须改 SELECT AS / LEFT JOIN ON / GROUP BY **三处**. 漏一处就报 `Unknown column 'p.unit_id' in 'on clause'` (v1.1.62 第一次部署漏 L42 LEFT JOIN ON 已踩, hotfix 重建). 改前**必须** DESCRIBE 表:
+   ```sql
+   DESCRIBE base_product;  -- 确认 main_unit_id 存在, 没有 unit_id
+   ```
 2. **docker-compose v2.20.1 yaml 解析坏**: `${SA_TOKEN_JWT_SECRET_KEY:?... Generate with: openssl rand -hex 32}` 含空格+点+连字符被解析坏 — `docker compose up -d` 失败; **绕过**: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file`, 不走 compose
 3. **`docker restart` 不切换 image**: 容器启动时锁定原始 image hash, 即使 tag:latest 变了 restart 也不切换 — 必须 `docker rm` + 重新 `docker run`
 4. **备份/线上 jar 大小对调**: `/volume3/docker/erp-system/backend/industrial-erp.jar` (老备份, 86794232 bytes) vs `industrial-erp-1.0.4.jar` (线上, 101086058 bytes) — 部署时只覆盖后者, 不要动前者
