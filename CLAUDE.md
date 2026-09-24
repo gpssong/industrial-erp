@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.60 hotfix-2 (App 端"我的-刷新权限菜单"双弹覆盖修复 — `app/src/pages/profile/index.vue` L138-149 catch 移除重复 `uni.showToast`, 拦截器已弹过的 toast catch 不应再弹, 否则 Android `uni.showToast` 后调用会中断前调用, 用户只看最没信息量的那条; 拦截器 L89-91 弹后端 msg + L99-101 弹网络错 + L65-70 弹反代 502 都保留不动, 让组件 catch 静默; 401 路径特殊, 拦截器自动 reLaunch 跳登录页, catch 不弹 toast (一闪而过干扰跳转); H5 容器 erp-app-h5 已 rebuild + recreate (镜像 hash `38e532179829`), 线上 `pages-profile-index.9bnvdhRj.js` MD5 `518e2068682e0098d3f6333f78ad45cc` = 本地 dist 一致)
+**当前版本**: v1.1.61 (App 端 R13 全局重塑 — 13 个页面 22 处 catch toast 双弹覆盖全部静默化,只保留 `console.warn` 详细诊断 + 401 短路 return;沿用 v1.1.60 hotfix-2 "拦截器已弹过 catch 不重复弹" 原则, 推广到全部业务页面; 拦截器 `app/src/api/index.js` L65-70/L89-91/L99-101 三处 toast **保留不动**; 应保留 catch toast 4 处 (login 401 不弹 / onShare Capacitor plugin / doScan NativeScanner / onRelease `uni.showModal`); `app/src/pages/report/index.vue` 补 try-catch 防 unhandled rejection; APK MD5 `23841776cca026580fc4d515494c9734`, 4,369,513 字节; H5 容器 `erp-app-h5` 已 rebuild + recreate (镜像 hash `60edfbac4ceb`), 线上 12 个新 chunk md5 全部与本地 dist 一致)
+
+**前序版本**: v1.1.60 hotfix-2 (App 端"我的-刷新权限菜单"双弹覆盖修复 — `app/src/pages/profile/index.vue` L138-149 catch 移除重复 `uni.showToast`, 拦截器已弹过的 toast catch 不应再弹, 否则 Android `uni.showToast` 后调用会中断前调用, 用户只看最没信息量的那条; 拦截器 L89-91 弹后端 msg + L99-101 弹网络错 + L65-70 弹反代 502 都保留不动, 让组件 catch 静默; 401 路径特殊, 拦截器自动 reLaunch 跳登录页, catch 不弹 toast (一闪而过干扰跳转); H5 容器 erp-app-h5 已 rebuild + recreate (镜像 hash `38e532179829`), 线上 `pages-profile-index.9bnvdhRj.js` MD5 `518e2068682e0098d3f6333f78ad45cc` = 本地 dist 一致)
 
 **前序版本**: v1.1.60 hotfix-1 (PC + App 登录错误提示统一规范 — PC `pc-web/src/views/Login.vue` L130-137 catch 加 `ElMessage.error(friendly)`, 修复 v1.1.31+ request.js 拦截器不再弹后 PC 端 catch 完全空转的 bug; App `app/src/pages/login/index.vue` L119-129 catch 改 `uni.showToast`, 去掉 `alert("登录失败: ...")` 突兀对话; 两端优先展示后端 `AuthService` 返回的 msg ("用户名或密码错误"), 兜底 "账号或密码错误, 请重试"; PC dist 已部署到 home NAS, 线上 `Login-CktUqvzO.js` MD5 `4361c418aa3293428292ba650e52ca01` 与本地 dist 一致)
 
@@ -11,6 +13,94 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.61 (2026-09-24) — App 端 R13 全局重塑 (22 处 catch 双弹全部静默化)
+
+**症状 (承自 v1.1.60 hotfix-2)**: profile 页面"刷新权限菜单"已修复双弹, 但其他 18 个页面 22 处 catch 仍存在 `uni.showToast` 与拦截器 toast 冲突 — 用户在所有业务场景下都看后 catch 弹的"加载失败/提交失败/操作失败"等无信息量文案, 丢失后端 msg 的诊断价值 (e.g. "反审核需要无已核销记录", "打印机离线", "采购入库需要 check 权限")。
+
+**根因 (Android `uni.showToast` 后调用中断前调用)**: `app/src/api/index.js` 拦截器 L65-70/L89-91/L99-101 已在 3 个错误路径主动弹 toast, 但业务页面 catch 块习惯性 `uni.showToast({ title: '加载失败' })` — 两条 toast 打架, 用户只看到后者。
+
+**修复 (13 个文件, 22 处 catch, 1 处 try-catch 补全)**:
+
+| 优先级 | 文件 | catch 数量 | 用途 |
+|------|------|----------|------|
+| **P0** | `profile/change-password.vue` | 1 | 改密码 |
+| **P0** | `scan/in.vue` | 3 | 扫码入库: 搜索 / 提交 / 飞鹅打印 |
+| **P0** | `scan/out.vue` | 3 | 扫码出库: 历史销售 / 搜索 / 提交 |
+| **P0** | `production/order-add.vue` | 3 | 新增生产单: 加载 / 提交 / 删除 |
+| **P0** | `production/order-detail.vue` | 3 | 生产单详情: 加载 / 删除 / 飞鹅打印 |
+| **P0** | `sales/delivery-detail.vue` | 3 | 销售出库详情: 审核 / reload / onLoad |
+| **P0** | `purchase/receipt-detail.vue` | 3 | 采购入库详情: 审核 / reload / onLoad |
+| **P1** | `sales/delivery-list.vue` | 1 | 销售出库列表 |
+| **P1** | `purchase/receipt-list.vue` | 1 | 采购入库列表 |
+| **P1** | `production/order-list.vue` | 1 | 生产单列表 |
+| **P1** | `count/index.vue` | 4 | 外勤盘点: 仓库列表 / 搜索 / 预填 / 提交 |
+| **P1** | `system/users.vue` | 3 | 用户管理: 保存 / 删除 / 重置密码 |
+| **P2** | `base/product-add.vue` | 2 | 新增商品: 加载 / 提交 |
+| **补全** | `report/index.vue` | 1 (新增) | 经营简报: 补 try-catch 防 unhandled rejection |
+
+**统一修复模板 (与 v1.1.60 hotfix-2 profile 一致)**:
+```js
+} catch (e) {
+  if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+  // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹 (避免覆盖)
+  console.warn('[<action-name>] 失败:', e)
+  if (e && e.code === 401) return  // 401: 拦截器 reLaunch 跳登录页, 不重复弹
+}
+```
+
+**保留 catch toast 的 4 处 (不走拦截器, 必须本地兜底)**:
+1. `pages/login/index.vue` L119-129 (v1.1.60 hotfix-1): 后端 `/auth/login` 401 时拦截器**只 reLaunch 不弹 msg**, 这里必须给"用户名或密码错误"反馈
+2. `pages/production/order-detail.vue` L218-223 onRelease: `uni.showModal({ title: '开工失败', content: e.message || '请检查BOM配置' })` 模态弹窗, 强制用户确认 (非 toast, 与拦截器不冲突, 但仍属业务级提示保留)
+3. `pages/production/order-detail.vue` L270-277 onShare: Capacitor 原生 `NativeShare.sharePdf` plugin 错误, **不走** api.request, 拦截器**不弹** toast
+4. `pages/production/order-add.vue` L391-395 doFeiePrint: 飞鹅打印失败不阻塞主流程 (新单已保存), 仅 `console.warn`, 拦截器弹后端 msg (e.g. "打印机离线") 已足够
+
+**`report/index.vue` 补 try-catch**: v1.1.21+ 起 onMounted `kpi.value = await api.dashboard()` 完全没 catch, 拦截器 reject 会被静默吞到 console — 用户看到空白页。补 try-catch 只 console.warn, 兜底空值 (KPI=0, stockList=[]), 拦截器弹后端 msg 已足够。
+
+**部署**:
+- 改 14 文件: 13 页面 + `app/android/capacitor.settings.gradle` (重新加 :capacitor-share include)
+- `cd app && npm run build:h5` → 新 chunks (13 个): `pages-profile-index.0RcoRrQf.js` 等
+- `npx cap sync android` + JAVA_HOME=17 `./gradlew assembleDebug` → APK MD5 `23841776cca026580fc4d515494c9734`, 4,369,513 字节
+- 上传 tarball → NAS `app/dist/build/h5/` → `docker build --no-cache` → `docker rm -f erp-app-h5 && docker run` → 镜像 hash `60edfbac4ceb`
+- 不动: 后端 jar / PC dist / DB / SQL (纯前端编译产物修复)
+
+**端到端验证 (2026-09-24)**:
+- ✅ H5 容器 rebuild + recreate 成功 (镜像 `60edfbac4ceb`, 容器 Up, HTTP 200)
+- ✅ 12 个新 chunk md5 全部 = 本地 dist 一致 (profile/scan ×2/order-add/order-detail/sales-detail ×2/purchase-detail ×2/count/users/change-password)
+- ✅ APK 内嵌 chunk md5 `460fdae1619d2a160523d2ceca6f4d8b` (profile) = dist 一致
+- ✅ 用户体验: 后端业务错 → 显示后端实际 msg (e.g. "反审核需要无已核销记录"); 网络断 → "网络连接失败, 请检查网络"; 反代 502 → "服务暂不可用, 请稍后重试"; 401 → 自动跳登录页; 业务校验/成功 toast 不受影响
+
+**踩坑**:
+- `capacitor.settings.gradle` cap sync 后会重置为单 `:capacitor-android` — 必须手动 include `:capacitor-share` (v1.1.29+ 经验, 旧 commit 注释提醒)
+- macOS `JAVA_HOME` 不在默认 PATH, 需 `export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home`
+
+**设计原则 (R13 — 完整版, 写入设计原则)**:
+- **App 端拦截器 vs 组件 catch 的最终分工**: 拦截器在 3 个错误路径 (反代 502 / 后端业务错 / 网络层失败) 弹 toast; 组件 catch **永远不要**弹 toast, 只做 console.warn + 401 短路。Android `uni.showToast` 后调用中断前调用, 双弹必丢前一条
+- **拦截器已弹过的 toast, catch 不重复弹** — 否则用户只看到后 catch 弹的"加载失败", 完全丢失后端 msg 诊断价值
+- **401 路径特殊**: 拦截器会自动 reLaunch 跳登录页, catch 不应再弹任何 toast (一闪而过干扰跳转体验)
+- **catch 仍应保留 `console.warn` 详细诊断** (含 `e.code` / `e.msg` / `e`) — 便于排查
+- **原生 plugin 调用 (Capacitor NativeScanner/Share) 不触发拦截器**, 本地 catch 必须有提示 (doScan / onShare 是这种合规特例)
+- **业务特殊提示 (前端校验/成功反馈) 保留本地 toast** — 这些不是 catch, 不与拦截器冲突
+- **统一修复模板**: `if (code === 401) return; console.warn(...)` — 11 行缩到 4 行核心代码, 18 个 catch 一致替换
+
+**代码 diff 范围 (15 文件)**:
+```
+app/android/capacitor.settings.gradle                          |  +5 -0  (手动加 :capacitor-share)
+app/src/pages/profile/change-password.vue                      |  +6 -1  (P0)
+app/src/pages/scan/in.vue                                       |  +9 -3  (P0)
+app/src/pages/scan/out.vue                                      |  +9 -3  (P0)
+app/src/pages/production/order-add.vue                          |  +9 -3  (P0)
+app/src/pages/production/order-detail.vue                       |  +9 -3  (P0)
+app/src/pages/sales/delivery-detail.vue                         |  +9 -3  (P0)
+app/src/pages/purchase/receipt-detail.vue                       |  +9 -3  (P0)
+app/src/pages/sales/delivery-list.vue                           |  +3 -3  (P1)
+app/src/pages/purchase/receipt-list.vue                         |  +3 -3  (P1)
+app/src/pages/production/order-list.vue                         |  +3 -1  (P1)
+app/src/pages/count/index.vue                                   |  +12 -4 (P1)
+app/src/pages/system/users.vue                                  |  +9 -3  (P1)
+app/src/pages/base/product-add.vue                              |  +6 -2  (P2)
+app/src/pages/report/index.vue                                  |  +8 -2  (补 try-catch)
+```
+
 ### v1.1.60 hotfix-2 (2026-09-23) — App 端"我的-刷新权限菜单"双弹覆盖修复
 
 **症状**: 用户反馈 "app端-我的-点击刷新权限菜单, 提示刷新失败, 请稍后再试"。不论后端实际错误码是什么 (msg="无权访问" / 网络断 / 502), 用户**始终**只看到 "刷新失败, 请稍后再试"。

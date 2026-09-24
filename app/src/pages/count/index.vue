@@ -100,7 +100,9 @@ async function loadWarehouses() {
       warehouseIdx.value = 0
     }
   } catch (e) {
-    toast('加载仓库列表失败: ' + (e.msg || e.message || ''))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[count.loadWarehouses] 失败:', e)
+    if (e && e.code === 401) return
   }
 }
 
@@ -171,7 +173,9 @@ async function searchAndAdd(kw) {
       toast('商品未找到: ' + kw)
     }
   } catch (e) {
-    toast('查询失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[count.searchAndAdd] 失败:', e)
+    if (e && e.code === 401) return
   }
 }
 
@@ -218,7 +222,9 @@ async function onLoadSnapshot() {
     }
     toast(`已预填 ${added} 个商品`)
   } catch (e) {
-    toast('预填失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[count.onLoadSnapshot] 失败:', e)
+    if (e && e.code === 401) return
   }
 }
 
@@ -291,7 +297,9 @@ async function onSubmit() {
       remark.value = ''
     }
   } catch (e) {
-    toast('提交失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[count.onSubmit] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     submitting.value = false
   }

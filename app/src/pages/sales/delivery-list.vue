@@ -101,9 +101,9 @@ async function loadData(reset = true) {
     list.value = list.value.concat(records)
     hasMore.value = records.length >= pageSize.value
   } catch (e) {
-    if (typeof uni !== 'undefined' && uni.showToast) {
-      uni.showToast({ title: e.message || '加载失败', icon: 'none' })
-    }
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹 (列表 fallback 空数组)
+    console.warn('[sales-delivery-list.loadData] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     loading.value = false
   }

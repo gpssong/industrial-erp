@@ -121,7 +121,9 @@ async function onSave() {
     showEdit.value = false
     loadData()
   } catch (e) {
-    toast('操作失败: ' + (e.msg || e.message || '未知错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[users.onSave] 失败:', e)
+    if (e && e.code === 401) return
   }
 }
 
@@ -131,7 +133,11 @@ async function onDelete(u) {
     await api.userDelete(u.id)
     toast('删除成功')
     loadData()
-  } catch (e) { toast('删除失败: ' + (e.msg || e.message)) }
+  } catch (e) {
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[users.onDelete] 失败:', e)
+    if (e && e.code === 401) return
+  }
 }
 
 async function onResetPwd(u) {
@@ -139,7 +145,11 @@ async function onResetPwd(u) {
   try {
     await api.userResetPwd(u.id)
     toast('密码已重置为 123456')
-  } catch (e) { toast('重置失败: ' + (e.msg || e.message)) }
+  } catch (e) {
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[users.onResetPwd] 失败:', e)
+    if (e && e.code === 401) return
+  }
 }
 
 onMounted(() => {

@@ -187,9 +187,9 @@ async function loadOrder(id) {
   } catch (e) {
     order.value = null
     loadError.value = true
-    if (typeof uni !== 'undefined' && uni.showToast) {
-      uni.showToast({ title: (e && e.msg) || (e && e.message) || '加载失败', icon: 'none' })
-    }
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[order-detail.loadOrder] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     loading.value = false
   }
@@ -231,7 +231,10 @@ async function onDelete() {
     if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: '已删除', icon: 'success' })
     setTimeout(() => navigateTo('/pages/production/order-list'), 800)
   } catch (e) {
-    if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: e.message || '删除失败', icon: 'none' })
+    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[order-detail.onDelete] 失败:', e)
+    if (e && e.code === 401) return
   }
 }
 
@@ -243,7 +246,9 @@ async function onFeiePrint() {
     if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: '打印已发送', icon: 'success' })
   } catch (e) {
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
-    if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: e.message || '打印失败', icon: 'none' })
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg (如"打印机离线"), catch 不重复弹
+    console.warn('[order-detail.onFeiePrint] 失败:', e)
+    if (e && e.code === 401) return
   }
 }
 

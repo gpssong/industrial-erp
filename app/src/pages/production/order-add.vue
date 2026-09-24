@@ -238,7 +238,9 @@ async function loadOrder(id) {
       form.remark = r.remark || ''
     }
   } catch (e) {
-    toast('加载失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[order-add.loadOrder] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     loading.value = false
   }
@@ -326,7 +328,9 @@ async function onSubmit() {
       uni.reLaunch({ url: '/pages/dashboard/index' })
     }
   } catch (e) {
-    toast('提交失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[order-add.onSubmit] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     submitting.value = false
   }
@@ -350,7 +354,9 @@ async function onDelete() {
     uni.showToast({ title: '已删除', icon: 'success' })
     setTimeout(() => uni.reLaunch({ url: '/pages/production/order-list' }), 800)
   } catch (e) {
-    uni.showToast({ title: e.message || '删除失败', icon: 'none' })
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[order-add.onDelete] 失败:', e)
+    if (e && e.code === 401) return
   }
 }
 

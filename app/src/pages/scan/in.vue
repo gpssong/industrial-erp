@@ -181,7 +181,9 @@ async function onSearch() {
       toast('商品未找到：' + code.value)
     }
   } catch (e) {
-    toast('查询失败：' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹 (避免覆盖)
+    console.warn('[scan-in.onSearch] 失败:', e)
+    if (e && e.code === 401) return
   } finally { loading.value = false }
 }
 
@@ -250,7 +252,9 @@ async function onSubmit() {
     submitted.value = true
     list.value = []
   } catch (e) {
-    toast('提交失败：' + (e.msg || (e && e.message) || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[scan-in.onSubmit] 失败:', e)
+    if (e && e.code === 401) return
   } finally { loading.value = false }
 }
 
@@ -263,7 +267,9 @@ async function onFeiePrint() {
     await api.feiePrint('PUR_RECEIPT', submittedBillNo.value)
     toast('飞鹅打印成功')
   } catch (e) {
-    toast('飞鹅打印失败: ' + (e.msg || e.message || '网络错误'))
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg (如"打印机离线"), catch 不重复弹
+    console.warn('[scan-in.onFeiePrint] 失败:', e)
+    if (e && e.code === 401) return
   }
 }
 

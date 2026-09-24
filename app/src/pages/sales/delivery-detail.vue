@@ -174,7 +174,9 @@ function onAudit(action) {
         }
         await reload()
       } catch (e) {
-        uni.showToast({ title: (e && e.msg) || '操作失败', icon: 'none' })
+        // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg (如"反审核需要无已核销记录"), catch 不重复弹
+        console.warn('[sales-delivery-detail.onAudit] 失败:', e)
+        if (e && e.code === 401) return
       } finally {
         busy.value = false
       }
@@ -191,7 +193,9 @@ async function reload() {
     loadError.value = false
   } catch (e) {
     loadError.value = true
-    uni.showToast({ title: e.message || '加载失败', icon: 'none' })
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[sales-delivery-detail.reload] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     loading.value = false
   }
@@ -207,9 +211,9 @@ onLoad(async (q) => {
     loadError.value = false
   } catch (e) {
     loadError.value = true
-    if (typeof uni !== 'undefined' && uni.showToast) {
-      uni.showToast({ title: e.message || '加载失败', icon: 'none' })
-    }
+    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    console.warn('[sales-delivery-detail.onLoad] 失败:', e)
+    if (e && e.code === 401) return
   } finally {
     loading.value = false
   }
