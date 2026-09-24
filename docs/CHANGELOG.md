@@ -2,6 +2,27 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.62 (2026-09-24) — 库存查询 SQL 改写 (库存为 0 产品可查询)
+
+**症状**: PC `/inventory/stock` 搜索"塑料袋30*38*0.16" 返回 Total 0, 但产品存在于 `base_product` 表 — 只是 inv_stock 表里没有它的行 (库存=0 且从未入库过)。
+
+**根因 (`InvStockController.java:63` v1.1.61)**:
+```java
+LambdaQueryWrapper<InvStock> w = new LambdaQueryWrapper<>();
+w.gt(InvStock::getQty, java.math.BigDecimal.ZERO);  // qty > 0 严格过滤
+```
+原语义 = "查询有库存的库存台账", 但用户预期它 = "查产品库存 (可为 0)"。
+
+**修复**: `base_product` LEFT JOIN `inv_stock` 聚合, 删除 qty>0 过滤。库存为 0 时产品仍命中, 库存列全 0/空。详见 `CLAUDE.md` v1.1.62 段。
+
+**改动**: 3 文件 (1 新 mapper 接口 + 1 新 XML + 1 改 controller)。Schema/SQL/前端不动。
+
+**验证**:
+- ✅ 后端 jar md5 `547b552b82e4e82cf385e583a62ab513`
+- ✅ Docker image `erp-system-backend:latest` rebuild (id `17b5191ba5da`)
+- ✅ 容器 erp-backend healthy, 启动日志 `Started IndustrialErpApplication in 32.239s`
+- ✅ 模拟 SQL (mysql 直跑) 命中用户截图案例: 塑料袋30*38*0.16 (id `20754693159949580161`, qty=0.0000) ✓
+
 ### v1.1.61 (2026-09-24) — App 端 R13 全局重塑 (22 处 catch 双弹全部静默化)
 
 承 v1.1.60 hotfix-2 (profile 单页修复), 把"拦截器已弹 catch 不重复弹"原则推广到全部 13 个业务页面 22 处 catch, 全部静默化。详见 `CLAUDE.md` v1.1.61 段。

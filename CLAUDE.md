@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.61 (App 端 R13 全局重塑 — 13 个页面 22 处 catch toast 双弹覆盖全部静默化,只保留 `console.warn` 详细诊断 + 401 短路 return;沿用 v1.1.60 hotfix-2 "拦截器已弹过 catch 不重复弹" 原则, 推广到全部业务页面; 拦截器 `app/src/api/index.js` L65-70/L89-91/L99-101 三处 toast **保留不动**; 应保留 catch toast 4 处 (login 401 不弹 / onShare Capacitor plugin / doScan NativeScanner / onRelease `uni.showModal`); `app/src/pages/report/index.vue` 补 try-catch 防 unhandled rejection; APK MD5 `23841776cca026580fc4d515494c9734`, 4,369,513 字节; H5 容器 `erp-app-h5` 已 rebuild + recreate (镜像 hash `60edfbac4ceb`), 线上 12 个新 chunk md5 全部与本地 dist 一致)
+**当前版本**: v1.1.62 (库存查询 SQL 改写 — `/inventory/stock/page` 以 `base_product` 为驱动表 LEFT JOIN `inv_stock` 聚合, 删除 v1.1.61 及之前 `w.gt(InvStock::getQty, 0)` 严格过滤, 让**库存为 0 且无 inv_stock 行的产品**也能命中查询结果; 库存为 0 时 qty/availableQty/lockQty/avgCost/totalCost 列全 0/空, 产品名/编码/规格仍正常显示; 新增 `InvStockPageQueryMapper` + 配套 XML, controller 改返回 `PageResult<Map<String, Object>>` 以兼容 PC `Stock.vue` 表格 prop + App `inventory/query.vue` 卡片; PC 端 + App 端共享一个 endpoint 同时受益; 后端 jar md5 `547b552b82e4e82cf385e583a62ab513`, docker image `erp-system-backend:latest` 已 rebuild (id `17b5191ba5da`) + 容器已 `docker rm` + `docker run --env-file` 重建; 线上 mysql 直跑模拟 SQL 已命中用户截图案例"塑料袋30*38*0.16" (id `20754693159949580161`, qty=0.0000); 踩坑记录: `base_product.unit_id` 实际为 `main_unit_id` (v1.1.62 修复后第一版 SQL 字段名错导致 `Unknown column 'p.unit_id'`, 已修正) + `docker compose up -d` 因 `${VAR:?长消息}` 含空格被 v2.20.1 yaml parser 解析坏 (绕过方法: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file` 不走 compose), `docker restart` 不切换 image (锁定原始 image hash))
+
+**前序版本**: v1.1.61 (App 端 R13 全局重塑 — 13 个页面 22 处 catch toast 双弹覆盖全部静默化,只保留 `console.warn` 详细诊断 + 401 短路 return;沿用 v1.1.60 hotfix-2 "拦截器已弹过 catch 不重复弹" 原则, 推广到全部业务页面; 拦截器 `app/src/api/index.js` L65-70/L89-91/L99-101 三处 toast **保留不动**; 应保留 catch toast 4 处 (login 401 不弹 / onShare Capacitor plugin / doScan NativeScanner / onRelease `uni.showModal`); `app/src/pages/report/index.vue` 补 try-catch 防 unhandled rejection; APK MD5 `23841776cca026580fc4d515494c9734`, 4,369,513 字节; H5 容器 `erp-app-h5` 已 rebuild + recreate (镜像 hash `60edfbac4ceb`), 线上 12 个新 chunk md5 全部与本地 dist 一致)
 
 **前序版本**: v1.1.60 hotfix-2 (App 端"我的-刷新权限菜单"双弹覆盖修复 — `app/src/pages/profile/index.vue` L138-149 catch 移除重复 `uni.showToast`, 拦截器已弹过的 toast catch 不应再弹, 否则 Android `uni.showToast` 后调用会中断前调用, 用户只看最没信息量的那条; 拦截器 L89-91 弹后端 msg + L99-101 弹网络错 + L65-70 弹反代 502 都保留不动, 让组件 catch 静默; 401 路径特殊, 拦截器自动 reLaunch 跳登录页, catch 不弹 toast (一闪而过干扰跳转); H5 容器 erp-app-h5 已 rebuild + recreate (镜像 hash `38e532179829`), 线上 `pages-profile-index.9bnvdhRj.js` MD5 `518e2068682e0098d3f6333f78ad45cc` = 本地 dist 一致)
 
@@ -13,6 +15,58 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.62 (2026-09-24) — 库存查询 SQL 改写 (库存为 0 产品可查询)
+
+**症状 (用户截图 `home.93gushi.com:8088/#/inventory/stock`)**: 搜索"塑料袋30*38*0.16" 返回 Total 0, 但该产品确实存在于 `base_product` 表 — **只是 inv_stock 表里没有它的行 (库存=0 且从未入库过)**。
+
+**根因 (`InvStockController.java:63` v1.1.61)**:
+```java
+LambdaQueryWrapper<InvStock> w = new LambdaQueryWrapper<>();
+w.gt(InvStock::getQty, java.math.BigDecimal.ZERO);  // ← qty > 0 严格过滤
+// 同时整个 WHERE 走 inv_stock 表, 没有 inv_stock 行就拿不到任何记录
+return R.ok(PageResult.of(stockMapper.selectPage(p, w)));
+```
+原语义 = "查询有库存的库存台账",但用户预期它 = "查产品库存 (可为 0)"。
+
+**修复 (3 文件, schema 不变)**:
+- **新增** `backend/src/main/java/com/industrial/erp/modules/inventory/mapper/InvStockPageQueryMapper.java` — 自定义 query mapper 接口
+- **新增** `backend/src/main/resources/mapper/inventory/InvStockPageQueryMapper.xml` — `base_product` LEFT JOIN `inv_stock` 聚合 SQL, 关键字 LIKE `product_code/product_name/spec` 任意命中, 仓库过滤放 LEFT JOIN ON 子句 (否则会重新引入"无库存行产品"被过滤)
+- **改** `backend/src/main/java/com/industrial/erp/modules/inventory/controller/InvStockController.java` — `stockPage` 返回类型从 `PageResult<InvStock>` 改为 `PageResult<Map<String, Object>>`, 删除 `LambdaQueryWrapper` 改用 `stockPageQueryMapper.selectStockPage(p, kw, warehouseId)`, PC Stock.vue 表格 prop + App inventory/query.vue 卡片共用
+
+**返回字段** (驼峰, 与 PC Stock.vue 表格列一致):
+- `productId/productCode/productName/spec/unitId/unitName` (来自 base_product)
+- `warehouseId/warehouseName` (来自 inv_stock, 库存=0 时为 null)
+- `qty/availableQty/lockQty/totalCost` (库存=0 时全为 0; COALESCE SUM 聚合到产品级)
+- `avgCost` (按 SUM(qty*avg_cost) / SUM(qty) 计算, 库存=0 时返回 0 避免 AVG 无意义)
+- `batchNo/lastInDate` (库存=0 时为 null, MIN 聚合)
+
+**SQL 关键点**:
+- `WHERE p.deleted = 0 AND p.status = 1` 走 base_product (驱动表), 不走 inv_stock
+- `LEFT JOIN inv_stock s ON s.product_id = p.id AND s.deleted = 0` 即使无 inv_stock 行也能命中
+- `LEFT JOIN base_unit u ON u.id = p.main_unit_id` 取单位名 (主单位; v1.1.62 hotfix-1: 字段是 `main_unit_id` 不是 `unit_id`)
+- `GROUP BY p.id, p.product_code, ..., s.warehouse_id, w.warehouse_name` 按产品+仓库维度聚合
+- `ORDER BY COALESCE(SUM(s.qty), 0) DESC, p.id DESC` 有库存优先, 其次按 ID
+
+**部署 (NAS 192.168.0.150)**:
+- 后端 jar md5 `547b552b82e4e82cf385e583a62ab513` (101086934 bytes)
+- `docker build --no-cache -t erp-system-backend:latest /volume3/docker/erp-system/backend` → image id `17b5191ba5da`
+- `docker rm -f erp-backend` + `docker run --name erp-backend --network erp-system_erp-net -p 8080:8080 -v /volume3/docker/erp-system/data/backup:/opt/app/backup -v /volume3/docker/erp-system/data/upload:/opt/app/upload --env-file /tmp/erp-deploy/erp-backend-env.list erp-system-backend:latest`
+- 容器内 jar md5 验证一致 ✓, Started IndustrialErpApplication in 32.239s :: Industrial ERP Started Success ✓
+- 模拟 SQL (mysql 直跑) 命中用户截图案例: `塑料袋30*38*0.16` (id `20754693159949580161`, qty=0.0000) ✓
+
+**踩坑 (已修)**:
+1. **字段名错**: `base_product.unit_id` 不存在, 实际是 `main_unit_id` (L31, L36 GROUP BY) — 第一版 SQL 启动时 `Unknown column 'p.unit_id'`, 已 hotfix 重建
+2. **docker-compose v2.20.1 yaml 解析坏**: `${SA_TOKEN_JWT_SECRET_KEY:?... Generate with: openssl rand -hex 32}` 含空格+点+连字符被解析坏 — `docker compose up -d` 失败; **绕过**: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file`, 不走 compose
+3. **`docker restart` 不切换 image**: 容器启动时锁定原始 image hash, 即使 tag:latest 变了 restart 也不切换 — 必须 `docker rm` + 重新 `docker run`
+4. **备份/线上 jar 大小对调**: `/volume3/docker/erp-system/backend/industrial-erp.jar` (老备份, 86794232 bytes) vs `industrial-erp-1.0.4.jar` (线上, 101086058 bytes) — 部署时只覆盖后者, 不要动前者
+5. **gpssong 写 /volume3 权限不足**: 用 `cat /local/jar | ssh gpssong 'cat > /tmp/...'` 流过去 + `echo PW | sudo -S cp /tmp/... /volume3/...`
+6. **fail2ban 锁**: 频繁 ssh 后 GPS 密码错被锁 60-180s, `sshpass -p 'PW' ssh ...` 等解锁
+
+**不动**:
+- 前端 PC dist / App dist / H5 / APK (纯后端修复)
+- DB schema (无 DDL, 用现有字段)
+- SQL / RLS (无新数据 seed)
+
 ### v1.1.61 (2026-09-24) — App 端 R13 全局重塑 (22 处 catch 双弹全部静默化)
 
 **症状 (承自 v1.1.60 hotfix-2)**: profile 页面"刷新权限菜单"已修复双弹, 但其他 18 个页面 22 处 catch 仍存在 `uni.showToast` 与拦截器 toast 冲突 — 用户在所有业务场景下都看后 catch 弹的"加载失败/提交失败/操作失败"等无信息量文案, 丢失后端 msg 的诊断价值 (e.g. "反审核需要无已核销记录", "打印机离线", "采购入库需要 check 权限")。

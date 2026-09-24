@@ -1,7 +1,6 @@
 package com.industrial.erp.modules.inventory.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import cn.hutool.core.util.StrUtil;
@@ -13,6 +12,7 @@ import com.industrial.erp.modules.inventory.entity.InvStock;
 import com.industrial.erp.modules.inventory.mapper.InvLedgerMapper;
 import com.industrial.erp.modules.inventory.mapper.InvLedgerQueryMapper;
 import com.industrial.erp.modules.inventory.mapper.InvStockMapper;
+import com.industrial.erp.modules.inventory.mapper.InvStockPageQueryMapper;
 import com.industrial.erp.modules.system.entity.SysUser;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.security.PermissionService;
@@ -33,36 +33,34 @@ public class InvStockController {
     private final InvStockMapper stockMapper;
     private final InvLedgerMapper ledgerMapper;
     private final InvLedgerQueryMapper ledgerQueryMapper;
+    private final InvStockPageQueryMapper stockPageQueryMapper;
     private final SysUserMapper userMapper;
     private final PermissionService permService;
 
-    public InvStockController(InvStockMapper stockMapper, InvLedgerMapper ledgerMapper, InvLedgerQueryMapper ledgerQueryMapper, SysUserMapper userMapper, PermissionService permService) {
+    public InvStockController(InvStockMapper stockMapper, InvLedgerMapper ledgerMapper, InvLedgerQueryMapper ledgerQueryMapper, InvStockPageQueryMapper stockPageQueryMapper, SysUserMapper userMapper, PermissionService permService) {
         this.stockMapper = stockMapper;
         this.ledgerMapper = ledgerMapper;
         this.ledgerQueryMapper = ledgerQueryMapper;
+        this.stockPageQueryMapper = stockPageQueryMapper;
         this.userMapper = userMapper;
         this.permService = permService;
     }
 
     @SaCheckPermission(value = {"inventory:stock:list"}, orRole = "admin")
     @GetMapping("/stock/page")
-    public R<PageResult<InvStock>> stockPage(@RequestParam(defaultValue = "1") Integer pageNum,
-                                             @RequestParam(defaultValue = "20") Integer pageSize,
-                                             @RequestParam(required = false) String keyword,
-                                             @RequestParam(required = false) Long warehouseId) {
+    public R<PageResult<Map<String, Object>>> stockPage(@RequestParam(defaultValue = "1") Integer pageNum,
+                                                        @RequestParam(defaultValue = "20") Integer pageSize,
+                                                        @RequestParam(required = false) String keyword,
+                                                        @RequestParam(required = false) Long warehouseId) {
         permService.requirePerm("inventory:stock:list");
-        Page<InvStock> p = new Page<>(pageNum, pageSize);
-        LambdaQueryWrapper<InvStock> w = new LambdaQueryWrapper<>();
-        if (StrUtil.isNotBlank(keyword)) {
-            w.and(q -> q.like(InvStock::getProductCode, keyword)
-                    .or().like(InvStock::getProductName, keyword)
-                    .or().like(InvStock::getSpec, keyword)
-                    .or().like(InvStock::getBatchNo, keyword));
-        }
-        if (warehouseId != null) w.eq(InvStock::getWarehouseId, warehouseId);
-        w.gt(InvStock::getQty, java.math.BigDecimal.ZERO);
-        w.orderByDesc(InvStock::getId);
-        return R.ok(PageResult.of(stockMapper.selectPage(p, w)));
+        // v1.1.62: 原实现用 LambdaQueryWrapper<InvStock> 查 inv_stock 表 + qty > 0 严格过滤,
+        //   库存为 0 且无 inv_stock 行的产品查不到 (用户截图: "塑料袋30*38*0.16" Total 0 案例).
+        //   改为 InvStockPageQueryMapper — 以 base_product 为驱动 LEFT JOIN inv_stock 聚合,
+        //   库存为 0 时产品仍命中, qty/availableQty/lockQty/avgCost/totalCost 列全 0/空.
+        //   返回 Map<String,Object> 以兼容 PC Stock.vue 表格 + App inventory/query.vue 卡片.
+        Page<Map<String, Object>> p = new Page<>(pageNum, pageSize);
+        String kw = StrUtil.isNotBlank(keyword) ? keyword.trim() : null;
+        return R.ok(PageResult.of(stockPageQueryMapper.selectStockPage(p, kw, warehouseId)));
     }
 
     @SaCheckPermission(value = {"inventory:ledger:list"}, orRole = "admin")
