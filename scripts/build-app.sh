@@ -81,6 +81,40 @@ if [ ! -f "$APK" ]; then
     exit 1
 fi
 
+# ============================================================
+# [6/6] 防呆: 校验"打进 APK 的版本号 = 当前版本号"
+# v1.1.64 加 (用户 2026-09-28 批准):
+#   背景 — 即使 [1.5/5] 校验了源码三处一致, 仍可能因以下情况漂移:
+#   a) H5 没重打 (dist/build/h5 陈旧), APK 内嵌的是旧 APP_VERSION
+#   b) cap sync / assembleDebug 漏步, 内嵌的是上一次构建的 chunk
+#   做法: 直接从打好的 APK 里 unzip 出 profile 页 chunk, grep 内嵌版本串,
+#         和 manifest.json 的 versionName 比对, 不一致就 exit 1 (拒绝交付).
+#   原理: profile 页显示 `v{{ APP_VERSION }}`, 打包后 minify 成字符串字面量,
+#         形如 `...v"+r("1.1.64")...`, 所以 `grep -oE '"[0-9.]+"'` 能取到.
+# ============================================================
+echo "==> [6/6] 校验 APK 内嵌版本 = 当前版本 (防 H5 陈旧 / cap sync 漏步)"
+PROFILE_CHUNK=$(unzip -Z1 "$APK" 2>/dev/null | grep -E 'assets/public/assets/pages-profile-index\..*\.js$' | head -1)
+if [ -z "$PROFILE_CHUNK" ]; then
+    echo "✗ 没在 APK 里找到 profile chunk (pages-profile-index.*.js)"
+    echo "   这通常意味着 H5 没打进去 / cap sync 失败, 请检查 [3/5] [4/5]"
+    exit 1
+fi
+echo "   APK 内 profile chunk: $PROFILE_CHUNK"
+EMBEDDED_V=$(unzip -p "$APK" "$PROFILE_CHUNK" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -1)
+if [ -z "$EMBEDDED_V" ]; then
+    echo "✗ 没在 profile chunk 里 grep 到 3 段版本号 (形如 \"1.1.64\")"
+    echo "   可能打包产物异常, 请重新跑全流程"
+    exit 1
+fi
+echo "   APK 内嵌版本=$EMBEDDED_V   manifest.versionName=$MAN_V"
+if [ "$EMBEDDED_V" != "$MAN_V" ]; then
+    echo "✗ 版本漂移: APK 内嵌 ($EMBEDDED_V) != manifest.versionName ($MAN_V)"
+    echo "   说明 H5 陈旧或 cap sync 漏步 — 本次 APK 不可交付!"
+    echo "   修: 确认 [2/5] 清了 dist/build, [3/5] 重打了 H5, [4/5] cap sync 成功"
+    exit 1
+fi
+echo "   ✓ APK 内嵌版本 = manifest.versionName = v$EMBEDDED_V, 可交付"
+
 MD5=$(md5 "$APK" | awk '{print $NF}')
 SIZE=$(wc -c < "$APK" | tr -d ' ')
 

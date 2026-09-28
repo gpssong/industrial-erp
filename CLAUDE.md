@@ -39,6 +39,41 @@ uni-app 手持手机是**竖屏**使用, 点"📷 扫一扫" → `NativeScanner.
 
 **回归**: 纯方向改动, 相机/解码/对焦逻辑 (v1.1.63 3 处优化) 不变; `zxing_preview_scaling_strategy=centerCrop` 自动适配竖屏预览, 无需改 layout. 回滚: `git checkout` 恢复 `SENSOR_LANDSCAPE` + manifest `sensorLandscape` 即可。
 
+#### v1.1.64 build-app.sh [6/6] 防呆 (2026-09-28, 同 commit 加)
+
+**背景**: `[1.5/5]` 只校验源码三处版本号一致 (`profile.APP_VERSION` / `manifest.versionName` / `CLAUDE.md` 顶部), 但**源码对 ≠ 打进 APK 的对**. 真实踩过的漂移场景:
+- (a) H5 没重打 — `dist/build/h5` 是上次构建的 chunk, APK 内嵌的是**旧** `APP_VERSION`
+- (b) `cap sync` / `assembleDebug` 漏步 — `assets/public/` 还是上一次的 chunk, 与当前 `manifest.json` 不一致
+
+**修复** (`scripts/build-app.sh` 加 `[6/6]` 校验段, 在 `[5/5] assembleDebug` 之后、计算 MD5 之前):
+```bash
+# 1) 列出 APK 里 profile 页 chunk (hash 每次 build 变, 用正则匹配)
+PROFILE_CHUNK=$(unzip -Z1 "$APK" | grep -E 'assets/public/assets/pages-profile-index\..*\.js$' | head -1)
+# 2) 取出该 chunk, grep 内嵌的 3 段版本号字面量
+EMBEDDED_V=$(unzip -p "$APK" "$PROFILE_CHUNK" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -1)
+# 3) 和 manifest.versionName 比对, 不一致 exit 1 拒绝交付
+```
+
+**为什么 `grep` 抓得到版本号**: profile 页模板 `v{{ APP_VERSION }}` minify 后变成 `...v"+r("1.1.64")...`, 版本串以 `"1.1.64"` 形式留在 chunk 里. 实测 9/28 的 APK:
+```
+profile chunk: assets/public/assets/pages-profile-index.BW9-dH-N.js
+内嵌=1.1.64   manifest.versionName=1.1.64   ✓ 一致, 通过
+```
+
+**两道护栏分工** (互相补位, 缺一不可):
+
+| 场景 | [1.5/5] 能否拦住 | [6/6] 能否拦住 |
+|------|:---:|:---:|
+| 源码三处版本号手改漏一处 | ✅ 能 | — |
+| H5 没重打, APK 内嵌旧 `APP_VERSION` | ❌ 拦不住 (源码是对的) | ✅ 能 |
+| cap sync / assembleDebug 漏步, chunk 是上次构建的 | ❌ 拦不住 | ✅ 能 |
+
+**设计原则 (R14 — 写入设计原则)**:
+- **版本一致性校验必须分两层**: 源码层面 (三处 grep 一致) + 产物层面 (APK 内嵌 chunk 含当前 `versionName`)
+- **产物校验要"反向 grep"**: 从打好的 APK `unzip` 出实际编译的 chunk, grep 版本字面量, 和 `manifest.json` 比对 — 这才是用户**真的会装到手机上的**版本
+- **失败要 `exit 1` 拒绝交付**: 漂移 APK 不可发布, 必须 `rm -rf dist/build + 重跑 build:h5 + cap sync + assembleDebug` 全流程
+- **抓版本字面量的 regex 要稳**: minify 后 `APP_VERSION` 变量名消失, 只能靠"3 段版本号字符串字面量"匹配 (`[0-9]+\.[0-9]+\.[0-9]+`), 这是 Vue template 字符串插值 minify 后的稳定形态
+
 ### v1.1.63 (2026-09-28) — App 扫码灵敏度优化 (扫二维码不灵敏 → 3 处性能改造)
 
 **用户反馈**: App 端扫码入库 / 扫码出库扫二维码不够灵敏, 响应慢。
