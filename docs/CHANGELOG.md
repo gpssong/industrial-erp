@@ -20,6 +20,36 @@
 
 **回归**: 纯方向改动, 相机/解码/对焦逻辑不变; `zxing_preview_scaling_strategy=centerCrop` 自动适配竖屏预览. 回滚: `git checkout` 恢复 `SENSOR_LANDSCAPE` + manifest `sensorLandscape`.
 
+#### build-app.sh [6/6] 防呆 (v1.1.64 同 commit 加, 2026-09-28)
+
+**背景**: `[1.5/5]` 校验的是"源码三处版本号一致" (`APP_VERSION` / `manifest.versionName` / `CLAUDE.md` 顶部), 但**源码对 ≠ 打进 APK 的产物对**. 历史踩过的真实漂移场景: H5 没重打 (dist/build/h5 陈旧) / cap sync 漏步 / assembleDebug 没走全 — 这些情况 `[1.5/5]` 都拦不住, APK 内嵌的还是上次的旧版本号.
+
+**修复** (在 `scripts/build-app.sh` `[5/5] assembleDebug` 之后、计算 MD5 之前插 `[6/6]` 段):
+```bash
+PROFILE_CHUNK=$(unzip -Z1 "$APK" | grep -E 'assets/public/assets/pages-profile-index\..*\.js$' | head -1)
+EMBEDDED_V=$(unzip -p "$APK" "$PROFILE_CHUNK" | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"' | head -1)
+# 和 manifest.json 的 versionName 比对, 不一致 exit 1 拒绝交付
+```
+
+**为什么能抓到版本字面量**: profile 页模板 `v{{ APP_VERSION }}` minify 后变成 `...v"+r("1.1.64")...`, 3 段版本号字符串字面量是稳定形态, 即使变量名被 rename 也能 grep 到. 实测当前 9/28 的 APK:
+```
+profile chunk: assets/public/assets/pages-profile-index.BW9-dH-N.js
+内嵌=1.1.64   manifest.versionName=1.1.64   ✓ 一致, 通过
+```
+
+**两道护栏分工** (互相补位):
+| 场景 | [1.5/5] | [6/6] |
+|------|:---:|:---:|
+| 源码三处版本号手改漏一处 | ✅ | — |
+| H5 没重打, APK 内嵌旧 `APP_VERSION` | ❌ | ✅ |
+| cap sync / assembleDebug 漏步, chunk 是上次的 | ❌ | ✅ |
+
+**设计原则 (R14)**: 版本一致性校验必须分两层 (源码层面 + 产物层面); 产物校验用"反向 grep" (从打好的 APK 直接 unzip 出编译产物, 而非信任 `dist/` 里的文件); 失败必须 `exit 1` 拒绝交付; 抓版本字面量用 `[0-9]+\.[0-9]+\.[0-9]+` regex (minify 后变量名已消失, 这是 Vue 字符串插值 minify 后的稳定形态).
+
+**改动**: 1 文件 (`scripts/build-app.sh`, +~40 行 [6/6] 段). 不影响 build 流程 (校验在 build 完成之后, 只在 MD5 计算之前).
+
+**实测**: 9/28 的 `erp-app-20260928.apk` 通过 [6/6] 校验 (`1.1.64 == 1.1.64`, `bash -n` 语法 OK).
+
 ### v1.1.63 (2026-09-28) — App 扫码灵敏度优化 (3 处性能改造)
 
 **用户反馈**: App 端扫码入库 / 扫码出库扫二维码不够灵敏。
