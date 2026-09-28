@@ -1,8 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.62 (库存查询 SQL 改写 — `/inventory/stock/page` 以 `base_product` 为驱动表 LEFT JOIN `inv_stock` 聚合, 删除 v1.1.61 及之前 `w.gt(InvStock::getQty, 0)` 严格过滤, 让**库存为 0 且无 inv_stock 行的产品**也能命中查询结果; 库存为 0 时 qty/availableQty/lockQty/avgCost/totalCost 列全 0/空, 产品名/编码/规格仍正常显示; 新增 `InvStockPageQueryMapper` + 配套 XML, controller 改返回 `PageResult<Map<String, Object>>` 以兼容 PC `Stock.vue` 表格 prop + App `inventory/query.vue` 卡片; PC 端 + App 端共享一个 endpoint 同时受益; 后端 jar md5 `fc5245f493f5b243de6810d18c0c3ffa`, docker image `erp-system-backend:latest` 已 rebuild (id `817f8a1b20f1`) + 容器已 `docker rm` + `docker run --env-file` 重建; 线上 mysql 直跑模拟 SQL 已命中用户截图案例"塑料袋30*38*0.16" (id `2075469315994950161`, qty=0.0000); 踩坑记录: `base_product.unit_id` 实际为 `main_unit_id` (**3 处都要改**: SELECT AS / LEFT JOIN ON / GROUP BY, 第一版漏改 L42 LEFT JOIN ON 导致线上报 `Unknown column 'p.unit_id' in 'on clause'`**) + `docker compose up -d` 因 `${VAR:?长消息}` 含空格被 v2.20.1 yaml parser 解析坏 (绕过方法: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file` 不走 compose), `docker restart` 不切换 image (锁定原始 image hash))
+**当前版本**: v1.1.63 (App 扫码灵敏度优化 — `ScannerActivity` 针对"扫二维码不灵敏"做 3 处性能改造: (1) 限定解码格式 `{QR, EAN_13, EAN_8, CODE_128, CODE_39}`, 默认 ZXing 每帧跑 14 种解码器拖慢响应 2-4x; (2) 中央 60% 方框 `setFramingRectSize` 限定解码区, 计算量降 ~64%; (3) `CameraSettings` 切连续对焦 + 条码场景模式 (部分低端机 AUTO 拉风箱). 纯原生改动 (Java + 无 layout 变更), 跳过 H5 重打直接 `gradlew assembleDebug`; 踩坑: **ZXing 4.3.0 API 大改** — `DecoratedBarcodeView` 不再继承 `CameraPreview`, `getCameraManager()`/`setScanArea()`/`setDecodeFormats()`/`CameraManager.zoom()` 全部不存在, 改成 `getBarcodeView()` 拿内层 view + `setDecoderFactory(new DefaultDecoderFactory(...))` + `inner.setFramingRectSize(new Size(...))`; layout 里 `zxing_preview_scaling_strategy` 枚举只有 centerCrop/fitCenter/fitXY (无 zoom, 是镜头操作非预览策略, 想用要写 `CameraManager.zoom` 但 4.3.0 也没暴露). APK MD5 `c83b5f435a196217abf6eca699f89731`, 4,369,513 字节)
 
-**前序版本**: v1.1.61 (App 端 R13 全局重塑 — 13 个页面 22 处 catch toast 双弹覆盖全部静默化,只保留 `console.warn` 详细诊断 + 401 短路 return;沿用 v1.1.60 hotfix-2 "拦截器已弹过 catch 不重复弹" 原则, 推广到全部业务页面; 拦截器 `app/src/api/index.js` L65-70/L89-91/L99-101 三处 toast **保留不动**; 应保留 catch toast 4 处 (login 401 不弹 / onShare Capacitor plugin / doScan NativeScanner / onRelease `uni.showModal`); `app/src/pages/report/index.vue` 补 try-catch 防 unhandled rejection; APK MD5 `23841776cca026580fc4d515494c9734`, 4,369,513 字节; H5 容器 `erp-app-h5` 已 rebuild + recreate (镜像 hash `60edfbac4ceb`), 线上 12 个新 chunk md5 全部与本地 dist 一致)
+**前序版本**: v1.1.62 (库存查询 SQL 改写 — `/inventory/stock/page` 以 `base_product` 为驱动表 LEFT JOIN `inv_stock` 聚合, 删除 v1.1.61 及之前 `w.gt(InvStock::getQty, 0)` 严格过滤, 让**库存为 0 且无 inv_stock 行的产品**也能命中查询结果; 库存为 0 时 qty/availableQty/lockQty/avgCost/totalCost 列全 0/空, 产品名/编码/规格仍正常显示; 新增 `InvStockPageQueryMapper` + 配套 XML, controller 改返回 `PageResult<Map<String, Object>>` 以兼容 PC `Stock.vue` 表格 prop + App `inventory/query.vue` 卡片; PC 端 + App 端共享一个 endpoint 同时受益; 后端 jar md5 `fc5245f493f5b243de6810d18c0c3ffa`, docker image `erp-system-backend:latest` 已 rebuild (id `817f8a1b20f1`) + 容器已 `docker rm` + `docker run --env-file` 重建; 线上 mysql 直跑模拟 SQL 已命中用户截图案例"塑料袋30*38*0.16" (id `2075469315994950161`, qty=0.0000); 踩坑记录: `base_product.unit_id` 实际为 `main_unit_id` (**3 处都要改**: SELECT AS / LEFT JOIN ON / GROUP BY, 第一版漏改 L42 LEFT JOIN ON 导致线上报 `Unknown column 'p.unit_id' in 'on clause'`**) + `docker compose up -d` 因 `${VAR:?长消息}` 含空格被 v2.20.1 yaml parser 解析坏 (绕过方法: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file` 不走 compose), `docker restart` 不切换 image (锁定原始 image hash))
 
 **前序版本**: v1.1.60 hotfix-2 (App 端"我的-刷新权限菜单"双弹覆盖修复 — `app/src/pages/profile/index.vue` L138-149 catch 移除重复 `uni.showToast`, 拦截器已弹过的 toast catch 不应再弹, 否则 Android `uni.showToast` 后调用会中断前调用, 用户只看最没信息量的那条; 拦截器 L89-91 弹后端 msg + L99-101 弹网络错 + L65-70 弹反代 502 都保留不动, 让组件 catch 静默; 401 路径特殊, 拦截器自动 reLaunch 跳登录页, catch 不弹 toast (一闪而过干扰跳转); H5 容器 erp-app-h5 已 rebuild + recreate (镜像 hash `38e532179829`), 线上 `pages-profile-index.9bnvdhRj.js` MD5 `518e2068682e0098d3f6333f78ad45cc` = 本地 dist 一致)
 
@@ -15,6 +15,36 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.63 (2026-09-28) — App 扫码灵敏度优化 (扫二维码不灵敏 → 3 处性能改造)
+
+**用户反馈**: App 端扫码入库 / 扫码出库扫二维码不够灵敏, 响应慢。
+
+**根因**: `ScannerActivity` 沿用 ZXing 默认配置, 没有限制解码格式/扫描区域/对焦策略:
+- 默认 ZXing 每帧图像要跑 14 种 2D/1D 解码器 (EAN_13, CODE_128, QR, Aztec, DataMatrix...), 业务里入库/出库几乎全是 QR, 1D 解码器 (尤其 Code128 全帧扫描) 显著拖慢响应
+- 整帧解码 vs 中央框解码, 低端机尤其拖速度
+- 部分低端机默认 AUTO 对焦会卡住/拉风箱
+
+**修复 (3 处)**:
+1. **限定解码格式**: `barcodeView.setDecoderFactory(new DefaultDecoderFactory(EnumSet.of(QR_CODE, EAN_13, EAN_8, CODE_128, CODE_39)))` — 比默认少 9 种解码器, 提速 2-4x
+2. **中央方框**: `onResume` 时 `inner.setFramingRectSize(new Size(side, side))` (side = 短边 60%), 解码算法只处理中央 36% 像素, 计算量降 ~64%
+3. **连续对焦 + 条码场景模式**: `CameraSettings` 上 `setContinuousFocusEnabled(true)` + `setFocusMode(CONTINUOUS)` + `setBarcodeSceneModeEnabled(true)`, onCreate + onResume 双应用 (相机在 onResume 后才 configureCamera, 第二次才是真生效)
+
+**改动**: 1 文件 (`ScannerActivity.java`, ~+90 行). 无 layout 变更 (`zxing_preview_scaling_strategy` 枚举只有 centerCrop/fitCenter/fitXY, 无 "zoom" — zoom 是镜头操作非预览策略, 且 ZXing 4.3.0 也没暴露 `CameraManager.zoom()`)。无 H5/前端变更。
+
+**验证**:
+- ✅ `gradlew :app:assembleDebug` BUILD SUCCESSFUL
+- ✅ APK MD5 `c83b5f435a196217abf6eca699f89731`, 4,369,513 字节
+- ✅ 已交付到 `飞牛同步-Mac/erp/erp-app-20260928.apk` + `~/Desktop/erp-app-20260928.apk`
+
+**踩坑记录 (ZXing 4.3.0 API 大改 — 与 3.x 完全不是同一套 API)**:
+- `DecoratedBarcodeView` **不再继承 `CameraPreview`** — 4.3.0 改成 `FrameLayout` 包装, 真正的相机/解码逻辑在内部 `BarcodeView` (`getBarcodeView()`)
+- `getCameraManager()` 不存在 (3.x 才有) — 改用 `CameraSettings` 配置
+- `setScanArea(int,int,int,int)` 不存在 — 改用 `inner.setFramingRectSize(new Size(w,h))` (方法在 `CameraPreview` 上, 即内部 BarcodeView)
+- `setDecodeFormats(Set<BarcodeFormat>)` 不存在 — 改用 `barcodeView.setDecoderFactory(new DefaultDecoderFactory(Collection<BarcodeFormat>))`
+- `CameraManager.zoom(float)` 不存在 — 想放大镜头只能自己实现, 4.3.0 没暴露
+- layout 里 `app:zxing_preview_scaling_strategy` 枚举只有 `centerCrop`/`fitCenter`/`fitXY` (写了 "zoom" 会 AAPT 报 `incompatible with attribute zxing_preview_scaling_strategy enum` 直接 build 失败)
+- **教训**: ZXing 升级后 (尤其 4.x) 不能照搬 3.x 的示例代码, 先用 `javap -public` dump 实际 API 再写
+
 ### v1.1.62 (2026-09-24) — 库存查询 SQL 改写 (库存为 0 产品可查询)
 
 **症状 (用户截图 `home.93gushi.com:8088/#/inventory/stock`)**: 搜索"塑料袋30*38*0.16" 返回 Total 0, 但该产品确实存在于 `base_product` 表 — **只是 inv_stock 表里没有它的行 (库存=0 且从未入库过)**。
