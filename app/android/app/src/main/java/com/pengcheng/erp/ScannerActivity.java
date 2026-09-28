@@ -16,8 +16,15 @@ import android.widget.Toast;
 
 import com.journeyapps.barcodescanner.BarcodeCallback;
 import com.journeyapps.barcodescanner.BarcodeResult;
+import com.journeyapps.barcodescanner.BarcodeView;
 import com.journeyapps.barcodescanner.CaptureManager;
+import com.journeyapps.barcodescanner.DefaultDecoderFactory;
 import com.journeyapps.barcodescanner.DecoratedBarcodeView;
+import com.journeyapps.barcodescanner.Size;
+import com.journeyapps.barcodescanner.camera.CameraSettings;
+import com.google.zxing.BarcodeFormat;
+
+import java.util.EnumSet;
 
 /**
  * v1.1.8+ 自定义扫码 Activity, 继承自 android.app.Activity (而非 ZXing 的 CaptureActivity).
@@ -70,6 +77,30 @@ public class ScannerActivity extends Activity implements BarcodeCallback {
                 }
             });
 
+            // ★★★ v1.1.63 灵敏度优化: 限定解码格式 + 锁定中央方框 + 连续对焦
+            // ZXing 4.3.0 结构变化: DecoratedBarcodeView 是 FrameLayout, 真正的相机/解码
+            // 在它内部的 BarcodeView (getBarcodeView()) 上. setDecoderFactory 在 Decorated
+            // 上暴露, 但 setFramingRectSize / setCameraSettings 需在内部 BarcodeView 上调用.
+            final BarcodeView inner = barcodeView.getBarcodeView();
+
+            // 1) 限制解码格式 — 默认每帧跑 14 种 2D/1D 解码器, 拖慢 QR 响应 2-4x
+            //    业务里扫码入库/出库几乎都是二维码, 1D 留个开关 (见 buildDecodeFormats())
+            barcodeView.setDecoderFactory(new DefaultDecoderFactory(buildDecodeFormats()));
+
+            // 2) 中央方框 — 把解码区限定在屏幕中间, 避免整帧解码 (尤其低端机拖速度)
+            //    onCreate 时视图尺寸尚未 layout (width/height = 0), 实际调用在 onResume
+            //    (首次进入 + 横竖屏切换时都会重新计算并 setFramingRectSize)
+
+            // 3) 连续对焦 — 部分低端机默认 AUTO 会对焦卡住/拉风箱, 切 CONTINUOUS 解决
+            //    ZXing 4.3.0 焦点通过 CameraSettings 配置. 在 onResume (camera 已启动)
+            //    里再应用一次, 双保险. 失败不致命, 静默降级.
+            try {
+                CameraSettings cs = inner.getCameraSettings();
+                cs.setContinuousFocusEnabled(true);
+                cs.setFocusMode(CameraSettings.FocusMode.CONTINUOUS);
+                inner.setCameraSettings(cs);
+            } catch (Throwable ignored) {}
+
             captureManager = new CaptureManager(this, barcodeView);
             captureManager.initializeFromIntent(incoming, savedInstanceState);
 
@@ -82,6 +113,49 @@ public class ScannerActivity extends Activity implements BarcodeCallback {
             setResult(Activity.RESULT_CANCELED);
             finish();
         }
+    }
+
+    /**
+     * v1.1.63 灵敏度优化: 限制解码格式.
+     *
+     * 默认 ZXing 每帧图像要尝试解码 14 种 1D/2D 码 (EAN_13, CODE_128, QR, Aztec, DataMatrix, ...),
+     * 业务里扫码入库/出库几乎全是 QR, 1D 解码器 (尤其 Code128 全帧扫描) 显著拖慢响应.
+     * 限制到 {QR_CODE, EAN_13, EAN_8, CODE_128, CODE_39} 5 种:
+     *   - QR: 90% 业务场景 (商品/库位二维码)
+     *   - EAN_13/EAN_8: 部分供应商打的零售条码
+     *   - CODE_128: 物流/外箱条码
+     *   - CODE_39: 老式资产标签
+     * 1D 解码比 QR 慢, 但保留兜底; 纯内部系统只用 QR 时可改成 {QR_CODE} 提速 2-4x.
+     */
+    private java.util.Set<BarcodeFormat> buildDecodeFormats() {
+        return EnumSet.of(
+                BarcodeFormat.QR_CODE,
+                BarcodeFormat.EAN_13,
+                BarcodeFormat.EAN_8,
+                BarcodeFormat.CODE_128,
+                BarcodeFormat.CODE_39);
+    }
+
+    /**
+     * v1.1.63 灵敏度优化: 限定中央扫描方框 (ZXing 4.3.0 API: setFramingRectSize).
+     *
+     * 把解码区缩小到屏幕短边的 60% 居中方框:
+     *   - 解码算法只处理中央 36% 的像素, 计算量降 ~64%, 响应更快
+     *   - 取景引导用户把码对准中央, 避免大尺寸 QR 贴边/超出
+     * 视图尚未完成 layout (宽高 = 0) 时调用是 no-op (ZXing 内部用默认值).
+     */
+    private void applyCenterScanRect(DecoratedBarcodeView view) {
+        // 方框尺寸在内部 BarcodeView 上设 (setFramingRectSize 是 CameraPreview 的方法,
+        // ZXing 4.3.0 里 DecoratedBarcodeView 是 FrameLayout 包装, 实际逻辑在 inner view)
+        BarcodeView inner = view.getBarcodeView();
+        int w = view.getWidth();
+        int h = view.getHeight();
+        if (w <= 0 || h <= 0) return;
+        int shortSide = Math.min(w, h);
+        int side = (int) (shortSide * 0.60f);
+        if (side <= 0) return;
+        // Size(width, height) — 横屏下短边是宽度, 中央 60% 方框宽高都 = side
+        inner.setFramingRectSize(new Size(side, side));
     }
 
     /**
@@ -114,6 +188,15 @@ public class ScannerActivity extends Activity implements BarcodeCallback {
             if (captureManager != null) {
                 captureManager.onResume();
             }
+            // v1.1.63: onResume 时视图已完成 layout (宽高可用), 应用中央扫描方框
+            applyCenterScanRect(barcodeView);
+            // v1.1.63: 再次确认连续对焦 (相机在 onResume 后才 configureCamera, 设置要在此处生效)
+            try {
+                CameraSettings cs = barcodeView.getBarcodeView().getCameraSettings();
+                cs.setContinuousFocusEnabled(true);
+                cs.setFocusMode(CameraSettings.FocusMode.CONTINUOUS);
+                barcodeView.getBarcodeView().setCameraSettings(cs);
+            } catch (Throwable ignored) {}
         } catch (Throwable t) {
             Log.e(TAG, "onResume failed", t);
         }

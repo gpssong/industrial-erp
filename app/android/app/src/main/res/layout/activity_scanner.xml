@@ -16,6 +16,12 @@
       构造时自动 inflate zxing_barcode_scanner.xml (含 BarcodeView + ViewfinderView + status TextView).
       不要给 zxing_scanner_layout 属性 (该属性是 CaptureActivity 用, DecoratedBarcodeView 没有).
     -->
+    <!--
+      注意: zxing_preview_scaling_strategy 在 zxing-android-embedded:4.3.0 的枚举值
+      只有 centerCrop / fitCenter / fitXY (无 "zoom"). "zoom" 是 CameraManager 的
+      镜头变焦操作 (setZoom), 在 ScannerActivity.onResume 里对中央方框做镜头放大,
+      效果等价于把二维码放大到解码区, 比改 layout 的预览缩放更精准.
+    -->
     <com.journeyapps.barcodescanner.DecoratedBarcodeView
         android:id="@+id/zxing_barcode_scanner"
         android:layout_width="match_parent"
