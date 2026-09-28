@@ -54,8 +54,13 @@ public class ScannerActivity extends Activity implements BarcodeCallback {
                     WindowManager.LayoutParams.FLAG_FULLSCREEN,
                     WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
-            // 跟随用户 manifest 配置 (横屏, 与 ZXing CaptureActivity 一致)
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            // v1.1.64: 跟随父 Activity (竖屏) — 不再强制横屏.
+            // 历史: 之前 setRequestedOrientation(SENSOR_LANDSCAPE) 让每次扫码都把手机转横,
+            // 手持竖屏扫码入库/出库连续扫多个商品时, 每个都闪一次横屏宽界面, 体验差.
+            // 扫码库位都是竖屏使用, 跟随父 Activity 的 SCREEN_ORIENTATION_UNSPECIFIED
+            // (默认继承父 Activity 的 orientation, uni-app 主 Activity 竖屏) 即可.
+            // applyCenterScanRect 用"短边 60%"计算方框, 竖屏时 = 宽 60%, 解码区不变.
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
 
             setContentView(R.layout.activity_scanner);
 
@@ -154,7 +159,8 @@ public class ScannerActivity extends Activity implements BarcodeCallback {
         int shortSide = Math.min(w, h);
         int side = (int) (shortSide * 0.60f);
         if (side <= 0) return;
-        // Size(width, height) — 横屏下短边是宽度, 中央 60% 方框宽高都 = side
+        // Size(width, height) — v1.1.64 跟随竖屏: 竖屏时短边=宽, 中央 60% 方框.
+        // 竖屏 1080x2340 → side=648, 方框 648x648 居中, 比横屏方框还小, 更聚焦
         inner.setFramingRectSize(new Size(side, side));
     }
 

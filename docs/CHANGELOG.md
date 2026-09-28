@@ -2,6 +2,24 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.64 (2026-09-28) — App 扫码跟随竖屏 (连续扫码不再闪横屏宽界面)
+
+**用户反馈**: 连续扫码 (扫码入库 / 扫码出库扫多个商品) 每次都弹出"宽的扫码界面" (横屏), 体验差。
+
+**根因**: `ScannerActivity.java` L58 `SENSOR_LANDSCAPE` 强制横屏 + manifest `android:screenOrientation="sensorLandscape"`. uni-app 手持竖屏使用, 每次扫码原生 Activity 弹起都转横屏, 连续扫 N 个商品 = N 次横屏闪烁.
+
+**修复 (2 文件)**:
+- `ScannerActivity.java` L58: `SENSOR_LANDSCAPE` → `SCREEN_ORIENTATION_UNSPECIFIED` (跟随父 Activity, uni-app 主 Activity 竖屏)
+- `AndroidManifest.xml` L39: `sensorLandscape` → `unspecified` (与代码同步)
+- `applyCenterScanRect` 已按"短边 60%"算方框, 竖屏 1080 宽 → 648px 方框, 比横屏还小, 解码区更聚焦
+- 版本号 1.1.63 → 1.1.64 (APP_VERSION / manifest.versionName+versionCode / CLAUDE.md 顶部)
+
+**改动**: 2 原生文件 + H5 版本号同步 (APP_VERSION), 无 layout/相机逻辑变更 (v1.1.63 3 处优化不动).
+
+**验证**: 走 `build-app.sh` 全流程 (H5 + cap sync + assembleDebug). APK MD5 `ed4d3f30a68235a3a895e046e3215ffc`, 4,369,472 字节. 装机: 扫码入库点"📷 扫一扫" → 手机保持竖屏 (不再旋转), 中央方框居中, 连续扫多商品每次竖屏. "我的"页显示 v1.1.64.
+
+**回归**: 纯方向改动, 相机/解码/对焦逻辑不变; `zxing_preview_scaling_strategy=centerCrop` 自动适配竖屏预览. 回滚: `git checkout` 恢复 `SENSOR_LANDSCAPE` + manifest `sensorLandscape`.
+
 ### v1.1.63 (2026-09-28) — App 扫码灵敏度优化 (3 处性能改造)
 
 **用户反馈**: App 端扫码入库 / 扫码出库扫二维码不够灵敏。

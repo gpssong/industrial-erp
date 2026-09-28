@@ -36,7 +36,7 @@
         -->
         <activity
             android:name=".ScannerActivity"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="unspecified"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:configChanges="orientation|keyboardHidden|screenSize"
             android:exported="false" />

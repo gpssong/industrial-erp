@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.63 (App 扫码灵敏度优化 — `ScannerActivity` 针对"扫二维码不灵敏"做 3 处性能改造: (1) 限定解码格式 `{QR, EAN_13, EAN_8, CODE_128, CODE_39}`, 默认 ZXing 每帧跑 14 种解码器拖慢响应 2-4x; (2) 中央 60% 方框 `setFramingRectSize` 限定解码区, 计算量降 ~64%; (3) `CameraSettings` 切连续对焦 + 条码场景模式 (部分低端机 AUTO 拉风箱). 纯原生改动 (Java + 无 layout 变更), 跳过 H5 重打直接 `gradlew assembleDebug`; 踩坑: **ZXing 4.3.0 API 大改** — `DecoratedBarcodeView` 不再继承 `CameraPreview`, `getCameraManager()`/`setScanArea()`/`setDecodeFormats()`/`CameraManager.zoom()` 全部不存在, 改成 `getBarcodeView()` 拿内层 view + `setDecoderFactory(new DefaultDecoderFactory(...))` + `inner.setFramingRectSize(new Size(...))`; layout 里 `zxing_preview_scaling_strategy` 枚举只有 centerCrop/fitCenter/fitXY (无 zoom, 是镜头操作非预览策略, 想用要写 `CameraManager.zoom` 但 4.3.0 也没暴露). APK MD5 `c83b5f435a196217abf6eca699f89731`, 4,369,513 字节)
+**当前版本**: v1.1.64 (App 扫码跟随竖屏 — 修复"连续扫码每次闪一次横屏宽界面"的体验问题. 根因: `ScannerActivity.java` L58 强制 `SENSOR_LANDSCAPE` 横屏, uni-app 手持竖屏扫码入库/出库连续扫多个商品时, 每个扫码都弹一次原生 Activity 把手机转横, 用户看到宽屏界面. 修复: `setRequestedOrientation(SCREEN_ORIENTATION_UNSPECIFIED)` 跟随父 Activity (uni-app 主 Activity 竖屏), manifest 同步改 `android:screenOrientation="unspecified"`. `applyCenterScanRect` 已用"短边 60%"计算方框, 竖屏 1080x2340 → 648x648 居中, 解码区比横屏还小更聚焦. 改了 H5 (APP_VERSION 1.1.63→1.1.64 + manifest versionName), 全流程 `build-app.sh`. APK MD5 `ed4d3f30a68235a3a895e046e3215ffc`, 4,369,472 字节)
+
+**前序版本**: v1.1.63 (App 扫码灵敏度优化 — `ScannerActivity` 针对"扫二维码不灵敏"做 3 处性能改造: (1) 限定解码格式 `{QR, EAN_13, EAN_8, CODE_128, CODE_39}`, 默认 ZXing 每帧跑 14 种解码器拖慢响应 2-4x; (2) 中央 60% 方框 `setFramingRectSize` 限定解码区, 计算量降 ~64%; (3) `CameraSettings` 切连续对焦 + 条码场景模式 (部分低端机 AUTO 拉风箱). 纯原生改动 (Java + 无 layout 变更), 跳过 H5 重打直接 `gradlew assembleDebug`; 踩坑: **ZXing 4.3.0 API 大改** — `DecoratedBarcodeView` 不再继承 `CameraPreview`, `getCameraManager()`/`setScanArea()`/`setDecodeFormats()`/`CameraManager.zoom()` 全部不存在, 改成 `getBarcodeView()` 拿内层 view + `setDecoderFactory(new DefaultDecoderFactory(...))` + `inner.setFramingRectSize(new Size(...))`; layout 里 `zxing_preview_scaling_strategy` 枚举只有 centerCrop/fitCenter/fitXY (无 zoom, 是镜头操作非预览策略, 想用要写 `CameraManager.zoom` 但 4.3.0 也没暴露). 同 commit 修了 App 版本号 5 版漂移 (1.1.58→1.1.63 期间 `APP_VERSION` 一直没改, 用户反馈"装了新 APK 还显示 1.1.58"), 三处版本号对齐 1.1.63 + `build-app.sh` 加 [1.5/5] 版本一致性护栏. APK MD5 `98aa9e6ea8e1097625592f2fcb0fa467`, 4,369,493 字节)
 
 **前序版本**: v1.1.62 (库存查询 SQL 改写 — `/inventory/stock/page` 以 `base_product` 为驱动表 LEFT JOIN `inv_stock` 聚合, 删除 v1.1.61 及之前 `w.gt(InvStock::getQty, 0)` 严格过滤, 让**库存为 0 且无 inv_stock 行的产品**也能命中查询结果; 库存为 0 时 qty/availableQty/lockQty/avgCost/totalCost 列全 0/空, 产品名/编码/规格仍正常显示; 新增 `InvStockPageQueryMapper` + 配套 XML, controller 改返回 `PageResult<Map<String, Object>>` 以兼容 PC `Stock.vue` 表格 prop + App `inventory/query.vue` 卡片; PC 端 + App 端共享一个 endpoint 同时受益; 后端 jar md5 `fc5245f493f5b243de6810d18c0c3ffa`, docker image `erp-system-backend:latest` 已 rebuild (id `817f8a1b20f1`) + 容器已 `docker rm` + `docker run --env-file` 重建; 线上 mysql 直跑模拟 SQL 已命中用户截图案例"塑料袋30*38*0.16" (id `2075469315994950161`, qty=0.0000); 踩坑记录: `base_product.unit_id` 实际为 `main_unit_id` (**3 处都要改**: SELECT AS / LEFT JOIN ON / GROUP BY, 第一版漏改 L42 LEFT JOIN ON 导致线上报 `Unknown column 'p.unit_id' in 'on clause'`**) + `docker compose up -d` 因 `${VAR:?长消息}` 含空格被 v2.20.1 yaml parser 解析坏 (绕过方法: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file` 不走 compose), `docker restart` 不切换 image (锁定原始 image hash))
 
@@ -15,6 +17,28 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.64 (2026-09-28) — App 扫码跟随竖屏 (连续扫码不再闪横屏宽界面)
+
+**用户反馈**: 连续扫码 (扫码入库 / 扫码出库扫多个商品) 每次都会弹出"宽的扫码界面" (横屏), 体验差。
+
+**根因** (`ScannerActivity.java` L58):
+```java
+setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE)  // 强制横屏
+```
+uni-app 手持手机是**竖屏**使用, 点"📷 扫一扫" → `NativeScanner.startScan()` 弹起原生 `ScannerActivity` → 系统把手机**旋转 90° 成横屏**显示相机预览 (full-screen landscape 宽界面). 连续扫 N 个商品 = N 次横屏闪烁。
+
+**修复 (2 文件, 纯原生 + H5 版本号同步)**:
+1. **`ScannerActivity.java` L58**: `SENSOR_LANDSCAPE` → `SCREEN_ORIENTATION_UNSPECIFIED` (跟随父 Activity, uni-app 主 Activity 竖屏, 扫码也竖屏)
+2. **`AndroidManifest.xml` L39**: `android:screenOrientation="sensorLandscape"` → `"unspecified"` (与代码同步)
+3. `applyCenterScanRect` 已用"短边 60%"计算方框, 竖屏时方框比横屏还小 (1080 宽 × 0.60 = 648px), 解码区更聚焦
+4. 版本号 1.1.63 → 1.1.64 (APP_VERSION / manifest.versionName+versionCode / CLAUDE.md 顶部)
+
+**部署**: 改了 H5 (APP_VERSION), 走 `build-app.sh` 全流程 (build:h5 + cap sync + assembleDebug). APK MD5 `ed4d3f30a68235a3a895e046e3215ffc`, 4,369,472 字节, profile chunk `pages-profile-index.BW9-dH-N.js` 含 1.1.64. 已交付 `飞牛同步-Mac/erp/erp-app-20260928.apk` + `~/Desktop/erp-app-20260928.apk`.
+
+**验证 (装机)**: 用户装新 APK → 扫码入库页点"📷 扫一扫" → **手机保持竖屏** (不再旋转横屏), 中央方框居中, 连续扫多个商品每次都竖屏, 体验流畅. 退出"我的"页确认显示 v1.1.64.
+
+**回归**: 纯方向改动, 相机/解码/对焦逻辑 (v1.1.63 3 处优化) 不变; `zxing_preview_scaling_strategy=centerCrop` 自动适配竖屏预览, 无需改 layout. 回滚: `git checkout` 恢复 `SENSOR_LANDSCAPE` + manifest `sensorLandscape` 即可。
+
 ### v1.1.63 (2026-09-28) — App 扫码灵敏度优化 (扫二维码不灵敏 → 3 处性能改造)
 
 **用户反馈**: App 端扫码入库 / 扫码出库扫二维码不够灵敏, 响应慢。
