@@ -2,8 +2,8 @@
     "name" : "鹏程erp",
     "appid" : "__UNI__76E08BC",
     "description" : "企业级鹏程ERP移动端",
-    "versionName" : "1.1.53-hotfix.1",
-    "versionCode" : 11531,
+    "versionName" : "1.1.63",
+    "versionCode" : 1163,
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,

@@ -28,6 +28,24 @@ export JAVA_HOME=/opt/homebrew/Cellar/openjdk@17/17.0.19/libexec/openjdk.jdk/Con
 export PATH="$JAVA_HOME/bin:$PATH"
 java -version
 
+echo "==> [1.5/5] 版本一致性检查 (v1.1.63 加, 防 5 版漂移: 1.1.58→1.1.63 期间 APP_VERSION 一直没改)"
+# 三处版本号必须一致: profile 页 APP_VERSION (用户看到的) / manifest.json versionName (OS 级) / CLAUDE.md 顶部
+APP_V=$(grep -oE "APP_VERSION = '[0-9.]+'" src/pages/profile/index.vue | grep -oE "[0-9.]+")
+MAN_V=$(grep -oE '"versionName"[^,]*' src/manifest.json | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)
+CLAUDE_V=$(grep -oE '当前版本\*\*: v[0-9.]+' ../CLAUDE.md | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)
+echo "   APP_VERSION=$APP_V  manifest.versionName=$MAN_V  CLAUDE.md 顶部=$CLAUDE_V"
+if [ -n "$APP_V" ] && [ "$APP_V" != "$MAN_V" ]; then
+    echo "✗ 版本漂移: profile APP_VERSION ($APP_V) != manifest.versionName ($MAN_V)"
+    echo "   修: 同步 src/pages/profile/index.vue 的 APP_VERSION 到当前版本"
+    exit 1
+fi
+if [ -n "$APP_V" ] && [ -n "$CLAUDE_V" ] && [ "$APP_V" != "$CLAUDE_V" ]; then
+    echo "✗ 版本漂移: profile APP_VERSION ($APP_V) != CLAUDE.md 顶部 (v$CLAUDE_V)"
+    echo "   修: 同步 CLAUDE.md 顶部 当前版本 到 $APP_V (含 changelog 新段)"
+    exit 1
+fi
+echo "   ✓ 三处版本号一致 (v$APP_V)"
+
 echo "==> [2/5] 清理 dist/build/h5 + cap sync 缓存"
 rm -rf dist/build
 rm -rf unpackage/cache
