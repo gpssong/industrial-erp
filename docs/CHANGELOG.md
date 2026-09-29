@@ -2,6 +2,29 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.66 version-sync (2026-09-29) — 系统信息版本号字面量对齐 (前端/后端版本显示修复)
+
+**用户反馈**: 系统管理 → 系统设置 → 系统参数「系统信息」里 前端版本 / 后端版本 仍显示 `1.1.53-hotfix.1`, 与 changelog 脱节, 未随 v1.1.54~v1.1.66 同步更新。
+
+**根因**: 「系统信息」的前端/后端版本号来自三处被冻结的字面量 (v1.1.53 时代的 `deploy-version-bump.sh` 写死后不再维护):
+- **前端版本** = `pc-web/package.json` → `version`, vite `define` 在**构建时**烤进 `__APP_VERSION__`, `Settings.vue:131` 读取。
+- **后端版本** = `application.yml` `erp.version: ${ERP_VERSION:…}` 默认值 → `SystemVersionInitializer` 启动时 upsert 到 `sys_config.SYSTEM_VERSION_INFO`。
+- **构建时间** = vite `__BUILD_TIME__` = 构建当天 (本来会随重打刷新, 无需改)。
+
+**修复 (4 文件, 纯字面量对齐, 零业务改动)**:
+| 文件 | 改动 |
+|---|---|
+| `pc-web/package.json` | `version` `1.1.53-hotfix.1` → `1.1.66` (需重打 dist 才生效, `__APP_VERSION__` 构建期注入) |
+| `backend/.../application.yml` | `erp.version` 默认 `1.1.53-hotfix.1` → `1.1.66` |
+| `backend/.../SystemVersionInitializer.java` | `@Value("${erp.version:…}")` 默认 `1.1.53-hotfix.1` → `1.1.66` |
+| `app/package.json` | `version` 顺手对齐 App 实际版本 `1.1.64` (App 走 manifest `versionName`/`APP_VERSION`, 非 package.json, 纯源码一致性) |
+
+**部署**: 重打 pc-web dist (System chunk `System-CGWmoRBS.js`), 双站 bind-mount 替换 + `docker restart` pc-web; 双站 backend 用**现有 image + 追加 `-e ERP_VERSION=1.1.66`** 重建容器 (无需重打 jar, jar 内 `application.yml` 默认值已在源码对齐)。两站 JWT 密钥沿用原值 (home `ecdd4895…` / 飞牛 `a337f875…`), 已登录用户不用重登。
+
+**验证**: 双站 `sys_config.SYSTEM_VERSION_INFO` 均 `{"version":"1.1.66",...}`; 双站 18080 `System-CGWmoRBS.js` 均 200 且含 `1.1.66` 字面量; 强刷后「系统信息」前端/后端版本都显示 `1.1.66`。
+
+**教训 (R15 — 写入设计原则)**: 版本号字面量分散在 3 个源文件 + 1 个运行 env, 极易漏改漂移。后续每个 feature 版本若要让「系统信息」版本对齐, 必须同步 4 处 (pc-web/package.json + application.yml + SystemVersionInitializer + 重建容器 env `ERP_VERSION`), 并把 pc-web 纳入 dist 重打 (前端版本是构建期烤入, 光改 package.json 不重打包没效)。
+
 ### v1.1.66 (2026-09-29) — 销售订单「多单合并生成出库单」(同客户 2 张以上已审核订单 → 一张出库单)
 
 **用户需求**: 两个销售订单合成 1 张送货单。当前"生成出库单"是逐订单各生成一张, 用户得手动把订单 B 的明细补进订单 A 草稿, 不便。

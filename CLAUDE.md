@@ -2,6 +2,8 @@
 
 **当前版本**: v1.1.66 (PC 端"销售订单多单合并生成出库单" — 同客户 2 张以上已审核订单勾选合并成 1 张出库单/送货单. 数据层天然支持 (sal_delivery_detail.order_detail_id 是逐行溯源键, 可跨订单), 缺的只是入口. 前端 Order.vue 加多选列 + "合并生成出库单"按钮, 抽通用 openGenerateDialog(orders[]): 逐订单拉 detail+getDeliverySummary, 明细拼接每行保留各自 orderDetailId, 单订单主表写 orderId, 多订单主表 orderId=null (溯源走明细行), 明细表加"来源订单号"列(仅展示, 提交前剔除); 同客户校验 (客户不同报错). 后端 SalDeliveryMapper.selectPageByOrderId 追溯查询加 EXISTS(明细 order_detail_id IN 该订单明细), 让合并单 (主表 order_id NULL) 在每张源订单"关联出库单"里都可见. schema 不变, 超发防护 (v1.1.65 剩余数量默认) 逐行保留. 纯 PC 端功能 (后端 jar + pc-web dist), App 版不动, 仍 1.1.64)
 
+**前序版本**: v1.1.66 version-sync (系统信息版本号字面量对齐 — 用户反馈系统设置「系统信息」前端/后端版本仍显示 `1.1.53-hotfix.1`, 与 changelog 脱节。根因: 版本号字面量在 v1.1.53 被 `deploy-version-bump.sh` 冻结后再没维护。修复 4 文件纯字面量对齐: `pc-web/package.json` → `1.1.66` (需重打 dist, `__APP_VERSION__` 构建期烤入) + `application.yml` `erp.version` 默认 + `SystemVersionInitializer` `@Value` 默认 → `1.1.66` + `app/package.json` 顺手对齐 `1.1.64`。部署: 重打 pc-web dist (System chunk `System-CGWmoRBS.js`) 双站 bind-mount; 双站 backend 现有 image + 追加 `-e ERP_VERSION=1.1.66` 重建容器, 无需重打 jar。两站 JWT 密钥沿用, 不用重登。双站 `sys_config.SYSTEM_VERSION_INFO` 均 `version=1.1.66`。R15: 版本字面量分散 3 源文件+1 运行 env 极易漂移, 后续每个版本对齐需同步 4 处且前端必须重打 dist)
+
 **前序版本**: v1.1.65 (PC 端"生成出库单"商品明细数量默认改为「剩余数量」— 从销售订单生成出库单时, 数量列默认填入 `订单全量 − 已审核出库累计`(剩余), 已发完的明细默认为 0, 避免部分发货过的订单重复超发. 后端 `SalOrderService.getDeliverySummary` 每行加 `orderDetailId` (供按明细行匹配已发/未发); 前端 `pc-web/views/sales/Order.vue` `onGenerateDelivery` 拉发货汇总建 Map<orderDetailId, summary>, 数量默认 `max(0, 全量−已发)`, 新增只读「订单数量」列对照 + 提示文案更新. 纯 PC 端功能 (后端 jar + pc-web dist), App 版不动, 仍 1.1.64)
 
 **前序版本**: v1.1.64 (App 扫码跟随竖屏 — 修复"连续扫码每次闪一次横屏宽界面"的体验问题. 根因: `ScannerActivity.java` L58 强制 `SENSOR_LANDSCAPE` 横屏, uni-app 手持竖屏扫码入库/出库连续扫多个商品时, 每个扫码都弹一次原生 Activity 把手机转横, 用户看到宽屏界面. 修复: `setRequestedOrientation(SCREEN_ORIENTATION_UNSPECIFIED)` 跟随父 Activity (uni-app 主 Activity 竖屏), manifest 同步改 `android:screenOrientation="unspecified"`. `applyCenterScanRect` 已用"短边 60%"计算方框, 竖屏 1080x2340 → 648x648 居中, 解码区比横屏还小更聚焦. 改了 H5 (APP_VERSION 1.1.63→1.1.64 + manifest versionName), 全流程 `build-app.sh`. APK MD5 `ed4d3f30a68235a3a895e046e3215ffc`, 4,369,472 字节)
@@ -21,6 +23,18 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.66 version-sync (2026-09-29) — 系统信息版本号字面量对齐 (前端/后端版本显示修复)
+
+**用户反馈**: 系统参数「系统信息」前端/后端版本仍显示 `1.1.53-hotfix.1`, 与 changelog 脱节。
+
+**根因**: 「系统信息」版本号来自 3 处冻结字面量 (v1.1.53 `deploy-version-bump.sh` 写死后不再维护): 前端版本=`pc-web/package.json`→vite `__APP_VERSION__`(构建期烤入), 后端版本=`application.yml erp.version` 默认→`SystemVersionInitializer` upsert 到 `sys_config`, 构建时间=vite `__BUILD_TIME__`(重打即刷新)。
+
+**修复 (4 文件纯字面量, 零业务改动)**: `pc-web/package.json` `1.1.53-hotfix.1`→`1.1.66`(需重打 dist); `application.yml` + `SystemVersionInitializer` 默认→`1.1.66`; `app/package.json` 顺手对齐 App 实际 `1.1.64`。
+
+**部署**: 重打 pc-web dist (System chunk `System-CGWmoRBS.js`) 双站 bind-mount + restart; 双站 backend 现有 image + `-e ERP_VERSION=1.1.66` 重建容器(无需重打 jar)。JWT 密钥沿用, 不用重登。双站 `sys_config` 均 `version=1.1.66`。
+
+**教训 (R15)**: 版本字面量分散 3 源文件 + 1 运行 env, 极易漂移。每版本对齐需同步 4 处 (pc-web/package.json + application.yml + SystemVersionInitializer + 容器 env `ERP_VERSION`), 且前端必须重打 dist (版本是构建期烤入)。
+
 ### v1.1.65 (2026-09-29) — PC 端"生成出库单"数量默认「剩余数量」(订单全量 − 已审核出库累计)
 
 **用户反馈**: 通过销售订单生成出库单时, 商品明细中的「数量」默认填的是订单全量, 但部分发货过的订单应当只默认填入「未发货/剩余数量」(与"发货详情"弹窗的 未发货 列一致), 否则再开一张出库单容易把已发的量重复算进去超发。
