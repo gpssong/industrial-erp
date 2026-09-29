@@ -42,7 +42,7 @@ public class SystemVersionInitializer implements ApplicationRunner {
     @Value("${spring.data.redis.port:0}")
     private int redisPort;
 
-    @Value("${erp.version:1.1.53-hotfix.1}")
+    @Value("${erp.version:1.1.66}")
     private String erpVersion;
 
     public SystemVersionInitializer(SysConfigMapper configMapper) {
