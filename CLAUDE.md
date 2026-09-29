@@ -1,8 +1,10 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.64 (App 扫码跟随竖屏 — 修复"连续扫码每次闪一次横屏宽界面"的体验问题. 根因: `ScannerActivity.java` L58 强制 `SENSOR_LANDSCAPE` 横屏, uni-app 手持竖屏扫码入库/出库连续扫多个商品时, 每个扫码都弹一次原生 Activity 把手机转横, 用户看到宽屏界面. 修复: `setRequestedOrientation(SCREEN_ORIENTATION_UNSPECIFIED)` 跟随父 Activity (uni-app 主 Activity 竖屏), manifest 同步改 `android:screenOrientation="unspecified"`. `applyCenterScanRect` 已用"短边 60%"计算方框, 竖屏 1080x2340 → 648x648 居中, 解码区比横屏还小更聚焦. 改了 H5 (APP_VERSION 1.1.63→1.1.64 + manifest versionName), 全流程 `build-app.sh`. APK MD5 `ed4d3f30a68235a3a895e046e3215ffc`, 4,369,472 字节)
+**当前版本**: v1.1.65 (PC 端"生成出库单"商品明细数量默认改为「剩余数量」— 从销售订单生成出库单时, 数量列默认填入 `订单全量 − 已审核出库累计`(剩余), 已发完的明细默认为 0, 避免部分发货过的订单重复超发. 后端 `SalOrderService.getDeliverySummary` 每行加 `orderDetailId` (供按明细行匹配已发/未发); 前端 `pc-web/views/sales/Order.vue` `onGenerateDelivery` 拉发货汇总建 Map<orderDetailId, summary>, 数量默认 `max(0, 全量−已发)`, 新增只读「订单数量」列对照 + 提示文案更新. 纯 PC 端功能 (后端 jar + pc-web dist), App 版不动, 仍 1.1.64)
 
-**前序版本**: v1.1.63 (App 扫码灵敏度优化 — `ScannerActivity` 针对"扫二维码不灵敏"做 3 处性能改造: (1) 限定解码格式 `{QR, EAN_13, EAN_8, CODE_128, CODE_39}`, 默认 ZXing 每帧跑 14 种解码器拖慢响应 2-4x; (2) 中央 60% 方框 `setFramingRectSize` 限定解码区, 计算量降 ~64%; (3) `CameraSettings` 切连续对焦 + 条码场景模式 (部分低端机 AUTO 拉风箱). 纯原生改动 (Java + 无 layout 变更), 跳过 H5 重打直接 `gradlew assembleDebug`; 踩坑: **ZXing 4.3.0 API 大改** — `DecoratedBarcodeView` 不再继承 `CameraPreview`, `getCameraManager()`/`setScanArea()`/`setDecodeFormats()`/`CameraManager.zoom()` 全部不存在, 改成 `getBarcodeView()` 拿内层 view + `setDecoderFactory(new DefaultDecoderFactory(...))` + `inner.setFramingRectSize(new Size(...))`; layout 里 `zxing_preview_scaling_strategy` 枚举只有 centerCrop/fitCenter/fitXY (无 zoom, 是镜头操作非预览策略, 想用要写 `CameraManager.zoom` 但 4.3.0 也没暴露). 同 commit 修了 App 版本号 5 版漂移 (1.1.58→1.1.63 期间 `APP_VERSION` 一直没改, 用户反馈"装了新 APK 还显示 1.1.58"), 三处版本号对齐 1.1.63 + `build-app.sh` 加 [1.5/5] 版本一致性护栏. APK MD5 `98aa9e6ea8e1097625592f2fcb0fa467`, 4,369,493 字节)
+**前序版本**: v1.1.64 (App 扫码跟随竖屏 — 修复"连续扫码每次闪一次横屏宽界面"的体验问题. 根因: `ScannerActivity.java` L58 强制 `SENSOR_LANDSCAPE` 横屏, uni-app 手持竖屏扫码入库/出库连续扫多个商品时, 每个扫码都弹一次原生 Activity 把手机转横, 用户看到宽屏界面. 修复: `setRequestedOrientation(SCREEN_ORIENTATION_UNSPECIFIED)` 跟随父 Activity (uni-app 主 Activity 竖屏), manifest 同步改 `android:screenOrientation="unspecified"`. `applyCenterScanRect` 已用"短边 60%"计算方框, 竖屏 1080x2340 → 648x648 居中, 解码区比横屏还小更聚焦. 改了 H5 (APP_VERSION 1.1.63→1.1.64 + manifest versionName), 全流程 `build-app.sh`. APK MD5 `ed4d3f30a68235a3a895e046e3215ffc`, 4,369,472 字节)
+
+**前序版本**: v1.1.63 (App 扫码灵敏度优化 — `ScannerActivity` 针对"扫二维码不灵敏"做 3 处性能改造: (1) 限定解码格式 `{QR, EAN_13, EAN_8, CODE_128, CODE_39}`, 默认 ZXing 每帧跑 14 种解码器拖慢响应 2-4x; (2) 中央 60% 方框 `setFramingRectSize` 限定解码区, 计算量降 ~64%; (3) `CameraSettings` 切连续对焦 + 条码场景模式 (部分低端机 AUTO 拉风箱). 纯原生改动 (Java + 无 layout 变更), 跳过 H5 重打直接 `gradlew assembleDebug`; 踩坑: **ZXing 4.3.0 API 大改** — `DecoratedBarcodeView` 不再继承 `CameraPreview`, 改成 `getBarcodeView()` 拿内层 view + `setDecoderFactory(new DefaultDecoderFactory(...))` + `inner.setFramingRectSize(new Size(...))`; layout 里 `zxing_preview_scaling_strategy` 枚举只有 centerCrop/fitCenter/fitXY. 同 commit 修了 App 版本号 5 版漂移, 三处版本号对齐 1.1.63 + `build-app.sh` 加 [1.5/5] 版本一致性护栏. APK MD5 `98aa9e6ea8e1097625592f2fcb0fa467`, 4,369,493 字节)
 
 **前序版本**: v1.1.62 (库存查询 SQL 改写 — `/inventory/stock/page` 以 `base_product` 为驱动表 LEFT JOIN `inv_stock` 聚合, 删除 v1.1.61 及之前 `w.gt(InvStock::getQty, 0)` 严格过滤, 让**库存为 0 且无 inv_stock 行的产品**也能命中查询结果; 库存为 0 时 qty/availableQty/lockQty/avgCost/totalCost 列全 0/空, 产品名/编码/规格仍正常显示; 新增 `InvStockPageQueryMapper` + 配套 XML, controller 改返回 `PageResult<Map<String, Object>>` 以兼容 PC `Stock.vue` 表格 prop + App `inventory/query.vue` 卡片; PC 端 + App 端共享一个 endpoint 同时受益; 后端 jar md5 `fc5245f493f5b243de6810d18c0c3ffa`, docker image `erp-system-backend:latest` 已 rebuild (id `817f8a1b20f1`) + 容器已 `docker rm` + `docker run --env-file` 重建; 线上 mysql 直跑模拟 SQL 已命中用户截图案例"塑料袋30*38*0.16" (id `2075469315994950161`, qty=0.0000); 踩坑记录: `base_product.unit_id` 实际为 `main_unit_id` (**3 处都要改**: SELECT AS / LEFT JOIN ON / GROUP BY, 第一版漏改 L42 LEFT JOIN ON 导致线上报 `Unknown column 'p.unit_id' in 'on clause'`**) + `docker compose up -d` 因 `${VAR:?长消息}` 含空格被 v2.20.1 yaml parser 解析坏 (绕过方法: 直接 `docker build --no-cache` + `docker rm` + `docker run --env-file` 不走 compose), `docker restart` 不切换 image (锁定原始 image hash))
 
@@ -17,6 +19,21 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.65 (2026-09-29) — PC 端"生成出库单"数量默认「剩余数量」(订单全量 − 已审核出库累计)
+
+**用户反馈**: 通过销售订单生成出库单时, 商品明细中的「数量」默认填的是订单全量, 但部分发货过的订单应当只默认填入「未发货/剩余数量」(与"发货详情"弹窗的 未发货 列一致), 否则再开一张出库单容易把已发的量重复算进去超发。
+
+**改动 (3 文件)**:
+- **后端 `SalOrderService.getDeliverySummary`**: 每行 Map 加 `row.put("orderDetailId", d.getId())` — 让前端能按 `order_detail_id` 把发货汇总对回订单明细行 (原来只带 lineNo/productCode, 缺主键无法匹配)。`发货详情` 弹窗前端逻辑不变, 仍按原字段渲染。
+- **前端 `pc-web/views/sales/Order.vue` `onGenerateDelivery`**: 打开弹窗时 `salOrderApi.getDeliverySummary(o.id)` 拉已发/未发汇总, 建 `Map<orderDetailId, {shippedQty,unshippedQty}>`; 明细行 `qty` 默认 `max(0, 订单全量 − 已审核出库累计)` (部分发完 → 剩余; 全发完 → 0)。拉取失败时回退到全量默认 (旧行为), 仅 `console.warn` 不阻塞。
+- **前端 同一文件**: 明细表在「数量」前加只读「订单数量」列 (灰字全量), 与可编辑「数量」(默认剩余) 对照; 提示文案由"数量默认为订单全量"改为"数量默认填入剩余数量, 已发完的明细默认为 0; 如需补发/超发请手工调整"。`onConfirmGenerate` 提交前 `delete cleaned._orderQty/_shippedQty` (两个 UI 辅助字段不进后端 payload)。
+
+**部署**: 后端 jar 需重打 (deploy-home-dist 走 jar 流程); pc-web `npm run build` 出新 chunk `Order-BQ9ysCJe.js` 部署 H5 容器。**App 端不动, 仍 v1.1.64** (纯 PC 功能, 无 App 页面)。
+
+**验证 (装机)**: 订单 SO202609070001 部分发货 (发货详情: 订单 75000/已发 50000/未发 25000 等) → 点「生成出库单」→ 明细「数量」默认显示剩余 (25000/7000/2000/182000...), 「订单数量」列灰字显示全量 → 保存为草稿 数量按剩余录入。已发完的明细 (未发货=0) 默认数量为 0。
+
+**回滚**: 恢复 `onGenerateDelivery` 的 `qty: Number(d.qty)` (全量默认), 删「订单数量」列; 后端 `orderDetailId` 一行无害, 可留。
+
 ### v1.1.64 (2026-09-28) — App 扫码跟随竖屏 (连续扫码不再闪横屏宽界面)
 
 **用户反馈**: 连续扫码 (扫码入库 / 扫码出库扫多个商品) 每次都会弹出"宽的扫码界面" (横屏), 体验差。

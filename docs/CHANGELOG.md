@@ -2,6 +2,42 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.65 (2026-09-29) — PC 端"生成出库单"数量默认「剩余数量」
+
+**用户反馈**: 通过销售订单生成出库单时, 商品明细中的「数量」默认填的是订单全量, 部分发货过的订单应当默认只填「未发货/剩余数量」(与"发货详情"弹窗的 未发货 列一致), 避免再开一张出库单把已发的量重复算进去超发。
+
+**根因**: `pc-web/src/views/sales/Order.vue` 的 `onGenerateDelivery` 把订单明细 `o.details[i].qty` (全量) 直接作为出库明细默认数量 (v1.1.35 设计: "默认值 = 全量; 用户可手工改数量做部分发货"), 没扣掉已审核出库累计。
+
+**修复 (3 文件, schema 不变)**:
+
+1. **后端 `SalOrderService.getDeliverySummary`** — 每行 summary Map 加 `row.put("orderDetailId", d.getId())`。
+   - 原方法只带 `lineNo/productCode/.../shippedQty/unshippedQty`, 缺 `order_detail_id` 主键, 前端无法把发货汇总对回具体明细行。加这一行后, `onGenerateDelivery` 能按 `orderDetailId` 建 `Map` 匹配。
+   - `发货详情` 弹窗前端只读原字段, 新增 `orderDetailId` 不影响其渲染。
+   - 需重打后端 jar 部署。
+
+2. **前端 `Order.vue onGenerateDelivery`** — 打开"生成出库单"弹窗时:
+   ```js
+   let shippedByDetail = new Map()
+   try {
+     const sr = await salOrderApi.getDeliverySummary(o.id)
+     ;(sr.data || []).forEach(s => { if (s.orderDetailId != null) shippedByDetail.set(s.orderDetailId, s) })
+   } catch (e) { console.warn('[onGenerateDelivery] 加载发货汇总失败, 数量默认订单全量:', e) }  // 回退旧行为, 不阻塞
+   // 明细行 qty 默认 = max(0, 全量 − 已审核出库累计)
+   const ship = shippedByDetail.get(d.id)
+   const full = d.qty != null ? Number(d.qty) : 0
+   const shipped = ship ? (ship.shippedQty != null ? Number(ship.shippedQty) : 0) : 0
+   const remain = Math.max(0, +(full - shipped).toFixed(4))
+   ```
+   明细行新增 `_orderQty` (全量) + `_shippedQty` (已发) 两个 UI 辅助字段, `onConfirmGenerate` 提交前 `delete cleaned._orderQty/_shippedQty` (不进后端 payload)。
+
+3. **前端 `Order.vue` 明细表 + 提示** — 「数量」列前加只读「订单数量」列 (灰字全量) 对照; 提示文案改为"数量默认填入「订单全量 − 已审核出库累计」的剩余数量, 已发完的明细默认为 0; 如需补发/超发请手工调整"。
+
+**部署**: 后端 jar 重打 (deploy-home-dist jar 流程); pc-web `npm run build` 出新 chunk `Order-BQ9ysCJe.js` 部署 H5 容器。**App 端不动, 仍 v1.1.64** (纯 PC 功能, 无 App 页面)。
+
+**验证 (装机)**: 订单 SO202609070001 部分发货 (发货详情: 订单 75000/已发 50000/未发 25000, 碳带 140/80/60 等) → 点「生成出库单」→ 明细「数量」默认剩余 (25000/7000/2000/182000/60/20...), 「订单数量」列灰字全量; 未发货=0 的明细默认数量为 0 → 保存为草稿按剩余量录入。
+
+**回滚**: 前端 `onGenerateDelivery` 恢复 `qty: Number(d.qty)` (全量默认), 删「订单数量」列; 后端 `orderDetailId` 一行无害可留。
+
 ### v1.1.64 (2026-09-28) — App 扫码跟随竖屏 (连续扫码不再闪横屏宽界面)
 
 **用户反馈**: 连续扫码 (扫码入库 / 扫码出库扫多个商品) 每次都弹出"宽的扫码界面" (横屏), 体验差。
