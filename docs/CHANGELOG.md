@@ -2,6 +2,29 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.66 (2026-09-29) — 销售订单「多单合并生成出库单」(同客户 2 张以上已审核订单 → 一张出库单)
+
+**用户需求**: 两个销售订单合成 1 张送货单。当前"生成出库单"是逐订单各生成一张, 用户得手动把订单 B 的明细补进订单 A 草稿, 不便。
+
+**设计 (最小改动, schema 不变)**: 数据层天然支持 —— `sal_delivery_detail.order_detail_id` 是逐行溯源键, 本就可指向任意订单的任意明细行, 不要求归属主表那个 `order_id`。缺的只是操作入口。合并的硬前提 = **所选订单同客户** (客户不同则送货对象/信用/应收都不同, 无法合并)。
+
+**改动 (2 文件, 无 DB 迁移)**:
+
+1. **前端 `pc-web/src/views/sales/Order.vue`**
+   - 列表加多选列 (`type="selection"`, `:selectable` 仅已审核行) + toolbar「合并生成出库单 (N)」按钮。
+   - `onMergeGenerateDelivery()`: 校验 N≥2 且全部 `customerId` 相同, 否则报错"只能合并同一客户"。
+   - 抽出通用 `openGenerateDialog(orders[])`: 逐订单拉 `detail` + `getDeliverySummary`, 明细拼接, 每行保留各自 `orderDetailId` (关键: 审核时 `SalDeliveryService.check` step 5 按 `orderDetailId` 累计已发, 天然跨两订单正确); 单订单仍 `orderId/orderNo` 写主表, 多订单主表 `orderId=null` (溯源靠明细行), `orderNo` 写各订单号拼接文案。
+   - 明细表加「来源订单号」列 (每行标注来自哪张订单; 该列仅展示, 提交前 `delete cleaned.orderNo`, 后端 `sal_delivery_detail` 无此列, 靠 `orderDetailId` 溯源)。
+   - 弹窗标题/提示文案在合并模式下显示全部源订单号。单订单快捷入口 `onGenerateDelivery(row)` 行为不变 (走 `openGenerateDialog([row])`)。
+
+2. **后端 `SalDeliveryMapper.selectPageByOrderId`** — "关联出库单"追溯查询原本 `WHERE order_id = #{orderId}`, 合并单主表 `order_id` 为 NULL 会漏查。改为 `order_id = #{orderId} OR EXISTS (明细 order_detail_id IN (该订单的明细))`, 让合并单在每张源订单的"关联出库单"里都可见 (同一合并单挂在多张订单下)。需重打 jar 部署。
+
+**不变**: `SalDeliveryService.add` 基本不动 (它本就按传入明细逐行写 `orderDetailId` + 从 `orderDetailId` 反查 `poNo` 注入, 对跨订单明细透明); `selectShippedQtyByOrderDetailId` 按订单明细行聚合, 不关心挂在哪个 delivery, 合并后"已发/未发/剩余"统计仍正确; 超发防护 (v1.1.65 剩余数量默认) 逐行保留。App 版不动, 仍 1.1.64。
+
+**验证 (装机)**: 强刷后, 销售订单列表勾选 2 张同客户已审核订单 → 「合并生成出库单」→ 弹窗明细为两订单拼接、每行带「来源订单号」、数量默认各自剩余; 保存草稿 → 出库单列表出现 1 张 (主表 order_id 空, orderNo 为两单号), 各源订单「关联出库单」里都能追溯到这张合并单; 审核后两订单的"已发/未发"分别正确累加。
+
+**部署**: 重打后端 jar (MD5 `43039facc3453129d2f1f6e59be82041`) + 重打 pc-web dist (Order chunk `Order-xWO8eQ4A.js`), 双站 (home + 飞牛) 上线。
+
 ### v1.1.65 (2026-09-29) — PC 端"生成出库单"数量默认「剩余数量」
 
 **用户反馈**: 通过销售订单生成出库单时, 商品明细中的「数量」默认填的是订单全量, 部分发货过的订单应当默认只填「未发货/剩余数量」(与"发货详情"弹窗的 未发货 列一致), 避免再开一张出库单把已发的量重复算进去超发。
