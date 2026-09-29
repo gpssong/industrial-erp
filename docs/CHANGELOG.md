@@ -2,6 +2,40 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.67 (2026-09-29) — App 扫码出库明细落库缺商品编码/名称修复 + 历史单位回填
+
+**用户反馈**: App 端「扫码出库」生成的出库单 `CKP202609290006`, 在 PC 端打印送货单时「商品编码」「商品名称」栏空白, 只有「型号」有值。
+
+**根因 (双层)**:
+1. **App 端丢字段**: `app/src/pages/scan/out.vue` `onSubmit()` 提交 payload 的 details 只带 `productId/qty/price/batchNo/remark`, 把 UI 里本已存好的 `productCode/productName/spec/unitId/unitName` 全砍了。
+2. **后端信任客户端原样落库**: `SalDeliveryService.add()` 直接 `detailMapper.insert(d)`, 这些真实 DB 列 (`sal_delivery_detail.product_code/product_name/spec/unit_id/unit_name`) 落 NULL。
+3. **为何型号能显示**: 型号 = transient `pModel`, 打印走 `SalDeliveryService.detail()` L102-105 `ProductAttrInjector.inject(..., p -> p.getModel())` 从 `base_product.model` **实时注入**, 与落库列无关; 编码/名称是**真实 DB 列**, 不回填就永久缺失。
+
+**代码修复 (v1.1.67, 双层互为兜底)**:
+- **后端主修** `backend/.../sales/service/SalDeliveryService.java`: 新增私有 `enrichDetailsFromProduct(List<SalDeliveryDetail>)` — 批量 `selectBatchIds` (无 N+1), **仅在字段 blank 时**回填 `productCode/productName/spec/unitId` (unitName 由 App 携带, 不额外引 BaseUnitMapper), `add()`+`update()` 在 `detailMapper.insert` 前各调一次。只兜底瘦客户端 (App), 不覆盖 PC 已录值 (PC 开单/订单生成路径本带全字段, 行为不变)。
+- **App 辅修** `app/src/pages/scan/out.vue`: `onSubmit` payload 补全 5 字段。
+- **版本号**: App `1.1.64` → `1.1.67` (profile `APP_VERSION` + manifest `versionName`/`versionCode` + `app/package.json`)。
+- 纯后端 jar + App H5/APK, PC dist 不动, 无 schema 改动 (无 DDL)。
+
+**历史数据回填** (`sql/44_v167_backfill_delivery_detail_unit.sql`, 双站各跑一次 — 主从 replication 曾断开):
+查库发现编码/名称/规格实际**已落库 (149 行 0 NULL)**, 真正缺的是 `unit_id/unit_name`。根因: `base_product_unit.unit_id` 历史全为 `0` (v1.1.16+ 遗留脏数据, 单位名有但没指向真实 `base_unit` 行), 加上 `sal_delivery_detail` 早期客户端未带 unit。分两步:
+1. **修 `base_product_unit.unit_id` 0 → 真实 active unit**: 按 `unit_name` 匹配 active `base_unit` (`公斤→kg`, 卷/只/箱/包/个/套→对应 ID), 双站先建 `base_product_unit_bak_v167` 备份再 UPDATE。
+2. **重跑 `sql/44` 三级兜底** 回填 `sal_delivery_detail.unit_id/unit_name`: 优先级 `is_main=1` 的 ppu → `main_unit_id` → 任意 `unit_id<>0` 的 ppu。
+
+**回填结果**:
+| 站 | sal_delivery_detail bad_unit | 最终 |
+|---|---|---|
+| home | 95 | 3 (仅剩 `jydbd 机用打包带`, 彻底无单位主数据) |
+| 飞牛 | 78 | 3 (同上) |
+
+**部署**: 双站 jar 重打 + `docker build --no-cache` + 容器重建, 运行 jar MD5 `bcfe92a32d4ea12b95d7402d7bdf9f48`, 均 healthy。App APK 1.1.67 交付 `~/Desktop/erp-app-20260929.apk` (MD5 `5295708ca1f1dab06e7708db2105a4d1`)。
+
+**验证**: `CKP202609290006` 现 `product_code=dyd975007` / `product_name=带鱼袋9*75*0.07` / `unit_id=2089154538889621509` / `unit_name=只`, PC 重打印编码/名称/单位均正常。
+
+**唯一遗留**: `jydbd 机用打包带` 在 `base_product_unit` 0 行、`main_unit_id` NULL — 纯主数据缺口, 需业务在 PC「基础资料→商品」补单位后重跑 `sql/44` 最后 1 条。
+
+**教训 (R16 — 写入设计原则)**: 凡是从商品主数据派生的字段 (编码/名称/规格/单位), 后端 insert 前应按 `productId` 从 `base_product` 兜底回填, 不能 100% 信任客户端带全 (App 等瘦客户端会砍字段)。transient 注入 (model/colorNo) 只在**读路径**补, **写路径不补** → 换数据源 (飞鹅云打印 / 直接查列 / 历史数据) 就会露出空。双站数据修复必须**各跑一次** (主从 replication 长期不可靠)。
+
 ### v1.1.66 version-sync (2026-09-29) — 系统信息版本号字面量对齐 (前端/后端版本显示修复)
 
 **用户反馈**: 系统管理 → 系统设置 → 系统参数「系统信息」里 前端版本 / 后端版本 仍显示 `1.1.53-hotfix.1`, 与 changelog 脱节, 未随 v1.1.54~v1.1.66 同步更新。
