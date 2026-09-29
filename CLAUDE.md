@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.65 (PC 端"生成出库单"商品明细数量默认改为「剩余数量」— 从销售订单生成出库单时, 数量列默认填入 `订单全量 − 已审核出库累计`(剩余), 已发完的明细默认为 0, 避免部分发货过的订单重复超发. 后端 `SalOrderService.getDeliverySummary` 每行加 `orderDetailId` (供按明细行匹配已发/未发); 前端 `pc-web/views/sales/Order.vue` `onGenerateDelivery` 拉发货汇总建 Map<orderDetailId, summary>, 数量默认 `max(0, 全量−已发)`, 新增只读「订单数量」列对照 + 提示文案更新. 纯 PC 端功能 (后端 jar + pc-web dist), App 版不动, 仍 1.1.64)
+**当前版本**: v1.1.66 (PC 端"销售订单多单合并生成出库单" — 同客户 2 张以上已审核订单勾选合并成 1 张出库单/送货单. 数据层天然支持 (sal_delivery_detail.order_detail_id 是逐行溯源键, 可跨订单), 缺的只是入口. 前端 Order.vue 加多选列 + "合并生成出库单"按钮, 抽通用 openGenerateDialog(orders[]): 逐订单拉 detail+getDeliverySummary, 明细拼接每行保留各自 orderDetailId, 单订单主表写 orderId, 多订单主表 orderId=null (溯源走明细行), 明细表加"来源订单号"列(仅展示, 提交前剔除); 同客户校验 (客户不同报错). 后端 SalDeliveryMapper.selectPageByOrderId 追溯查询加 EXISTS(明细 order_detail_id IN 该订单明细), 让合并单 (主表 order_id NULL) 在每张源订单"关联出库单"里都可见. schema 不变, 超发防护 (v1.1.65 剩余数量默认) 逐行保留. 纯 PC 端功能 (后端 jar + pc-web dist), App 版不动, 仍 1.1.64)
+
+**前序版本**: v1.1.65 (PC 端"生成出库单"商品明细数量默认改为「剩余数量」— 从销售订单生成出库单时, 数量列默认填入 `订单全量 − 已审核出库累计`(剩余), 已发完的明细默认为 0, 避免部分发货过的订单重复超发. 后端 `SalOrderService.getDeliverySummary` 每行加 `orderDetailId` (供按明细行匹配已发/未发); 前端 `pc-web/views/sales/Order.vue` `onGenerateDelivery` 拉发货汇总建 Map<orderDetailId, summary>, 数量默认 `max(0, 全量−已发)`, 新增只读「订单数量」列对照 + 提示文案更新. 纯 PC 端功能 (后端 jar + pc-web dist), App 版不动, 仍 1.1.64)
 
 **前序版本**: v1.1.64 (App 扫码跟随竖屏 — 修复"连续扫码每次闪一次横屏宽界面"的体验问题. 根因: `ScannerActivity.java` L58 强制 `SENSOR_LANDSCAPE` 横屏, uni-app 手持竖屏扫码入库/出库连续扫多个商品时, 每个扫码都弹一次原生 Activity 把手机转横, 用户看到宽屏界面. 修复: `setRequestedOrientation(SCREEN_ORIENTATION_UNSPECIFIED)` 跟随父 Activity (uni-app 主 Activity 竖屏), manifest 同步改 `android:screenOrientation="unspecified"`. `applyCenterScanRect` 已用"短边 60%"计算方框, 竖屏 1080x2340 → 648x648 居中, 解码区比横屏还小更聚焦. 改了 H5 (APP_VERSION 1.1.63→1.1.64 + manifest versionName), 全流程 `build-app.sh`. APK MD5 `ed4d3f30a68235a3a895e046e3215ffc`, 4,369,472 字节)
 

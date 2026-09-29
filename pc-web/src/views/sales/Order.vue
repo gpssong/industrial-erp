@@ -9,8 +9,14 @@
     <div class="page-card">
       <div class="toolbar">
         <el-button type="primary" @click="onAdd">新增</el-button>
+        <!-- v1.1.66: 勾选 ≥2 个同客户订单 → 合并成一张出库单 -->
+        <el-button v-if="userStore.hasPerm('sales:delivery:add')" type="success" :disabled="!selectedOrders.length"
+          @click="onMergeGenerateDelivery">合并生成出库单 ({{ selectedOrders.length }})</el-button>
       </div>
-      <el-table :data="data.records" border stripe v-loading="loading">
+      <el-table :data="data.records" border stripe v-loading="loading"
+        row-key="id" @selection-change="onSelectionChange">
+        <!-- v1.1.66: 多选列 (仅已审核订单可参与合并, 未审核行置灰) -->
+        <el-table-column type="selection" width="45" :selectable="row => row.billStatus==='CHECKED'" />
         <el-table-column type="index" width="50" />
         <el-table-column prop="billNo" label="单号" width="180" />
         <el-table-column prop="billDate" label="日期" width="120" />
@@ -126,10 +132,13 @@
       </template>
     </el-dialog>
 
-    <!-- v1.1.35: 由销售订单一键生成销售出库单 (轻量级弹窗, 自动带入订单客户/仓库/明细) -->
+    <!-- v1.1.35: 由销售订单一键生成销售出库单 (轻量级弹窗, 自动带入订单客户/仓库/明细)
+         v1.1.66: 支持多订单合并 → 一张出库单挂多订单明细, 标题显示全部源订单号 -->
     <el-dialog v-model="generateDialogVisible"
-      :title="sourceOrder ? '生成出库单 (源 ' + sourceOrder.billNo + ')' : '生成出库单'"
-      width="1000px" destroy-on-close>
+      :title="sourceOrders.length > 1
+        ? '合并生成出库单 (源 ' + sourceOrders.map(o => o.billNo).join('、') + ')'
+        : (sourceOrder ? '生成出库单 (源 ' + sourceOrder.billNo + ')' : '生成出库单')"
+      width="1040px" destroy-on-close>
       <el-form :model="deliveryForm" label-width="100px">
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="单据日期">
@@ -178,6 +187,8 @@
         <el-form-item label="商品明细">
           <el-table :data="deliveryForm.details" size="small" border max-height="380">
             <el-table-column type="index" label="#" width="50" />
+            <!-- v1.1.66: 来源订单号 (多订单合并时, 每行标注它来自哪张订单; 单订单时也显示, 便于追溯) -->
+            <el-table-column prop="orderNo" label="来源订单号" width="150" show-overflow-tooltip />
             <el-table-column prop="productCode" label="编码" width="120" />
             <el-table-column prop="productName" label="名称" />
             <el-table-column prop="spec" label="规格" width="120" />
@@ -224,7 +235,12 @@
             </el-table-column>
           </el-table>
           <p style="color:#999;font-size:12px;margin-top:6px">
-            提示: 数量默认填入「订单全量 − 已审核出库累计」的剩余数量, 已发完的明细默认为 0; 如需补发/超发请手工调整. 源订单 {{ sourceOrder?.billNo || '-' }} 关联字段已自动写入.
+            <template v-if="sourceOrders.length > 1">
+              合并自 {{ sourceOrders.length }} 张订单: 数量默认填入各行「订单全量 − 已审核出库累计」的剩余数量, 已发完的明细默认为 0; 如需补发/超发请手工调整. 各行「来源订单号」已写入, 审核时按行归属分别累计.
+            </template>
+            <template v-else>
+              提示: 数量默认填入「订单全量 − 已审核出库累计」的剩余数量, 已发完的明细默认为 0; 如需补发/超发请手工调整. 源订单 {{ sourceOrder?.billNo || '-' }} 关联字段已自动写入.
+            </template>
           </p>
         </el-form-item>
         <el-form-item label="备注">
@@ -384,8 +400,10 @@ const { taxSeparation, loadTaxSeparation } = useTaxSeparation()
 
 // v1.1.35: 由销售订单生成出库单的轻量级弹窗状态
 const generateDialogVisible = ref(false)
-const sourceOrder = ref(null)        // 源订单完整 SalOrder
+const sourceOrder = ref(null)        // 源订单完整 SalOrder (单订单时)
+const sourceOrders = ref([])         // v1.1.66: 合并多订单时选中的订单 (列表行, 仅含 customerId)
 const generating = ref(false)        // 加载源订单中
+const selectedOrders = ref([])       // v1.1.66: 列表多选 (合并生成出库单)
 const deliveryForm = reactive({
   billDate: '', customerId: null, customerName: '',
   warehouseId: null, address: '', phone: '',
@@ -471,72 +489,105 @@ async function onUncheck(row) {
   }
 }
 
-// v1.1.35: 已审核订单 → 加载订单明细 → 弹出生成出库单弹窗
+// v1.1.66: 列表多选 (仅已审核行可选, 未审核行 :selectable 置灰)
+function onSelectionChange(rows) {
+  selectedOrders.value = rows
+}
+
+// v1.1.66: 合并生成出库单 — 勾选 ≥2 张同客户已审核订单 → 一张出库单挂多订单明细
+async function onMergeGenerateDelivery() {
+  const rows = selectedOrders.value
+  if (rows.length < 2) { ElMessage.warning('请勾选至少 2 张已审核订单'); return }
+  const cust = rows[0].customerId
+  const other = rows.find(r => r.customerId !== cust)
+  if (other) {
+    ElMessage.warning(`只能合并同一客户的订单: ${other.billNo} 客户不同, 请取消勾选`); return
+  }
+  await openGenerateDialog(rows)
+}
+
+// v1.1.35: 已审核订单 → 加载订单明细 → 弹出生成出库单弹窗 (单订单快捷入口, 复用 openGenerateDialog)
 async function onGenerateDelivery(row) {
+  await openGenerateDialog([row])
+}
+
+// v1.1.66: 通用生成弹窗 — orders: 已审核订单列表 (行, 单个或多个)
+//  单订单: sourceOrder 展示 + orderId/orderNo 写主表 (旧行为不变)
+//  多订单: 同客户, 明细逐行拼接, 每行 orderNo/orderDetailId 指向各自订单, 主表 orderId 置 null (溯源靠明细行)
+async function openGenerateDialog(orders) {
+  if (!orders || !orders.length) return
   generating.value = true
   try {
-    const r = await salOrderApi.detail(row.id)
-    const o = r.data
-    if (!o || !o.details || !o.details.length) {
-      ElMessage.warning('订单无明细, 无法生成'); return
+    const multi = orders.length > 1
+    sourceOrders.value = multi ? orders : []
+    // 逐订单拉明细 + 发货汇总, 拼成一张出库单明细 (保留每行归属)
+    const allDetails = []
+    let base = null
+    for (let i = 0; i < orders.length; i++) {
+      const row = orders[i]
+      const r = await salOrderApi.detail(row.id)
+      const o = r.data
+      if (!o || !o.details || !o.details.length) {
+        ElMessage.warning(`订单 ${o ? o.billNo : row.billNo} 无明细, 无法生成`); return
+      }
+      if (!base) base = o
+      let shippedByDetail = new Map()
+      try {
+        const sr = await salOrderApi.getDeliverySummary(o.id)
+        ;(sr.data || []).forEach(s => { if (s.orderDetailId != null) shippedByDetail.set(s.orderDetailId, s) })
+      } catch (e) {
+        console.warn('[openGenerateDialog] 加载发货汇总失败, 数量默认订单全量:', e)
+      }
+      for (const d of (o.details || [])) {
+        const ship = shippedByDetail.get(d.id)
+        const full = d.qty != null ? Number(d.qty) : 0
+        const shipped = ship ? (ship.shippedQty != null ? Number(ship.shippedQty) : 0) : 0
+        const remain = Math.max(0, +(full - shipped).toFixed(4))
+        allDetails.push({
+          productId: d.productId,
+          productCode: d.productCode,
+          productName: d.productName,
+          spec: d.spec,
+          unitId: d.unitId,
+          unitName: d.unitName,
+          qty: remain,
+          _orderQty: full,          // 辅助: 该订单行全量 (供展示, 提交前剔除)
+          _shippedQty: shipped,     // 辅助: 该订单行已发数量
+          price: d.price != null ? Number(d.price) : 0,
+          taxRate: d.taxRate != null ? Number(d.taxRate) : 13,
+          lineNo: 0,                // 统一在下面重排
+          orderDetailId: d.id,      // 关键: 每行指向各自订单明细, 审核时按行累计 (SalDeliveryService.check step 5)
+          orderNo: o.billNo,        // v1.1.66: 来源订单号 (展示 + 追溯; 后端明细表无此列, 提交前剔除, 靠 orderDetailId 溯源)
+          poNo: d.poNo || '',
+          batchNo: '',
+          locationName: '',
+          remark: ''
+        })
+      }
     }
-    sourceOrder.value = o
-    // 重置 deliveryForm (避免上次残留)
+    allDetails.forEach((d, idx) => { d.lineNo = idx + 1 })
+
+    // 重置 deliveryForm (公共字段取第一张订单 — 同客户)
     deliveryForm.billDate = new Date().toISOString().substring(0, 10)
-    deliveryForm.customerId = o.customerId
-    deliveryForm.customerName = o.customerName
+    deliveryForm.customerId = base.customerId
+    deliveryForm.customerName = base.customerName
     deliveryForm.address = ''
     deliveryForm.phone = ''
     deliveryForm.discountAmount = 0
     deliveryForm.tailAmount = 0
     deliveryForm.remark = ''
-    deliveryForm.orderId = o.id
-    deliveryForm.orderNo = o.billNo
-    // v1.1.40: 交货方式用中文 label (后端 detail() 注入 deliveryMethodLabel)
-    const methodLabel = o.deliveryMethodLabel || mapDeliveryMethod(o.deliveryMethod || '')
-    deliveryForm.deliveryMethod = methodLabel ? mapCodeFromLabel(methodLabel) : (o.deliveryMethod || '')
-    deliveryForm.poNo = o.poNo || ''
-    // v1.1.65: 拉取"已发/未发"汇总, 按明细行预填剩余数量 (订单全量 - 已审核出库累计)
-    // 部分发货过的订单, 用户默认只想再发"没发完的那部分", 全量默认易导致重复超发
-    let shippedByDetail = new Map()
-    try {
-      const sr = await salOrderApi.getDeliverySummary(o.id)
-      ;(sr.data || []).forEach(s => {
-        if (s.orderDetailId != null) shippedByDetail.set(s.orderDetailId, s)
-      })
-    } catch (e) {
-      // 拉取失败不阻塞: 回退到全量默认 (与旧行为一致), 仅 console 诊断
-      console.warn('[onGenerateDelivery] 加载发货汇总失败, 数量默认订单全量:', e)
-    }
-    // 订单明细 → 出库明细 (默认值 = 剩余数量; 用户可手工改数量做部分发货/补全)
-    deliveryForm.details = (o.details || []).map((d, idx) => {
-      const ship = shippedByDetail.get(d.id)
-      const full = d.qty != null ? Number(d.qty) : 0
-      const shipped = ship ? (ship.shippedQty != null ? Number(ship.shippedQty) : 0) : 0
-      const remain = Math.max(0, +(full - shipped).toFixed(4))
-      return {
-        productId: d.productId,
-        productCode: d.productCode,
-        productName: d.productName,
-        spec: d.spec,
-        unitId: d.unitId,
-        unitName: d.unitName,
-        qty: remain,
-        _orderQty: full,          // 辅助: 订单全量 (供提示展示, 提交前剔除)
-        _shippedQty: shipped,     // 辅助: 已发数量
-        price: d.price != null ? Number(d.price) : 0,
-        taxRate: d.taxRate != null ? Number(d.taxRate) : 13,
-        lineNo: idx + 1,
-        orderDetailId: d.id,                  // 联动字段, 后端自动写入 sal_delivery_detail
-        poNo: d.poNo || '',                   // v1.1.47: 采购订单号从源订单明细自动带入
-        batchNo: '',
-        locationName: '',
-        remark: ''
-      }
-    })
-    // 加载仓库列表 (loadOptions 内部已做幂等缓存)
+    deliveryForm.deliveryMethod = (base.deliveryMethodLabel ? mapCodeFromLabel(base.deliveryMethodLabel) : base.deliveryMethod) || ''
+    deliveryForm.poNo = multi ? '' : (base.poNo || '')   // 多订单 PO 号各异, 头字段留空 (每行明细仍带各自 poNo)
+    deliveryForm.orderId = multi ? null : base.id         // 多订单主表不写单一 orderId, 溯源走明细行
+    // v1.1.66: 多订单 orderNo = 各订单号拼接 (仅作追溯文案; 每行明细仍带各自 poNo)
+    deliveryForm.orderNo = multi ? orders.map(o => o.billNo).join(', ') : base.billNo
+    deliveryForm.details = allDetails
+
+    // 单订单快捷入口仍展示 sourceOrder (标题/提示兼容)
+    sourceOrder.value = multi ? null : base
+
     await loadOptions()
-    deliveryForm.warehouseId = o.warehouseId
+    deliveryForm.warehouseId = base.warehouseId
     generateDialogVisible.value = true
   } catch (e) {
     ElMessage.error('加载订单失败: ' + (e.message || '未知错误'))
@@ -572,10 +623,14 @@ async function onConfirmGenerate() {
       delete cleaned._priceFromUnit
       delete cleaned._orderQty     // v1.1.65: UI 辅助 (订单全量/已发), 不传后端
       delete cleaned._shippedQty
+      delete cleaned.orderNo       // v1.1.66: 来源订单号仅展示, 溯源走 orderDetailId, 不传后端
       return cleaned
     })
     await salDeliveryApi.add(payload)
-    ElMessage.success(`已生成出库单草稿, 源订单 ${sourceOrder.value.billNo}`)
+    const srcLabel = sourceOrders.value.length > 1
+      ? `${sourceOrders.value.length} 张订单合并`
+      : `源订单 ${sourceOrder.value ? sourceOrder.value.billNo : (deliveryForm.orderNo || '')}`
+    ElMessage.success(`已生成出库单草稿, ${srcLabel}`)
     generateDialogVisible.value = false
     loadData()
   } catch (e) {

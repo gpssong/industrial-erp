@@ -55,12 +55,18 @@ public interface SalDeliveryMapper extends BaseMapper<SalDelivery> {
     @Select("SELECT * FROM sal_delivery_detail WHERE delivery_id = #{deliveryId} ORDER BY line_no")
     List<SalDelivery> selectDetailsByDeliveryId(@Param("deliveryId") Long deliveryId);
 
-    /** v1.1.38: 按源订单 ID 分页查询关联出库单 (追溯入口) */
-    @Select("SELECT d.*, w.warehouse_name AS warehouseName " +
+    /** v1.1.38: 按源订单 ID 分页查询关联出库单 (追溯入口)
+     *  v1.1.66: 兼容多订单合并出库 — order_id 为 NULL 的合并单, 通过明细行 order_detail_id 关联到各源订单,
+     *  用 EXISTS 命中 (同一合并单可能挂在多张订单下, 在每张源订单的"关联出库单"里都可见) */
+    @Select("SELECT DISTINCT d.*, w.warehouse_name AS warehouseName " +
             "FROM sal_delivery d " +
             "LEFT JOIN base_warehouse w ON w.id = d.warehouse_id AND w.deleted = 0 " +
-            "WHERE d.deleted = 0 AND d.order_id = #{orderId} " +
-            "ORDER BY d.id DESC")
+            "WHERE d.deleted = 0 AND (" +
+            "  d.order_id = #{orderId} OR " +
+            "  EXISTS (SELECT 1 FROM sal_delivery_detail dd " +
+            "          WHERE dd.delivery_id = d.id AND dd.deleted = 0 " +
+            "            AND dd.order_detail_id IN (SELECT id FROM sal_order_detail WHERE order_id = #{orderId}))" +
+            ") ORDER BY d.id DESC")
     IPage<SalDelivery> selectPageByOrderId(
             IPage<SalDelivery> page,
             @Param("orderId") Long orderId);
