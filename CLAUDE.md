@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.66 (PC 端"销售订单多单合并生成出库单" — 同客户 2 张以上已审核订单勾选合并成 1 张出库单/送货单. 数据层天然支持 (sal_delivery_detail.order_detail_id 是逐行溯源键, 可跨订单), 缺的只是入口. 前端 Order.vue 加多选列 + "合并生成出库单"按钮, 抽通用 openGenerateDialog(orders[]): 逐订单拉 detail+getDeliverySummary, 明细拼接每行保留各自 orderDetailId, 单订单主表写 orderId, 多订单主表 orderId=null (溯源走明细行), 明细表加"来源订单号"列(仅展示, 提交前剔除); 同客户校验 (客户不同报错). 后端 SalDeliveryMapper.selectPageByOrderId 追溯查询加 EXISTS(明细 order_detail_id IN 该订单明细), 让合并单 (主表 order_id NULL) 在每张源订单"关联出库单"里都可见. schema 不变, 超发防护 (v1.1.65 剩余数量默认) 逐行保留. 纯 PC 端功能 (后端 jar + pc-web dist), App 版不动, 仍 1.1.64)
+**当前版本**: v1.1.67 (App 扫码出库明细落库缺失商品编码/名称修复 — 用户反馈 App 扫码出库生成的出库单 CKP202609290006 在 PC 端打印送货单时「商品编码/商品名称」栏空白, 只有「型号」有值. 根因: App `app/src/pages/scan/out.vue` `onSubmit()` 提交 payload 时只发 `productId/qty/price/batchNo/remark`, 把 `productCode/productName/spec/unitId/unitName` 全砍了; 后端 `SalDeliveryService.add()` 原样 insert 客户端 JSON, 这些真实 DB 列就落 NULL. 型号(model)是 transient, `detail()` 里 `ProductAttrInjector.inject` 从 base_product 实时注入 `pModel`, 所以打印能显示; 编码/名称是真实列, 不在商品主数据回填就永久缺失. 修复双层: (1) 后端 `SalDeliveryService` 新增 `enrichDetailsFromProduct()` 私有方法, add()+update() insert 前批量 `productMapper.selectBatchIds` 一次查全 (无 N+1), 仅在字段 blank 时回填 productCode/productName/spec/unitId (unitName 由 App 携带, 不额外引 BaseUnitMapper), 只兜底瘦客户端不覆盖 PC 已录值; (2) App `onSubmit` payload 补全 5 字段 (list 里本就有). 纯后端 jar + App H5/APK, PC dist 不动. App APP_VERSION/manifest.versionName 1.1.64→1.1.67)
+
+**前序版本**: v1.1.66 (PC 端"销售订单多单合并生成出库单" — 同客户 2 张以上已审核订单勾选合并成 1 张出库单/送货单. 数据层天然支持 (sal_delivery_detail.order_detail_id 是逐行溯源键, 可跨订单), 缺的只是入口. 前端 Order.vue 加多选列 + "合并生成出库单"按钮, 抽通用 openGenerateDialog(orders[]): 逐订单拉 detail+getDeliverySummary, 明细拼接每行保留各自 orderDetailId, 单订单主表写 orderId, 多订单主表 orderId=null (溯源走明细行), 明细表加"来源订单号"列(仅展示, 提交前剔除); 同客户校验 (客户不同报错). 后端 SalDeliveryMapper.selectPageByOrderId 追溯查询加 EXISTS(明细 order_detail_id IN 该订单明细), 让合并单 (主表 order_id NULL) 在每张源订单"关联出库单"里都可见. schema 不变, 超发防护 (v1.1.65 剩余数量默认) 逐行保留. 纯 PC 端功能 (后端 jar + pc-web dist), App 版不动, 仍 1.1.64)
 
 **前序版本**: v1.1.66 version-sync (系统信息版本号字面量对齐 — 用户反馈系统设置「系统信息」前端/后端版本仍显示 `1.1.53-hotfix.1`, 与 changelog 脱节。根因: 版本号字面量在 v1.1.53 被 `deploy-version-bump.sh` 冻结后再没维护。修复 4 文件纯字面量对齐: `pc-web/package.json` → `1.1.66` (需重打 dist, `__APP_VERSION__` 构建期烤入) + `application.yml` `erp.version` 默认 + `SystemVersionInitializer` `@Value` 默认 → `1.1.66` + `app/package.json` 顺手对齐 `1.1.64`。部署: 重打 pc-web dist (System chunk `System-CGWmoRBS.js`) 双站 bind-mount; 双站 backend 现有 image + 追加 `-e ERP_VERSION=1.1.66` 重建容器, 无需重打 jar。两站 JWT 密钥沿用, 不用重登。双站 `sys_config.SYSTEM_VERSION_INFO` 均 `version=1.1.66`。R15: 版本字面量分散 3 源文件+1 运行 env 极易漂移, 后续每个版本对齐需同步 4 处且前端必须重打 dist)
 
@@ -23,6 +25,32 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.67 (2026-09-29) — App 扫码出库明细落库缺失商品编码/名称修复
+
+**用户反馈**: App 端「扫码出库」生成的出库单 `CKP202609290006`, 在 PC 端打印送货单时「商品编码」「商品名称」栏空白, 只有「型号」有值 (截图: 型号 9*75*0.07, 数量 53800, 单价 0.061, 金额 3281.8, 编码/名称空)。
+
+**根因 (双层)**:
+1. **App 端丢字段**: `app/src/pages/scan/out.vue` `onSubmit()` L278-285 提交 payload 时 `details` 只带 `productId/qty/price/batchNo/remark`, 把 UI 里本已存在的 `productCode/productName/spec/unitId/unitName` 全砍了。
+2. **后端信任客户端原样落库**: `SalDeliveryService.add()` L207-221 直接 `detailMapper.insert(d)`, 不补全 → 这些真实 DB 列 (`sal_delivery_detail.product_code/product_name/spec/unit_id/unit_name`) 落 NULL。
+3. **为何型号能显示**: 型号 = transient 字段 `pModel`, 打印走 `SalDeliveryService.detail()` L102-105 `ProductAttrInjector.inject(..., p -> p.getModel())` 从 `base_product.model` **实时注入**, 与落库列无关, 所以永远有值。而编码/名称是**真实 DB 列**, 不回填就永久缺失。
+
+**修复 (双层, 互为兜底)**:
+- **后端 (主, 健壮)**: `SalDeliveryService` 新增私有 `enrichDetailsFromProduct(List<SalDeliveryDetail>)` — 批量 `productMapper.selectBatchIds` 一次查全 (无 N+1, 与 `ProductAttrInjector` 同款), **仅在字段 blank 时**回填 `productCode/productName/spec/unitId` (unitName 由 App 携带, 不额外引 BaseUnitMapper 依赖)。add() + update() 在 `detailMapper.insert` 前各调一次。只兜底瘦客户端 (App), 不覆盖 PC 端已显式录入的值 (PC 开单/订单生成路径本带全字段, 行为不变)。
+- **App (辅, 最小)**: `onSubmit` payload 的 details 补全 `productCode/productName/spec/unitId/unitName` (list 里 `onAdd`/`onHistoryPick` 本就存了这些字段)。
+
+**改动文件**:
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `backend/.../sales/service/SalDeliveryService.java` | 改 | + `enrichDetailsFromProduct` (~40 行) + add/update 各 1 处调用 + import (HashSet/Map/Set/Function/Collectors) |
+| `app/src/pages/scan/out.vue` | 改 | `onSubmit` details payload 补全 5 字段 |
+| `app/src/pages/profile/index.vue` + `app/src/manifest.json` + `app/package.json` | 改 | App 版本号 1.1.64 → 1.1.67 (发此 APK) |
+
+**纯后端 jar + App H5/APK, PC dist 不动。schema 不变 (无 DDL, 用现有列)。**
+
+**部署**: 后端 jar 重打 (双站 `docker build --no-cache` + `docker rm` + `docker run --env-file`); App 走 `bash scripts/build-app.sh` 出新 APK 装机。已存在的 CKP202609290006 等历史扫单: 明细列已落 NULL, 需手动在 PC 编辑该单 (update() 也走 enrich) 或数据回填一次, 不影响新单。
+
+**回滚**: 恢复 `SalDeliveryService` 删 `enrichDetailsFromProduct` + 两处调用; App 恢复 payload 4 字段。
+
 ### v1.1.66 version-sync (2026-09-29) — 系统信息版本号字面量对齐 (前端/后端版本显示修复)
 
 **用户反馈**: 系统参数「系统信息」前端/后端版本仍显示 `1.1.53-hotfix.1`, 与 changelog 脱节。

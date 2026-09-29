@@ -37,7 +37,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 销售出库服务
@@ -146,6 +151,37 @@ public class SalDeliveryService {
         return detailMapper.selectCustomerHistoryProducts(customerId);
     }
 
+    /**
+     * v1.1.67: 从商品主数据 (base_product) 批量补全出库单明细行的 productCode/productName/spec/unitId/unitName.
+     * <p>背景: App 端「扫码出库」提交时只带 productId (连 spec/unit 都常缺), 若后端原样 insert,
+     * 这些真实 DB 列落库为 NULL, PC 端打印送货单时"商品编码/商品名称"栏就空白.
+     * 与 {@link ProductAttrInjector} 同款 selectBatchIds 批量模式, 一次查全, 无 N+1.
+     * <p>策略: **仅在明细行对应字段为空 (blank) 时才回填**, 不覆盖 PC 端已显式录入的值,
+     * 保证 PC 手工开单 / 订单生成 (已带全字段) 行为不变, 只对 App 等"瘦"客户端兜底.
+     */
+    private void enrichDetailsFromProduct(List<SalDeliveryDetail> details) {
+        if (details == null || details.isEmpty()) return;
+        Set<Long> pids = new HashSet<>();
+        for (SalDeliveryDetail d : details) {
+            if (d.getProductId() != null) pids.add(d.getProductId());
+        }
+        if (pids.isEmpty()) return;
+        List<BaseProduct> prods = productMapper.selectBatchIds(pids);
+        if (prods == null || prods.isEmpty()) return;
+        Map<Long, BaseProduct> byId = prods.stream()
+                .collect(Collectors.toMap(BaseProduct::getId, Function.identity(), (a, b) -> a));
+        for (SalDeliveryDetail d : details) {
+            BaseProduct p = d.getProductId() == null ? null : byId.get(d.getProductId());
+            if (p == null) continue;
+            if (StrUtil.isBlank(d.getProductCode())) d.setProductCode(p.getProductCode());
+            if (StrUtil.isBlank(d.getProductName())) d.setProductName(p.getProductName());
+            if (StrUtil.isBlank(d.getSpec())) d.setSpec(p.getSpec());
+            if (d.getUnitId() == null) d.setUnitId(p.getMainUnitId());
+            // unitName 不在 base_product 上 (需查单位表), 由 App payload 携带 (v1.1.67 App 端已补全),
+            // 此处不再额外引入 BaseUnitMapper 依赖. 仍缺失时打印单位列允许为空.
+        }
+    }
+
     @Transactional(rollbackFor = Exception.class)
     @OperLog(module="销售出库", businessType="ADD", saveParam=true)
     public void add(SalDelivery delivery) {
@@ -202,6 +238,13 @@ public class SalDeliveryService {
         delivery.setReceivedAmount(BigDecimal.ZERO);
         delivery.setCostAmount(BigDecimal.ZERO);
         delivery.setProfitAmount(BigDecimal.ZERO);
+
+        // v1.1.67: 从商品主数据补全明细行 productCode/productName/spec/unitId/unitName.
+        // App 扫码出库等客户端只传 productId (可能连 spec/unit 都没带), 若后端原样 insert,
+        // 这些列落库为 NULL, 后续 PC 端打印送货单时"商品编码/商品名称"栏空白.
+        // 型号(model) 是 transient 在 detail() 里从 base_product 实时注入, 所以打印能显示;
+        // 而编码/名称是真实 DB 列, 不在商品主数据回填就会永久缺失.
+        enrichDetailsFromProduct(delivery.getDetails());
 
         deliveryMapper.insert(delivery);
         for (SalDeliveryDetail d : delivery.getDetails()) {
@@ -270,6 +313,9 @@ public class SalDeliveryService {
         delivery.setBillStatus(origin.getBillStatus());
         delivery.setBillType(origin.getBillType());
         delivery.setReceivedAmount(origin.getReceivedAmount());
+
+        // v1.1.67: 与 add() 一致, 从商品主数据补全明细行 (App 扫码出库客户端可能没带这些字段)
+        enrichDetailsFromProduct(delivery.getDetails());
 
         deliveryMapper.updateById(delivery);
         detailMapper.delete(new LambdaQueryWrapper<SalDeliveryDetail>().eq(SalDeliveryDetail::getDeliveryId, delivery.getId()));

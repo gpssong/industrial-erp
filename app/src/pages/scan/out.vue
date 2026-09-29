@@ -280,7 +280,15 @@ async function onSubmit() {
     warehouseId: form.value.warehouseId,
     billDate: form.value.billDate,
     details: list.value.map(d => ({
-      productId: d.productId, qty: d.qty, price: d.price,
+      productId: d.productId,
+      // v1.1.67: 随单带全商品主数据字段, 否则 PC 端打印送货单时"商品编码/商品名称"栏空白
+      // (后端 add() 会 insert 原样收到的字段, App 之前只发 productId 导致这些列落库为 NULL)
+      productCode: d.productCode || '',
+      productName: d.productName || '',
+      spec: d.spec || '',
+      unitId: d.unitId,
+      unitName: d.unitName || '',
+      qty: d.qty, price: d.price,
       batchNo: d.batchNo || '', remark: d.remark || ''
     }))
   }

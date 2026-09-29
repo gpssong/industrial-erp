@@ -55,7 +55,7 @@ import { applyTabBar, isAdmin } from '../../utils/permission.js'
 //   CLAUDE.md 顶部版本号靠人工同步
 //   ⚠️ 发版 checklist (build-app.sh 跑之前必查): 1) 此处 2) CLAUDE.md 顶部 3) docs/CHANGELOG.md
 //      v1.1.58 → v1.1.63 期间 (2026-09-28 用户反馈) 5 个版本没同步, 页面一直显示 1.1.58
-const APP_VERSION = '1.1.64'
+const APP_VERSION = '1.1.67'
 
 const user = ref({})
 
