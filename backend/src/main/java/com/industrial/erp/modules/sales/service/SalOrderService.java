@@ -163,6 +163,7 @@ public class SalOrderService {
         java.util.List<java.util.Map<String, Object>> summary = new java.util.ArrayList<>();
         for (SalOrderDetail d : details) {
             java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+            row.put("orderDetailId", d.getId());   // v1.1.65: 供"生成出库单"按明细行匹配已发/未发数量
             row.put("lineNo", d.getLineNo());
             row.put("productCode", d.getProductCode());
             row.put("productName", d.getProductName());

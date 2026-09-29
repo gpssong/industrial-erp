@@ -182,6 +182,10 @@
             <el-table-column prop="productName" label="名称" />
             <el-table-column prop="spec" label="规格" width="120" />
             <el-table-column prop="unitName" label="单位" width="60" />
+            <!-- v1.1.65: 订单数量 (只读, 全量) 与 数量 (可编辑, 默认剩余) 对照, 避免重复超发 -->
+            <el-table-column label="订单数量" width="90" align="right">
+              <template #default="{ row }"><span style="color:#909399">{{ row._orderQty != null ? Number(row._orderQty).toFixed(2).replace(/\.?0+$/, '') : '0' }}</span></template>
+            </el-table-column>
             <el-table-column label="数量" width="120">
               <template #default="{ row }">
                 <el-input v-model="row.qty" size="small" type="text" inputmode="decimal"
@@ -220,7 +224,7 @@
             </el-table-column>
           </el-table>
           <p style="color:#999;font-size:12px;margin-top:6px">
-            提示: 数量默认为订单全量, 如部分发货请手工调整. 源订单 {{ sourceOrder?.billNo || '-' }} 关联字段已自动写入.
+            提示: 数量默认填入「订单全量 − 已审核出库累计」的剩余数量, 已发完的明细默认为 0; 如需补发/超发请手工调整. 源订单 {{ sourceOrder?.billNo || '-' }} 关联字段已自动写入.
           </p>
         </el-form-item>
         <el-form-item label="备注">
@@ -492,24 +496,44 @@ async function onGenerateDelivery(row) {
     const methodLabel = o.deliveryMethodLabel || mapDeliveryMethod(o.deliveryMethod || '')
     deliveryForm.deliveryMethod = methodLabel ? mapCodeFromLabel(methodLabel) : (o.deliveryMethod || '')
     deliveryForm.poNo = o.poNo || ''
-    // 订单明细 → 出库明细 (默认值 = 全量; 用户可手工改数量做部分发货)
-    deliveryForm.details = (o.details || []).map((d, idx) => ({
-      productId: d.productId,
-      productCode: d.productCode,
-      productName: d.productName,
-      spec: d.spec,
-      unitId: d.unitId,
-      unitName: d.unitName,
-      qty: d.qty != null ? Number(d.qty) : 0,
-      price: d.price != null ? Number(d.price) : 0,
-      taxRate: d.taxRate != null ? Number(d.taxRate) : 13,
-      lineNo: idx + 1,
-      orderDetailId: d.id,                  // 联动字段, 后端自动写入 sal_delivery_detail
-      poNo: d.poNo || '',                   // v1.1.47: 采购订单号从源订单明细自动带入
-      batchNo: '',
-      locationName: '',
-      remark: ''
-    }))
+    // v1.1.65: 拉取"已发/未发"汇总, 按明细行预填剩余数量 (订单全量 - 已审核出库累计)
+    // 部分发货过的订单, 用户默认只想再发"没发完的那部分", 全量默认易导致重复超发
+    let shippedByDetail = new Map()
+    try {
+      const sr = await salOrderApi.getDeliverySummary(o.id)
+      ;(sr.data || []).forEach(s => {
+        if (s.orderDetailId != null) shippedByDetail.set(s.orderDetailId, s)
+      })
+    } catch (e) {
+      // 拉取失败不阻塞: 回退到全量默认 (与旧行为一致), 仅 console 诊断
+      console.warn('[onGenerateDelivery] 加载发货汇总失败, 数量默认订单全量:', e)
+    }
+    // 订单明细 → 出库明细 (默认值 = 剩余数量; 用户可手工改数量做部分发货/补全)
+    deliveryForm.details = (o.details || []).map((d, idx) => {
+      const ship = shippedByDetail.get(d.id)
+      const full = d.qty != null ? Number(d.qty) : 0
+      const shipped = ship ? (ship.shippedQty != null ? Number(ship.shippedQty) : 0) : 0
+      const remain = Math.max(0, +(full - shipped).toFixed(4))
+      return {
+        productId: d.productId,
+        productCode: d.productCode,
+        productName: d.productName,
+        spec: d.spec,
+        unitId: d.unitId,
+        unitName: d.unitName,
+        qty: remain,
+        _orderQty: full,          // 辅助: 订单全量 (供提示展示, 提交前剔除)
+        _shippedQty: shipped,     // 辅助: 已发数量
+        price: d.price != null ? Number(d.price) : 0,
+        taxRate: d.taxRate != null ? Number(d.taxRate) : 13,
+        lineNo: idx + 1,
+        orderDetailId: d.id,                  // 联动字段, 后端自动写入 sal_delivery_detail
+        poNo: d.poNo || '',                   // v1.1.47: 采购订单号从源订单明细自动带入
+        batchNo: '',
+        locationName: '',
+        remark: ''
+      }
+    })
     // 加载仓库列表 (loadOptions 内部已做幂等缓存)
     await loadOptions()
     deliveryForm.warehouseId = o.warehouseId
@@ -546,6 +570,8 @@ async function onConfirmGenerate() {
       const cleaned = { ...d }
       delete cleaned._units
       delete cleaned._priceFromUnit
+      delete cleaned._orderQty     // v1.1.65: UI 辅助 (订单全量/已发), 不传后端
+      delete cleaned._shippedQty
       return cleaned
     })
     await salDeliveryApi.add(payload)
