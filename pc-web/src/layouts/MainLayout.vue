@@ -185,7 +185,8 @@ const menuTree = computed(() => {
       path: '/report', title: '报表中心', icon: 'DataAnalysis',
       children: [
         { path: '/report/sales', title: '销售报表', icon: 'TrendCharts' },
-        { path: '/report/inventory', title: '库存报表', icon: 'PieChart' }
+        { path: '/report/inventory', title: '库存报表', icon: 'PieChart' },
+        { path: '/report/recycle', title: '回收站', icon: 'Delete' }
       ]
     }
   ]

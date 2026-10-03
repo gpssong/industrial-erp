@@ -3,9 +3,11 @@ package com.industrial.erp.modules.report.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.report.mapper.ReportMapper;
+import com.industrial.erp.modules.report.service.RecycleBinService;
 import com.industrial.erp.security.PermissionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,12 +24,15 @@ import java.util.Map;
 // /report/inventory) 继续由 report:view 控制 — 在具体方法上加注解.
 public class ReportController {
 
-    public ReportController(ReportMapper reportMapper, PermissionService permissionService) {
+    public ReportController(ReportMapper reportMapper, RecycleBinService recycleBinService,
+                            PermissionService permissionService) {
         this.reportMapper = reportMapper;
+        this.recycleBinService = recycleBinService;
         this.permissionService = permissionService;
     }
 
     private final ReportMapper reportMapper;
+    private final RecycleBinService recycleBinService;
     private final PermissionService permissionService;
 
     // v1.1.53: 工作台 KPI 卡片 — 独立鉴权 dashboard:kpi.
@@ -70,5 +75,36 @@ public class ReportController {
     @GetMapping("/profit")
     public R<List<Map<String, Object>>> profit(@RequestParam String startDate, @RequestParam String endDate) {
         return R.ok(reportMapper.profitAnalysis(startDate, endDate));
+    }
+
+    // =======================================================================
+    // v1.1.68 回收站 — 被软删除 (deleted=1) 单据的分类 / 恢复 / 彻底删除.
+    // 复用 report:view 门禁 (与报表中心子页面一致).
+    // =======================================================================
+
+    /** 回收站列表: 一次返回全部 11 类被删单据, 按 type 分组. keyword/日期可选. */
+    @SaCheckPermission("report:view")
+    @GetMapping("/recycle/bin")
+    public R<Map<String, List<Map<String, Object>>>> recycleBin(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return R.ok(recycleBinService.listAll(keyword, startDate, endDate));
+    }
+
+    /** 恢复某被删单据 (head + detail 的 deleted 翻回 0). 不可逆操作的逆操作, 仍受 report:view 门禁. */
+    @SaCheckPermission("report:view")
+    @PostMapping("/recycle/restore")
+    public R<Void> recycleRestore(@RequestParam String type, @RequestParam Long id) {
+        recycleBinService.restore(type, id);
+        return R.ok();
+    }
+
+    /** 彻底删除某被删单据 (物理 DELETE head + detail, 不可恢复). */
+    @SaCheckPermission("report:view")
+    @PostMapping("/recycle/purge")
+    public R<Void> recyclePurge(@RequestParam String type, @RequestParam Long id) {
+        recycleBinService.physicalDelete(type, id);
+        return R.ok();
     }
 }

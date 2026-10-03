@@ -2,6 +2,54 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.68 (2026-10-03) — PC 端报表中心新增「回收站」 (11 类被软删单据分类/恢复/彻底删除)
+
+**用户需求**: 在 PC 端「报表中心」左侧菜单下新增一栏「回收站」, 把被删除的采购订单/销售出库单等业务单据**分类放好**, 方便找回。
+
+**设计 (3 决策, 用户拍板)**:
+| 决策 | 选择 |
+|------|------|
+| 操作 | 分类 + **恢复** (head+detail `deleted` 翻回 0) + **彻底删除** (物理 DELETE, 二次确认, 不可逆) |
+| 单据类型 | **全部 11 类** 软删单据, 按类型分 Tab (采购订单/采购入库/采购退货/销售订单/销售出库/销售退货/生产加工单/生产领料/BOM/库存盘点/库存调拨) |
+| 权限 | 复用 `report:view` (入口 + 恢复/彻底删动作都挂在它下, 不新增权限点) |
+
+**关键技术结论**:
+1. 软删 = `deleted TINYINT 0/1` + MyBatis-Plus `@TableLogic` (全局 `logic-delete-field: deleted`)。内置 MP mapper 自动 `WHERE deleted=0`, 读不到被删行。
+2. **删除只对 DRAFT 开放** → 被删单据无库存/台账/应收应付副作用 → **恢复只需把 head+detail 的 `deleted` 翻回 0, 无需回滚账**。
+3. 彻底删用**物理 `DELETE`** (绕开 `prd_order` 的 `(bill_no, deleted)` 唯一索引撞坑, v1.1.52.4)。
+4. 回收站查询/恢复/删除全部走**独立 mapper + 原生 SQL** (显式 `WHERE deleted=1`), 天然绕过 @TableLogic 过滤。
+
+**改动文件**:
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `backend/.../report/mapper/RecycleBinMapper.java` | 新 | 回收站 SQL mapper (listDeleted/peekHead/restore×2/physicalDelete×2) |
+| `backend/src/main/resources/mapper/report/RecycleBinMapper.xml` | 新 | 原生 SQL, `${headTable}/${detailTable}/${detailFk}` 由枚举传参 |
+| `backend/.../report/service/RecycleType.java` | 新 | 11 类枚举 (key/head/detail/FK/label/类别列白名单) |
+| `backend/.../report/service/RecycleBinService.java` | 新 | listAll 按 type 分组; restore/physicalDelete @Transactional 双表原子 |
+| `backend/.../report/controller/ReportController.java` | 改 | +3 端点 (/report/recycle/bin /restore /purge), `@SaCheckPermission("report:view")` |
+| `pc-web/src/views/report/Recycle.vue` | 新 | 11 类 el-tabs + 表格 + 【恢复】/【彻底删除】 |
+| `pc-web/src/api/report.js` | 改 | +3 方法 recycleBin/recycleRestore/recyclePurge |
+| `pc-web/src/router/index.js` | 改 | +report/recycle 路由 (meta.perm=report:view) |
+| `pc-web/src/layouts/MainLayout.vue` | 改 | 报表中心 children +回收站 |
+| `sql/45_v168_recycle_bin_menu.sql` | 新 | sys_menu M 节点 (parent_id=9) + sys_role_menu 授权 6 内置角色 (client_type 自适应) |
+
+**11 类 head/detail 映射** (全部带 deleted, 通用列 id/bill_no/bill_date/bill_status/update_time):
+采购订单 pur_order→pur_order_detail(order_id) / 采购入库 pur_receipt→pur_receipt_detail(receipt_id) /
+采购退货 pur_return→pur_return_detail(return_id) / 销售订单 sal_order→sal_order_detail(order_id) /
+销售出库 sal_delivery→sal_delivery_detail(delivery_id) / 销售退货 sal_return→sal_return_detail(return_id) /
+**生产加工单 prd_order (无明细, head-only)** / 生产领料 prd_requisition→prd_requisition_detail(requisition_id) /
+BOM prd_bom→prd_bom_detail(bom_id, 用 status 非 bill_status) / 库存盘点 inv_check→inv_check_detail(check_id) /
+库存调拨 inv_transfer→inv_transfer_detail(transfer_id)。
+
+**前端 Recycle.vue**: 单端点 `/report/recycle/bin` 一次拉全部 11 类, 按 type 分组渲染; 每类 Tab 标签带条数; 空类型显示 el-empty。删除时间列用 `update_time` 近似 (无专门 deleted_time 列)。
+
+**部署 (双站 home 192.168.0.150 + 飞牛 192.168.0.32, 各跑一次)**:
+1. MySQL: `sql/45_v168_recycle_bin_menu.sql` (`--default-character-set=utf8mb4`), 校验 6 角色授权行。
+2. 后端 jar: `mvn package` → `docker build --no-cache` + `docker rm -f erp-backend[-failover]` + `docker run --env-file ...` (含完整 CORS + SA_TOKEN 密钥)。
+3. pc-web dist: `npm run build` → 双站 bind-mount 新 dist (飞牛实际 mount 是 dist-new) + `docker restart erp-pc-web[-failover]`。
+4. 非 admin 用户重登一次刷 menu/perm; admin (userId=1 / SUPER_ADMIN / isAdmin) 直接可见。
+
+**回滚**: 删 Recycle.vue + 路由/菜单 2 行 + 3 API + 后端 RecycleBinMapper/Service/ReportController 3 端点; sql/45 反向 `DELETE sys_role_menu WHERE menu_id=<新节点>; DELETE sys_menu WHERE path='/report/recycle';`。被删单据仍保留在 DB。
 ### v1.1.67 (2026-09-29) — App 扫码出库明细落库缺商品编码/名称修复 + 历史单位回填
 
 **用户反馈**: App 端「扫码出库」生成的出库单 `CKP202609290006`, 在 PC 端打印送货单时「商品编码」「商品名称」栏空白, 只有「型号」有值。
