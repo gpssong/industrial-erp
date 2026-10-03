@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.report.mapper.RecycleBinMapper">
+
+    <!-- ===================================================================
+         v1.1.68 回收站. 原生 SQL, 显式 WHERE deleted=1, 绕过 @TableLogic.
+         表名/FK 列 (${headTable}/${detailTable}/${detailFk}) 只可能取自
+         RecycleType 白名单枚举 (service 层解析后传参), 不接前端原值, 无注入面.
+         通用列: bill_no / bill_date / bill_status / update_time / deleted.
+         例外: prd_bom 用 status (非 bill_status), 无 bill_date.
+         =================================================================== -->
+
+    <!-- 类别名来源 (按 headTable 选列). 输出别名 "category". -->
+    <sql id="categoryColumn">
+        <choose>
+            <when test="headTable == 'pur_order' or headTable == 'pur_receipt'
+                       or headTable == 'pur_return'">h.supplier_name</when>
+            <when test="headTable == 'sal_order' or headTable == 'sal_delivery'
+                       or headTable == 'sal_return'">h.customer_name</when>
+            <when test="headTable == 'prd_order' or headTable == 'prd_bom'">h.product_name</when>
+            <when test="headTable == 'prd_requisition'">h.prd_order_no</when>
+            <when test="headTable == 'inv_check'">h.warehouse_name</when>
+            <when test="headTable == 'inv_transfer'">w.warehouse_name</when>
+            <otherwise>NULL</otherwise>
+        </choose>
+    </sql>
+
+    <!-- 状态列: prd_bom 用 status, 其余用 bill_status. -->
+    <sql id="statusColumn">
+        <choose>
+            <when test="headTable == 'prd_bom'">h.status AS billStatus</when>
+            <otherwise>h.bill_status AS billStatus</otherwise>
+        </choose>
+    </sql>
+
+    <select id="listDeleted" resultType="java.util.Map">
+        SELECT
+            h.id AS id,
+            h.bill_no AS billNo,
+            h.bill_date AS billDate,
+            <include refid="statusColumn"/>,
+            h.update_time AS updateTime,
+            <include refid="categoryColumn"/> AS category
+        FROM ${headTable} h
+        <choose>
+            <when test="headTable == 'inv_transfer'">
+                LEFT JOIN base_warehouse w ON w.id = h.out_warehouse_id AND w.deleted = 0
+            </when>
+        </choose>
+        WHERE h.deleted = 1
+        <if test="keyword != null and keyword != ''">
+            AND ( h.bill_no LIKE CONCAT('%', #{keyword}, '%')
+            <choose>
+                <when test="headTable == 'pur_order' or headTable == 'pur_receipt'
+                           or headTable == 'pur_return'">
+                    OR h.supplier_name LIKE CONCAT('%', #{keyword}, '%')
+                </when>
+                <when test="headTable == 'sal_order' or headTable == 'sal_delivery'
+                           or headTable == 'sal_return'">
+                    OR h.customer_name LIKE CONCAT('%', #{keyword}, '%')
+                </when>
+                <when test="headTable == 'prd_order' or headTable == 'prd_bom'">
+                    OR h.product_name LIKE CONCAT('%', #{keyword}, '%')
+                </when>
+                <when test="headTable == 'prd_requisition'">
+                    OR h.prd_order_no LIKE CONCAT('%', #{keyword}, '%')
+                </when>
+                <when test="headTable == 'inv_check'">
+                    OR h.warehouse_name LIKE CONCAT('%', #{keyword}, '%')
+                </when>
+                <when test="headTable == 'inv_transfer'">
+                    OR w.warehouse_name LIKE CONCAT('%', #{keyword}, '%')
+                </when>
+            </choose>
+            )
+        </if>
+        <if test="startDate != null and startDate != ''">
+            AND h.bill_date &gt;= #{startDate}
+        </if>
+        <if test="endDate != null and endDate != ''">
+            AND h.bill_date &lt;= #{endDate}
+        </if>
+        ORDER BY h.update_time DESC, h.id DESC
+    </select>
+
+    <select id="peekHead" resultType="java.util.Map">
+        SELECT id, deleted,
+        <choose>
+            <when test="headTable == 'prd_bom'">status AS billStatus</when>
+            <otherwise>bill_status AS billStatus</otherwise>
+        </choose>
+        FROM ${headTable}
+        WHERE id = #{id}
+    </select>
+
+    <update id="restoreHead">
+        UPDATE ${headTable} SET deleted = 0 WHERE id = #{id} AND deleted = 1
+    </update>
+
+    <update id="restoreDetail">
+        UPDATE ${detailTable} SET deleted = 0 WHERE ${detailFk} = #{headId} AND deleted = 1
+    </update>
+
+    <delete id="physicalDeleteDetail">
+        DELETE FROM ${detailTable} WHERE ${detailFk} = #{headId}
+    </delete>
+
+    <delete id="physicalDeleteHead">
+        DELETE FROM ${headTable} WHERE id = #{id}
+    </delete>
+
+</mapper>

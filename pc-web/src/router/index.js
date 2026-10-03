@@ -46,7 +46,9 @@ const routes = [
       { path: 'finance/invoice/create', name: 'FinInvoiceCreate', component: () => import('@/views/finance/InvoiceCreate.vue'), meta: { title: '申请开票', icon: 'Plus', perm: 'finance:invoice:add' } },
       // 报表
       { path: 'report/sales', name: 'ReportSales', component: () => import('@/views/report/Sales.vue'), meta: { title: '销售报表', icon: 'TrendCharts', perm: 'report:sales:view' } },
-      { path: 'report/inventory', name: 'ReportInventory', component: () => import('@/views/report/Inventory.vue'), meta: { title: '库存报表', icon: 'PieChart', perm: 'report:inventory:view' } }
+      { path: 'report/inventory', name: 'ReportInventory', component: () => import('@/views/report/Inventory.vue'), meta: { title: '库存报表', icon: 'PieChart', perm: 'report:inventory:view' } },
+      // v1.1.68 回收站 (被软删单据分类/恢复/彻底删), 复用 report:view 门禁
+      { path: 'report/recycle', name: 'ReportRecycle', component: () => import('@/views/report/Recycle.vue'), meta: { title: '回收站', icon: 'Delete', perm: 'report:view' } }
     ]
   }
 ]
