@@ -2,6 +2,42 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.68-hotfix (2026-10-04) — 销售出库"成本 0 / 审核查无实据"根治 + 出库日志/草稿提示
+
+**用户反馈 (2026-10-04)**: 从"销售记录→历史销售"添加生成的销售出库单 `CKP202610030001`/`CKP202610040001`, 在报表里直接显示"已审核", 操作员列也"不对"; 且毛利分析长期"成本=0、毛利≈销售额"。
+
+**根因诊断 (全 DB 实测, 非报表 bug)**:
+1. **"操作员不对"实为多账号混开单**: 操作员列读 `create_by`(建单人), 这批单 `create_by=gpssong1`(9-29 建), 后被 gpssong/赵偲荣 多次 ADD/DELETE。系统显示"谁建的"是对的, 问题在于 **`check()/uncheck()` 从不写 `sys_oper_log`**, 导致"谁点的审核"查无实据。
+2. **成本 0 的病根在采购入库**: `dyd975007`(带鱼袋9*75*0.07) 的 4 张采购入库单 (RKP202609290002/0006, RKP202610020003, RKP202610030001) 成本价 price 全部填 0 → `StockService.inStock()` 移动加权平均 `avg_cost` 从头就是 0 → `inv_stock.avg_cost=0`、`base_product.cost_price=0` → `StockService.outStock()` L212 `outCost = avg_cost × qty = 0` → 销售出库成本 0、毛利=销售额。出库成本算法(移动加权平均)本身正确, 病根是入库没录成本价。
+3. **"历史销售添加"无 bug**: 该路径走 `SalDeliveryService.add()` (L193 强制 `STATUS_DRAFT`), 永远存草稿; "已审核"是这些老单历史被翻成 CHECKED。
+
+**修复 (代码 2 类 + 数据回填 1 套)**:
+| 类别 | 改动 |
+|------|------|
+| 后端 @OperLog | 7 个 service 的 `check()`/`uncheck()` 加 `@OperLog(module, businessType=CHECK/UNCHECK, saveParam=true)`: 销售出库/销售订单/销售退货/采购入库/采购退货/采购订单/库存盘点。以后 `sys_oper_log` 可查"谁何时审核/反审核" |
+| 前端 草稿提示 | `Order.vue` 生成出库单按钮改"保存为草稿 (需审核后生效)" + 保存后 toast 明确"草稿, 审核后才会扣库存/生成应收/算成本/毛利"; `Delivery.vue` 新增保存同文案 |
+| 数据回填 (home 生产库) | 见下方"成本价回填" |
+
+**成本价回填 (home 192.168.0.150, dyd975007 成本价 = 0.0546 元/只, 用户确认)**:
+- `inv_stock`: `avg_cost=0.0546`, `total_cost=ROUND(0.0546×qty,4)`
+- `base_product.cost_price=0.0546`
+- 4 张 `pur_receipt_detail`: `price=0.0546`, `amount/amount_tax=ROUND(0.0546×qty,4)`; `pur_receipt` 主表金额同步重算
+- 2 张已审核 `sal_delivery` (CKP20261004/40001): `cost_amount=ROUND(0.0546×total_qty)`, `profit_amount=total_amount-cost`; 明细行 `cost_price/cost_amount` 同步
+- **备份 (可回滚)**: `inv_stock_bak_v168_avg_cost` / `base_product_bak_v168_cost` / `pur_receipt_detail_bak_v168` / `sal_delivery_bak_v168_cost`
+- 结果: 出库成本 1965.60, 毛利 230.40, 毛利率 10.49% (不再是≈100%)
+
+**部署**: 双站 (home 192.168.0.150 + 飞牛 192.168.0.32) 各: ① 后端 jar 重打 + `docker build --no-cache` + `rm -f` + `run --env-file` (完整 CORS + SA_TOKEN 密钥, home 密钥 `ecdd4895...`, 飞牛 `a337f875...`, 勿混) ② pc-web `npm run build` + bind-mount 新 dist + `docker restart` ③ 成本数据回填 **仅 home 生产库** (飞牛热备库无 dyd975007 业务数据, 0 行, 无需回填)。
+
+**踩坑**:
+- 飞牛是**独立热备库**, 业务单据 (sal_delivery/pur_receipt 等) 不在飞牛, 只在 home; 成本回填只动 home。
+- `sys_oper_log` 列名是 `module`/`method`/`business_type`/`username`/`oper_time`, **没有** `biz_no` 列 (查业务号要靠 `request_url`/`snapshot_json`)。
+- `fin_arap` 关联源单用 `source_bill_no`, 不是 `bill_no`。
+- `pur_receipt_detail` 无 `bill_no` 列, 要 JOIN `pur_receipt` 取。
+
+**回滚**: 删 7 个 service 的 `@OperLog` 注解 + 还原 2 个 vue 文案; 数据用 4 张 `*_bak_v168` 备份表 `INSERT` 还原。
+
+---
+
 ### v1.1.68 (2026-10-03) — PC 端报表中心新增「回收站」 (11 类被软删单据分类/恢复/彻底删除)
 
 **用户需求**: 在 PC 端「报表中心」左侧菜单下新增一栏「回收站」, 把被删除的采购订单/销售出库单等业务单据**分类放好**, 方便找回。

@@ -177,6 +177,7 @@ public class PurOrderService {
      * 审核采购订单 (v1.1.11+): 仅状态机 DRAFT→CHECKED; 不动库存 (库存事务在下游入库单)
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购订单", businessType="CHECK", saveParam=true)
     public void check(Long id) {
         permService.requirePerm("purchase:order:check");
         PurOrder order = orderMapper.selectById(id);
@@ -195,6 +196,7 @@ public class PurOrderService {
      * 注意: 若下游已生成入库单, 需先删入库单再反审核, 否则会导致库存账错位
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购订单", businessType="UNCHECK", saveParam=true)
     public void uncheck(Long id) {
         permService.requirePerm("purchase:order:uncheck");
         PurOrder order = orderMapper.selectById(id);

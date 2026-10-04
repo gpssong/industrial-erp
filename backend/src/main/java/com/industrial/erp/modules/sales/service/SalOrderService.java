@@ -285,6 +285,7 @@ public class SalOrderService {
      *  v1.1.35-1: 改用 LambdaUpdateWrapper 只 SET billStatus,
      *  避免 SalOrderMapper.xml 自定义 updateById 全字段 SET 把 bill_no 等列覆盖成 NULL */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售订单", businessType="CHECK", saveParam=true)
     public void check(Long id) {
         permService.requirePerm("sales:order:check");
         SalOrder order = orderMapper.selectById(id);
@@ -300,6 +301,7 @@ public class SalOrderService {
     /** v1.1.11+ 反审核销售订单 (CHECKED→DRAFT)
      *  v1.1.35-1: 同 check(), 改用 LambdaUpdateWrapper 避免全字段覆盖 */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售订单", businessType="UNCHECK", saveParam=true)
     public void uncheck(Long id) {
         permService.requirePerm("sales:order:uncheck");
         SalOrder order = orderMapper.selectById(id);

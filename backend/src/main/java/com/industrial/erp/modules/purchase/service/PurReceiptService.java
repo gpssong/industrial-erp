@@ -270,6 +270,7 @@ public class PurReceiptService {
      * 审核入库单 -> 触发库存入库 + 应付台账
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购入库", businessType="CHECK", saveParam=true)
     public void check(Long id) {
         permService.requirePerm("purchase:receipt:check");
         PurReceipt r = receiptMapper.selectById(id);
@@ -318,6 +319,7 @@ public class PurReceiptService {
     /** v1.1.18+: 反审核 (CHECKED→DRAFT).
      *  同步回退: 库存出库 (采购入库是入库, 反审核要出库冲掉) + 删除正 AP. */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购入库", businessType="UNCHECK", saveParam=true)
     public void uncheck(Long id) {
         permService.requirePerm("purchase:receipt:uncheck");
         PurReceipt r = receiptMapper.selectById(id);

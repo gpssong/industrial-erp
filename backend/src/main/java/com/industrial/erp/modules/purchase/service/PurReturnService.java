@@ -138,6 +138,7 @@ public class PurReturnService {
      * 审核退货单 -> 库存出库 (PUR_RETURN ledger) + 冲减应付 (反向 AP)
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购退货", businessType="CHECK", saveParam=true)
     public void check(Long id) {
         permService.requirePerm("purchase:return:check");
         PurReturn r = returnMapper.selectById(id);
@@ -176,6 +177,7 @@ public class PurReturnService {
      * v1.1.18+: 同步回退: 库存入库 (采购退货是出库, 反审核要入库冲掉) + 删除负数 AP.
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购退货", businessType="UNCHECK", saveParam=true)
     public void uncheck(Long id) {
         permService.requirePerm("purchase:return:uncheck");
         PurReturn r = returnMapper.selectById(id);

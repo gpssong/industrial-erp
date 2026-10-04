@@ -356,6 +356,7 @@ public class SalDeliveryService {
      * 流程: 校验信用 -> 库存出库(锁) -> 应收台账 -> 计算毛利
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售出库", businessType="CHECK", saveParam=true)
     public void check(Long id) {
         permService.requirePerm("sales:delivery:check");
         SalDelivery d = deliveryMapper.selectById(id);
@@ -428,6 +429,7 @@ public class SalDeliveryService {
      *  - 信用回退: GREATEST(0, used - amount), 防御性防负
      *  - AR 删除: 校验 paidAmount/invoicedAmount 为 0, 否则抛错让用户先平账 */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售出库", businessType="UNCHECK", saveParam=true)
     public void uncheck(Long id) {
         permService.requirePerm("sales:delivery:uncheck");
         SalDelivery d = deliveryMapper.selectById(id);

@@ -580,7 +580,7 @@ async function onSave() {
     if (form.id) {
       await salDeliveryApi.update(payload); ElMessage.success('修改成功')
     } else {
-      await salDeliveryApi.add(payload); ElMessage.success('保存成功')
+      await salDeliveryApi.add(payload); ElMessage.success('已保存为草稿。请手动审核: 审核后才会扣库存、生成应收、计算成本与毛利')
     }
     dialogVisible.value = false; loadData()
   } catch (e) {

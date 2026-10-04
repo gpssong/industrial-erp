@@ -150,6 +150,7 @@ public class InvCheckService {
      * 盘亏 (diff < 0) -> outStock
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="库存盘点", businessType="CHECK", saveParam=true)
     public void check(Long id) {
         permService.requirePerm("inventory:check:check");
         InvCheck c = checkMapper.selectById(id);
@@ -305,6 +306,7 @@ public class InvCheckService {
     /** v1.1.11+ 反审核盘点单 (CHECKED→DRAFT, status-only).
      *  库存账已写入实际库存调整 (盘盈盘亏), 反审核不会自动回退; 需走新盘点单修复 */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="库存盘点", businessType="UNCHECK", saveParam=true)
     public void uncheck(Long id) {
         permService.requirePerm("inventory:check:uncheck");
         InvCheck c = checkMapper.selectById(id);
