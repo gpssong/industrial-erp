@@ -81,11 +81,11 @@ public class SalDeliveryService {
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
 
-    public IPage<SalDelivery> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus, String productName) {
+    public IPage<SalDelivery> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String customerName, String billStatus, String productName) {
         permService.requirePerm("sales:delivery:list");
         Page<SalDelivery> p = new Page<>(pageNum, pageSize);
-        // productName EXISTS 子查询已下沉到 mapper XML, 避免 QueryWrapper.apply() 字符串拼接反模式 (P1-3)
-        IPage<SalDelivery> result = deliveryMapper.selectPageWithProduct(p, billNo, customerId, billStatus, productName);
+        // productName/customerName EXISTS 子查询已下沉到 mapper XML, 避免 QueryWrapper.apply() 字符串拼接反模式 (P1-3)
+        IPage<SalDelivery> result = deliveryMapper.selectPageWithProduct(p, billNo, customerId, customerName, billStatus, productName);
         // v1.1.42: 批量注入交货方式中文标签 (列表页展示用, 与 detail() 保持一致)
         if (result.getRecords() != null) {
             for (SalDelivery d : result.getRecords()) {

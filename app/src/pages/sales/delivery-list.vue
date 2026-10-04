@@ -5,6 +5,10 @@
         <input class="input" v-model="keyword" placeholder="单号" @confirm="loadData" />
         <button class="btn-search" @click="loadData">查询</button>
       </view>
+      <view class="search-row" style="margin-top:6px">
+        <input class="input" v-model="customerName" placeholder="按客户名称" @confirm="loadData" />
+        <button class="btn-search" @click="loadData">查询</button>
+      </view>
       <!-- 状态筛选 chip -->
       <scroll-view scroll-x="true" class="status-scroll" :show-scrollbar="false">
         <view class="status-chips">
@@ -67,6 +71,7 @@ const STATUS_MAP = {
 }
 
 const keyword = ref('')
+const customerName = ref('')
 const billStatus = ref('')
 const list = ref([])
 const loading = ref(false)
@@ -95,6 +100,7 @@ async function loadData(reset = true) {
   try {
     const params = { pageNum: pageNum.value, pageSize: pageSize.value }
     if (keyword.value) params.billNo = keyword.value
+    if (customerName.value) params.customerName = customerName.value
     if (billStatus.value) params.billStatus = billStatus.value
     const r = await api.salesDeliveryPage(params)
     const records = (r && r.records) || []

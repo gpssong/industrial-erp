@@ -31,9 +31,10 @@ public class SalDeliveryController {
                                           @RequestParam(defaultValue = "20") Integer pageSize,
                                           @RequestParam(required = false) String billNo,
                                           @RequestParam(required = false) Long customerId,
+                                          @RequestParam(required = false) String customerName,
                                           @RequestParam(required = false) String billStatus,
                                           @RequestParam(required = false) String productName) {
-        PageResult<SalDelivery> pr = PageResult.of(service.page(pageNum, pageSize, billNo, customerId, billStatus, productName));
+        PageResult<SalDelivery> pr = PageResult.of(service.page(pageNum, pageSize, billNo, customerId, customerName, billStatus, productName));
         CreateByNameInjector.inject(userMapper, pr.getRecords(), SalDelivery::getCreateBy, SalDelivery::setCreateByName);
         return R.ok(pr);
     }

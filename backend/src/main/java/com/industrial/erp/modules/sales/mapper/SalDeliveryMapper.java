@@ -33,6 +33,10 @@ public interface SalDeliveryMapper extends BaseMapper<SalDelivery> {
             "  d.deleted = 0 " +
             "  <if test=\"billNo != null and billNo != ''\">AND d.bill_no LIKE CONCAT('%', #{billNo}, '%')</if>" +
             "  <if test=\"customerId != null\">AND d.customer_id = #{customerId}</if>" +
+            "  <if test=\"customerName != null and customerName != ''\">" +
+            "    AND EXISTS (SELECT 1 FROM base_customer c " +
+            "                WHERE c.id = d.customer_id AND c.deleted = 0 AND c.customer_name LIKE CONCAT('%', #{customerName}, '%'))" +
+            "  </if>" +
             "  <if test=\"billStatus != null and billStatus != ''\">AND d.bill_status = #{billStatus}</if>" +
             "  <if test=\"productName != null and productName != ''\">" +
             "    AND EXISTS (SELECT 1 FROM sal_delivery_detail dt " +
@@ -46,6 +50,7 @@ public interface SalDeliveryMapper extends BaseMapper<SalDelivery> {
             com.baomidou.mybatisplus.core.metadata.IPage<SalDelivery> page,
             @Param("billNo") String billNo,
             @Param("customerId") Long customerId,
+            @Param("customerName") String customerName,
             @Param("billStatus") String billStatus,
             @Param("productName") String productName);
 
