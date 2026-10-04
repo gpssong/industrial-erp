@@ -90,7 +90,7 @@ class SalDeliveryPermissionTest {
 
         // 调用 page 方法应该抛出异常
         assertThatThrownBy(() -> {
-            salDeliveryService.page(1, 20, null, null, null, null);
+            salDeliveryService.page(1, 20, null, null, null, null, null);
         }).isInstanceOf(RuntimeException.class)
           .hasMessageContaining("无权限");
     }
@@ -104,7 +104,7 @@ class SalDeliveryPermissionTest {
 
         // 调用 page 方法应该成功（不抛异常）
         try {
-            salDeliveryService.page(1, 20, null, null, null, null);
+            salDeliveryService.page(1, 20, null, null, null, null, null);
         } catch (Exception e) {
             // 期望成功，不抛异常
             org.junit.jupiter.api.Assertions.fail("有权限用户应该能正常访问");
@@ -122,7 +122,7 @@ class SalDeliveryPermissionTest {
         when(salDeliveryMapper.selectPage(any(), any())).thenReturn(null);
 
         // 所有方法都应该成功
-        salDeliveryService.page(1, 20, null, null, null, null);
+        salDeliveryService.page(1, 20, null, null, null, null, null);
         salDeliveryService.detail(1L);
         salDeliveryService.add(createSampleDelivery());
         salDeliveryService.update(createSampleDelivery());
@@ -165,7 +165,7 @@ class SalDeliveryPermissionTest {
                 switch (op) {
                     case "page":
                         when(salDeliveryMapper.selectPage(any(), any())).thenReturn(null);
-                        salDeliveryService.page(1, 20, null, null, null, null);
+                        salDeliveryService.page(1, 20, null, null, null, null, null);
                         break;
                     case "detail":
                         when(salDeliveryMapper.selectById(anyLong())).thenReturn(delivery);
