@@ -79,11 +79,12 @@ public class ReportController {
 
     // =======================================================================
     // v1.1.68 回收站 — 被软删除 (deleted=1) 单据的分类 / 恢复 / 彻底删除.
-    // 复用 report:view 门禁 (与报表中心子页面一致).
+    // v1.1.72: 门禁由 report:view 改独立 report:recycle (使回收站在角色权限树
+    //   里可单独勾选/保存; 见 sql/47_v172_recycle_perm.sql).
     // =======================================================================
 
     /** 回收站列表: 一次返回全部 11 类被删单据, 按 type 分组. keyword/日期可选. */
-    @SaCheckPermission("report:view")
+    @SaCheckPermission("report:recycle")
     @GetMapping("/recycle/bin")
     public R<Map<String, List<Map<String, Object>>>> recycleBin(
             @RequestParam(required = false) String keyword,
@@ -92,8 +93,8 @@ public class ReportController {
         return R.ok(recycleBinService.listAll(keyword, startDate, endDate));
     }
 
-    /** 恢复某被删单据 (head + detail 的 deleted 翻回 0). 不可逆操作的逆操作, 仍受 report:view 门禁. */
-    @SaCheckPermission("report:view")
+    /** 恢复某被删单据 (head + detail 的 deleted 翻回 0). 不可逆操作的逆操作, 受 report:recycle 门禁. */
+    @SaCheckPermission("report:recycle")
     @PostMapping("/recycle/restore")
     public R<Void> recycleRestore(@RequestParam String type, @RequestParam Long id) {
         recycleBinService.restore(type, id);
@@ -101,7 +102,7 @@ public class ReportController {
     }
 
     /** 彻底删除某被删单据 (物理 DELETE head + detail, 不可恢复). */
-    @SaCheckPermission("report:view")
+    @SaCheckPermission("report:recycle")
     @PostMapping("/recycle/purge")
     public R<Void> recyclePurge(@RequestParam String type, @RequestParam Long id) {
         recycleBinService.physicalDelete(type, id);

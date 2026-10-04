@@ -17,7 +17,9 @@ import java.util.Map;
  * <p>列表: 一个端点返回全部 11 类被删单据 (按 type 分组).
  * 恢复: head+detail 的 deleted 翻回 0 (因业务删除只对 DRAFT 开放, 无库存/账副作用, 无需回滚).
  * 彻底删: 物理 DELETE head+detail (不可逆; 绕开 prd_order 的 (bill_no,deleted) 唯一索引撞坑).
- * 权限: 复用 report:view (端点级 @SaCheckPermission + 此处 service 双保险).
+ * 权限: v1.1.72 起用独立 report:recycle (端点级 @SaCheckPermission + 此处 service 双保险).
+ *       原复用 report:view — 但回收站菜单节点若 perms 为空会在角色权限树被判为
+ *       不可授权目录, 无法单独勾选/保存; 改独立码后回收站成为可授权叶子.
  */
 @Service
 public class RecycleBinService {
@@ -49,7 +51,7 @@ public class RecycleBinService {
     @Transactional(rollbackFor = Exception.class)
     public void restore(String type, Long id) {
         RecycleType t = requireType(type);
-        permService.requirePerm("report:view");
+        permService.requirePerm("report:recycle");
         Map<String, Object> head = requireDeletedHead(t, id);
         int headRows = mapper.restoreHead(t.getHeadTable(), id);
         if (headRows == 0) {
@@ -68,7 +70,7 @@ public class RecycleBinService {
     @Transactional(rollbackFor = Exception.class)
     public void physicalDelete(String type, Long id) {
         RecycleType t = requireType(type);
-        permService.requirePerm("report:view");
+        permService.requirePerm("report:recycle");
         requireDeletedHead(t, id);
         if (t.hasDetail()) {
             mapper.physicalDeleteDetail(t.getDetailTable(), t.getDetailFk(), id);

@@ -2,6 +2,26 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.73 (2026-10-04) — 角色管理「分配权限」回收站权限无法勾选修复 (grantable)
+
+**用户反馈 (2026-10-04)**: 角色管理 → 分配权限 → PC端菜单权限，报表中心下的「回收站」复选框**灰色不可勾**，而同级「报表查看」可勾。回收站权限无法自由选择。
+
+**根因**: v1.1.68 (`sql/45`) 把回收站 seed 成 `M` 型菜单节点 `perms=''`（空），只当「侧边栏可见」载体，后端门禁复用 `report:view`。但权限树机制把「空 perms 的 M 节点」判为**不可授权目录**：前端 `Role.vue` `markDisabled` 只有 `B`/`M`+`F`(带 perms) 才 enabled → 回收站 `disabled=true`；后端 `SysRoleService.isGrantableMenu` 空 perms 的 M 返回 false → **每次保存该角色时 seed 写入的回收站 `sys_role_menu` 授权行被静默删掉**。`report:view`（menu id=951，`F` 型「报表查看」）才是可授权载体，但它与「回收站」是两个独立 checkbox，语义冗余。
+
+**决策（用户拍板）**: 给回收站独立权限码 `report:recycle`，让回收站本身成为可授权叶子；后端 3 个回收站端点门禁由 `report:view` 改到 `report:recycle`。双站部署。
+
+**修复**:
+1. 新 seed `sql/47_v172_recycle_perm.sql`：`UPDATE sys_menu SET perms='report:recycle' WHERE path='/report/recycle' AND perms=''`（M 节点变可授权）；给 6 内置角色（SUPER_ADMIN/PURCHASE_MGR/SALES_MGR/WAREHOUSE_MGR/PRODUCTION_MGR/FINANCE）补 `report:recycle` 授权，沿用 `sql/45` 的 `information_schema` 探测 `sys_role_menu.client_type` 列模式（老库 2 列退化），`INSERT IGNORE` 幂等。
+2. 后端 `ReportController` 3 回收站端点（`/report/recycle/bin`、`/restore`、`/purge`）`@SaCheckPermission("report:view")` → `report:recycle`；`RecycleBinService.restore`/`physicalDelete` 的 `requirePerm` 同步改。其余 4 个报表端点（`report:view`）不动。
+3. 前端 `pc-web/src/router/index.js` `report/recycle` 的 `meta.perm` 由 `report:view` 改 `report:recycle`。
+4. 权限树 `markDisabled` 与后端 `isGrantableMenu` 判定逻辑本身已支持「M + perms 非空 → 可授权」，M 节点赋 perm 后自动放行，**无需改判定代码**。
+
+**部署（双站）**: home（192.168.0.150）+ 飞牛（192.168.0.32）各：① MySQL 跑 `sql/47_v172_recycle_perm.sql`（`--default-character-set=utf8mb4`）② `mvn package`（JDK 17）+ 双站 `docker build --no-cache` + `rm -f` + `docker run --env-file`（保留各自 SA_TOKEN 密钥，不强制重登）③ `npm run build` + 双站 bind-mount 新 dist + `docker restart erp-pc-web[-failover]`（飞牛实际 mount 是 `dist-new`）。非 admin 角色重登刷 perm。纯后端 jar + 前端 dist + 迁移，无 DDL。
+
+**验证**: 权限树展开报表中心 → 回收站复选框变黑框可勾；给某角色勾上回收站保存后重开弹窗仍勾选（`isGrantableMenu` 不再静默删除）；无 `report:recycle` 的账号 GET `/report/recycle/bin` → 403，admin（`isAdmin` 短路）→ 200。
+
+**回滚**: 反向 `sql/47`（`UPDATE sys_menu SET perms='' WHERE path='/report/recycle'` + `DELETE sys_role_menu WHERE menu_id=<回收站 id>`）；后端 3 端点 + `RecycleBinService` 2 处 + 前端 router `meta.perm` 改回 `report:view`。
+
 ### v1.1.72 (2026-10-04) — 回收站「商品」列全空修复
 
 **用户反馈 (2026-10-04)**: 回收站「销售出库」Tab 的「商品」列全是 `-`（客户/金额/删除人都正常），但库里这些被删单据明明带商品。
