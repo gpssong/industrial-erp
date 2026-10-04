@@ -21,12 +21,12 @@ public interface PurReceiptMapper extends BaseMapper<PurReceipt> {
             "w.warehouse_name AS warehouseName, " +
             "(SELECT GROUP_CONCAT(p.product_name ORDER BY dtl.line_no SEPARATOR ', ') " +
             " FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.receipt_id = r.id LIMIT 1) AS first_product_name, " +
+            " WHERE dtl.receipt_id = r.id AND dtl.deleted = 0 LIMIT 1) AS first_product_name, " +
             // v1.1.21+: 注入首行商品的规格和型号
             "(SELECT p.spec FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.receipt_id = r.id ORDER BY dtl.line_no LIMIT 1) AS first_product_spec, " +
+            " WHERE dtl.receipt_id = r.id AND dtl.deleted = 0 ORDER BY dtl.line_no LIMIT 1) AS first_product_spec, " +
             "(SELECT p.model FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.receipt_id = r.id ORDER BY dtl.line_no LIMIT 1) AS first_product_model " +
+            " WHERE dtl.receipt_id = r.id AND dtl.deleted = 0 ORDER BY dtl.line_no LIMIT 1) AS first_product_model " +
             " FROM pur_receipt r " +
             // v1.1.15+: LEFT JOIN 仓库表注入 warehouseName
             "LEFT JOIN base_warehouse w ON w.id = r.warehouse_id AND w.deleted = 0 " +
@@ -38,7 +38,7 @@ public interface PurReceiptMapper extends BaseMapper<PurReceipt> {
             "  <if test=\"productName != null and productName != ''\">" +
             "    AND EXISTS (SELECT 1 FROM pur_receipt_detail d " +
             "                LEFT JOIN base_product p ON p.id = d.product_id " +
-            "                WHERE d.receipt_id = r.id AND p.product_name LIKE CONCAT('%', #{productName}, '%'))" +
+            "                WHERE d.receipt_id = r.id AND d.deleted = 0 AND p.product_name LIKE CONCAT('%', #{productName}, '%'))" +
             "  </if>" +
             "</where>" +
             "ORDER BY r.id DESC" +

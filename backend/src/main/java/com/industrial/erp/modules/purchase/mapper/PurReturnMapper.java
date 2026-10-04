@@ -13,7 +13,7 @@ public interface PurReturnMapper extends BaseMapper<PurReturn> {
     @Select("SELECT r.*, " +
             "(SELECT GROUP_CONCAT(p.product_name ORDER BY dtl.line_no SEPARATOR ', ') " +
             " FROM pur_return_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.return_id = r.id LIMIT 1) AS firstProductName, " +
+            " WHERE dtl.return_id = r.id AND dtl.deleted = 0 LIMIT 1) AS firstProductName, " +
             "w.warehouse_name AS warehouseName " +
             "FROM pur_return r " +
             "LEFT JOIN base_warehouse w ON w.id = r.warehouse_id AND w.deleted = 0 " +
