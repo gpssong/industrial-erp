@@ -2,6 +2,21 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.74 (2026-10-04) — App 端 销售出库按客户查 / 采购入库按产品查 (模糊匹配)
+
+**用户反馈 (2026-10-04)**: App 端「销售出库单」搜索栏只有「单号」输入，希望可按**客户**查找；「采购入库单」希望可按**产品**查找。且两者都不需要输入完整名称（支持部分关键字模糊匹配）。
+
+**改动**:
+1. **后端 销售出库 `/sales/delivery/page`** 新增可选参 `customerName`（`SalDeliveryController` → `SalDeliveryService.page` → `SalDeliveryMapper.selectPageWithProduct`）。模糊匹配下沉到 SQL：`EXISTS (SELECT 1 FROM base_customer c WHERE c.id=d.customer_id AND c.deleted=0 AND c.customer_name LIKE CONCAT('%', #{customerName}, '%'))`，沿用 P1-3 反模式规避（不写 `QueryWrapper.apply()` 字符串拼接）。
+2. **后端 采购入库 `/purchase/receipt/page`** 早有 `productName`（`EXISTS base_product.product_name LIKE`）模糊支持，**无需后端改动**，只是 App 端之前没暴露这个搜索框。
+3. **App 前端** 两页各加第二个搜索框（保留原「单号」框，两个输入独立共存）:
+   - `app/src/pages/sales/delivery-list.vue`: 「按客户名称」→ `customerName` 入参。
+   - `app/src/pages/purchase/receipt-list.vue`: 「按产品名称」→ `productName` 入参。
+
+**部署**: 纯后端 jar + App APK。后端双站各 `mvn package`(JDK 17) + `docker build --no-cache` + `docker run --env-file`（保留 SA_TOKEN 密钥）。App 重打 APK `APP_VERSION` 1.1.74（与 CLAUDE.md 顶部对齐，`build-app.sh` 三层校验通过，产物内嵌版本=1.1.74）。
+
+**验证**: App 销售出库页输入客户名「宏舟」→ 只出宏舟水产出库单；采购入库页输入产品「带鱼袋」→ 只出含该产品的入库单。空输入 = 全部（与现状一致）。
+
 ### v1.1.73 (2026-10-04) — 角色管理「分配权限」回收站权限无法勾选修复 (grantable)
 
 **用户反馈 (2026-10-04)**: 角色管理 → 分配权限 → PC端菜单权限，报表中心下的「回收站」复选框**灰色不可勾**，而同级「报表查看」可勾。回收站权限无法自由选择。
