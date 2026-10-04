@@ -17,6 +17,8 @@
 
 **验证**: App 销售出库页输入客户名「宏舟」→ 只出宏舟水产出库单；采购入库页输入产品「带鱼袋」→ 只出含该产品的入库单。空输入 = 全部（与现状一致）。
 
+**部署备注 (2026-10-04)**: 双站后端重建 `erp-backend` / `erp-backend-failover` 后，启动日志出现两条**既有**良性告警 `SalDeliveryMapper.selectByIdRaw` / `PurReceiptMapper.selectByIdRaw` "is ignored, because it exists, maybe from xml file" —— 因为这两个 mapper 的 `@Select` 注解与 XML 里同名 `<select id="selectByIdRaw">` 冲突，MyBatis-Plus 忽略注解版、保留 XML 版（`SELECT * FROM ... WHERE id=#{id}`），功能正常（`detail()` 走 XML 版）。非本次引入，无需处理；若日后想消除告警可删掉注解、只留 XML。
+
 ### v1.1.73 (2026-10-04) — 角色管理「分配权限」回收站权限无法勾选修复 (grantable)
 
 **用户反馈 (2026-10-04)**: 角色管理 → 分配权限 → PC端菜单权限，报表中心下的「回收站」复选框**灰色不可勾**，而同级「报表查看」可勾。回收站权限无法自由选择。
