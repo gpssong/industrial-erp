@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.71 (2026-10-04 — 回收站列表补充「商品/金额/删除人」列. 用户反馈: 回收站单据要显示 商品、金额、删除人. 改动: RecycleBinMapper.xml listDeleted 加 3 列 — productNames (聚合明细 product_name, GROUP_CONCAT DISTINCT; prd_order 取 head.product_name), totalAmount (仅 6 业务单据有 total_amount, 生产/BOM/盘点/调拨 NULL), deletedBy (update_by JOIN sys_user.username, 无专门 deleted_by 列故用 update_by 近似). Recycle.vue 表格插 商品/金额/删除人 三列. 踩坑: 首版 GROUP_CONCAT ORDER BY dtl.line_no 因 inv_check_detail/inv_transfer_detail 无 line_no 列 → 500, 改 DISTINCT 不排序. 纯 XML+Vue, 无 DDL/签名变更, 双站 jar+dist+docker. home 实测销售出库 49 行 CKP202610040002 totalAmount=4725 deletedBy=gpssong; 飞牛 pur_receipt 返回 deletedBy=秦运桂. 前序版本 v1.1.70: 回收站被删销售出库单不出现双 bug 修复)
+**当前版本**: v1.1.72 (2026-10-04 — 回收站「商品」列全空修复. 用户反馈: 回收站销售出库 Tab 商品列全是 `-`, 但客户/金额/删除人都正常. 根因: v1.1.71 加的 productNames 子查询 `LEFT JOIN base_product ... WHERE dtl.deleted=0`, 而业务删除时 head+detail 一起置 deleted=1 (SalDeliveryService.delete 等 11 类都这样) → 被删单据的明细行按 deleted=0 一条查不到 → 商品列返回 NULL. 库里每条被删 detail 都自带去规范 product_name, 线上 SQL 实测 detail_alive=0 但 detail_hasname>0. 修复: RecycleBinMapper.xml productColumn 子查询改为直接 GROUP_CONCAT(DISTINCT dtl.product_name), 去掉 base_product JOIN + deleted=0 过滤; 对全部 10 类带明细单据生效, 不再依赖商品是否还软删. 纯后端 XML 一处, 无 DDL/前端. 双站部署: home 推 jar→docker build --no-cache 重建 erp-system-backend:latest→保留原 erp_env_home.txt(SA_TOKEN 密钥)重建容器; 飞牛 docker save home 新镜像→LAN 流式 docker load→tag erp-backend-failover:latest→用 .erp_env_failover 重建. 两站线上 jar md5 bbfd946f... 已确认, sal_delivery 被删单商品名现正常聚合 (home 带鱼袋/透明胶带, 飞牛 金达印字胶带). 前序版本 v1.1.71: 回收站列表补充 商品/金额/删除人 三列)
+
+**前序版本**: v1.1.71 (2026-10-04 — 回收站列表补充「商品/金额/删除人」列. 用户反馈: 回收站单据要显示 商品、金额、删除人. 改动: RecycleBinMapper.xml listDeleted 加 3 列 — productNames (聚合明细 product_name, GROUP_CONCAT DISTINCT; prd_order 取 head.product_name), totalAmount (仅 6 业务单据有 total_amount, 生产/BOM/盘点/调拨 NULL), deletedBy (update_by JOIN sys_user.username, 无专门 deleted_by 列故用 update_by 近似). Recycle.vue 表格插 商品/金额/删除人 三列. 踩坑: 首版 GROUP_CONCAT ORDER BY dtl.line_no 因 inv_check_detail/inv_transfer_detail 无 line_no 列 → 500, 改 DISTINCT 不排序. 纯 XML+Vue, 无 DDL/签名变更, 双站 jar+dist+docker. home 实测销售出库 49 行 CKP202610040002 totalAmount=4725 deletedBy=gpssong; 飞牛 pur_receipt 返回 deletedBy=秦运桂. 前序版本 v1.1.70: 回收站被删销售出库单不出现双 bug 修复)
 
 **前序版本**: v1.1.70 (2026-10-04 — 回收站「被删销售出库单不出现」双 bug 修复. 用户反馈: 回收站销售出库 Tab 空, 但库里有 50 条 deleted=1 的 sal_delivery. 根因 1: report:view (sys_menu 951) 只授给 SUPER_ADMIN/PURCHASE_MGR, sql/45 只给 6 角色加了「回收站」M 型菜单节点(perms='') 却没补 report:view 本身 → 其余 4 内置角色看得到菜单但一进 403, 前端 Recycle.vue catch 静默吞 403 → 全 Tab 空. 根因 2: RecycleBinMapper.listDeleted 硬编码 h.bill_no/h.bill_date, prd_bom 无这两列(用 bom_code, 无日期列) → listAll 一次跑 11 类, prd_bom 那条抛 Unknown column 'h.bill_no' → 端点整体 500, 连销售出库也拿不到数据. 修复: 新 seed sql/46_v169_recycle_report_view_grant.sql 把 report:view 幂等补授 6 内置角色×3 client_type (客户端路由 guard 与后端 API 同源, 一处补齐双端生效, 双站各跑); RecycleBinMapper.xml 加 billNoColumn/billDateColumn/billNoSearchColumn/billDateSearchColumn 四 <choose> 片段, prd_bom 走 bom_code/create_time 其余走 bill_no/bill_date. 纯后端 (XML+seed), 无 DDL/前端代码变更. 双站 jar+docker 重建, home 实测 /report/recycle/bin 返回 200 销售出库 50 行. 前序版本 v1.1.69: 列表"商品名称"列软删明细泄漏修复)
 
@@ -33,6 +35,22 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.72 (2026-10-04) — 回收站「商品」列全空修复
+
+**用户反馈 (2026-10-04)**: 回收站「销售出库」Tab 的「商品」列全是 `-`（客户/金额/删除人都正常），但库里这些被删单据明明有商品。
+
+**根因**: v1.1.71 给 `RecycleBinMapper.xml` 的 `productColumn` 子查询写的是 `LEFT JOIN base_product p ... WHERE dtl.deleted = 0`。而业务删除时 **head 和 detail 会一起置 `deleted=1`**（`SalDeliveryService.delete` 等 11 类都是：先软删明细、再软删主表），所以被删单据的明细行按 `deleted=0` 一条都查不到 → `GROUP_CONCAT` 返回 NULL → 商品列全 `-`。线上 SQL 直查确认：被删 `sal_delivery` 的 `detail_alive=0`（无 deleted=0 的明细）但 `detail_hasname>0`（每条被删明细都自带去规范化的 `product_name`）。
+
+**修复**: `RecycleBinMapper.xml` `productColumn` 子查询改为直接聚合明细自带的去规范列，去掉 `base_product` JOIN 与 `deleted=0` 过滤：
+```sql
+(SELECT GROUP_CONCAT(DISTINCT dtl.product_name SEPARATOR ', ')
+ FROM ${detailTable} dtl
+ WHERE dtl.${detailFk} = h.id) AS productNames
+```
+对全部 10 类带明细的单据（采购/销售/生产领料/BOM/盘点/调拨）生效，不再依赖商品是否已被软删。纯后端 XML 一处，无 DDL / 无前端改动。
+
+**部署（双站）**: home 推 jar → `docker build --no-cache` 重建 `erp-system-backend:latest` → 用原 `erp_env_home.txt`（保留 SA_TOKEN 密钥，不用重登）重建容器；飞牛 `docker save` home 新镜像 → LAN 流式 `docker load` → tag 为 `erp-backend-failover:latest` → 用 `.erp_env_failover` 重建容器。两站线上 jar md5 均 `bbfd946f55c4f14206b84b3831f1836f`。home 实测被删销售出库现聚合出「带鱼袋9*75*0.07 / 透明胶带 / 塑料袋…」；飞牛返回「金达印字胶带」。
+
 ### v1.1.67 (2026-09-29) — App 扫码出库明细落库缺失商品编码/名称修复
 
 **用户反馈**: App 端「扫码出库」生成的出库单 `CKP202609290006`, 在 PC 端打印送货单时「商品编码」「商品名称」栏空白, 只有「型号」有值 (截图: 型号 9*75*0.07, 数量 53800, 单价 0.061, 金额 3281.8, 编码/名称空)。

@@ -2,6 +2,27 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.72 (2026-10-04) — 回收站「商品」列全空修复
+
+**用户反馈 (2026-10-04)**: 回收站「销售出库」Tab 的「商品」列全是 `-`（客户/金额/删除人都正常），但库里这些被删单据明明带商品。
+
+**根因**: v1.1.71 给 `RecycleBinMapper.xml` 的 `productColumn` 子查询写的是 `LEFT JOIN base_product p ... WHERE dtl.deleted = 0`。而业务删除时 **head 与 detail 会一起置 `deleted=1`**（`SalDeliveryService.delete` 等 11 类都如此：先软删明细再软删主表），故被删单据的明细行按 `deleted=0` 一条都查不到 → `GROUP_CONCAT` 返回 NULL → 商品列全 `-`。线上 SQL 直查确认：被删 `sal_delivery` 的 `detail_alive=0`（无 `deleted=0` 的明细）但 `detail_hasname>0`（每条被删明细都自带去规范化的 `product_name`）。
+
+**修复**: `RecycleBinMapper.xml` `productColumn` 子查询改为直接聚合明细自带的去规范列，去掉 `base_product` JOIN 与 `deleted=0` 过滤：
+```sql
+(SELECT GROUP_CONCAT(DISTINCT dtl.product_name SEPARATOR ', ')
+ FROM ${detailTable} dtl
+ WHERE dtl.${detailFk} = h.id) AS productNames
+```
+对全部 10 类带明细的单据（采购订单/入库/退货、销售订单/出库/退货、生产领料、BOM、库存盘点、库存调拨）生效，不再依赖商品是否已被软删。纯后端 XML 一处，无 DDL / 无前端改动，沿用 v1.1.70 的 `RecycleType` 白名单 `${detailTable}/${detailFk}` 传参。
+
+**部署（双站）**:
+- home (192.168.0.150): 推新 jar → 备份旧 jar → `docker build --no-cache` 重建 `erp-system-backend:latest` → 用原 `erp_env_home.txt`（保留 `SA_TOKEN_JWT_SECRET_KEY`，登录会话不失效）重建 `erp-backend` 容器 → healthy。
+- 飞牛 (192.168.0.32): `docker save` home 新镜像 → LAN 流式 `docker load` → tag 为 `erp-backend-failover:latest` → 用 `.erp_env_failover` 重建 `erp-backend-failover` 容器 → healthy。
+- 两站线上 jar md5 均 `bbfd946f55c4f14206b84b3831f1836f`。home 实测被删销售出库现聚合出「带鱼袋9*75*0.07 / 透明胶带 / 塑料袋25*32*0.16…」；飞牛返回「金达印字胶带」。
+
+**教训**: 写「被删单据聚合」类查询时，`deleted=0` 过滤只适用于"看有效数据"的列表；回收站本身就是看**已删**数据，明细聚合不能沿用 `deleted=0`，应直接用明细自带的去规范列 + 不过滤 `deleted`。
+
 ### v1.1.71 (2026-10-04) — 回收站列表补充「商品 / 金额 / 删除人」列
 
 **用户反馈 (2026-10-04)**: 回收站里的单据要把 商品、金额、删除人 等相应信息也显示出来 (原来只有 单号/类别/日期/状态/删除时间/操作)。
