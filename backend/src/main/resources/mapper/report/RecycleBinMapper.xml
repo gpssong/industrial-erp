@@ -33,11 +33,43 @@
         </choose>
     </sql>
 
+    <!-- 单号列: prd_bom 用 bom_code (无 bill_no), 其余用 bill_no. -->
+    <sql id="billNoColumn">
+        <choose>
+            <when test="headTable == 'prd_bom'">h.bom_code AS billNo</when>
+            <otherwise>h.bill_no AS billNo</otherwise>
+        </choose>
+    </sql>
+
+    <!-- 单据日期列: prd_bom 无 bill_date, 退用 create_time, 其余用 bill_date. -->
+    <sql id="billDateColumn">
+        <choose>
+            <when test="headTable == 'prd_bom'">h.create_time AS billDate</when>
+            <otherwise>h.bill_date AS billDate</otherwise>
+        </choose>
+    </sql>
+
+    <!-- 单号搜索列 (keyword LIKE 用): prd_bom 用 bom_code. -->
+    <sql id="billNoSearchColumn">
+        <choose>
+            <when test="headTable == 'prd_bom'">h.bom_code</when>
+            <otherwise>h.bill_no</otherwise>
+        </choose>
+    </sql>
+
+    <!-- 单据日期搜索列 (startDate/endDate 用): prd_bom 用 create_time. -->
+    <sql id="billDateSearchColumn">
+        <choose>
+            <when test="headTable == 'prd_bom'">h.create_time</when>
+            <otherwise>h.bill_date</otherwise>
+        </choose>
+    </sql>
+
     <select id="listDeleted" resultType="java.util.Map">
         SELECT
             h.id AS id,
-            h.bill_no AS billNo,
-            h.bill_date AS billDate,
+            <include refid="billNoColumn"/>,
+            <include refid="billDateColumn"/>,
             <include refid="statusColumn"/>,
             h.update_time AS updateTime,
             <include refid="categoryColumn"/> AS category
@@ -49,7 +81,7 @@
         </choose>
         WHERE h.deleted = 1
         <if test="keyword != null and keyword != ''">
-            AND ( h.bill_no LIKE CONCAT('%', #{keyword}, '%')
+            AND ( <include refid="billNoSearchColumn"/> LIKE CONCAT('%', #{keyword}, '%')
             <choose>
                 <when test="headTable == 'pur_order' or headTable == 'pur_receipt'
                            or headTable == 'pur_return'">
@@ -75,10 +107,10 @@
             )
         </if>
         <if test="startDate != null and startDate != ''">
-            AND h.bill_date &gt;= #{startDate}
+            AND <include refid="billDateSearchColumn"/> &gt;= #{startDate}
         </if>
         <if test="endDate != null and endDate != ''">
-            AND h.bill_date &lt;= #{endDate}
+            AND <include refid="billDateSearchColumn"/> &lt;= #{endDate}
         </if>
         ORDER BY h.update_time DESC, h.id DESC
     </select>

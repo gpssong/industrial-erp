@@ -2,6 +2,19 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.70 (2026-10-04) — 回收站「销售出库被删单不出现」双 bug 修复
+
+**用户反馈 (2026-10-04)**: 被删除的销售出库单没有出现在回收站对应列表中 (销售出库 Tab 空)。库里其实有 50 条 `deleted=1` 的 `sal_delivery`。
+
+**根因 (两个独立 bug 叠加, 都导致回收站整页空)**:
+1. **`report:view` 授权缺口** — 回收站门禁点是 `report:view` (sys_menu id=951), 但历史上只授给了 `SUPER_ADMIN`/`PURCHASE_MGR` 两角色。`sql/45` (v1.1.68) 只给 6 角色授权了「回收站」M 型菜单节点 (perms='', 仅侧边栏可见), 却没补 `report:view` 本身 → `WAREHOUSE_MGR`/`FINANCE`/`SALES_MGR`/`PRODUCTION_MGR` 看得到菜单、一进就 403。前端 `Recycle.vue` 的 catch 把 403 静默吞掉 (只 `console.warn`) → 全 Tab 显示「暂无」。
+2. **`prd_bom` schema 不匹配** — `RecycleBinMapper.listDeleted` 硬编码 `h.bill_no`/`h.bill_date`, 但 `prd_bom` 表无这两列 (用 `bom_code`, 无日期列)。`listAll` 一次跑全部 11 类, `prd_bom` 那条 SQL 抛 `Unknown column 'h.bill_no'` → 整个端点 500 → 连销售出库在内的所有 Tab 都拿不到数据 (即使修了 403 也仍 500)。
+
+**修复**:
+1. 新 seed `sql/46_v169_recycle_report_view_grant.sql`: 把 `report:view` (menu 951) 幂等补授给全部 6 内置角色 × 3 client_type (PC/APP/BOTH)。客户端路由 guard 与后端 API 403 同源 (都读 sys_role_menu 派生的 perm 集), 一处补齐双端生效。双站 (home + 飞牛) 各跑一次。
+2. `RecycleBinMapper.xml` 加 `billNoColumn`/`billDateColumn`/`billNoSearchColumn`/`billDateSearchColumn` 四个 `<choose>` 片段: `prd_bom` 走 `bom_code`/`create_time`, 其余走 `bill_no`/`bill_date`。`listDeleted` 的 SELECT/keyword/日期过滤全部改 `<include>` 引片段。
+   纯后端 (XML + seed SQL), 无 DDL 结构变更、无前端代码变更。双站 jar + docker 重建。home 实测 `/report/recycle/bin` 返回 200, 销售出库 50 行 (客户/日期/状态正确)。
+
 ### v1.1.69 (2026-10-04) — 列表"商品名称"列软删明细泄漏修复
 
 **用户反馈 (2026-10-04)**: 出库单 `CKP202610040007` 编辑器里只有 1 行商品 (tm10053 透明胶带), 但列表"商品名称"列却显示 `透明胶带, 透明...`(像多商品被逗号拼在一起)。
