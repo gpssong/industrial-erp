@@ -25,6 +25,8 @@
                      :label="t.label + (rowMap[t.key] && rowMap[t.key].length ? ' (' + rowMap[t.key].length + ')' : '')" />
       </el-tabs>
 
+      <el-alert v-if="loadError" type="error" :closable="false" show-icon style="margin:8px 0 0"
+                title="回收站加载失败: 当前账号缺少「报表查看 (report:view)」权限或服务异常。请联系管理员授予该权限, 或稍后重试。" />
       <el-table :data="rows" size="small" v-loading="loading">
         <el-table-column prop="billNo" label="单号" width="180" />
         <el-table-column prop="category" :label="catLabel" min-width="160" />
@@ -77,6 +79,7 @@ const TYPES = [
 const activeTab = ref('pur_order')
 const rowMap = ref({})       // { typeKey: [ {id,billNo,category,billDate,billStatus,updateTime} ] }
 const loading = ref(false)
+const loadError = ref(false) // 加载失败 (403 无权限 / 500 服务异常) 时, 显示提示而非静默空列表
 
 const query = reactive({
   keyword: '',
@@ -102,6 +105,7 @@ function statusLabel(s) {
 
 async function loadData() {
   loading.value = true
+  loadError.value = false
   try {
     const [s, e] = query.dateRange || []
     const r = await reportApi.recycleBin({
@@ -111,7 +115,8 @@ async function loadData() {
     })
     rowMap.value = r.data || {}
   } catch (err) {
-    // 拦截器已弹后端 msg; 这里仅诊断
+    // 拦截器已弹后端 msg; 这里再落个页面级提示, 避免 403/500 时整页静默空列表误导用户以为「没删过」
+    loadError.value = true
     console.warn('[RecycleBin] 加载失败:', err)
   } finally {
     loading.value = false
