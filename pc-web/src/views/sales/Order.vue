@@ -249,7 +249,7 @@
       </el-form>
       <template #footer>
         <el-button @click="generateDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="onConfirmGenerate" :loading="submitting">保存为草稿</el-button>
+        <el-button type="primary" @click="onConfirmGenerate" :loading="submitting">保存为草稿 (需审核后生效)</el-button>
       </template>
     </el-dialog>
 
@@ -630,7 +630,7 @@ async function onConfirmGenerate() {
     const srcLabel = sourceOrders.value.length > 1
       ? `${sourceOrders.value.length} 张订单合并`
       : `源订单 ${sourceOrder.value ? sourceOrder.value.billNo : (deliveryForm.orderNo || '')}`
-    ElMessage.success(`已生成出库单草稿, ${srcLabel}`)
+    ElMessage.success(`已生成出库单草稿 (${srcLabel})。请手动审核: 审核后才会扣库存、生成应收、计算成本与毛利`)
     generateDialogVisible.value = false
     loadData()
   } catch (e) {

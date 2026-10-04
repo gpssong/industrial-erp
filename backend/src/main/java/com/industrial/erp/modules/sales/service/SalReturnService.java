@@ -136,6 +136,7 @@ public class SalReturnService {
      * 审核退货单 -> 库存入库 (SAL_RETURN ledger) + 冲减应收 (反向 AR)
      */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售退货", businessType="CHECK", saveParam=true)
     public void check(Long id) {
         permService.requirePerm("sales:return:check");
         SalReturn r = returnMapper.selectById(id);
@@ -171,6 +172,7 @@ public class SalReturnService {
     /** v1.1.18+: 反审核 (CHECKED→DRAFT).
      *  同步回退: 库存出库 (销售退货是入库, 反审核要出库冲掉) + 删除负数 AR. */
     @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="销售退货", businessType="UNCHECK", saveParam=true)
     public void uncheck(Long id) {
         permService.requirePerm("sales:return:uncheck");
         SalReturn r = returnMapper.selectById(id);
