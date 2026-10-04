@@ -2,6 +2,21 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.71 (2026-10-04) — 回收站列表补充「商品 / 金额 / 删除人」列
+
+**用户反馈 (2026-10-04)**: 回收站里的单据要把 商品、金额、删除人 等相应信息也显示出来 (原来只有 单号/类别/日期/状态/删除时间/操作)。
+
+**改动**:
+1. **`RecycleBinMapper.xml` (listDeleted)** 新增 3 列:
+   - `productNames` — 聚合明细表 `product_name`。无明细的 `prd_order` 直接取 head.product_name; 其余 10 类 `GROUP_CONCAT(DISTINCT p.product_name) LEFT JOIN base_product`。
+   - `totalAmount` — 仅 6 类业务单据 (pur_order/receipt/return, sal_order/delivery/return) 有 `total_amount` 列, 用 `<choose>` 输出; 生产/BOM/盘点/调拨 5 类无金额列 → `NULL AS totalAmount`。
+   - `deletedBy` — `update_by` JOIN `sys_user.username` (库里无专门 `deleted_by` 列, 业务删除只对 DRAFT 开放, 删除动作由 update_by 记录最后写入者, 故用 update_by 近似)。
+   全部走原生 SQL, 沿用 v1.1.70 的 `RecycleType` 白名单 `${headTable}/${detailTable}/${detailFk}` 传参。
+2. **踩坑**: 第一版 `productColumn` 子查询里写 `GROUP_CONCAT(p.product_name ORDER BY dtl.line_no ...)`, 但 `inv_check_detail` / `inv_transfer_detail` 两张明细表**没有 `line_no` 列** → 端点 500 (`Unknown column 'dtl.line_no'`)。改成 `GROUP_CONCAT(DISTINCT p.product_name SEPARATOR ', ')` (不依赖 line_no) 后通过。教训: 跨 11 类 detail 表写聚合子查询前先 `information_schema` 核对每张表的列名差异。
+3. **`Recycle.vue`** 表格在状态列之后插 3 列: 商品 (min-width 200, show-overflow-tooltip)、金额(元) (右对齐, null → `-`)、删除人 (null → `-`)。
+
+纯后端 XML + 前端表格, 无 DDL / 无接口签名变更 (`hasDetail` 参数 v1.1.70 已就位)。双站 jar + pc-web dist + docker 重建。home 实测: 销售出库 49 行, `CKP202610040002` 现返回 `totalAmount=4725, deletedBy=gpssong`; 生产单 `PD202609260002` 返回 `productNames=带鱼袋8*75`。飞牛实测 `pur_receipt RKP202609210003` 返回 `deletedBy=秦运桂`。
+
 ### v1.1.70 (2026-10-04) — 回收站「销售出库被删单不出现」双 bug 修复
 
 **用户反馈 (2026-10-04)**: 被删除的销售出库单没有出现在回收站对应列表中 (销售出库 Tab 空)。库里其实有 50 条 `deleted=1` 的 `sal_delivery`。
