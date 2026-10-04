@@ -1,6 +1,8 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.72 (2026-10-04 — 回收站「商品」列全空修复. 用户反馈: 回收站销售出库 Tab 商品列全是 `-`, 但客户/金额/删除人都正常. 根因: v1.1.71 加的 productNames 子查询 `LEFT JOIN base_product ... WHERE dtl.deleted=0`, 而业务删除时 head+detail 一起置 deleted=1 (SalDeliveryService.delete 等 11 类都这样) → 被删单据的明细行按 deleted=0 一条查不到 → 商品列返回 NULL. 库里每条被删 detail 都自带去规范 product_name, 线上 SQL 实测 detail_alive=0 但 detail_hasname>0. 修复: RecycleBinMapper.xml productColumn 子查询改为直接 GROUP_CONCAT(DISTINCT dtl.product_name), 去掉 base_product JOIN + deleted=0 过滤; 对全部 10 类带明细单据生效, 不再依赖商品是否还软删. 纯后端 XML 一处, 无 DDL/前端. 双站部署: home 推 jar→docker build --no-cache 重建 erp-system-backend:latest→保留原 erp_env_home.txt(SA_TOKEN 密钥)重建容器; 飞牛 docker save home 新镜像→LAN 流式 docker load→tag erp-backend-failover:latest→用 .erp_env_failover 重建. 两站线上 jar md5 bbfd946f... 已确认, sal_delivery 被删单商品名现正常聚合 (home 带鱼袋/透明胶带, 飞牛 金达印字胶带). 前序版本 v1.1.71: 回收站列表补充 商品/金额/删除人 三列)
+**当前版本**: v1.1.73 (2026-10-04 — 角色管理「分配权限」回收站权限无法勾选修复 (grantable). 用户反馈: 角色管理→分配权限→PC端菜单权限, 报表中心下「回收站」复选框灰色不可勾 (同级「报表查看」可勾). 根因: v1.1.68 sql/45 把回收站 seed 成 M 型菜单节点 perms=''(空) — 权限树机制把「空 perms 的 M 节点」判为不可授权目录: 前端 Role.vue markDisabled 只有 B/M+F(带 perms) 才 enabled → 回收站 disabled; 后端 SysRoleService.isGrantableMenu 空 perms 的 M 返回 false → 每次保存角色时 seed 写入的回收站授权行被静默删掉. 决策: 回收站改独立权限码 report:recycle. 改动: ① 新 seed sql/47_v172_recycle_perm.sql (M 节点 perms ''→'report:recycle' + 6 内置角色授权, information_schema 探测 client_type 列, 幂等); ② 后端 ReportController 3 回收站端点 + RecycleBinService requirePerm 由 report:view 改 report:recycle; ③ 前端 router report/recycle meta.perm 由 report:view 改 report:recycle. 权限树/侧边栏判定逻辑本身已支持「M+perms非空」, 无需改 markDisabled/isGrantableMenu. 纯后端 jar + 前端 dist + 迁移, 无 DDL. 双站部署 (home+飞牛 各跑 sql/47 + 重打 jar + 重打 dist + docker 重建, 保留各自 SA_TOKEN 密钥). 前序版本 v1.1.72: 回收站「商品」列全空修复)
+
+**前序版本**: v1.1.72 (2026-10-04 — 回收站「商品」列全空修复. 用户反馈: 回收站销售出库 Tab 商品列全是 `-`, 但客户/金额/删除人都正常. 根因: v1.1.71 加的 productNames 子查询 `LEFT JOIN base_product ... WHERE dtl.deleted=0`, 而业务删除时 head+detail 一起置 deleted=1 (SalDeliveryService.delete 等 11 类都这样) → 被删单据的明细行按 deleted=0 一条查不到 → 商品列返回 NULL. 库里每条被删 detail 都自带去规范 product_name, 线上 SQL 实测 detail_alive=0 但 detail_hasname>0. 修复: RecycleBinMapper.xml productColumn 子查询改为直接 GROUP_CONCAT(DISTINCT dtl.product_name), 去掉 base_product JOIN + deleted=0 过滤; 对全部 10 类带明细单据生效, 不再依赖商品是否还软删. 纯后端 XML 一处, 无 DDL/前端. 双站部署: home 推 jar→docker build --no-cache 重建 erp-system-backend:latest→保留原 erp_env_home.txt(SA_TOKEN 密钥)重建容器; 飞牛 docker save home 新镜像→LAN 流式 docker load→tag erp-backend-failover:latest→用 .erp_env_failover 重建. 两站线上 jar md5 bbfd946f... 已确认, sal_delivery 被删单商品名现正常聚合 (home 带鱼袋/透明胶带, 飞牛 金达印字胶带). 前序版本 v1.1.71: 回收站列表补充 商品/金额/删除人 三列)
 
 **前序版本**: v1.1.71 (2026-10-04 — 回收站列表补充「商品/金额/删除人」列. 用户反馈: 回收站单据要显示 商品、金额、删除人. 改动: RecycleBinMapper.xml listDeleted 加 3 列 — productNames (聚合明细 product_name, GROUP_CONCAT DISTINCT; prd_order 取 head.product_name), totalAmount (仅 6 业务单据有 total_amount, 生产/BOM/盘点/调拨 NULL), deletedBy (update_by JOIN sys_user.username, 无专门 deleted_by 列故用 update_by 近似). Recycle.vue 表格插 商品/金额/删除人 三列. 踩坑: 首版 GROUP_CONCAT ORDER BY dtl.line_no 因 inv_check_detail/inv_transfer_detail 无 line_no 列 → 500, 改 DISTINCT 不排序. 纯 XML+Vue, 无 DDL/签名变更, 双站 jar+dist+docker. home 实测销售出库 49 行 CKP202610040002 totalAmount=4725 deletedBy=gpssong; 飞牛 pur_receipt 返回 deletedBy=秦运桂. 前序版本 v1.1.70: 回收站被删销售出库单不出现双 bug 修复)
 
@@ -35,6 +37,27 @@
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
 ## changelog (倒序)
+### v1.1.73 (2026-10-04) — 角色管理「分配权限」回收站权限无法勾选修复 (grantable)
+
+**用户反馈 (2026-10-04)**: 角色管理 → 分配权限 → PC端菜单权限，报表中心下的「回收站」复选框**灰色不可勾**，而同级的「报表查看」可勾。回收站权限无法自由选择。
+
+**根因**: v1.1.68 (`sql/45`) 把回收站 seed 成 `M` 型菜单节点 `perms=''`（空），只当「侧边栏可见」载体，后端门禁复用 `report:view`。但权限树机制把「空 perms 的 M 节点」判为**不可授权目录**：
+- 前端 `Role.vue` `markDisabled`：只有 `B`（按钮）或 `M`/`F` 且 `perms` 非空才 enabled → 回收站 `disabled=true`，灰框不可勾。
+- 后端 `SysRoleService.isGrantableMenu`：空 perms 的 M 返回 false → **每次保存该角色时，seed 写入的回收站 `sys_role_menu` 授权行被静默删掉**，导致回收站授权既不能单独开、也留不住。
+- `report:view`（menu id=951，`F` 型「报表查看」）才是真正的可授权载体，但它和「回收站」是两个独立 checkbox，语义冗余。
+
+**决策（用户拍板）**: 给回收站独立权限码 `report:recycle`，让回收站本身成为可授权叶子；后端 3 个回收站端点门禁由 `report:view` 改到 `report:recycle`。双站部署。
+
+**修复**:
+1. 新 seed `sql/47_v172_recycle_perm.sql`：`UPDATE sys_menu SET perms='report:recycle' WHERE path='/report/recycle' AND perms=''`（M 节点变可授权），并给 6 内置角色补 `report:recycle` 授权（`information_schema` 探测 `sys_role_menu.client_type` 列，老库 2 列退化；`INSERT IGNORE` 幂等）。
+2. 后端 `ReportController` 3 回收站端点（`/recycle/bin`、`/recycle/restore`、`/recycle/purge`）`@SaCheckPermission("report:view")` → `report:recycle`；`RecycleBinService.restore`/`physicalDelete` 的 `requirePerm` 同步改。其余 4 个报表端点（`report:view`）不动。
+3. 前端 `router/index.js` `report/recycle` 的 `meta.perm` 由 `report:view` 改 `report:recycle`。
+4. 权限树 `markDisabled` 与 `isGrantableMenu` 判定逻辑本身已支持「M + perms 非空 → 可授权」，M 节点赋 perm 后自动放行，**无需改判定代码**。
+
+**部署（双站）**: home（192.168.0.150）+ 飞牛（192.168.0.32）各：① MySQL 跑 `sql/47_v172_recycle_perm.sql`（`--default-character-set=utf8mb4`）② `mvn package` + 双站 `docker build --no-cache` + `rm -f` + `docker run --env-file`（保留各自 SA_TOKEN 密钥，不强制重登）③ `npm run build` + 双站 bind-mount 新 dist + `docker restart erp-pc-web[-failover]`。非 admin 角色重登刷 perm。纯后端 jar + 前端 dist + 迁移，无 DDL。
+
+**验证**: 权限树展开报表中心 → 回收站复选框变黑框可勾；给某角色勾上回收站保存后重开弹窗仍勾选（`isGrantableMenu` 不再静默删除）；无 `report:recycle` 的账号 GET `/report/recycle/bin` → 403，admin（`isAdmin` 短路）→ 200。
+
 ### v1.1.72 (2026-10-04) — 回收站「商品」列全空修复
 
 **用户反馈 (2026-10-04)**: 回收站「销售出库」Tab 的「商品」列全是 `-`（客户/金额/删除人都正常），但库里这些被删单据明明有商品。
