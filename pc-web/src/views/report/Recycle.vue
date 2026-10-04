@@ -40,6 +40,15 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="productNames" label="商品" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.productNames || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="totalAmount" label="金额(元)" width="110" align="right">
+          <template #default="{ row }">{{ row.totalAmount == null ? '-' : Number(row.totalAmount).toLocaleString() }}</template>
+        </el-table-column>
+        <el-table-column prop="deletedBy" label="删除人" width="120">
+          <template #default="{ row }">{{ row.deletedBy || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="updateTime" label="删除时间" width="170">
           <template #default="{ row }">{{ row.updateTime || '-' }}</template>
         </el-table-column>

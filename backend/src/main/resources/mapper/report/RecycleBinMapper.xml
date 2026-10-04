@@ -65,6 +65,36 @@
         </choose>
     </sql>
 
+    <!-- 商品 (聚合明细 product_name). 注意: 不是所有 detail 表都有 line_no 列
+         (inv_check_detail / inv_transfer_detail 无), 故不 ORDER BY line_no,
+         直接 GROUP_CONCAT(DISTINCT) 避免依赖该列. 无 detail 的 prd_order 取 head.product_name. -->
+    <sql id="productColumn">
+        <choose>
+            <when test="headTable == 'prd_order'">
+                h.product_name AS productNames
+            </when>
+            <when test="hasDetail">
+                (SELECT GROUP_CONCAT(DISTINCT p.product_name SEPARATOR ', ')
+                 FROM ${detailTable} dtl
+                 LEFT JOIN base_product p ON p.id = dtl.product_id
+                 WHERE dtl.${detailFk} = h.id AND dtl.deleted = 0) AS productNames
+            </when>
+            <otherwise>NULL AS productNames</otherwise>
+        </choose>
+    </sql>
+
+    <!-- 金额: 仅 6 类业务单据有 total_amount; 生产/盘点/调拨/BOM 无金额列. -->
+    <sql id="amountColumn">
+        <choose>
+            <when test="headTable == 'pur_order' or headTable == 'pur_receipt'
+                       or headTable == 'pur_return' or headTable == 'sal_order'
+                       or headTable == 'sal_delivery' or headTable == 'sal_return'">
+                h.total_amount AS totalAmount
+            </when>
+            <otherwise>NULL AS totalAmount</otherwise>
+        </choose>
+    </sql>
+
     <select id="listDeleted" resultType="java.util.Map">
         SELECT
             h.id AS id,
@@ -72,8 +102,14 @@
             <include refid="billDateColumn"/>,
             <include refid="statusColumn"/>,
             h.update_time AS updateTime,
-            <include refid="categoryColumn"/> AS category
+            <include refid="categoryColumn"/> AS category,
+            <include refid="productColumn"/>,
+            <include refid="amountColumn"/>,
+            u.username AS deletedBy
         FROM ${headTable} h
+        <!-- v1.1.71: 删除人 = update_by 解析 (sys_user.username). 业务删除只对 DRAFT 开放,
+             update_by 是最后一次写入者 (删除动作), 无专门 deleted_by 列, 故用 update_by 近似. -->
+        LEFT JOIN sys_user u ON u.id = h.update_by AND u.deleted = 0
         <choose>
             <when test="headTable == 'inv_transfer'">
                 LEFT JOIN base_warehouse w ON w.id = h.out_warehouse_id AND w.deleted = 0
