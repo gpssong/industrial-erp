@@ -2,6 +2,14 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.69 (2026-10-04) — 列表"商品名称"列软删明细泄漏修复
+
+**用户反馈 (2026-10-04)**: 出库单 `CKP202610040007` 编辑器里只有 1 行商品 (tm10053 透明胶带), 但列表"商品名称"列却显示 `透明胶带, 透明...`(像多商品被逗号拼在一起)。
+
+**根因**: 该单 `sal_delivery_detail` 有 2 行同品 (tm10053): 1 行 `deleted=1`(软删) + 1 行 `deleted=0`(有效)。4 个列表 mapper (`SalDeliveryMapper`/`SalReturnMapper`/`PurReceiptMapper`/`PurReturnMapper`) 的 `first_product_name` 列用 `GROUP_CONCAT` 聚合**全部明细行且未过滤 `deleted=0`**, 把软删行也拼进商品名称 → 显示"透明胶带, 透明胶带"(截断为 `...`)。编辑器只读有效行, 故列表与编辑器不一致。
+
+**修复**: 给 4 个 mapper 的 `first_product_name`/`first_product_spec`/`first_product_model` 明细子查询 + `productName` 搜索 `EXISTS` 子查询统一加 `AND <detail>.deleted = 0`。改后同单商品名称列正确显示单一 `透明胶带`。纯后端 SQL 改动, 无前端/DDL。双站部署 (home + 飞牛 jar + docker 重建), home DB 实测 `CKP202610040007` 现在返回 `透明胶带`。
+
 ### v1.1.68-hotfix (2026-10-04) — 销售出库"成本 0 / 审核查无实据"根治 + 出库日志/草稿提示
 
 **用户反馈 (2026-10-04)**: 从"销售记录→历史销售"添加生成的销售出库单 `CKP202610030001`/`CKP202610040001`, 在报表里直接显示"已审核", 操作员列也"不对"; 且毛利分析长期"成本=0、毛利≈销售额"。

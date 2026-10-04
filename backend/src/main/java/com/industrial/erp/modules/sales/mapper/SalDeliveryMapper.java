@@ -20,12 +20,12 @@ public interface SalDeliveryMapper extends BaseMapper<SalDelivery> {
             "SELECT d.*, " +
             "(SELECT GROUP_CONCAT(p.product_name ORDER BY dtl.line_no SEPARATOR ', ') " +
             " FROM sal_delivery_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.delivery_id = d.id LIMIT 1) AS first_product_name, " +
+            " WHERE dtl.delivery_id = d.id AND dtl.deleted = 0 LIMIT 1) AS first_product_name, " +
             // v1.1.21+: 注入首行商品的规格和型号
             "(SELECT p.spec FROM sal_delivery_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.delivery_id = d.id ORDER BY dtl.line_no LIMIT 1) AS first_product_spec, " +
+            " WHERE dtl.delivery_id = d.id AND dtl.deleted = 0 ORDER BY dtl.line_no LIMIT 1) AS first_product_spec, " +
             "(SELECT p.model FROM sal_delivery_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.delivery_id = d.id ORDER BY dtl.line_no LIMIT 1) AS first_product_model, " +
+            " WHERE dtl.delivery_id = d.id AND dtl.deleted = 0 ORDER BY dtl.line_no LIMIT 1) AS first_product_model, " +
             "w.warehouse_name AS warehouseName " +
             "FROM sal_delivery d " +
             "LEFT JOIN base_warehouse w ON w.id = d.warehouse_id AND w.deleted = 0 " +
@@ -37,7 +37,7 @@ public interface SalDeliveryMapper extends BaseMapper<SalDelivery> {
             "  <if test=\"productName != null and productName != ''\">" +
             "    AND EXISTS (SELECT 1 FROM sal_delivery_detail dt " +
             "                LEFT JOIN base_product p ON p.id = dt.product_id " +
-            "                WHERE dt.delivery_id = d.id AND p.product_name LIKE CONCAT('%', #{productName}, '%'))" +
+            "                WHERE dt.delivery_id = d.id AND dt.deleted = 0 AND p.product_name LIKE CONCAT('%', #{productName}, '%'))" +
             "  </if>" +
             "</where>" +
             "ORDER BY d.id DESC" +
