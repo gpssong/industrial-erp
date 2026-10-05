@@ -1,5 +1,10 @@
 import request from '@/utils/request'
 
+// v1.1.75: AI 只读解读端点 (复用 report:view 权限, 超管 orRole 短路)
+export const aiApi = {
+  analyzePurReceipt: (id) => request.get(`/ai/analyze/pur-receipt/${id}`)
+}
+
 export const purOrderApi = {
   page: (params) => request.get('/purchase/order/page', { params }),
   detail: (id) => request.get(`/purchase/order/${id}`),
