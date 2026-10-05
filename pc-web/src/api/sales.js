@@ -7,7 +7,10 @@ export const aiApi = {
   analyzeSalOrder: (id) => request.get(`/ai/analyze/sal-order/${id}`),
   analyzePrdOrder: (id) => request.get(`/ai/analyze/prd-order/${id}`),
   // v1.1.75 任务2: agent 自由问答 (只读查询 + 写操作"提议", 提议需前端确认后执行)
-  agentChat: (question) => request.post('/ai/agent/chat', { question })
+  agentChat: (question) => request.post('/ai/agent/chat', { question }),
+  // v1.1.75 任务3: RAG 文档检索 + 补货预测
+  ragSearch: (keyword, limit) => request.get('/ai/rag/search', { params: { keyword, limit } }),
+  replenishSuggest: (keyword, limit) => request.get('/ai/replenish/suggest', { params: { keyword, limit } })
 }
 
 export const salOrderApi = {

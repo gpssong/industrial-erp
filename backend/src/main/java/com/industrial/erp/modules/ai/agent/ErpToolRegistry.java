@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.modules.ai.client.LlmClient;
+import com.industrial.erp.modules.ai.rag.RagService;
+import com.industrial.erp.modules.ai.replenish.ReplenishService;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
@@ -38,15 +40,21 @@ public class ErpToolRegistry {
     private final BaseCustomerMapper customerMapper;
     private final BaseProductMapper productMapper;
     private final SalDeliveryService salDeliveryService;
+    private final RagService ragService;
+    private final ReplenishService replenishService;
 
     public ErpToolRegistry(InvStockPageQueryMapper stockPageQueryMapper,
                            BaseCustomerMapper customerMapper,
                            BaseProductMapper productMapper,
-                           SalDeliveryService salDeliveryService) {
+                           SalDeliveryService salDeliveryService,
+                           RagService ragService,
+                           ReplenishService replenishService) {
         this.stockPageQueryMapper = stockPageQueryMapper;
         this.customerMapper = customerMapper;
         this.productMapper = productMapper;
         this.salDeliveryService = salDeliveryService;
+        this.ragService = ragService;
+        this.replenishService = replenishService;
     }
 
     /** 供 LLM 的 OpenAI tools 数组. */
@@ -67,6 +75,15 @@ public class ErpToolRegistry {
         arr.add(fn("getDeliveryBill",
                 "按单号查一张销售出库单 (状态/客户/金额/明细行)。billNo=出库单号 (必填)。",
                 map("billNo", "string", "销售出库单号", true)));
+        // v1.1.75 任务3: RAG 文档问答 + 补货预测
+        arr.add(fn("searchDocs",
+                "在 ERP 使用手册/部署文档/业务说明里检索关键词, 回答 这个功能怎么用/流程怎么走 类问题。keyword=问题或关键词 (必填), limit=最多片段数 (默认 5)。",
+                map("keyword", "string", "检索关键词或问题", true,
+                    "limit", "number", "最多返回片段数", false)));
+        arr.add(fn("replenishSuggest",
+                "补货预测: 基于近30天出库流水 + 当前库存 + 安全库存, 给出每个商品的日均消耗/预计可售天数/是否建议补货/建议补货量。keyword=商品名或编码过滤 (可选, 不传则给全部), limit=返回条数 (默认 10)。",
+                map("keyword", "string", "商品名或编码过滤, 可选", false,
+                    "limit", "number", "返回条数", false)));
         return arr;
     }
 
@@ -109,6 +126,23 @@ public class ErpToolRegistry {
                     SalDelivery d = firstByBillNo(billNo);
                     if (d == null) return "{\"error\":\"未找到出库单 " + billNo + "\"}";
                     return JSONLite.obj(salDeliveryService.detail(d.getId()));
+                }
+                case "searchDocs": {
+                    String kw = args.getStr("keyword", "");
+                    int limit = args.getInt("limit", 5);
+                    if (!ragService.enabled()) return "{\"error\":\"RAG 未启用 (未配置 ERP_RAG_CORPUS_DIR 或语料为空), 只能查 ERP 实时数据\"}";
+                    List<RagService.Chunk> hits = ragService.search(kw, Math.min(limit, 10));
+                    JSONObject out = new JSONObject();
+                    out.set("hits", hits);
+                    out.set("count", hits.size());
+                    return out.toString();
+                }
+                case "replenishSuggest": {
+                    String kw = args.getStr("keyword", "");
+                    int limit = args.getInt("limit", 10);
+                    List<ReplenishService.Suggestion> recs =
+                            replenishService.suggest(kw == null || kw.trim().isEmpty() ? null : kw, Math.min(limit, 30));
+                    return JSONLite.list(recs);
                 }
                 default:
                     return "{\"error\":\"未知工具: " + call.name + "\"}";
