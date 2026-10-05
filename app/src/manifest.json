@@ -2,8 +2,8 @@
     "name" : "鹏程erp",
     "appid" : "__UNI__76E08BC",
     "description" : "企业级鹏程ERP移动端",
-    "versionName" : "1.1.76",
-    "versionCode" : 1176,
+    "versionName" : "1.1.78",
+    "versionCode" : 1178,
     "transformPx" : false,
     "app-plus" : {
         "usingComponents" : true,
@@ -31,13 +31,15 @@
                     "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
                     "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
                     "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
-                    "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>"
+                    "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
+                    "<uses-permission android:name=\"android.permission.RECORD_AUDIO\"/>"
                 ],
                 "abiFilters" : [ "armeabi-v7a", "arm64-v8a" ]
             },
             "ios" : {
                 "privacyDescription" : {
-                    "NSCameraUsageDescription" : "扫码出入库需要使用相机"
+                    "NSCameraUsageDescription" : "扫码出入库需要使用相机",
+                    "NSMicrophoneUsageDescription" : "语音输入AI助手需要使用麦克风"
                 },
                 "dSYMs" : false
             }
