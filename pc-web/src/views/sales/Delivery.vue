@@ -71,6 +71,7 @@
               </template>
             </el-dropdown>
             <el-button link type="primary" @click="onView(row)">详情</el-button>
+            <el-button link type="primary" @click="onAiAnalyze(row)">🤖 AI 解读</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -223,6 +224,19 @@
         <el-button type="primary" @click="onSave" :loading="submitting">保存为草稿</el-button>
       </template>
     </el-dialog>
+    <!-- v1.1.75 AI 解读弹窗 -->
+    <el-dialog v-model="aiDialogVisible" title="🤖 AI 单据解读" width="720px" destroy-on-close>
+      <div class="ai-meta" v-if="aiBillNo || aiModel">
+        <span v-if="aiBillNo">单号: <b>{{ aiBillNo }}</b></span>
+        <span v-if="aiModel">模型: {{ aiModel }}</span>
+      </div>
+      <div v-loading="aiLoading" class="ai-body">
+        <pre class="ai-content">{{ aiContent || (aiLoading ? '正在分析中，请稍候…' : '') }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="aiDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
     <!-- 飞鹅云打印预览弹窗 -->
     <el-dialog v-model="feiePreviewVisible" title="飞鹅云打印预览" width="560px" destroy-on-close>
       <div v-loading="feiePreviewLoading" style="min-height:200px;">
@@ -239,7 +253,7 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { salDeliveryApi } from '@/api/sales'
+import { salDeliveryApi, aiApi } from '@/api/sales'
 import { useUserStore } from '@/store/user'
 import { customerApi, warehouseApi, productApi, unitApi } from '@/api/base'
 import { stockApi } from '@/api/inventory'
@@ -323,6 +337,12 @@ const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 const dialogVisible = ref(false)
 const submitting = ref(false)
+// v1.1.75 AI 解读弹窗
+const aiDialogVisible = ref(false)
+const aiLoading = ref(false)
+const aiContent = ref('')
+const aiModel = ref('')
+const aiBillNo = ref('')
 const formRef = ref()
 const customers = ref([])
 const warehouses = ref([])
@@ -834,6 +854,25 @@ async function onView(row) {
   dialogVisible.value = true
 }
 
+// v1.1.75 AI 解读: 调只读端点, 把模型分析结果渲染到弹窗 (markdown 用 pre 简显示, 避免引依赖)
+async function onAiAnalyze(row) {
+  aiBillNo.value = row.billNo || ''
+  aiModel.value = ''
+  aiContent.value = ''
+  aiDialogVisible.value = true
+  aiLoading.value = true
+  try {
+    const r = await aiApi.analyzeSalDelivery(row.id)
+    const d = (r && r.data) || {}
+    aiModel.value = d.model || ''
+    aiContent.value = d.content || '(模型未返回内容)'
+  } catch (e) {
+    aiContent.value = '解读失败: ' + ((e && (e.msg || e.message)) || '未知错误')
+  } finally {
+    aiLoading.value = false
+  }
+}
+
 function onScan() {
   ElMessage.info('请配置扫码枪或App扫码 (H5/微信小程序可用 getCameraProfile)')
 }
@@ -860,4 +899,12 @@ onMounted(async () => {
 .pager { margin-top: 12px; text-align: right; }
 .summary { padding: 8px 16px; background: #f8f8f8; border-radius: 4px;
   p { margin: 4px 0; font-size: 13px; } .total { font-size: 16px; color: #c0392b; } }
+/* v1.1.75 AI 解读弹窗 */
+.ai-meta { padding: 8px 12px; background: #f5f7fa; border-radius: 4px; font-size: 13px;
+  color: #606266; margin-bottom: 10px; display: flex; gap: 16px; }
+.ai-meta b { color: #303133; }
+.ai-body { min-height: 120px; max-height: 520px; overflow: auto; }
+.ai-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 14px;
+  line-height: 1.7; color: #303133; background: #fafafa; padding: 12px 14px; border-radius: 4px;
+  font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; }
 </style>
