@@ -220,6 +220,30 @@ export const api = {
     ].filter(Boolean).join('&')
     return request({ url: '/ai/replenish/suggest' + (qs ? '?' + qs : '') })
   },
+  // v1.1.78: AI 语音输入 (原生 App 端录音上传后端 ASR). 走 uni.uploadFile (multipart).
+  // H5 端走 Web Speech API 端侧识别, 不调本方法. filePath = uni.getRecorderManager 产出的 tempPath.
+  // 未配 ERP_AI_ASR_KEY 时后端返回非 200 (code != 200), reject 给前端 toast.
+  aiAsr: (filePath) => {
+    const base = getBase()
+    return new Promise((resolve, reject) => {
+      uni.uploadFile({
+        url: base + '/ai/asr',
+        filePath,
+        name: 'file',
+        header: { 'X-Client-Type': 'APP' },
+        success: (res) => {
+          try {
+            const d = JSON.parse(res.data)
+            if (d.code === 200) resolve(d.data)
+            else reject(Object.assign(d, { code: d.code }))
+          } catch (e) {
+            reject({ code: 0, msg: '语音识别响应解析失败' })
+          }
+        },
+        fail: (err) => reject({ code: 0, msg: '语音上传失败, 请检查网络' })
+      })
+    })
+  },
   // 用户管理
   userPage: (params) => request({ url: '/system/user/page', data: params }),
   userDetail: (id) => request({ url: '/system/user/' + id }),

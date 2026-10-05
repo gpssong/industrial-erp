@@ -21,7 +21,14 @@
         <view v-if="busy" class="msg assistant"><view class="bubble"><text class="btext">AI 正在分析…</text></view></view>
       </scroll-view>
       <view class="inputrow">
-        <input v-model="q" class="qinput" placeholder="如: 透明胶带现在库存多少 / 哪些该补货了" @confirm="send" />
+        <input v-model="q" class="qinput" placeholder="如: 透明胶带现在库存多少 / 或按住 🎤 说话"
+               @confirm="send" @focus="stopSpeech" />
+        <button v-if="speechOk" class="micbtn" :class="{rec: recording}"
+                :disabled="busy"
+                @touchstart="startSpeech" @touchend="stopSpeech"
+                @touchcancel="stopSpeech" @touchmove.stop
+                @mousedown="startSpeech" @mouseup="stopSpeech"
+                @mouseleave.stop="stopSpeech">🎤</button>
         <button class="sendbtn" :disabled="busy" @click="send">发送</button>
       </view>
     </view>
@@ -67,6 +74,103 @@ const chatScroll = ref(0)
 const reKey = ref('')
 const reList = ref([])
 const reLoading = ref(false)
+// v1.1.78: 语音输入
+const recording = ref(false)   // 是否正在录音/识别
+const speechOk = ref(false)    // 当前环境是否支持 (H5 Web Speech 或原生 uni.getRecorderManager)
+// 不挂 ref, 用 let 引用对象 (SpeechRecognition / RecorderManager)
+let recog = null
+let recogFinal = ''
+let rm = null
+
+function detectSpeech() {
+  // H5 (浏览器) 端侧优先: Web Speech API, 零后端, 零延迟, 边说边出字
+  const SR = (typeof window !== 'undefined') && (window.webkitSpeechRecognition || window.SpeechRecognition)
+  if (SR) { speechOk.value = true; return }
+  // 原生 App 端: 录完上传后端 ASR (DashScope paraformer)
+  if (typeof uni !== 'undefined' && uni.getRecorderManager) { speechOk.value = true }
+}
+
+function startSpeech() {
+  if (recording.value || busy.value) return
+  const SR = (typeof window !== 'undefined') && (window.webkitSpeechRecognition || window.SpeechRecognition)
+  if (SR) startWebSpeech()
+  else startNativeRecord()
+}
+
+function startWebSpeech() {
+  const SR = window.webkitSpeechRecognition || window.SpeechRecognition
+  recog = new SR()
+  recog.lang = 'zh-CN'
+  recog.interimResults = true
+  recog.continuous = false
+  recogFinal = ''
+  recog.onresult = (e) => {
+    let interim = ''
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript
+      if (e.results[i].isFinal) recogFinal += t; else interim += t
+    }
+    q.value = recogFinal + interim
+  }
+  recog.onerror = () => {
+    recording.value = false
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: '语音识别失败, 请重试', icon: 'none' })
+    }
+  }
+  recog.onend = () => { recording.value = false; recog = null }
+  try {
+    recog.start()
+    recording.value = true
+  } catch (e) {
+    recording.value = false
+    recog = null
+  }
+}
+
+function startNativeRecord() {
+  if (!rm) rm = uni.getRecorderManager()
+  // 幂等清旧回调 (防止连按)
+  rm.onStart(() => { recording.value = true })
+  rm.onStop((res) => { recording.value = false; uploadAsr(res.tempPath) })
+  rm.onError((err) => {
+    recording.value = false
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: '录音失败: ' + (err.errMsg || '请检查麦克风权限'), icon: 'none' })
+    }
+  })
+  // m4a=mp4, paraformer 也支持. sampleRate=16000 适配短音频模型.
+  rm.start({
+    format: 'mp4',
+    sampleRate: 16000,
+    numberOfChannels: 1,
+    frameSize: 64,
+    duration: 60000   // 上限 60s, 超过自动停
+  })
+}
+
+async function uploadAsr(filePath) {
+  try {
+    const r = await api.aiAsr(filePath)
+    const text = (r && r.text) || ''
+    if (text) {
+      q.value = text
+    } else if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: '未识别到内容, 请重说', icon: 'none' })
+    }
+  } catch (e) {
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: (e && e.msg) || '语音上传失败', icon: 'none' })
+    }
+  }
+}
+
+function stopSpeech() {
+  if (!recording.value) return
+  if (recog) { try { recog.stop() } catch (e) {} ; recog = null }
+  if (rm)   { try { rm.stop() }   catch (e) {} }   // onStop 回调里会 uploadAsr
+  recording.value = false
+}
 
 if (!messages.value.length) {
   messages.value.push({
@@ -115,6 +219,7 @@ function scrollBottom() {
 
 onMounted(() => {
   applyTabBar()
+  detectSpeech()
   loadReplenish()
 })
 </script>
@@ -134,9 +239,21 @@ onMounted(() => {
 .propose-item { margin-bottom: 6px; }
 .psum { font-size: 12px; font-weight: 500; display: block; }
 .pnote { font-size: 11px; color: #e6a23c; }
-.inputrow { display: flex; gap: 6px; margin-top: 10px; }
+.inputrow { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
 .qinput { flex: 1; border: 1px solid #dcdfe6; border-radius: 6px; padding: 6px 8px; font-size: 13px; }
 .sendbtn { flex: 0 0 auto; background: var(--primary); color: #fff; border-radius: 6px; font-size: 13px; padding: 0 14px; line-height: 30px; margin: 0; }
 .sendbtn[disabled] { opacity: .6; }
+.micbtn {
+  flex: 0 0 auto;
+  width: 36px; height: 30px;
+  background: #fff; color: #303133;
+  border: 1px solid #dcdfe6; border-radius: 6px;
+  font-size: 16px; line-height: 28px; padding: 0;
+  margin: 0;
+  -webkit-user-select: none; user-select: none;
+  transition: background .15s, color .15s;
+}
+.micbtn[disabled] { opacity: .5; }
+.micbtn.rec { background: #f56c6c; color: #fff; border-color: #f56c6c; }
 .replenish-bar { display: flex; gap: 6px; margin-bottom: 8px; }
 </style>

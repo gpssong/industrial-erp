@@ -108,6 +108,12 @@ services:
       ERP_AI_PROVIDER1_BASE_URL: ${ERP_AI_PROVIDER1_BASE_URL:-https://api.minimaxi.com/v1}
       ERP_AI_PROVIDER1_TIMEOUT_MS: ${ERP_AI_PROVIDER1_TIMEOUT_MS:-60000}
       ERP_AI_PROVIDER1_STRIP_THINKING: ${ERP_AI_PROVIDER1_STRIP_THINKING:-true}
+      # v1.1.78 ASR (App 端语音输入后端兜底, 可选). 未配 ERP_AI_ASR_KEY 时 /ai/asr 快速失败.
+      # DashScope 录音文件识别 (paraformer-v2), 与 LLM 不同协议, key 可复用通义.
+      ERP_AI_ASR_KEY: ${ERP_AI_ASR_KEY:-}
+      ERP_AI_ASR_MODEL: ${ERP_AI_ASR_MODEL:-paraformer-v2}
+      ERP_AI_ASR_BASE_URL: ${ERP_AI_ASR_BASE_URL:-https://dashscope.aliyuncs.com/api/v1/services/audio/asr}
+      ERP_AI_ASR_TIMEOUT_MS: ${ERP_AI_ASR_TIMEOUT_MS:-30000}
       TZ: Asia/Shanghai
     # 关键: 暴露 8080 给前端 (本机或局域网浏览器) 跨域调用
     ports:

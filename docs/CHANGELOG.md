@@ -2,6 +2,18 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.78 (2026-10-05) — App 端 AI 助手语音输入 (端侧优先 + 后端 ASR 兜底)
+
+**用户目标 (2026-10-05)**: 用户在仓库/产线现场, 手脏/戴手套打字不便, 希望 App 端 AI 助手支持"按住说话"→ 自动识别文字 → 填入输入框 → 发送。决策: STT 引擎 = 端侧优先 (浏览器 Web Speech API, 零 key / 零延迟) + 原生 App 兜底走后端 DashScope paraformer ASR; 交互 = 独立录音按钮 (按住说话, 松手回填 q, 用户可改后再点发送, 不自动 send)。
+
+**改动**:
+- **后端**: 新 `AsrService` (`modules/ai/asr/AsrService.java`) Hutool `HttpRequest` 调 DashScope 短音频同步识别 (`paraformer-v2`), body `{input: {file_data: <base64>}, parameters: {sample_rate: 16000}}`, 响应 `output.text`. 未配 `ERP_AI_ASR_KEY` 时 `enabled()=false` + BizException 快速失败 (与 LLM 未配置语义一致, 不影响其他功能). `AiProperties` 加 4 字段 `asr-key/asr-model/asr-base-url/asr-timeout-ms`. `AiAgentController` 加 `POST /ai/asr` (multipart `file`, 复用 `report:ai` 权限 + `admin` orRole; 上限 10MB; 返回 `{text, asrProvider: "dashscope:paraformer-v2"}`). `application.yml` 加 asr 段; `docker-compose.yml` + `docker-compose.backend.yml` + 飞诺 `docker-compose.failover.yml` 各加 4 env; `.env.example` 加 ASR 注释示例。
+- **App**: `pages/report/ai.vue` 输入行加 🎤 按钮. `detectSpeech()` 优先探测 `window.webkitSpeechRecognition|SpeechRecognition` (Chrome/Edge H5 → 端侧流式边说边出字, 零后端/零延迟); 无则降级 `uni.getRecorderManager` 录 m4a (`sampleRate=16000 / numberOfChannels=1 / frameSize=64 / duration=60s`), onStop 拿 `tempPath` 走 `uni.uploadFile` 上传 `POST /ai/asr`. 识别文本回填 `q` (不自动 send). `api/index.js` 加 `aiAsr(filePath)` (uni.uploadFile 封装, `X-Client-Type=APP`). `manifest.json` versionName 1.1.78 / versionCode 1178, android 加 `<uses-permission android:name="android.permission.RECORD_AUDIO"/>`, iOS 加 `NSMicrophoneUsageDescription: 语音输入AI助手需要使用麦克风`.
+
+**部署 (双站 home + 飞诺 failover)**: 后端 jar md5 `b34b20b893dab4e14dd71e39082cd164`. home base64 pipe 流式上传 → `docker build` (用 `backend/Dockerfile`, COPY `industrial-erp-*.jar`) → `docker rm -f` + `docker run --env-file` 重建. 飞诺 scp + `docker build -f backend.Dockerfile` (COPY `erp-backend.jar`) → `docker compose --profile failover up -d --force-recreate` (修了一个隐藏坑: 原 compose 只硬编码 DB/Redis/CORS env 不引 env_file → 新加 `env_file: /vol2/erp-system/erp-env.list` + 4 ASR env 在 environment: 块内做兜底). 双站启动日志 `[LLM] initialized 2 providers: [agnes,minimax]` + `/ai/asr` 端点 401 = 注册成功 + SaCheckPermission 生效. 旧 jar 双站备份 → `.bak.v177` (md5 home=23fe16c4.../飞诺=c1a1b1c3...).
+
+**零后端破坏**: ASR 未配 key 走 BizException 不影响 LLM chat 或其他功能; 老 v1.1.77 env 配置不变。
+
 ### v1.1.77 (2026-10-05) — AI LLM Provider Failover + Thinking Strip (Agnes 配额踩坑自动切换备用)
 
 **用户目标 (2026-10-05)**: 解决 Agnes `agnes-2.5-flash` (free tier) 每日配额极小 (凌晨实测单次 ping 就打空触发 `HTTP 429 rate_limit_exceeded`, 限速到 1 req/min, 重置点 UTC 04:50:42 rolling 24h) 导致白天 AI 助手大概率不可用的根问题, 引入备用 provider 自动切换。

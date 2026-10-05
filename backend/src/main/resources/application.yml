@@ -98,7 +98,7 @@ sa-token:
     path: /
 
 erp:
-  version: ${ERP_VERSION:1.1.77}
+  version: ${ERP_VERSION:1.1.78}
   # v1.1.75 AI 集成第一步 — 通用 LLM 网关 (OpenAI 兼容协议, 支持通义/DeepSeek/OpenAI/OpenRouter).
   # key 为空时 AI 端点快速失败并提示"未配置", 不影响其他功能. 密钥只走 env, 不进 git.
   #
@@ -133,6 +133,13 @@ erp:
     provider1-base-url: ${ERP_AI_PROVIDER1_BASE_URL:https://api.minimaxi.com/v1}
     provider1-timeout-ms: ${ERP_AI_PROVIDER1_TIMEOUT_MS:60000}
     provider1-strip-thinking: ${ERP_AI_PROVIDER1_STRIP_THINKING:true}
+    # ---- v1.1.78 ASR (App 端语音输入后端兜底, 可选) ----
+    # DashScope 录音文件识别 (paraformer-v2), OpenAI 不兼容协议, 不复用 LLM 链.
+    # 未配 ERP_AI_ASR_KEY 时 /ai/asr 快速失败, 不影响 LLM chat 或其他功能.
+    asr-key: ${ERP_AI_ASR_KEY:}
+    asr-model: ${ERP_AI_ASR_MODEL:paraformer-v2}
+    asr-base-url: ${ERP_AI_ASR_BASE_URL:https://dashscope.aliyuncs.com/api/v1/services/audio/asr}
+    asr-timeout-ms: ${ERP_AI_ASR_TIMEOUT_MS:30000}
     # v1.1.75 任务3: RAG 语料目录 (读 *.md/*.txt 切块检索). 空则 RAG 不启用, 不影响其它 AI.
     # 容器部署时指向 jar 能读到的语料目录 (见部署说明).
     rag:
