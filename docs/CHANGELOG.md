@@ -18,6 +18,30 @@
 
 **纯迁移 + 后端 jar + PC dist + App APK, 无破坏性 DDL。** 双站部署: home + 飞牛 各跑 `sql/48` + 重打后端 jar + 重打 PC dist + 出新 App APK; 保留各自 `SA_TOKEN_JWT_SECRET_KEY`。非 admin 角色授权后重登刷 perm。
 
+### v1.1.76 hotfix-1 (2026-10-05) — 飞鹅打印日志 `system:feie:log` 403 修复
+
+**用户反馈 (2026-10-05)**: v1.1.76 部署后, PC 端 系统设置 → 飞鹅打印日志 tab 打开立刻 `GET /api/feie/log/page?... 403 Forbidden`。
+
+**根因**: `sql/21_add_sys_feie_print_log.sql` 建 `system:feie:log` 节点 (C 型, parent=飞鹅打印机) 时只授给老角色码 `'admin'/'manager'`。后续角色码迁移到 6 新内置角色 (`SUPER_ADMIN`/`PURCHASE_MGR`/`SALES_MGR`/`WAREHOUSE_MGR`/`PRODUCTION_MGR`/`FINANCE`) 时漏了这条授权 → `@SaCheckPermission("system:feie:log")` 对所有新角色拦截 403。`sql/48` (v1.1.76) 不动 feie, 与 AI 助手无关, 是历史遗漏授权。
+
+**修复**:
+1. 新 seed `sql/49_v176hotfix_feie_log_grant.sql` (双站各跑, utf8mb4, 幂等): 给 6 新内置角色 × **PC** 各补一行 `system:feie:log` 授权 (`INSERT IGNORE` + `NOT EXISTS` 双重防重)。沿用 `sql/41` 决策: 飞鹅菜单保持 **PC-only** (管理员功能, App 不该见), 因此只授 PC, **不授 APP**。`information_schema` 探测 `sys_role_menu.client_type` 列, 老库 2 列退化 (与 sql/48 同款 IF/PREPARE/EXECUTE 模式)。
+2. **无后端/前端代码改动**, 无需重建容器/jar/dist。用户在 PC 端重登或等 token 自然刷新即生效 (Sa-token 缓存)。
+3. 部署经验: gpssong 在 home NAS `/tmp` `/var/services/homes` / `/volume3` 都无写权限, 必须 sudo; sudo PATH 为空要写 `/usr/local/bin/docker` 全路径; mysql 客户端走 `sudo docker exec -i erp-mysql mysql -uroot -perp_root_pwd --default-character-set=utf8mb4 industrial_erp` 单行管道 (无文件落地)。飞牛 `/usr/bin/docker` 同款但需 `<<<` 给 sudo 喂密码。
+
+**验证 (双站 SELECT)**:
+```sql
+SELECT r.role_code, IFNULL(rm.client_type,'NULL') AS ct FROM sys_role r
+JOIN sys_role_menu rm ON rm.role_id=r.id JOIN sys_menu m ON m.id=rm.menu_id
+WHERE m.perms='system:feie:log' AND m.deleted=0 AND r.deleted=0
+ORDER BY r.role_code;
+-- 预期: 6 行 SUPER_ADMIN/PURCHASE_MGR/SALES_MGR/WAREHOUSE_MGR/PRODUCTION_MGR/FINANCE 全 PC
+```
+
+**教训**: 给新角色码迁移时, 必须**回头扫所有 C/F 型 sys_menu 节点**是否都补授到新角色码——光给目录节点 (M 型) 授权没用, 因为端点门禁认的是按钮/C 节点的 perms。检查清单脚本 (`grep 'INSERT.*sys_role_menu' sql/*.sql` 比对 `role_code IN (...)`) 应作为迁移 SSoT 的一部分。
+
+**回滚**: `DELETE FROM sys_role_menu WHERE menu_id=(SELECT id FROM sys_menu WHERE perms='system:feie:log') AND role_id IN (SELECT id FROM sys_role WHERE role_code IN (...6 new codes...))`。
+
 ### v1.1.75 (2026-10-05) — AI 集成第一步: LLM 网关骨架 + 销售出库单只读解读
 
 **用户目标 (2026-10-05)**: 让 ERP 集成 AI。讨论后决定按"后端 REST 网关 + 只读 demo"先做最小闭环——读类、有审计、密钥可配、密钥不进 git；写类 agent 与 RAG/预测留后续。
