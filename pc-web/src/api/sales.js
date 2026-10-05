@@ -1,10 +1,13 @@
 import request from '@/utils/request'
 
-// v1.1.75: AI 集成第一步 — 只读解读端点 (复用 report:view 权限, 超管 orRole 短路)
+// v1.1.75: AI 集成 — 只读解读端点 + agent (复用 report:view 权限, 超管 orRole 短路)
 export const aiApi = {
   analyzeSalDelivery: (id) => request.get(`/ai/analyze/sal-delivery/${id}`),
   analyzePurReceipt: (id) => request.get(`/ai/analyze/pur-receipt/${id}`),
-  analyzeSalOrder: (id) => request.get(`/ai/analyze/sal-order/${id}`)
+  analyzeSalOrder: (id) => request.get(`/ai/analyze/sal-order/${id}`),
+  analyzePrdOrder: (id) => request.get(`/ai/analyze/prd-order/${id}`),
+  // v1.1.75 任务2: agent 自由问答 (只读查询 + 写操作"提议", 提议需前端确认后执行)
+  agentChat: (question) => request.post('/ai/agent/chat', { question })
 }
 
 export const salOrderApi = {
