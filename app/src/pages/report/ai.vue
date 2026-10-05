@@ -76,7 +76,13 @@ const reList = ref([])
 const reLoading = ref(false)
 // v1.1.78: 语音输入
 const recording = ref(false)   // 是否正在录音/识别
-const speechOk = ref(false)    // 当前环境是否支持 (H5 Web Speech 或原生 uni.getRecorderManager)
+// 默认 false, 探测后置 true (H5 有 Web Speech 或原生 App 有 RecorderManager)
+// 兜底: uni 运行时存在时也开 (旧版 uni-app 可能叫法不同)
+const speechOk = ref(
+  ((typeof window !== 'undefined') && (window.webkitSpeechRecognition || window.SpeechRecognition)) ||
+  (typeof uni !== 'undefined' && (uni.getRecorderManager || typeof uni.startRecord === 'function')) ||
+  false
+)
 // 不挂 ref, 用 let 引用对象 (SpeechRecognition / RecorderManager)
 let recog = null
 let recogFinal = ''
@@ -87,7 +93,9 @@ function detectSpeech() {
   const SR = (typeof window !== 'undefined') && (window.webkitSpeechRecognition || window.SpeechRecognition)
   if (SR) { speechOk.value = true; return }
   // 原生 App 端: 录完上传后端 ASR (DashScope paraformer)
-  if (typeof uni !== 'undefined' && uni.getRecorderManager) { speechOk.value = true }
+  if (typeof uni !== 'undefined' && (uni.getRecorderManager || typeof uni.startRecord === 'function')) {
+    speechOk.value = true
+  }
 }
 
 function startSpeech() {
