@@ -92,6 +92,20 @@ public class AiProperties {
     @Value("${erp.ai.provider1-strip-thinking:true}")
     private boolean provider1StripThinking;
 
+    // === v1.1.78 ASR (App 端语音输入后端兜底, 可选) ===
+    // DashScope 录音文件识别 (paraformer), OpenAI 不兼容协议, 不复用 LlmClient.
+    @Value("${erp.ai.asr-key:}")
+    private String asrKey;
+
+    @Value("${erp.ai.asr-model:paraformer-v2}")
+    private String asrModel;
+
+    @Value("${erp.ai.asr-base-url:https://dashscope.aliyuncs.com/api/v1/services/audio/asr}")
+    private String asrBaseUrl;
+
+    @Value("${erp.ai.asr-timeout-ms:30000}")
+    private int asrTimeoutMs;
+
     // ====== getters ======
     public String getLegacyApiKey() { return legacyApiKey; }
     public String getLegacyModel() { return legacyModel; }
@@ -115,4 +129,9 @@ public class AiProperties {
     public String getProvider1BaseUrl() { return provider1BaseUrl; }
     public int getProvider1TimeoutMs() { return provider1TimeoutMs; }
     public boolean isProvider1StripThinking() { return provider1StripThinking; }
+
+    public String getAsrKey() { return asrKey; }
+    public String getAsrModel() { return asrModel; }
+    public String getAsrBaseUrl() { return asrBaseUrl; }
+    public int getAsrTimeoutMs() { return asrTimeoutMs; }
 }
