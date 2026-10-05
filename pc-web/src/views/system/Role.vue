@@ -168,7 +168,9 @@ const APP_MENU_WHITELIST = [
     { name: '生产加工单 (新增)', perms: 'production:order:list', idApp: 'app-702-add' }
   ]},
   { name: '报表中心', children: [
-    { name: '经营简报 (KPI)', perms: 'report:view', idApp: 'app-951-report' }
+    { name: '经营简报 (KPI)', perms: 'report:view', idApp: 'app-951-report' },
+    // v1.1.76+: AI 助手 (对话 + 补货预测); perms=report:ai → 命中 sql/48 建的 sys_menu 行
+    { name: 'AI 助手', perms: 'report:ai', idApp: 'app-ai-assist' }
   ]}
 ]
 

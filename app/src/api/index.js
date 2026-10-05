@@ -210,6 +210,16 @@ export const api = {
   inventorySummary: () => request({ url: '/report/inventory/summary' }),
   // 库存预警 (v1.1.44+ 显示具体产品列表, 与 /report/dashboard.warningCount 共用同实时统计逻辑)
   warningList: () => request({ url: '/inventory/warning/list' }),
+  // v1.1.76+: AI 助手 (对话 + 补货预测). 后端门禁 report:ai (App 端授权), 无 ERP_AI_API_KEY 时快速失败.
+  aiAgentChat: (question) => request({ url: '/ai/agent/chat', method: 'POST', data: { question }, contentType: 'json' }),
+  // 补货预测: query 参数直接拼进 URL (H5 fetch 回退不序列化 GET data → 必须走 URL)
+  aiReplenishSuggest: (keyword, limit) => {
+    const qs = [
+      keyword ? 'keyword=' + encodeURIComponent(keyword) : null,
+      limit != null ? 'limit=' + limit : null
+    ].filter(Boolean).join('&')
+    return request({ url: '/ai/replenish/suggest' + (qs ? '?' + qs : '') })
+  },
   // 用户管理
   userPage: (params) => request({ url: '/system/user/page', data: params }),
   userDetail: (id) => request({ url: '/system/user/' + id }),

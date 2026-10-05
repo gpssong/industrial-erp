@@ -26,8 +26,8 @@ import java.util.List;
  * <p>统一链路: 某单据字段 + 明细 → 组装结构化 prompt → 调 {@link LlmClient} → 返回解读文本。
  * 全部只读 (复用各 {@code XxxService.detail} 查数据), 不做任何写操作。
  *
- * <p>权限: 端点级 {@code @SaCheckPermission("report:view")} + 此处 {@code requirePerm} 双保险
- * (与回收站同款), 复用报表查看权限, 不新增 perm 载体。
+ * <p>权限: 端点级 {@code @SaCheckPermission("report:ai")} + 此处 {@code requirePerm} 双保险
+ * (与回收站同款), 复用 AI 助手独立权限 report:ai (v1.1.76)。
  *
  * <p>审计: {@code @OperLog(module="AI 分析")} 记录调用 (谁/何时/入参), 走既有 AOP + 异步落库。
  *
@@ -62,7 +62,7 @@ public class AiService {
     @OperLog(module = "AI 分析", businessType = "QUERY", saveParam = true)
     public AiAnalysisVO analyzeSalDelivery(Long deliveryId) {
         if (!llmClient.enabled()) throw notConfigured();
-        permService.requirePerm("report:view");
+        permService.requirePerm("report:ai");
         SalDelivery d = salDeliveryService.detail(deliveryId);
         if (d == null) throw new BizException("销售出库单不存在: id=" + deliveryId);
         List<String> detailLines = lineItems("明细行 (共 N 条):", d.getDetails().size(),
@@ -81,7 +81,7 @@ public class AiService {
     @OperLog(module = "AI 分析", businessType = "QUERY", saveParam = true)
     public AiAnalysisVO analyzePurReceipt(Long receiptId) {
         if (!llmClient.enabled()) throw notConfigured();
-        permService.requirePerm("report:view");
+        permService.requirePerm("report:ai");
         PurReceipt r = purReceiptService.detail(receiptId);
         if (r == null) throw new BizException("采购入库单不存在: id=" + receiptId);
         List<String> detailLines = lineItems("明细行 (共 N 条):", r.getDetails().size(), line(), r.getDetails());
@@ -99,7 +99,7 @@ public class AiService {
     @OperLog(module = "AI 分析", businessType = "QUERY", saveParam = true)
     public AiAnalysisVO analyzeSalOrder(Long orderId) {
         if (!llmClient.enabled()) throw notConfigured();
-        permService.requirePerm("report:view");
+        permService.requirePerm("report:ai");
         SalOrder o = salOrderService.detail(orderId);
         if (o == null) throw new BizException("销售订单不存在: id=" + orderId);
         int cnt = o.getDetails() == null ? 0 : o.getDetails().size();
@@ -119,7 +119,7 @@ public class AiService {
     @OperLog(module = "AI 分析", businessType = "QUERY", saveParam = true)
     public AiAnalysisVO analyzePrdOrder(Long prdOrderId) {
         if (!llmClient.enabled()) throw notConfigured();
-        permService.requirePerm("report:view");
+        permService.requirePerm("report:ai");
         PrdOrder o = prdOrderService.detail(prdOrderId);
         if (o == null) throw new BizException("生产单不存在: id=" + prdOrderId);
         String hdr = header("单号", o.getBillNo(), "日期", o.getBillDate(), "状态", billStatus(o.getBillStatus()),

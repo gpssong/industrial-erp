@@ -123,7 +123,9 @@ const PATH_TO_APP = {
   '/production/order':     { path: '/pages/production/order-list', title: '生产加工单', icon: '🏭' },
   '/inventory/check':      { path: '/pages/count/index', title: '外勤盘点', icon: '📋' },
   '/report':               { path: '/pages/report/index', title: '经营简报', icon: '📊' },
-  '/_report_kpi':          { path: '/pages/report/index', title: '经营简报', icon: '📊' }
+  '/_report_kpi':          { path: '/pages/report/index', title: '经营简报', icon: '📊' },
+  // v1.1.76+: AI 助手 (perms=report:ai → 命中 sql/48 建的 sys_menu 行 path=/report/ai)
+  '/report/ai':            { path: '/pages/report/ai', title: 'AI 助手', icon: '🤖' }
 }
 
 // v1.1.12+: App 端业务快捷映射白名单 — 与 PC 端 Role.vue APP_MENU_WHITELIST 严格对齐.
@@ -140,6 +142,8 @@ const APP_MENU_TO_PAGE = [
   { perms: 'inventory:check:list',   path: '/inventory/check',      page: { path: '/pages/count/index', title: '外勤盘点', icon: '📋' } },
   { perms: 'production:order:list',  path: '/production/order',     page: { path: '/pages/production/order-list', title: '生产加工单', icon: '🏭' } },
   { perms: 'report:view',            path: '/_report_kpi',          page: { path: '/pages/report/index', title: '经营简报', icon: '📊' } },
+  // v1.1.76+: AI 助手 (perms=report:ai, sys_menu.path=/report/ai, 双匹配命中)
+  { perms: 'report:ai',             path: '/report/ai',            page: { path: '/pages/report/ai', title: 'AI 助手', icon: '🤖' } },
   // v1.1.14+: 销售出库单查询 (sys_menu id=502 path=/sales/delivery)
   { perms: 'sales:delivery:list',    path: '/sales/delivery',       page: { path: '/pages/sales/delivery-list', title: '销售出库单', icon: '📋' } },
   // v1.1.56+: 采购入库单查询 — sys_menu id=2090345792472715351 是 F 类型 perm 载体 (path=''),
@@ -173,7 +177,9 @@ const visibleMenus = computed(() => {
       // v1.1.14+: 销售出库单查询 (管理员 hardcoded 列表也加, 保持对称)
       { path: '/pages/sales/delivery-list', title: '销售出库单', icon: '📋' },
       // v1.1.15+: 采购入库单查询 (管理员 hardcoded 列表也加)
-      { path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' }
+      { path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' },
+      // v1.1.76+: AI 助手
+      PATH_TO_APP['/report/ai']
     ]
   }
   // 普通用户: 从 PC 端已分配的菜单中, 映射出 App 端可用功能
@@ -209,6 +215,15 @@ const visibleMenus = computed(() => {
     if (Array.isArray(perms) && perms.includes('purchase:receipt:query') && !seen.has('/pages/purchase/receipt-list')) {
       seen.add('/pages/purchase/receipt-list')
       result.push({ path: '/pages/purchase/receipt-list', title: '采购入库单', icon: '🧾' })
+    }
+  } catch (e) {}
+  // v1.1.76+: AI 助手 perm-only 兜底 (同 report:view 模式) — 即使 erp_menus 里 path 匹配不上,
+  // 只要 App 端 perm 含 report:ai 就补一个入口
+  try {
+    const perms = JSON.parse(localStorage.getItem('erp_permissions') || '[]')
+    if (Array.isArray(perms) && perms.includes('report:ai') && !seen.has('/pages/report/ai')) {
+      seen.add('/pages/report/ai')
+      result.push(PATH_TO_APP['/report/ai'])
     }
   } catch (e) {}
   return result
