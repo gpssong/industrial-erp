@@ -19,7 +19,7 @@ import java.util.List;
  * 返回 {@code proposedActions} 供前端确认。
  * <p>{@code GET /ai/rag/search?keyword=}: RAG 直接检索文档 (不经 LLM, 返回命中片段)。
  * <p>{@code GET /ai/replenish/suggest?keyword=&limit=}: 补货预测建议。
- * 权限: 全部复用 {@code report:view} (超管 orRole 短路)。
+ * 权限: 全部复用 AI 助手独立权限 {@code report:ai} (v1.1.76; 超管 orRole 短路)。
  */
 @Tag(name = "AI Agent")
 @RestController
@@ -37,7 +37,7 @@ public class AiAgentController {
     }
 
     /** 请求体: {"question": "查一下透明胶带现在库存多少"} */
-    @SaCheckPermission(value = {"report:view"}, orRole = "admin")
+    @SaCheckPermission(value = {"report:ai"}, orRole = "admin")
     @PostMapping("/agent/chat")
     public R<AgentResultVO> chat(@RequestBody JSONObject body) {
         String question = body == null ? "" : body.getStr("question", "");
@@ -46,7 +46,7 @@ public class AiAgentController {
     }
 
     /** RAG 文档检索 (topN 片段, 不经 LLM; 需要 LLM 解读时走 agent)。 */
-    @SaCheckPermission(value = {"report:view"}, orRole = "admin")
+    @SaCheckPermission(value = {"report:ai"}, orRole = "admin")
     @GetMapping("/rag/search")
     public R<JSONObject> ragSearch(@RequestParam String keyword,
                                    @RequestParam(defaultValue = "5") int limit) {
@@ -59,7 +59,7 @@ public class AiAgentController {
     }
 
     /** 补货预测建议 (基于近30天出库 + 当前库存 + 安全库存)。 */
-    @SaCheckPermission(value = {"report:view"}, orRole = "admin")
+    @SaCheckPermission(value = {"report:ai"}, orRole = "admin")
     @GetMapping("/replenish/suggest")
     public R<List<ReplenishService.Suggestion>> replenishSuggest(
             @RequestParam(required = false) String keyword,

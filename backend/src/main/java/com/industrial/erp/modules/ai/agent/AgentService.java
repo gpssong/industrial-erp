@@ -22,7 +22,7 @@ import java.util.List;
  * {@link #run} 解析出后放进返回的 {@code proposedActions}, <b>不执行</b>。
  * 前端拿到 proposedActions 弹确认框, 用户点确认后才走真实写端点 (前端直调, 走原有鉴权)。
  *
- * <p>权限: {@code report:view} (复用报表查看, 与 AI 解读同款); 写确认走各写端点自身权限。
+ * <p>权限: {@code report:ai} (AI 助手独立权限, v1.1.76, 与 AI 解读同款); 写确认走各写端点自身权限。
  * 审计: {@code @OperLog("AI Agent")}.
  */
 @Service
@@ -54,7 +54,7 @@ public class AgentService {
         if (!llmClient.enabled()) {
             throw new BizException("AI 功能未配置: 请设置环境变量 ERP_AI_API_KEY");
         }
-        permService.requirePerm("report:view");
+        permService.requirePerm("report:ai");
 
         List<JSONObject> messages = new ArrayList<>();
         messages.add(sys());

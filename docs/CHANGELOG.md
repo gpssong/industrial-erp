@@ -2,6 +2,22 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.76 (2026-10-05) — AI 助手进 PC + App 双权限树 + App 端 AI 助手页
+
+**用户反馈**: 角色管理「分配权限」里 PC端/App端菜单权限树都**没有「AI 助手」这一项**无法勾选。根因: v1.1.75 AI 助手页已上线 (`report/Ai.vue` 路由 `report/ai` 门禁 `report:view`) 但**从没建 `sys_menu` 行** → PC 权限树 (`menuApi.list()` 全量 `sys_menu` 按 parentId 挂树) 与 App 权限树 (`Role.vue` 硬编码 `APP_MENU_WHITELIST`) 都不含它。
+
+**决策 (用户拍板)**: ① 独立权限码 `report:ai` (同回收站 v1.1.72 `report:recycle` 模式), 使 AI 助手在 PC/App 两棵树都是可独立勾选/保存的叶子; ② 同时给 App 建 AI 助手页 (对话 + 补货, 复用 `/ai/agent/chat` + `/ai/replenish/suggest`)。
+
+**改动**:
+1. **新 seed `sql/48_v176_ai_perm.sql`** (双站各跑, utf8mb4, 幂等): `sys_menu` M 型节点「AI 助手」(parent=9, `path=/report/ai`, `component=report/Ai.vue`, `perms=report:ai`) `NOT EXISTS` 查重 + 6 内置角色 × **PC/APP 各一行**授权 (`information_schema` 探测 `sys_role_menu.client_type` 列, 老库 2 列退化)。M+非空 perms = 可授权叶子 (后端 `isGrantableMenu` / 前端 `markDisabled` 自动放行, 判定逻辑不用改)。
+2. **后端门禁 `report:view`→`report:ai`**: `AiController` 4 端点 + `AiAgentController` 3 端点 `@SaCheckPermission` + `AiService` 4 处 + `AgentService` 1 处 `requirePerm` (均保留 `orRole="admin"`)。
+3. **PC 前端**: `router/index.js` `report/ai` `meta.perm`→`report:ai`; `Role.vue` `APP_MENU_WHITELIST` 报表中心组加 `{name:'AI 助手', perms:'report:ai', idApp:'app-ai-assist'}` (App 树按 perms 反查 sql/48 建的 `sys_menu.id`)。
+4. **App 前端**: 新增 `pages/report/ai.vue` (对话流 + 补货预测; 写操作只展示提示「请在 PC 端确认」; 无 `ERP_AI_API_KEY` 时后端快速失败→toast); `api/index.js` +`aiAgentChat`(POST json)/`aiReplenishSuggest`(GET, query 拼进 URL — H5 `fetch` 回退不序列化 GET data); `pages.json` 注册; `dashboard/index.vue` `APP_MENU_TO_PAGE` + `PATH_TO_APP` + admin 硬编码列表 + 非 admin perm-only 兜底 加 🤖 AI 入口。
+
+**版本同步**: `profile/index.vue` `APP_VERSION` + `manifest.json` `versionName`→1.1.76 (build-app.sh [1.5] 三处一致校验通过)。
+
+**纯迁移 + 后端 jar + PC dist + App APK, 无破坏性 DDL。** 双站部署: home + 飞牛 各跑 `sql/48` + 重打后端 jar + 重打 PC dist + 出新 App APK; 保留各自 `SA_TOKEN_JWT_SECRET_KEY`。非 admin 角色授权后重登刷 perm。
+
 ### v1.1.75 (2026-10-05) — AI 集成第一步: LLM 网关骨架 + 销售出库单只读解读
 
 **用户目标 (2026-10-05)**: 让 ERP 集成 AI。讨论后决定按"后端 REST 网关 + 只读 demo"先做最小闭环——读类、有审计、密钥可配、密钥不进 git；写类 agent 与 RAG/预测留后续。
