@@ -106,6 +106,10 @@ erp:
     model: ${ERP_AI_MODEL:qwen-plus}
     base-url: ${ERP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
     timeout-ms: ${ERP_AI_TIMEOUT_MS:60000}
+    # v1.1.75 任务3: RAG 语料目录 (读 *.md/*.txt 切块检索). 空则 RAG 不启用, 不影响其它 AI.
+    # 容器部署时指向 jar 能读到的语料目录 (见部署说明).
+    rag:
+      corpus-dir: ${ERP_RAG_CORPUS_DIR:}
   upload:
     path: ${ERP_UPLOAD_PATH:/opt/industrial-erp/upload}
   cors:
