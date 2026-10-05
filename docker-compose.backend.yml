@@ -90,6 +90,24 @@ services:
       ERP_AI_MODEL: ${ERP_AI_MODEL:-qwen-plus}
       ERP_AI_BASE_URL: ${ERP_AI_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       ERP_AI_TIMEOUT_MS: ${ERP_AI_TIMEOUT_MS:-60000}
+      # v1.1.77 AI Failover (可选). providers 空则回退 legacy 单 provider 行为, 与 v1.1.75 兼容.
+      # 不配某 slot key 时该 provider 不参与 chain (被跳过). 推荐先配 agnes 再配 minimax 备用.
+      ERP_AI_PROVIDERS: ${ERP_AI_PROVIDERS:-}
+      ERP_AI_FAILOVER_COOLDOWN_MS: ${ERP_AI_FAILOVER_COOLDOWN_MS:-300000}
+      ERP_AI_FAILOVER_COOLDOWN_LONG_MS: ${ERP_AI_FAILOVER_COOLDOWN_LONG_MS:-1800000}
+      ERP_AI_STRIP_THINKING: ${ERP_AI_STRIP_THINKING:-true}
+      ERP_AI_PROVIDER0_NAME: ${ERP_AI_PROVIDER0_NAME:-agnes}
+      ERP_AI_PROVIDER0_KEY: ${ERP_AI_PROVIDER0_KEY:-}
+      ERP_AI_PROVIDER0_MODEL: ${ERP_AI_PROVIDER0_MODEL:-qwen-plus}
+      ERP_AI_PROVIDER0_BASE_URL: ${ERP_AI_PROVIDER0_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      ERP_AI_PROVIDER0_TIMEOUT_MS: ${ERP_AI_PROVIDER0_TIMEOUT_MS:-60000}
+      ERP_AI_PROVIDER0_STRIP_THINKING: ${ERP_AI_PROVIDER0_STRIP_THINKING:-false}
+      ERP_AI_PROVIDER1_NAME: ${ERP_AI_PROVIDER1_NAME:-minimax}
+      ERP_AI_PROVIDER1_KEY: ${ERP_AI_PROVIDER1_KEY:-}
+      ERP_AI_PROVIDER1_MODEL: ${ERP_AI_PROVIDER1_MODEL:-MiniMax-M3}
+      ERP_AI_PROVIDER1_BASE_URL: ${ERP_AI_PROVIDER1_BASE_URL:-https://api.minimaxi.com/v1}
+      ERP_AI_PROVIDER1_TIMEOUT_MS: ${ERP_AI_PROVIDER1_TIMEOUT_MS:-60000}
+      ERP_AI_PROVIDER1_STRIP_THINKING: ${ERP_AI_PROVIDER1_STRIP_THINKING:-true}
       TZ: Asia/Shanghai
     # 关键: 暴露 8080 给前端 (本机或局域网浏览器) 跨域调用
     ports:

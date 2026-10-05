@@ -2,6 +2,59 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.77 (2026-10-05) — AI LLM Provider Failover + Thinking Strip (Agnes 配额踩坑自动切换备用)
+
+**用户目标 (2026-10-05)**: 解决 Agnes `agnes-2.5-flash` (free tier) 每日配额极小 (凌晨实测单次 ping 就打空触发 `HTTP 429 rate_limit_exceeded`, 限速到 1 req/min, 重置点 UTC 04:50:42 rolling 24h) 导致白天 AI 助手大概率不可用的根问题, 引入备用 provider 自动切换。
+
+**根因**: `LlmClient` 之前是**单端点纯透传**, 无 fallback / 重试 / rate-limit 识别. 上游 429 + body verbatim 塞 `BizException` 抛前端. MiniMax M3 key 已存双站 env 但未接入。
+
+**改动 (零破坏, 向后兼容 v1.1.75)**:
+
+1. **新 `AiProperties.java`** (`config/AiProperties.java`, `@Value` 单字段风格与项目一致, 不引入 `@ConfigurationProperties`):
+   - 保留 v1.1.75 legacy 4 env (`ERP_AI_API_KEY/MODEL/BASE_URL/TIMEOUT_MS`).
+   - 新增 2 个 slot (provider0/provider1, 默认 `agnes` + `minimax`) + `providers` 逗号串指定启用顺序.
+   - `cooldown-ms` (5min 短冷却, 5xx/timeout) + `cooldown-long-ms` (30min 长冷却, 429 quota) + `strip-thinking` (全局) + 各 slot `strip-thinking` (per-provider 覆盖).
+
+2. **`LlmClient.java` 重写** (公开方法签名不变, 调用方零改动):
+   - `@PostConstruct` 读 `providers` 逗号串 → 按顺序取 slot, key 空的 slot 自动跳过, 未配 providers 时回退 legacy 单 provider (与 v1.1.75 行为一致).
+   - `chatInternal` 主循环: 遍历 chain → 跳过 cooldown 中的 → 试 HTTP → 触发 failover? 切下一个 / 抛.
+   - **触发 failover**: HTTP 5xx / 408 / Hutool `HttpException` (超时/网络) / 429 quota + 429 通用.
+   - **不触发**: 401/403/400/业务错误 (choices 空/JSON 坏) → 直接 `BizException`, 不切 (切了也错).
+   - **429 quota** 判定: body 含 `rate_limit_exceeded` / `quota` / `insufficient_quota` → 长冷却 30min; 其它 429 → 短冷却 5min.
+   - `ChatResult` 加 `usedProvider` 字段 (nullable, 老调用方不读不破坏) 透传前端/运维.
+   - `stripThoughts()` 在 LlmClient 出口剥 `<thinking>...</thinking>` 和 `<think>...</think>` (兼容 MiniMax 推理模型 + DeepSeek-R1), per-provider + 全局双开关.
+   - 新增 `chatWithResult()` 返回 ChatResult 给 AiService 填 VO 的 llmProvider.
+   - 启动日志 `[LLM] initialized N providers: [name1, name2]`; failover 时 `[LLM] provider X failed (status, isQuota), cooldown Ys, try next`; 全失效 `[LLM] all providers exhausted`.
+
+3. **AiAnalysisVO / AgentResultVO** 各加 `llmProvider` 字段 + getter/setter. **AiService.run()** / **AgentService.run()** 末尾 + **AiAgentController.chat()** 包装处填 `cr.usedProvider`.
+
+4. **配置文件**:
+   - `application.yml` L100-112 扩 legacy 块 + 加 `cooldown-ms/cooldown-long-ms/strip-thinking/providers/provider0-*/provider1-*` 块.
+   - `docker-compose.backend.yml` 追加 ERP_AI_* failover env 段.
+   - `docker-compose.yml` (主站, **之前缺 `ERP_AI_*` env**) 顺手补齐 (否则 home NAS 主站不会启用新配置).
+   - `.env.example` AI 段后加 failover 注释态示例 (含 dev/prod 两套).
+
+**部署 (双站 home + 飞牛)**:
+- 后端 jar md5 `23fe16c40c6aed9a1b52755dee5c661e` (本地 mvn -o -DskipTests -q package).
+- home NAS: base64 pipe 流式上传 jar.gz → 解码 + 重命名 industrial-erp-1.0.4.jar → docker build --no-cache → rm -f + run with `--env-file /volume3/.../erp-env.list` (含所有 legacy + 新 failover env). 保留 home `SA_TOKEN_JWT_SECRET_KEY=ecdd48955b16c58239b0b9326ac384f4b59babace53fda067424dd80dcba7c5f` + home CORS.
+- 飞牛: scp 传 `erp-backend.jar` → docker build -f backend.Dockerfile → rm -f + run with `--env-file /vol2/erp-system/erp-env.list` (含所有 legacy + 新 failover env). 保留飞牛 `SA_TOKEN_JWT_SECRET_KEY=a337f8758cc7a8464e8ddc515462a76e0333dc2723913e263ce18c16609a2b10` + 飞牛 CORS.
+- **飞牛 SPRING_DATASOURCE_HOST 修正**: 原写错为 `mysql`, 实际应为 `erp-mysql-failover` (memory `erp-failover-broken` 部署坑 — 修了一个隐性 bug).
+- **双站启动日志确认**: `[LLM] provider 'minimax' key 空, skipped` + `[LLM] legacy env ignored: providers=[agnes, minimax]` + `[LLM] initialized 1 providers: [agnes]` (因 MiniMax key 留空, 只跑 Agnes 主, 备用待启用).
+- **旧 jar 备份**: 双站均 `md5 47cdb6a3...` (v1.1.76) → `.bak.v176` 保留回滚.
+
+**回滚**: 双站旧 jar `.bak.v176` 已就位, 直接 `docker stop + rm + run` 用旧 jar 即可, v1.1.77 老 env 也兼容 (providers 空时回退 legacy 单 provider).
+
+**验证 (装机)**:
+- 双站 jar md5 = `23fe16c40c6aed9a1b52755dee5c661e` ✓
+- 双站 captcha HTTP 200 ✓, AI chat HTTP 401 (未登录) ✓
+- 双站启动日志 `[LLM] initialized 1 providers: [agnes]` ✓
+- 实测 failover: 当 Agnes 触发 429, 下一次 chat 自动切 MiniMax (用户 PC 端操作; admin 账号已停用无法本地 curl)
+
+**教训 (关键)**:
+- **provider 顺序敏感**: MiniMax 是**推理模型**会吐 `<think>` 必须 strip-thinking=true; Agnes/Qwen 不输出无害可 strip-thinking=false (走 per-provider 默认).
+- **failover 不该切换业务错误**: 401/403/400 切 provider 也错, 直接抛错暴露给运维修 key.
+- **未来若 Agnes 配额仍抠**: 切默认到 MiniMax M3 / DeepSeek / Qwen 月费 (¥几块), 不要依赖免费 tier.
+
 ### v1.1.76 (2026-10-05) — AI 助手进 PC + App 双权限树 + App 端 AI 助手页
 
 **用户反馈**: 角色管理「分配权限」里 PC端/App端菜单权限树都**没有「AI 助手」这一项**无法勾选。根因: v1.1.75 AI 助手页已上线 (`report/Ai.vue` 路由 `report/ai` 门禁 `report:view`) 但**从没建 `sys_menu` 行** → PC 权限树 (`menuApi.list()` 全量 `sys_menu` 按 parentId 挂树) 与 App 权限树 (`Role.vue` 硬编码 `APP_MENU_WHITELIST`) 都不含它。

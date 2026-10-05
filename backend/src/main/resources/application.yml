@@ -98,14 +98,41 @@ sa-token:
     path: /
 
 erp:
-  version: ${ERP_VERSION:1.1.66}
+  version: ${ERP_VERSION:1.1.77}
   # v1.1.75 AI 集成第一步 — 通用 LLM 网关 (OpenAI 兼容协议, 支持通义/DeepSeek/OpenAI/OpenRouter).
   # key 为空时 AI 端点快速失败并提示"未配置", 不影响其他功能. 密钥只走 env, 不进 git.
+  #
+  # v1.1.77 AI Failover — provider 链 + cooldown + thinking strip.
+  #   - 仅配 legacy 4 env (api-key/model/base-url/timeout-ms): 单 provider (default), 与 v1.1.75 行为一致.
+  #   - 配 providers 逗号串 + 各 slot env: 启用按顺序的 failover 链, key 空 slot 自动跳过.
+  #   - 触发 failover: 5xx / 408 / Hutool HttpException (超时/网络) / 429 quota + 429 通用.
+  #   - 不触发: 401/403/400/业务错误 (choices 空/JSON 坏), 直接抛 BizException.
+  #   - cooldown: 短 5min (5xx/timeout), 长 30min (429 quota). 冷却期间直接跳过该 provider.
   ai:
+    # ---- legacy 单 provider (向后兼容 v1.1.75) ----
     api-key: ${ERP_AI_API_KEY:}
     model: ${ERP_AI_MODEL:qwen-plus}
     base-url: ${ERP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
     timeout-ms: ${ERP_AI_TIMEOUT_MS:60000}
+    # ---- v1.1.77 failover ----
+    cooldown-ms: ${ERP_AI_FAILOVER_COOLDOWN_MS:300000}
+    cooldown-long-ms: ${ERP_AI_FAILOVER_COOLDOWN_LONG_MS:1800000}
+    strip-thinking: ${ERP_AI_STRIP_THINKING:true}
+    providers: ${ERP_AI_PROVIDERS:}
+    # provider slot 0 (主, 默认 agnes)
+    provider0-name: ${ERP_AI_PROVIDER0_NAME:agnes}
+    provider0-key: ${ERP_AI_PROVIDER0_KEY:${ERP_AI_API_KEY:}}
+    provider0-model: ${ERP_AI_PROVIDER0_MODEL:${ERP_AI_MODEL:qwen-plus}}
+    provider0-base-url: ${ERP_AI_PROVIDER0_BASE_URL:${ERP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
+    provider0-timeout-ms: ${ERP_AI_PROVIDER0_TIMEOUT_MS:${ERP_AI_TIMEOUT_MS:60000}}
+    provider0-strip-thinking: ${ERP_AI_PROVIDER0_STRIP_THINKING:false}
+    # provider slot 1 (备, 默认 minimax)
+    provider1-name: ${ERP_AI_PROVIDER1_NAME:minimax}
+    provider1-key: ${ERP_AI_PROVIDER1_KEY:}
+    provider1-model: ${ERP_AI_PROVIDER1_MODEL:MiniMax-M3}
+    provider1-base-url: ${ERP_AI_PROVIDER1_BASE_URL:https://api.minimaxi.com/v1}
+    provider1-timeout-ms: ${ERP_AI_PROVIDER1_TIMEOUT_MS:60000}
+    provider1-strip-thinking: ${ERP_AI_PROVIDER1_STRIP_THINKING:true}
     # v1.1.75 任务3: RAG 语料目录 (读 *.md/*.txt 切块检索). 空则 RAG 不启用, 不影响其它 AI.
     # 容器部署时指向 jar 能读到的语料目录 (见部署说明).
     rag:

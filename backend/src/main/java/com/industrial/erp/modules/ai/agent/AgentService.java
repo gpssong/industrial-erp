@@ -47,6 +47,8 @@ public class AgentService {
         public List<String> proposedActions = new ArrayList<>();
         public int stepsUsed;
         public String model;
+        /** v1.1.77 新增: 实际命中的 provider name. */
+        public String llmProvider;
     }
 
     @OperLog(module = "AI Agent", businessType = "QUERY", saveParam = true)
@@ -63,9 +65,11 @@ public class AgentService {
         JSONArray toolSchemas = tools.tools();
         Result result = new Result();
         result.model = llmClient.model();
+        LlmClient.ChatResult lastCr = null;
 
         for (int step = 0; step < MAX_STEPS; step++) {
             LlmClient.ChatResult cr = llmClient.chatWithTools(messages, toolSchemas, 2048, 0.2);
+            lastCr = cr;
 
             // 收集本轮可能产生的"写动作提议" (模型在 content 里按约定输出 PROPOSE: 行)
             collectProposals(cr.content, result.proposedActions);
@@ -74,6 +78,7 @@ public class AgentService {
                 // 模型给了最终答案 (content 里可能含 PROPOSE: 写动作, 已收集; 文本本身作为 answer)
                 result.answer = cleanAnswer(cr.content, result.proposedActions);
                 result.stepsUsed = step + 1;
+                result.llmProvider = cr.usedProvider;
                 return result;
             }
 
@@ -93,6 +98,7 @@ public class AgentService {
 
         // 达到步数上限仍未收敛: 直接把最后一轮文本当答案 (通常模型早收敛, 极少到这)
         result.answer = "(已达到最大分析轮数 " + MAX_STEPS + ", 停止继续调用工具)";
+        if (lastCr != null) result.llmProvider = lastCr.usedProvider;
         return result;
     }
 
