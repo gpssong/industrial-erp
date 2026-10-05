@@ -69,7 +69,7 @@ public class AiService {
                 "不要臆测数据里没有的内容。"));
         messages.add(role("user", buildPrompt(d)));
 
-        String content = llmClient.chat(messages, null, null);
+        String content = llmClient.chat(messages, 2048, 0.3);
         return new AiAnalysisVO("SAL_DELIVERY", d.getId(), llmClient.model(), content);
     }
 
