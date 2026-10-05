@@ -2,6 +2,37 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.75 (2026-10-05) — AI 集成第一步: LLM 网关骨架 + 销售出库单只读解读
+
+**用户目标 (2026-10-05)**: 让 ERP 集成 AI。讨论后决定按"后端 REST 网关 + 只读 demo"先做最小闭环——读类、有审计、密钥可配、密钥不进 git；写类 agent 与 RAG/预测留后续。
+
+**后端 (新 `modules/ai` 包, 4 文件)**:
+1. **`LlmClient`** — 通用 LLM 网关。Hutool(与 `FeiePrintClient` 同款, 零新依赖), **OpenAI 兼容 `chat/completions` 协议** → 通义 DashScope / DeepSeek / OpenAI / OpenRouter / Agnes 只改 `erp.ai.base-url` 即可切。密钥/模型/端点/超时全走 env(`erp.ai.*` → `ERP_AI_*`), 无 key 时快速失败提示"未配置", 不拖垮别的功能。
+2. **`AiService.analyzeSalDelivery(id)`** — 演示场景。复用 `SalDeliveryService.detail()` **只读**取数(单号/客户/仓库/状态/金额/明细行), 组装结构化 prompt → 调模型 → 返回解读。`@OperLog(module="AI 分析", businessType="QUERY")` 审计(异步落 `SysOperLog`) + `requirePerm("report:view")` 双保险(端点 `@SaCheckPermission` 同码)。`max_tokens=2048 / temperature=0.3` 防 MiniMax 推理模型截断/乱吐 thinking。
+3. **`AiController`** — `GET /ai/analyze/sal-delivery/{id}`, `@SaCheckPermission("report:view", orRole="admin")`。
+4. **`AiAnalysisVO`** — 结果(bizType/bizId/model/content)。
+
+**配置 (3 处)**: `application.yml` `erp.ai.api-key/model/base-url/timeout-ms` + `.env.example` + `docker-compose.backend.yml`(`ERP_AI_API_KEY` 等, 走 `.env`, key 本身不进 git)。
+
+**前端 (PC)**: `api/sales.js` +`aiApi.analyzeSalDelivery`；`Delivery.vue` 行操作列加「🤖 AI 解读」按钮 + 独立结果弹窗(单号 + 模型名 + 解读 pre-wrap)。
+
+**纯后端 jar + 前端 dist, 无 DDL。**
+
+**默认模型**: Agnes `agnes-2.5-flash` (`ERP_AI_BASE_URL=https://apihub.agnes-ai.com/v1`), 备用 MiniMax M3(key/model/base-url 以注释形式存于双站 env 文件, 切换去注释即可)。
+
+**部署 (home + 飞牛)**:
+- 新 jar md5 `820b886f077c1d9f4d5f78ef9db8717f`(AI 4 class 已入包确认; `mvn -o -DskipTests` 打包——`mvn test` 的 15 error/2 fail 均为历史 Mockito 构造注入坑, 非本次引入)。
+- 上传走 **base64 流式**(`scp` 的 SFTP 子协议被 DSM 禁)。home 入位 `backend/industrial-erp-1.0.4.jar` → `docker build --no-cache` `erp-system-backend:latest` + `docker run --env-file erp_env_home.txt`; 飞牛拷成 `erp-backend.jar` → `docker build -f backend.Dockerfile` tag `erp-backend-failover:latest` + `docker run --env-file .erp_env_failover`。两站保留 SA_TOKEN 密钥, 未强制重登, `Started ~32s` healthy。
+- AI env(含 key)入双站各自 env-file(备份 `.bak.20261005_pre_ai`); 模型初配 `agnes-3.0-flash` 后按用户更正改 `agnes-2.5-flash`, 重建容器生效。
+- PC dist: home bind-mount `/tmp/pc-web-new`、飞牛 `dist-new`, 先清旧防 chunk 并存, `docker restart erp-pc-web[-failover]`, 线上 `Delivery-Da7EKABE.js` 含「AI 解读」。
+- 未登录调 `/api/ai/...` 双站均返 **401**(路由 + sa-token 门禁就位)。
+
+**端到端实测 (home, 已登录 token)**: 调 `CKP202610040007`(id `2106609692861607938`, CHECKED) → `code=200, model=agnes-2.5-flash`, 解读准确核对 `1350 × 3.50 = 4725.00`、推断 13% 税率、说明库存扣减 1350 件 + 应收 4725.00 挂账客户「宏舟水产」。
+
+**踩坑**:
+- Agnes 与 MiniMax 均同时提供 OpenAI 兼容端点与 Anthropic 端点, 本方案走 OpenAI 兼容(`/v1/chat/completions`), 无需为 Anthropic 协议另写客户端。
+- MiniMax `M3` 为推理模型, 响应带 `thinking`/`reasoning_content`, 若不设 `max_tokens` 易截断; 正式用 M3 需考虑剥离 thinking 或改非推理模型。
+
 ### v1.1.74 (2026-10-04) — App 端 销售出库按客户查 / 采购入库按产品查 (模糊匹配)
 
 **用户反馈 (2026-10-04)**: App 端「销售出库单」搜索栏只有「单号」输入，希望可按**客户**查找；「采购入库单」希望可按**产品**查找。且两者都不需要输入完整名称（支持部分关键字模糊匹配）。
