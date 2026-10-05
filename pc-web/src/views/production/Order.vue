@@ -49,6 +49,7 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
+            <el-button link type="primary" @click="onAiAnalyze(row)">🤖 AI 解读</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -190,12 +191,26 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- v1.1.75 AI 解读弹窗 -->
+    <el-dialog v-model="aiDialogVisible" title="🤖 AI 单据解读" width="720px" destroy-on-close>
+      <div class="ai-meta" v-if="aiBillNo || aiModel">
+        <span v-if="aiBillNo">单号: <b>{{ aiBillNo }}</b></span>
+        <span v-if="aiModel">模型: {{ aiModel }}</span>
+      </div>
+      <div v-loading="aiLoading" class="ai-body">
+        <pre class="ai-content">{{ aiContent || (aiLoading ? '正在分析中，请稍候…' : '') }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="aiDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
-import { prdOrderApi, bomApi } from '@/api/production'
+import { prdOrderApi, bomApi, aiApi } from '@/api/production'
 import { warehouseApi, productApi } from '@/api/base'
 import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { feiePrintApi } from '@/api/feie'
@@ -236,6 +251,13 @@ const previewHtml = ref('')
 const previewBillNo = ref('')
 const printing = ref(false)
 let pendingPrintOrderId = null
+
+// v1.1.75 AI 解读弹窗
+const aiDialogVisible = ref(false)
+const aiLoading = ref(false)
+const aiContent = ref('')
+const aiModel = ref('')
+const aiBillNo = ref('')
 
 // 打印
 const { doPrint } = usePrint()
@@ -453,9 +475,36 @@ function onPrintCommand(command, row) {
   }
 }
 
+// v1.1.75 AI 解读: 调只读端点, 把模型分析结果渲染到弹窗 (markdown 用 pre 简显示, 避免引依赖)
+async function onAiAnalyze(row) {
+  aiBillNo.value = row.billNo || ''
+  aiModel.value = ''
+  aiContent.value = ''
+  aiDialogVisible.value = true
+  aiLoading.value = true
+  try {
+    const r = await aiApi.analyzePrdOrder(row.id)
+    const d = (r && r.data) || {}
+    aiModel.value = d.model || ''
+    aiContent.value = d.content || '(模型未返回内容)'
+  } catch (e) {
+    aiContent.value = '解读失败: ' + ((e && (e.msg || e.message)) || '未知错误')
+  } finally {
+    aiLoading.value = false
+  }
+}
+
 onMounted(loadData)
 </script>
 <style scoped>
 .toolbar { margin-bottom: 12px; }
 .pager { margin-top: 12px; text-align: right; }
+/* v1.1.75 AI 解读弹窗 */
+.ai-meta { padding: 8px 12px; background: #f5f7fa; border-radius: 4px; font-size: 13px;
+  color: #606266; margin-bottom: 10px; display: flex; gap: 16px; }
+.ai-meta b { color: #303133; }
+.ai-body { min-height: 120px; max-height: 520px; overflow: auto; }
+.ai-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 14px;
+  line-height: 1.7; color: #303133; background: #fafafa; padding: 12px 14px; border-radius: 4px;
+  font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; }
 </style>

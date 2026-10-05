@@ -2,7 +2,9 @@ import request from '@/utils/request'
 
 // v1.1.75: AI 集成第一步 — 只读解读端点 (复用 report:view 权限, 超管 orRole 短路)
 export const aiApi = {
-  analyzeSalDelivery: (id) => request.get(`/ai/analyze/sal-delivery/${id}`)
+  analyzeSalDelivery: (id) => request.get(`/ai/analyze/sal-delivery/${id}`),
+  analyzePurReceipt: (id) => request.get(`/ai/analyze/pur-receipt/${id}`),
+  analyzeSalOrder: (id) => request.get(`/ai/analyze/sal-order/${id}`)
 }
 
 export const salOrderApi = {

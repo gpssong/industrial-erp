@@ -62,6 +62,8 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
+            <!-- v1.1.75: AI 解读 -->
+            <el-button link type="primary" size="small" @click="onAiAnalyze(row)">🤖 AI 解读</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -347,6 +349,20 @@
       </template>
     </el-dialog>
 
+    <!-- v1.1.75 AI 解读弹窗 -->
+    <el-dialog v-model="aiDialogVisible" title="🤖 AI 单据解读" width="720px" destroy-on-close>
+      <div class="ai-meta" v-if="aiBillNo || aiModel">
+        <span v-if="aiBillNo">单号: <b>{{ aiBillNo }}</b></span>
+        <span v-if="aiModel">模型: {{ aiModel }}</span>
+      </div>
+      <div v-loading="aiLoading" class="ai-body">
+        <pre class="ai-content">{{ aiContent || (aiLoading ? '正在分析中，请稍候…' : '') }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="aiDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 飞鹅云打印预览弹窗 (v1.1.36) -->
     <el-dialog v-model="feiePreviewVisible" title="飞鹅云打印预览" width="560px" destroy-on-close>
       <div v-loading="feiePreviewLoading" style="min-height:200px;">
@@ -363,7 +379,7 @@
 <script setup>
 import { reactive, ref, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { salOrderApi, salDeliveryApi } from '@/api/sales'
+import { salOrderApi, salDeliveryApi, aiApi } from '@/api/sales'
 import { useUserStore } from '@/store/user'
 import { customerApi, warehouseApi, productApi } from '@/api/base'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
@@ -428,6 +444,13 @@ const deliverySummaryOrder = ref(null)
 const deliverySummaryLoading = ref(false)
 const deliverySummaryData = ref([])
 const deliverySummaryOrderId = ref(null)
+
+// v1.1.75 AI 解读弹窗
+const aiDialogVisible = ref(false)
+const aiLoading = ref(false)
+const aiContent = ref('')
+const aiModel = ref('')
+const aiBillNo = ref('')
 
 async function loadData() {
   loading.value = true
@@ -844,9 +867,36 @@ function onPrintCommand(cmd, row) {
     return cmd === 'feie-preview' ? feiePreview(row) : feieDirectPrint(row)
   }
 }
+
+// v1.1.75 AI 解读: 调只读端点, 把模型分析结果渲染到弹窗 (markdown 用 pre 简显示, 避免引依赖)
+async function onAiAnalyze(row) {
+  aiBillNo.value = row.billNo || ''
+  aiModel.value = ''
+  aiContent.value = ''
+  aiDialogVisible.value = true
+  aiLoading.value = true
+  try {
+    const r = await aiApi.analyzeSalOrder(row.id)
+    const d = (r && r.data) || {}
+    aiModel.value = d.model || ''
+    aiContent.value = d.content || '(模型未返回内容)'
+  } catch (e) {
+    aiContent.value = '解读失败: ' + ((e && (e.msg || e.message)) || '未知错误')
+  } finally {
+    aiLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
 .toolbar { margin-bottom: 12px; }
 .pager { margin-top: 12px; text-align: right; }
+/* v1.1.75 AI 解读弹窗 */
+.ai-meta { padding: 8px 12px; background: #f5f7fa; border-radius: 4px; font-size: 13px;
+  color: #606266; margin-bottom: 10px; display: flex; gap: 16px; }
+.ai-meta b { color: #303133; }
+.ai-body { min-height: 120px; max-height: 520px; overflow: auto; }
+.ai-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 14px;
+  line-height: 1.7; color: #303133; background: #fafafa; padding: 12px 14px; border-radius: 4px;
+  font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif; }
 </style>
