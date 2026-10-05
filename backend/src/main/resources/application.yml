@@ -99,6 +99,13 @@ sa-token:
 
 erp:
   version: ${ERP_VERSION:1.1.66}
+  # v1.1.75 AI 集成第一步 — 通用 LLM 网关 (OpenAI 兼容协议, 支持通义/DeepSeek/OpenAI/OpenRouter).
+  # key 为空时 AI 端点快速失败并提示"未配置", 不影响其他功能. 密钥只走 env, 不进 git.
+  ai:
+    api-key: ${ERP_AI_API_KEY:}
+    model: ${ERP_AI_MODEL:qwen-plus}
+    base-url: ${ERP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    timeout-ms: ${ERP_AI_TIMEOUT_MS:60000}
   upload:
     path: ${ERP_UPLOAD_PATH:/opt/industrial-erp/upload}
   cors:
