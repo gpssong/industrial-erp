@@ -15,6 +15,8 @@ public class AgentResultVO {
     private List<String> proposedActions = new ArrayList<>();
     private int stepsUsed;
     private String model;
+    /** v1.1.77 新增: 实际命中的 provider name (供运维日志/前端可选展示). */
+    private String llmProvider;
 
     public AgentResultVO() {}
 
@@ -33,4 +35,6 @@ public class AgentResultVO {
     public void setStepsUsed(int stepsUsed) { this.stepsUsed = stepsUsed; }
     public String getModel() { return model; }
     public void setModel(String model) { this.model = model; }
+    public String getLlmProvider() { return llmProvider; }
+    public void setLlmProvider(String llmProvider) { this.llmProvider = llmProvider; }
 }

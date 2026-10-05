@@ -158,8 +158,12 @@ public class AiService {
 
     /** 调模型并包装 VO (统一错误处理: 模型失败抛 BizException, 不吞). */
     private AiAnalysisVO run(String bizType, Long bizId, List<JSONObject> messages) {
-        String content = llmClient.chat(messages, 2048, 0.3);
-        return new AiAnalysisVO(bizType, bizId, llmClient.model(), content);
+        LlmClient.ChatResult cr = llmClient.chatWithResult(messages, 2048, 0.3);
+        AiAnalysisVO vo = new AiAnalysisVO(bizType, bizId,
+                cr.usedProvider != null ? cr.usedProvider + ":" + llmClient.model() : llmClient.model(),
+                cr.content);
+        vo.setLlmProvider(cr.usedProvider);
+        return vo;
     }
 
     private static BizException notConfigured() {

@@ -19,6 +19,9 @@ public class AiAnalysisVO {
     /** 模型解读文本. */
     private String content;
 
+    /** v1.1.77 新增: 实际命中的 provider name (供运维日志/前端可选展示). */
+    private String llmProvider;
+
     public AiAnalysisVO() {}
 
     public AiAnalysisVO(String bizType, Long bizId, String model, String content) {
@@ -36,4 +39,6 @@ public class AiAnalysisVO {
     public void setModel(String model) { this.model = model; }
     public String getContent() { return content; }
     public void setContent(String content) { this.content = content; }
+    public String getLlmProvider() { return llmProvider; }
+    public void setLlmProvider(String llmProvider) { this.llmProvider = llmProvider; }
 }

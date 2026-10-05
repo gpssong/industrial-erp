@@ -42,7 +42,9 @@ public class AiAgentController {
     public R<AgentResultVO> chat(@RequestBody JSONObject body) {
         String question = body == null ? "" : body.getStr("question", "");
         AgentService.Result r = agentService.run(question == null ? "" : question);
-        return R.ok(new AgentResultVO(r.answer, r.proposedActions, r.stepsUsed, r.model));
+        AgentResultVO vo = new AgentResultVO(r.answer, r.proposedActions, r.stepsUsed, r.model);
+        vo.setLlmProvider(r.llmProvider);
+        return R.ok(vo);
     }
 
     /** RAG 文档检索 (topN 片段, 不经 LLM; 需要 LLM 解读时走 agent)。 */
