@@ -110,9 +110,99 @@ public class LlmClient {
         return text == null ? "" : text.trim();
     }
 
+    /**
+     * 带工具 (function-calling) 的 chat, 返回完整 assistant 消息 (含 content 与 tool_calls).
+     *
+     * <p>供 agent 循环用: 模型可能返回 "文本" (最终答案) 或 "tool_calls" (要调工具)。
+     * 返回的 {@link ChatResult} 里, 若 {@code toolCalls} 非空, 调用方执行工具并把结果
+     * 以 role="tool" 消息 (带 toolCallId) 喂回, 再次调本方法; 直到 toolCalls 为空 (最终答案)。
+     *
+     * @param tools OpenAI 格式工具数组: [{"type":"function","function":{"name":..,"description":..,"parameters":{...}}}]
+     */
+    public ChatResult chatWithTools(List<JSONObject> messages, JSONArray tools, Integer maxTokens, Double temperature) {
+        if (!enabled()) {
+            throw new com.industrial.erp.exception.BizException(
+                    "AI 功能未配置: 请设置环境变量 ERP_AI_API_KEY");
+        }
+        JSONObject body = new JSONObject();
+        body.put("model", model);
+        body.put("messages", messages);
+        if (tools != null && !tools.isEmpty()) body.put("tools", tools);
+        if (maxTokens != null) body.put("max_tokens", maxTokens);
+        if (temperature != null) body.put("temperature", temperature);
+
+        String url = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) + "/chat/completions"
+                : baseUrl + "/chat/completions";
+
+        JSONObject resp;
+        try (HttpResponse response = HttpRequest.post(url)
+                .header("Authorization", "Bearer " + apiKey)
+                .header("Content-Type", "application/json")
+                .body(body.toString())
+                .timeout(timeoutMs)
+                .execute()) {
+            int status = response.getStatus();
+            String raw = response.body();
+            if (status < 200 || status >= 300) {
+                throw new com.industrial.erp.exception.BizException("LLM 调用失败 (HTTP " + status + "): " + abbreviate(raw, 300));
+            }
+            resp = JSONUtil.parseObj(raw);
+        } catch (com.industrial.erp.exception.BizException be) {
+            throw be;
+        } catch (Exception e) {
+            throw new com.industrial.erp.exception.BizException("LLM 调用异常: " + e.getMessage(), e);
+        }
+
+        JSONArray choices = resp.getJSONArray("choices");
+        if (choices == null || choices.isEmpty()) {
+            throw new com.industrial.erp.exception.BizException("LLM 返回无 choices: " + abbreviate(resp.toString(), 300));
+        }
+        JSONObject message = choices.getJSONObject(0).getJSONObject("message");
+        if (message == null) throw new com.industrial.erp.exception.BizException("LLM 返回 message 缺失");
+
+        ChatResult r = new ChatResult();
+        r.content = message.getStr("content", "");
+        JSONArray tcs = message.getJSONArray("tool_calls");
+        if (tcs != null && !tcs.isEmpty()) {
+            r.toolCalls = new java.util.ArrayList<>();
+            for (int i = 0; i < tcs.size(); i++) {
+                JSONObject tc = tcs.getJSONObject(i);
+                ToolCall call = new ToolCall();
+                call.id = tc.getStr("id", "call_" + i);
+                JSONObject fn = tc.getJSONObject("function");
+                call.name = fn == null ? "" : fn.getStr("name", "");
+                call.argumentsRaw = fn == null ? "{}" : fn.getStr("arguments", "{}");
+                r.toolCalls.add(call);
+            }
+        }
+        return r;
+    }
+
+    /** 一次 LLM 返回: 要么最终文本 (content), 要么要调的工具 (toolCalls). */
+    public static class ChatResult {
+        public String content;
+        public java.util.List<ToolCall> toolCalls;
+        public boolean wantsToolCall() { return toolCalls != null && !toolCalls.isEmpty(); }
+    }
+
+    /** 模型请求调用的工具. */
+    public static class ToolCall {
+        public String id;
+        public String name;
+        public String argumentsRaw;
+        public JSONObject arguments() {
+            try {
+                return JSONUtil.parseObj(argumentsRaw);
+            } catch (Exception e) {
+                return new JSONObject();
+            }
+        }
+    }
+
     private static String abbreviate(String s, int max) {
         if (s == null) return "";
         s = s.replace('\n', ' ');
         return s.length() > max ? s.substring(0, max) + "…" : s;
     }
 }
+
