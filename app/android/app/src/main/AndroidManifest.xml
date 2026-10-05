@@ -52,7 +52,9 @@
         </provider>
     </application>
 
-    <!-- Permissions: 最小权限原则, 仅保留扫码和联网所需 -->
+    <!-- Permissions: 最小权限原则, 仅保留扫码 + 联网 + 语音所需 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- v1.1.78: App 端 AI 助手语音输入 (uni.getRecorderManager) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>
