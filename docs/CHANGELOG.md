@@ -2,6 +2,39 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.79 (2026-10-06) — 工作流模块 (设备维保/安全检查/应急预案/租客) + 上传字段 + next_due_date 看板 + Dify 自动归档
+
+**用户目标 (2026-10-06)**: 用户要把设备维保记录/安全检查记录/应急预案 (含租客) 等纸质台账搬到 ERP, 巡检员希望能"拍照 → 自动生成记录"。决策: ① 深度 = 简单 CRUD + 审核/反审核 + 删除 (**不做** 审批流转引擎 / 任务待办 / Dify 自动审核); ② 租客 = 新建主数据表 `base_tenant` (应急预案挂 `tenantId`); ③ 仅 PC 端 (不上 App); ④ Dify 工作流触发 = **永远只生成草稿**, 审核留人工二次确认。
+
+**改动**:
+- **后端 8 entity**: `BaseTenant` (新, 在 `modules/base`) + 3 head (`WfMaintainRecord`/`WfSafetyRecord`/`WfEmergencyPlan`) + 3 detail (`WfMaintainDetail`/`WfSafetyDetail`/`WfEmergencyDetail`). 全部 `@TableId(ASSIGN_ID)` 雪花 19 位 Long + `@TableLogic deleted` + 审计 4 字段 (`create_by/create_time/update_by/update_time` fill INSERT/INSERT_UPDATE) + head 加 `@Version` 乐观锁.
+- **`Constants.java` 加 3 bill 前缀**: `BILL_WM`/`BILL_SIN`/`BILL_EP` (复用 `BillNoGenerator`, 人可读单号).
+- **4 service**: `BaseTenantService` (page/list/detail/add/update/delete, `requirePerm("work:tenant:*")`) + 3 workflow service (head CRUD + check/uncheck, `@Transactional` + `@OperLog`, `requirePerm("work:maintain|safety|emergency:*")`). 维保/检查 `next_due_date` 已过期列表标红 (前端 `overdueDays` 计算).
+- **4 controller**: `/workflow/tenant` + `/workflow/maintain` + `/workflow/safety` + `/workflow/emergency` + `/workflow/dashboard` (新 `WfDashboardController`). 全部 `R<T>` + `@SaCheckPermission(value={...}, orRole="admin")`.
+- **WfDashboardService + WfDashboardController**: `GET /workflow/dashboard/upcoming?days=N` (default 30, 上限 365), 聚合 3 类 `next_due_date`/`next_drill_date` 限 days 天内到期的, 按 dueDate ASC, 返回 `List<Map>`, 每条 `{type: MAINTAIN|SAFETY|EMERGENCY, id, no, label, dueDate, daysLeft, status}`. 权限 `work:maintain:list|safety:list|emergency:list` 任一即可 (orRole admin).
+- **sql/50_v179_workflow_module.sql**: 4 类 head + detail + `base_tenant` 7 张表 `CREATE TABLE IF NOT EXISTS` (utf8mb4). `sys_menu` M 型「工作流」目录 (perms 非空 `work:maintain:list`, sql/47 教训 — 权限树节点 perms 必须非空才可选) + 4 C 型页面 + B 型按钮. `sys_role_menu` 给 6 内置角色 (SUPER_ADMIN/PURCHASE_MGR/SALES_MGR/WAREHOUSE_MGR/PRODUCTION_MGR/FINANCE) × PC 授权, `information_schema` 探测 `client_type` 列 (老库 2 列退化, 飞牛坑), `INSERT IGNORE` 幂等.
+- **sql/50b_v179_workflow_uploads.sql**: ALTER 4 张 wf 表加 6 列 — `wf_emergency_plan.contact_phone/drill_photos/drill_attachment`, `wf_emergency_detail.step_photo`, `wf_safety_record.attachment`, `wf_safety_detail.risk_photo`. 全部 `information_schema` 探列幂等 (MySQL 8 不支持 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
+- **前端 `pc-web/src/api/workflow.js`**: `tenantApi`/`maintainApi`/`safetyApi`/`emergencyApi` (各 `page/detail/add/update/delete/check/uncheck`) + `uploadFile(file)` helper (FormData 走共享 axios, 不经过 `stringifyBigInts` — 19 位雪花 ID 不受影响) + `dashboardApi.upcoming(days=30)`.
+- **4 视图 `pc-web/src/views/workflow/{Tenant,Maintain,Safety,Emergency}.vue`**: 镜像 `Receipt.vue` 结构 (search-bar + el-table + 状态 tag + 操作列 `hasPerm` 显隐 + el-dialog 表单嵌套 detail el-table + 分页). 维保/检查 列 `next_due_date` 过期标红. 应急预案/检查 加 `contactPhone`/`drillPhotos` (逗号分隔多 URL 缩略图列表)/`drillAttachment` (单文件链接)/`stepPhoto` (per-row 缩略图)/`riskPhoto` (per-row)/`attachment` (多图缩略图) 完整 UI, 走 `uploadFile()` helper → `/api/system/upload/file` → 回填 URL.
+- **`router/index.js`**: 加 4 路由 `workflow/maintain|safety|emergency|tenant`, `meta.perm` 各 `work:xxx:list`.
+- **`MainLayout.vue`**: 侧边栏 `menuTree` 加「工作流」分组 (icon `Operation`), children 4 页.
+- **`docs/23_Dify工作流自动归档触发指南.md`** (新): Dify 编排方案 (开始/OCR/校验/HTTP/代码/结束节点), 3 端点 payload JSON 示例, 上传文件流 (`/api/system/upload/file`), 错误处理 (401/权限/无 recordNo 5 类故障 + 排错), `dify_bot` 账号 SQL 配置 (仅 `work:*:add` perm, **不授** `*:check` — 决策: 永远不自动审核), 安全注意事项 (Dify 环境变量存密码, 不明文写工作流定义).
+
+**部署 (双站 home + 飞诺 failover)**:
+- 后端 jar md5 `f46bd2253768e69dd7b23d61a29e6ca2` (101,206,778 bytes). home base64 pipe 流式传 jar.gz → `gunzip` + 重命名 `industrial-erp-*.jar` → `docker build` → `docker rm -f` + `docker run --env-file` (保留 home `SA_TOKEN_JWT_SECRET_KEY=ecdd48955b16c58239b0b9326ac384f4b59babace53fda067424dd80dcba7c5f`). 飞诺 scp 传 `erp-backend.jar` → `docker build -f backend.Dockerfile` → `docker rm -f erp-backend-failover` + `docker run --env-file` (保留飞诺 `SA_TOKEN_JWT_SECRET_KEY=a337f8758cc7a8464e8ddc515462a76e0333dc2723913e263ce18c16609a2b10`). **踩坑**: 飞诺 failover 容器重建后跑的还是旧 jar, 必须 `docker rm -f` 显式删掉再 run (compose 不切 image).
+- `sql/50` + `sql/50b` 双站 MySQL 各跑一次 (`--default-character-set=utf8mb4`), 6 `wf_*` 表 + `base_tenant` + 6 列 ALTER 全部幂等. **踩坑**: `base_tenant` 双站报 `Unknown column 'version'` — sql/50 漏了 `@Version` 对应的 `version` 列, 补 `ALTER TABLE base_tenant ADD COLUMN version INT DEFAULT 0` 双站.
+- pc-web 双站: `npm run build` → dist 部署. **踩坑**: 飞诺 dist bind-mount 源是 `/vol2/erp-system/pc-web/dist-new` (不是 compose 写的 `dist`), home 是 `pc-web-new/dist`, 看 mount 不看 compose 文件名. 双站 `docker restart erp-pc-web[-failover]`.
+- 旧 jar 备份: 双站 `.bak.v178` (md5 home=`b34b20b893dab4e14dd71e39082cd164`/飞诺=`b34b20b893dab4e14dd71e39082cd164`) 保留回滚.
+
+**验证 (装机)**:
+- 双站 `SHOW TABLES LIKE 'wf_%'` / `base_tenant` 存在 ✓
+- 双站 4 workflow endpoints 全 200 (login → GET /page ✓)
+- home `POST /api/workflow/maintain` + `/safety` + `/emergency` 全 200, dashboard upcoming 返回 `SIN202610060001` (home 有测试数据), fn 返回 `[]` (fn 无测试数据)
+- home `/api/system/upload/file` POST 200, 返回 `/upload/202610/06/069bd0ee0a9c4d2e84c0e44c43c4f4bf.png` (nginx 静态路径就绪)
+- 双站 138 条 `sys_role_menu` 授权行已建, `work:*` perm 6 角色 × PC 全命中
+
+**回滚**: 双站旧 jar `.bak.v178` 已就位, `docker stop + rm + run` 用旧 jar 即可, 业务表 DDL 不回滚 (无业务数据).
+
 ### v1.1.78 (2026-10-05) — App 端 AI 助手语音输入 (端侧优先 + 后端 ASR 兜底)
 
 **用户目标 (2026-10-05)**: 用户在仓库/产线现场, 手脏/戴手套打字不便, 希望 App 端 AI 助手支持"按住说话"→ 自动识别文字 → 填入输入框 → 发送。决策: STT 引擎 = 端侧优先 (浏览器 Web Speech API, 零 key / 零延迟) + 原生 App 兜底走后端 DashScope paraformer ASR; 交互 = 独立录音按钮 (按住说话, 松手回填 q, 用户可改后再点发送, 不自动 send)。

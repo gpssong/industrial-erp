@@ -180,7 +180,18 @@ const menuTree = computed(() => {
         { path: '/production/order', title: '生产加工单', icon: 'SetUp' }
       ]
     },
-    { path: '/finance/arap', title: '应收应付', icon: 'Money' },
+    {
+      path: '/finance/arap', title: '应收应付', icon: 'Money'
+    },
+    {
+      path: '/workflow', title: '工作流', icon: 'Flag',
+      children: [
+        { path: '/workflow/maintain', title: '设备维保记录', icon: 'Tools' },
+        { path: '/workflow/safety', title: '安全检查记录', icon: 'Document' },
+        { path: '/workflow/emergency', title: '应急预案', icon: 'Warning' },
+        { path: '/workflow/tenant', title: '租客管理', icon: 'User' }
+      ]
+    },
     {
       path: '/report', title: '报表中心', icon: 'DataAnalysis',
       children: [

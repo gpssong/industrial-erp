@@ -7,7 +7,10 @@ export const aiApi = {
   analyzeSalOrder: (id) => request.get(`/ai/analyze/sal-order/${id}`),
   analyzePrdOrder: (id) => request.get(`/ai/analyze/prd-order/${id}`),
   // v1.1.75 任务2: agent 自由问答 (只读查询 + 写操作"提议", 提议需前端确认后执行)
-  agentChat: (question) => request.post('/ai/agent/chat', { question }),
+  // v1.1.79: 单独放大超时到 180s — 后端 AgentService 最多 6 轮 LlmClient (每轮 60s, 最坏 360s,
+  // 实际 1-6 轮 5-30s/轮, 总 30-180s). 全局 axios 30s 不够, 这里覆盖. 其它 AI 调用 (analyze/
+  // ragSearch/replenishSuggest 短查询) 保持默认 30s. 上游 Agnes/MiniMax 卡死时 180s 超时兜底.
+  agentChat: (question) => request.post('/ai/agent/chat', { question }, { timeout: 180000 }),
   // v1.1.75 任务3: RAG 文档检索 + 补货预测
   ragSearch: (keyword, limit) => request.get('/ai/rag/search', { params: { keyword, limit } }),
   replenishSuggest: (keyword, limit) => request.get('/ai/replenish/suggest', { params: { keyword, limit } })

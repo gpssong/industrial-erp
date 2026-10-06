@@ -7,6 +7,33 @@ import 'nprogress/nprogress.css'
 
 NProgress.configure({ showSpinner: false })
 
+// v1.1.79 hotfix-2: 雪花 ID (> 2^53) 在 JSON.stringify 时丢精度。
+// 现象: AI 助手提议 addPurIn 时 supplierId=2073700724874723329 会被 JS 读成 Number → 2073700724874723300 (丢 29 位),
+//       后端 selectById(2073700724874723300) 找不到 → 报"供应商不存在"。
+// 修复: request 拦截器递归把 > MAX_SAFE_INTEGER 的数字序列化为字符串, Jackson 默认支持 String→Long 反序列化。
+// 边界: 业务字段 (qty/price/税率 等) 全是小数字, 不会被字符串化。
+const SAFE_MAX = Number.MAX_SAFE_INTEGER
+function stringifyBigInts(value) {
+  if (Array.isArray(value)) return value.map(stringifyBigInts)
+  if (value && typeof value === 'object') {
+    const out = {}
+    for (const k of Object.keys(value)) {
+      const v = value[k]
+      if (typeof v === 'number' && !Number.isFinite(v)) {
+        // NaN/Infinity 兜底转字符串 (避免 axios 序列化为 null 静默丢精度)
+        out[k] = v === null ? null : String(v)
+      } else if (typeof v === 'number' && Math.abs(v) > SAFE_MAX) {
+        // 大整数 (雪花 ID 19 位, 远超 2^53) → 字符串保精度
+        out[k] = String(v)
+      } else {
+        out[k] = stringifyBigInts(v)
+      }
+    }
+    return out
+  }
+  return value
+}
+
 // 优先级: Electron 注入的完整 API URL > localStorage(用户手动配置) > 环境变量(VITE_API_BASE) > 默认 /api
 // 在 Electron 中, window.__ERP_API_BASE__ 由 preload.js 注入, 包含完整的远端 API 地址
 // 这样可以避免 file:// 协议下 axios 请求 /api 时变成 file:///api/xxx
@@ -35,6 +62,10 @@ const service = axios.create({
 // 请求拦截
 service.interceptors.request.use(config => {
   NProgress.start()
+  // v1.1.79 hotfix-2: 大整数 → 字符串 (避免雪花 ID 精度丢失)
+  if (config.data && typeof config.data === 'object') {
+    config.data = stringifyBigInts(config.data)
+  }
   // 不再显式带 Authorization header, 由浏览器自动附带 httpOnly Cookie (Sa-Token cookie)
   // 若需要兼容老会话 (用户在旧的 header 模式登录), 仍带 header 但不影响 cookie 模式登录
   const user = useUserStore()
