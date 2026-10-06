@@ -10,11 +10,15 @@ import com.industrial.erp.modules.ai.rag.RagService;
 import com.industrial.erp.modules.ai.replenish.ReplenishService;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.entity.BaseSupplier;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
+import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
 import com.industrial.erp.modules.inventory.mapper.InvStockPageQueryMapper;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
+import com.industrial.erp.modules.sales.entity.SalOrder;
 import com.industrial.erp.modules.sales.service.SalDeliveryService;
+import com.industrial.erp.modules.sales.service.SalOrderService;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -39,20 +43,26 @@ public class ErpToolRegistry {
     private final InvStockPageQueryMapper stockPageQueryMapper;
     private final BaseCustomerMapper customerMapper;
     private final BaseProductMapper productMapper;
+    private final BaseSupplierMapper supplierMapper;
     private final SalDeliveryService salDeliveryService;
+    private final SalOrderService salOrderService;
     private final RagService ragService;
     private final ReplenishService replenishService;
 
     public ErpToolRegistry(InvStockPageQueryMapper stockPageQueryMapper,
                            BaseCustomerMapper customerMapper,
                            BaseProductMapper productMapper,
+                           BaseSupplierMapper supplierMapper,
                            SalDeliveryService salDeliveryService,
+                           SalOrderService salOrderService,
                            RagService ragService,
                            ReplenishService replenishService) {
         this.stockPageQueryMapper = stockPageQueryMapper;
         this.customerMapper = customerMapper;
         this.productMapper = productMapper;
+        this.supplierMapper = supplierMapper;
         this.salDeliveryService = salDeliveryService;
+        this.salOrderService = salOrderService;
         this.ragService = ragService;
         this.replenishService = replenishService;
     }
@@ -72,9 +82,16 @@ public class ErpToolRegistry {
                 "查询产品/商品列表。keyword=产品名/编码模糊 (可选), limit=最多条数 (默认 20)。",
                 map("keyword", "string", "产品名或编码关键字", false,
                     "limit", "number", "最多返回条数", false)));
+        arr.add(fn("listSuppliers",
+                "查询供应商列表 (补货/采购入库需要供应商 id)。keyword=供应商名模糊 (可选), limit=最多条数 (默认 20)。返回含 id/supplierName/taxRate 等。",
+                map("keyword", "string", "供应商名关键字", false,
+                    "limit", "number", "最多返回条数", false)));
         arr.add(fn("getDeliveryBill",
                 "按单号查一张销售出库单 (状态/客户/金额/明细行)。billNo=出库单号 (必填)。",
                 map("billNo", "string", "销售出库单号", true)));
+        arr.add(fn("getOrderByBillNo",
+                "按单号查一张销售订单 (状态/客户/金额/明细行, 含每行 productId/qty/price)。billNo=订单号 (必填)。用于补货/采购入库前先确认订单明细。",
+                map("billNo", "string", "销售订单号", true)));
         // v1.1.75 任务3: RAG 文档问答 + 补货预测
         arr.add(fn("searchDocs",
                 "在 ERP 使用手册/部署文档/业务说明里检索关键词, 回答 这个功能怎么用/流程怎么走 类问题。keyword=问题或关键词 (必填), limit=最多片段数 (默认 5)。",
@@ -121,11 +138,29 @@ public class ErpToolRegistry {
                     w.last("LIMIT " + Math.min(limit, 50));
                     return JSONLite.list(productMapper.selectList(w));
                 }
+                case "listSuppliers": {
+                    String kw = args.getStr("keyword", "");
+                    int limit = args.getInt("limit", 20);
+                    LambdaQueryWrapper<BaseSupplier> w = new LambdaQueryWrapper<>();
+                    w.eq(BaseSupplier::getStatus, 1);
+                    if (kw != null && !kw.trim().isEmpty()) w.like(BaseSupplier::getSupplierName, kw);
+                    w.last("LIMIT " + Math.min(limit, 50));
+                    return JSONLite.list(supplierMapper.selectList(w));
+                }
                 case "getDeliveryBill": {
                     String billNo = args.getStr("billNo", "");
                     SalDelivery d = firstByBillNo(billNo);
                     if (d == null) return "{\"error\":\"未找到出库单 " + billNo + "\"}";
                     return JSONLite.obj(salDeliveryService.detail(d.getId()));
+                }
+                case "getOrderByBillNo": {
+                    String bno = args.getStr("billNo", "");
+                    if (bno == null || bno.trim().isEmpty()) return "{\"error\":\"billNo 不能为空\"}";
+                    IPage<SalOrder> p = salOrderService.page(1, 1, bno, null, null);
+                    List<SalOrder> recs = p == null ? null : p.getRecords();
+                    if (recs == null || recs.isEmpty()) return "{\"error\":\"未找到订单 " + bno + "\"}";
+                    SalOrder o = salOrderService.detail(recs.get(0).getId());
+                    return JSONLite.obj(o);
                 }
                 case "searchDocs": {
                     String kw = args.getStr("keyword", "");

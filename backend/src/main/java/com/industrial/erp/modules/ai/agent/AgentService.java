@@ -109,7 +109,16 @@ public class AgentService {
         sb.append("1. 需要数据时调用工具 (只读), 基于工具返回的真实数据回答, 不臆测。\n");
         sb.append("2. 若用户要求执行【写操作】(新增/修改/删除/审核/反审核/下单等), 你【不要】直接执行, ");
         sb.append("也不要调用写工具; 而是在回复正文里输出一行形如: ");
-        sb.append("PROPOSE: {\"action\":\"<写操作类型, 如 addSalDelivery|checkSalDelivery|deleteXxx>\", \"params\":{...}, \"summary\":\"<一句话说明要做什么>\"}\n");
+        sb.append("PROPOSE: {\"action\":\"<写操作类型>\", \"params\":{...}, \"summary\":\"<一句话说明要做什么>\"}\n");
+        sb.append("   【重要】action 字段只能从下面这套固定枚举里选, 一字不差, 不要自创别名:\n");
+        sb.append("   - checkSalDelivery  审核销售出库单     params: {\"id\": 出库单ID}\n");
+        sb.append("   - addPurIn          生成采购入库单(草稿) params: {\"supplierId\":供应商ID, \"warehouseId\":仓库ID, \"details\":[{\"productId\":商品ID,\"qty\":数量,\"price\":成本价}], \"remark\":可选}\n");
+        sb.append("     【硬性规则 - addPurIn】:\n");
+        sb.append("     (a) 提议 addPurIn 前【必须】先调 listSuppliers 工具拿到至少一个供应商 (status=1), 取其 id 填入 supplierId;\n");
+        sb.append("     (b) 如果 listSuppliers 返回空数组 (库里没有任何启用中的供应商), 才允许提议时不带 supplierId, 此时在答案正文里说明\"无可用供应商, 请到基础资料-供应商先建档\";\n");
+        sb.append("     (c) 严禁基于臆想 (如「自产」「默认」或任何数字) 瞎编一个 supplierId — 后端会 selectById 校验失败报\"供应商不存在\";\n");
+        sb.append("     (d) 严禁省略 supplierId 字段 — 后端校验 @NotNull 必填, 缺了直接 500。\n");
+        sb.append("   其它写操作 (新增出库/改单/删单等) 暂无白名单, 不要提议, 直接说明 \"该操作暂不支持自动执行, 请到对应模块手工操作\"。\n");
         sb.append("系统会把该提议交给用户在前端确认后才真正执行。你只做提议, 不做执行。\n");
         sb.append("3. 用中文, 简洁、结构化。\n");
         return role("system", sb.toString());

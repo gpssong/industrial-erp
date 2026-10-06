@@ -50,7 +50,12 @@ const routes = [
       // v1.1.68 回收站 (被软删单据分类/恢复/彻底删); v1.1.72 门禁改独立 report:recycle
       { path: 'report/recycle', name: 'ReportRecycle', component: () => import('@/views/report/Recycle.vue'), meta: { title: '回收站', icon: 'Delete', perm: 'report:recycle' } },
       // v1.1.75 AI 助手 (agent 问答 + 只读查询 + 写操作提议/确认); v1.1.76 门禁改独立 report:ai
-      { path: 'report/ai', name: 'ReportAI', component: () => import('@/views/report/Ai.vue'), meta: { title: 'AI 助手', icon: 'ChatDotRound', perm: 'report:ai' } }
+      { path: 'report/ai', name: 'ReportAI', component: () => import('@/views/report/Ai.vue'), meta: { title: 'AI 助手', icon: 'ChatDotRound', perm: 'report:ai' } },
+      // v1.1.79 工作流 (设备维保 / 安全检查 / 应急预案 / 租客管理)
+      { path: 'workflow/maintain', name: 'WfMaintain', component: () => import('@/views/workflow/Maintain.vue'), meta: { title: '设备维保记录', icon: 'Tools', perm: 'work:maintain:list' } },
+      { path: 'workflow/safety', name: 'WfSafety', component: () => import('@/views/workflow/Safety.vue'), meta: { title: '安全检查记录', icon: 'Document', perm: 'work:safety:list' } },
+      { path: 'workflow/emergency', name: 'WfEmergency', component: () => import('@/views/workflow/Emergency.vue'), meta: { title: '应急预案', icon: 'Warning', perm: 'work:emergency:list' } },
+      { path: 'workflow/tenant', name: 'WfTenant', component: () => import('@/views/workflow/Tenant.vue'), meta: { title: '租客管理', icon: 'User', perm: 'work:tenant:list' } }
     ]
   }
 ]

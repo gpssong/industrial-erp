@@ -32,6 +32,10 @@ public final class Constants {
     public static final String BILL_RC = "RC";
     // v1.1.19+: 发票单据前缀 (BILL_INV = "INV")
     public static final String BILL_INV = "INV";
+    // v1.1.79+: 工作流模块单据前缀 (设备维保 / 安全检查 / 应急预案)
+    public static final String BILL_WM = "WM";
+    public static final String BILL_SIN = "SIN";
+    public static final String BILL_EP = "EP";
 
     public static final String STATUS_DRAFT = "DRAFT";
     public static final String STATUS_CHECKED = "CHECKED";
