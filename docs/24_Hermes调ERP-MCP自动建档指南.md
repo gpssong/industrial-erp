@@ -133,7 +133,7 @@ mcp_servers:
 ## 5. 部署 + 验证 (按顺序)
 
 1. **ERP 后端 v1.1.79 (含 `/mcp`) 双站部署** — 见 [CLAUDE.md](../CLAUDE.md) 顶部 v1.1.79 段 + `sql/50`。
-2. **给 bot 账号授 `work:maintain:add` + `work:maintain:list`** (SQL 见 23号 §4, 把 DIFY_BOT 换成 HERMES_BOT)。
+2. **给 bot 账号授 `work:maintain:add` + `work:maintain:list`** (一站式 SQL): 跑 `sql/51_hermes_mcp_bot.sql` —— 自动建 `HERMES_BOT` 角色 + `hermes_bot` 用户, 仅授两个 perm, **无 check/delete/uncheck**。权限边界落在 ERP RBAC, Hermes 崩了也不越权。部署后**务必改密码** (`UPDATE sys_user SET password='<bcrypt>' WHERE username='hermes_bot'`), 别用 SQL 里的占位 bcrypt。
 3. **登录拿 token**:
    ```bash
    TOK=$(curl -s -X POST https://home.93gushi.com:8088/api/auth/login \
