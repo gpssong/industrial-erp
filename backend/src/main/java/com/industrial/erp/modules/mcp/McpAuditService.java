@@ -3,23 +3,26 @@ package com.industrial.erp.modules.mcp;
 import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.industrial.erp.modules.system.entity.SysOperLog;
-import com.industrial.erp.modules.system.event.OperLogEvent;
+import com.industrial.erp.modules.system.mapper.SysOperLogMapper;
 import com.industrial.erp.modules.workflow.entity.WfMaintainRecord;
 import com.industrial.erp.security.SecurityContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.Map;
 
 /**
- * v1.1.79: MCP 审计 — 每次 MCP 工具调用写一条 {@code sys_oper_log} (复用现有操作日志表 + 事件),
- * 满足安全要求 "所有操作日志全部保存, 符合安监检查"。
+ * v1.1.79: MCP 审计 — 每次 MCP 工具调用写一条 {@code sys_oper_log}.
  *
- * <p>method 字段统一带 {@code [MCP]} 前缀, 审计查询时一眼能区分 "Hermes MCP 触发" vs "PC 端手工"。
- * userId/username 从当前 Sa-Token 登录态取 (bot 账号), 归属到调用者。
+ * <p>直接调 {@link SysOperLogMapper#insert} 同步写库, 不走 {@code OperLogEvent}
+ * (后者走 {@code @Async @EventListener}, 在 Hermes 频繁调 MCP 场景下偶尔因
+ * 事务上下文/线程池竞争导致 sys_oper_log 漏写 — 实测 home 端 hermes_bot
+ * 建单返回 200 但 sys_oper_log 0 行). 直接 insert 最稳, 一次写一行的开销可忽略.
+ *
+ * <p>method 字段统一带 {@code [MCP]} 前缀, 审计查询时一眼能区分 "Hermes MCP 触发"
+ * vs "PC 端手工". userId/username 从当前 Sa-Token 登录态取 (bot 账号), 归属到调用者.
  */
 @Component
 public class McpAuditService {
@@ -27,11 +30,11 @@ public class McpAuditService {
     private static final Logger log = LoggerFactory.getLogger(McpAuditService.class);
     private static final String MODULE = "MCP工具调用";
 
-    private final ApplicationEventPublisher publisher;
+    private final SysOperLogMapper mapper;
     private final ObjectMapper om;
 
-    public McpAuditService(ApplicationEventPublisher publisher, ObjectMapper om) {
-        this.publisher = publisher;
+    public McpAuditService(SysOperLogMapper mapper, ObjectMapper om) {
+        this.mapper = mapper;
         this.om = om;
     }
 
@@ -63,10 +66,11 @@ public class McpAuditService {
             l.setStatus(status);
             if (errMsg != null) l.setErrorMsg(StrUtil.maxLength(errMsg, 1000));
             l.setOperTime(LocalDateTime.now());
-            publisher.publishEvent(new OperLogEvent(this, l));
+            int rows = mapper.insert(l);
+            log.info("[MCP] audit ok method={}, status={}, rows={}", method, status, rows);
         } catch (Exception e) {
             // 审计失败不能影响主流程 (与 OperLogPublisher 一致)
-            log.warn("MCP 审计日志发布失败: method={}, err={}", method, e.getMessage());
+            log.warn("MCP 审计日志写入失败: method={}, err={}", method, e.getMessage());
         }
     }
 

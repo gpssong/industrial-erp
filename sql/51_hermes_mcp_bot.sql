@@ -19,16 +19,15 @@
 
 -- 1) 角色 HERMES_BOT (不可登录, 纯机器授权载体)
 INSERT INTO sys_role (role_code, role_name, data_scope, client_scope, sort_no, status, remark)
-SELECT 'HERMES_BOT', 'Hermes MCP 自动建档', 'ALL', 'PC', 99, 1,
+SELECT 'HERMES_BOT', 'Hermes MCP 自动建档', 1, 'PC', 99, 1,
        'Hermes 拍照识别工单→MCP 建维保草稿, 仅 work:maintain:add/list, 无 check/delete'
 WHERE NOT EXISTS (SELECT 1 FROM sys_role WHERE role_code = 'HERMES_BOT' AND deleted = 0);
 
 -- 2) 用户 hermes_bot (is_admin=0, 必须走角色授权, 不短路超管)
-INSERT INTO sys_user (username, password, real_name, is_admin, status, tenant_id, remark)
+INSERT INTO sys_user (username, password, real_name, is_admin, status)
 SELECT 'hermes_bot',
        '$2a$10$N9qo8uLOickgx2Z8ZoVknuTQgVtCWr4eTgWg6iZdHv0sGjxh5QF6u',  -- 占位 bcrypt (部署后改真密码)
-       'Hermes MCP 建档', 0, 1, 1,
-       'Hermes 拍照识别工单 → MCP 建维保草稿, 最小权限, 不可登录 PC'
+       'Hermes MCP 建档', 0, 1
 WHERE NOT EXISTS (SELECT 1 FROM sys_user WHERE username = 'hermes_bot' AND deleted = 0);
 
 -- 3) 角色 → 用户 绑定
