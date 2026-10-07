@@ -161,13 +161,19 @@ public class SysRoleService {
 
     /**
      * v1.1.12+: 判断 menu 是否可作为权限项授权.
-     * 只允许 menu_type='B' (按钮) / 'F' (功能项) / 带 perms 的 'M' (菜单节点) — 都是实际功能项.
-     * 过滤掉纯 C 类型目录节点 / 无 perms 的 M — 它们是 el-tree 父子联动产生的中间节点, 写入会导致下次打开时整父联动.
+     * 只允许 menu_type='B' (按钮) / 'F' (功能项) / 'C' (页面型菜单带 perms) / 带 perms 的 'M' (菜单节点) —
+     * 都是实际功能项. 过滤掉无 perms 的 M/C (el-tree 父子联动产生的中间节点),
+     * 写入会导致下次打开时整父联动.
      *
      * <p>v1.1.52.5 修: 补 'F' 类型. 库存预警等 `sql/28_v124_permissions.sql` 生成的功能菜单
      * 是 `menu_type='F'` (perms 非空, parent_id=0), 旧代码只认 B/M, F 走到 return false 分支被
      * {@link #grantMenusByClient} 的 filter 丢弃, 导致 App 端勾选库存预警后提交时写不进
      * sys_role_menu, 下次打开回填又显示未勾选 — 即"开启了但重进还是未开启".
+     *
+     * <p>v1.1.80+ 修: 补 'C+perms' 类型. 飞鹅打印机的「飞鹅打印机查询」(sql/20) 与「飞鹅打印日志」(sql/21)
+     * 都是 menu_type='C' + 带非空 system:feie:list / system:feie:log 真实功能权限点, 旧代码把它们当
+     * 纯目录容器过滤掉, 导致 PC 端勾选飞鹅「查询」/「日志」后保存不生效 (后端 filter 丢行), 重开还是未选.
+     * 修复: C 类型带 perms 也算可授权功能项. 无 perms 的 C 仍按纯容器过滤 (避免 el-tree 联动根节点被勾).
      */
     private boolean isGrantableMenu(Long menuId) {
         SysMenu m = menuMapper.selectById(menuId);
@@ -175,10 +181,11 @@ public class SysRoleService {
         // 按钮 (B) 永远可授权
         if ("B".equals(m.getMenuType())) return true;
         // 功能项 (F) / 菜单节点 (M) 只有带 perms 才算可授权功能项
-        if ("F".equals(m.getMenuType()) || "M".equals(m.getMenuType())) {
+        // C 类型 (页面菜单) 同样带 perms 算可授权 — 飞鹅「查询/日志」是 C+perms 的真实功能点
+        if ("C".equals(m.getMenuType()) || "F".equals(m.getMenuType()) || "M".equals(m.getMenuType())) {
             return m.getPerms() != null && !m.getPerms().trim().isEmpty();
         }
-        // 其它类型 (C 目录) 一律过滤
+        // 其它类型一律过滤
         return false;
     }
 

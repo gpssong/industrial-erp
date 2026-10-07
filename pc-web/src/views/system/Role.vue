@@ -354,12 +354,14 @@ function buildMenuTree(list) {
   // v1.1.53+: 对齐后端 isGrantableMenu (v1.1.52.6 已认 F 类型), 把 F 类型 perm 行也判为可授权.
   // 否则 dashboard 子模块 (sales-kpi/sales-trend/sales-ranking/inventory-warning) 这 4 行
   // F 类型 perm 节点会全显示为 disabled, 用户没法勾选 (虽然后端 isGrantableMenu 已经认).
+  // v1.1.80+: 补 C+perms 可授权 (飞鹅「飞鹅打印机查询」「飞鹅打印日志」等 C 型真实功能点
+  //   也可勾). 与后端 isGrantableMenu (SysRoleService.java) 保持一致, 否则 PC 弹窗里
+  //   这些节点是 disabled 灰色, 用户无法勾选 — 即使后端已经放开.
   function markDisabled(nodes) {
     for (const n of nodes) {
-      // 按钮 (B) 永远可勾; 菜单节点 (M) 有 perms 的也算功能项可勾; F 类型 perm 载体 (有 perms) 也可勾
+      // 按钮 (B) 永远可勾; 页面菜单 (C) / 功能项 (F) / 菜单节点 (M) 带 perms 也算功能项可勾
       const grantable = n.menuType === 'B'
-        || (n.menuType === 'M' && n.perms && n.perms.trim())
-        || (n.menuType === 'F' && n.perms && n.perms.trim())
+        || ((n.menuType === 'C' || n.menuType === 'F' || n.menuType === 'M') && n.perms && n.perms.trim())
       n.disabled = !grantable
       if (n.children && n.children.length) markDisabled(n.children)
     }
