@@ -62,6 +62,10 @@ ERP_CORS_ALLOWED_ORIGINS=https://93gushi.com,https://www.93gushi.com,https://hom
 
 > 注意: 完整 Origin, 含协议, 不带路径/尾斜杠; 非默认端口必须写, 如 https://erp.93gushi.com:8443
 > 多子域时多写几行, 用英文逗号分隔, 别加空格.
+>
+> ⚠️ **每个域名 × 每个前端端口都要各列一条** (2026-10-08 踩坑): 前端同时走 `:8088` (DSM 反代) 和 `:18080` (pc-web nginx 直连) 时, `home.93gushi.com:18080` 与 `home.93gushi.com:8088` 是**两个不同 origin**, 漏哪个用哪个登录就 403. 白名单只列 `:8088` 而用户在 `:18080` 登录 → preflight 403. 排查: `docker inspect <backend> | grep CORS` 对照浏览器地址栏 origin 逐字比对.
+>
+> ⚠️ **改完 env 必须重建容器才生效** (`compose up -d --force-recreate` 或 `docker rm`+`docker run`); `docker restart` 只复用启动时烤进去的旧 env. 群晖 `erp-backend` 是裸 `docker run` 建的 (无 compose label), 只能 `docker stop/rm` + `docker run --env-file` 重建, 且 env 里保留原 `SA_TOKEN_JWT_SECRET_KEY` 才不强制全员重登.
 
 ### 3.4 局域网开发 / 仅内网访问
 

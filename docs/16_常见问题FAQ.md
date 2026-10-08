@@ -419,6 +419,19 @@ gunzip < erp-20260616.sql.gz | mysql -uroot -p'pass' erp
 - 跨域 → 后端 `SaTokenConfig` CORS 配置
 - 数据权限 → 用户 `dept_id` 与数据 `dept_id` 不一致
 
+**特别:登录时 `POST /api/auth/login 403` 但账号密码都对 (CORS 白名单缺某 origin)**
+
+症状:浏览器 console 里登录请求直接 `403 (Forbidden)`, 而 `OPTIONS` preflight 被拒. 这不是"没权限", 是 **CORS 跨域被 Spring Security 拒绝** — 后端 `ERP_CORS_ALLOWED_ORIGINS` 白名单**没有**你当前访问用的那个 `origin` (协议+域名+端口必须逐字匹配).
+
+典型场景: 同一台主站前端同时开了 `:8088` (DSM 反代) 和 `:18080` (pc-web nginx 直连), 白名单只列了 `:8088` 域名, 用 `home.93gushi.com:18080` 登录时 Origin = `http://home.93gushi.com:18080` 不在白名单 → preflight 403. 域名 `home.93gushi.com` / `n150.93gushi.com` 若都指向主站 (公网 IP), 两域名 × 每端口 都要各列一条.
+
+**排查**: 在目标站点后端 `docker inspect <backend> | grep CORS` 看当前生效的白名单, 与你浏览器地址栏的 origin (含端口) 逐字比对. 缺哪个补哪个 (**纯增量**, 只加不删).
+
+**双站坑 (2026-10-08 踩)**:
+- 飞牛 `erp-backend-failover`: CORS 写在 compose **内联 `environment` 块**, 会**覆盖** `env_file: erp-env.list`. 改 `erp-env.list` 无效, 必须改 compose 内联块 + `docker compose up -d --force-recreate`.
+- 群晖 `erp-backend`: 容器是裸 `docker run` 建的 (**无 compose label**), `docker compose up --force-recreate` 会报"容器名冲突"拒管. 只能 `docker stop/rm` + `docker run --env-file` 按原配置重建; env 里 **保留原 `SA_TOKEN_JWT_SECRET_KEY`** 才不会强制所有用户重登.
+- 改完必须**重建容器**才读新 env — `docker restart` 只复用启动时烤进去的旧 env, 不重读.
+
 ### Q5.3:`401 Unauthorized`
 
 **A**:

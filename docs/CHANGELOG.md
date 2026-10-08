@@ -2,6 +2,23 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.80 hotfix (2026-10-08) — CORS 白名单补 `:18080` 域名 origin (登录 403 修复)
+
+**用户反馈 (2026-10-08)**: `POST http://home.93gushi.com:18080/api/auth/login 403 (Forbidden)` — 登录 403, 怀疑 `home.93gushi.com:18080` 没加进白名单.
+
+**根因**: `home.93gushi.com` / `n150.93gushi.com` 两域名都指向主站 (公网 123.96.246.56), 前端在 `:8088` (DSM 反代) 和 `:18080` (pc-web nginx) 都能访问, 但后端 `ERP_CORS_ALLOWED_ORIGINS` 白名单只列了 `:8088` 域名变体, **缺 `:18080` 域名变体**. 用 `home.93gushi.com:18080` 登录时浏览器 Origin = `http://home.93gushi.com:18080` 不在白名单 → Spring Security CORS 拒 preflight → 403. 用户怀疑完全正确.
+
+**修复 (纯增量, 只加不删, 零破坏)**: 双站 `ERP_CORS_ALLOWED_ORIGINS` 追加 `http://home.93gushi.com:18080` + `http://n150.93gushi.com:18080` (飞牛 canary 再加 `http://192.168.0.32:18080/8088`). 按 [[canary-first]] 规则先改飞牛验证再同步主站:
+- **飞牛 canary** (`192.168.0.32`): CORS 写在 compose **内联 `environment` 块** (会覆盖 `env_file: erp-env.list`), 改内联块 + `docker compose up -d --force-recreate --no-deps erp-backend-failover`. 验证: `OPTIONS` preflight 对 `Origin: http://home.93gushi.com:18080` 返回 `Access-Control-Allow-Origin` + 200/204 ✓.
+- **主站** (`192.168.0.150`): `erp-backend` 是裸 `docker run` 建的 (**无 compose label**), `docker compose up --force-recreate` 报"容器名冲突"拒管. 处理: `docker inspect` 抓 29 个现网 env (含 `SA_TOKEN_JWT_SECRET_KEY=ecdd4895...`, 保留避免全员重登) → 追加两 origin → `docker stop/rm` + `docker run --env-file backend_env_new.txt` 按原配置重建 (image `erp-system-backend:latest`, net `erp-system_erp-net`, 双 bind mount upload/backup, `:8080`). 验证: `OPTIONS http://home.93gushi.com:18080` → `Access-Control-Allow-Origin: http://home.93gushi.com:18080` + 204 ✓; `:18080` nginx 反代同源也 204 ✓.
+
+**三处双站部署坑 (写入 FAQ Q5.2)**:
+1. 飞牛 CORS 走 compose **内联 `environment`**, 改 `env_file` 无效 — 必须改内联块.
+2. 主站 `erp-backend` 无 compose label (裸 `docker run`), `compose up --force-recreate` 拒管 — 只能 `docker run --env-file` 重建.
+3. 改 env 后必须**重建容器** (`compose up -d --force-recreate` / `docker rm`+`docker run`), `docker restart` 只复用启动时烤进去的旧 env.
+
+**部署顺序遵循**: 飞牛 canary 先行验证无问题 → 主站同步 (用户 2026-10-08 拍板的长期规则, 见 [[canary-first]]). 保留 SA_TOKEN 密钥, 用户无需重登.
+
 ### v1.1.79 (2026-10-06) — 工作流模块 (设备维保/安全检查/应急预案/租客) + 上传字段 + next_due_date 看板 + Dify 自动归档
 
 **用户目标 (2026-10-06)**: 用户要把设备维保记录/安全检查记录/应急预案 (含租客) 等纸质台账搬到 ERP, 巡检员希望能"拍照 → 自动生成记录"。决策: ① 深度 = 简单 CRUD + 审核/反审核 + 删除 (**不做** 审批流转引擎 / 任务待办 / Dify 自动审核); ② 租客 = 新建主数据表 `base_tenant` (应急预案挂 `tenantId`); ③ 仅 PC 端 (不上 App); ④ Dify 工作流触发 = **永远只生成草稿**, 审核留人工二次确认。
