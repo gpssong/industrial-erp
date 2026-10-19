@@ -1,6 +1,18 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.79 hotfix-1 (2026-10-07 — 修复 MCP 审计 @Async @EventListener 漏写 sys_oper_log bug, McpAuditService 改直写 SysOperLogMapper.insert 同步写 + 双站 jar 重打重部署 md5 282abec0. 见 changelog §v1.1.79 hotfix-1) + v1.1.79 MCP: Hermes 多模态识别工单照片 → POST /api/mcp (JSON-RPC 2.0, 工具白名单 erp_create/query_maintenance_order) → 生成维保草稿; Hermes stdio 桥接脚本 scripts/erp_mcp_bridge.py (零第三方依赖, 协议由 Hermes 官方 stdio client 管) + sql/51_hermes_mcp_bot.sql 一站式建 HERMES_BOT 角色+用户(仅 work:maintain:add+list, 无 check/delete, 权限边界落 RBAC); docs/24_Hermes调ERP-MCP自动建档指南.md; security 4 条全落地 (人工审批/工具白名单/全量审计/RBAC 双收敛). 用户目标: 用户要把设备维保/安全检查/应急预案(含租客)等台账从纸笔搬到 ERP; 巡检员希望能拍照 → 自动生成记录. 用户决策: ① 深度 = 简单 CRUD + 审核/反审核 + 删除 (不做审批流转引擎); ② 租客 = 新建主数据表 base_tenant; ③ 仅 PC 端 (不上 App); ④ Dify/Hermes 触发永远只生成草稿, 审核留人工. 改动: ① 后端 8 entity (BaseTenant + 3 head + 3 detail + WfMaintain/WfSafety/WfEmergency head 加 audit + @Version + 雪花 ID), 4 service (简单台账 + 审核/反审核, 复用 BillNoGenerator 常量 BILL_WM/BILL_SIN/BILL_EP), 4 controller (SaCheckPermission work:*:list/add/edit/delete/check/uncheck orRole=admin); ② sql/50_v179_workflow_module.sql (4 表 CREATE TABLE IF NOT EXISTS + sys_menu M/C/B 节点 + 6 内置角色 PC 授权, information_schema 探测 client_type 列); ③ sql/50b_v179_workflow_uploads.sql (ALTER wf_emergency_plan 加 contact_phone/drill_photos/drill_attachment, wf_emergency_detail 加 step_photo, wf_safety_record 加 attachment, wf_safety_detail 加 risk_photo — 4 列全部信息守门幂等); ④ WfDashboardService + WfDashboardController GET /workflow/dashboard/upcoming?days=N — 聚合 3 类 next_due_date/next_drill_date, 按 dueDate ASC, daysLeft + type 字段, 任一 work:*:list perm 即可 (orRole=admin); ⑤ 前端 pc-web/src/api/workflow.js + 4 视图 (Tenant/Maintain/Safety/Emergency) — 增 contactPhone/drillPhotos/drillAttachment/stepPhoto/riskPhoto/attachment 字段, el-input + input[type=file] + el-dialog 图片预览, 演练照片 (逗号分隔多 URL) + 演练附件 (单文件 URL) + 演练步骤照片 (per-row) + 隐患照片 (per-row) + 整改照片 (per-row 多图) 完整 UI; ⑥ uploadFile() helper (走共享 axios instance, FormData 走 /api/system/upload/file — SaTokenConfig 已放白名单, /upload/** 已配静态资源路径); ⑦ dashboardApi.upcoming(days=30) + WfDashboard 卡片路由 (隐藏 — 用户选择先用原 dashboard 4 区结构, 后续 KPI 区+看板合并时再加); ⑧ docs/23_Dify工作流自动归档触发指南.md (完整 Dify 编排方案: HTTP 节点配置 / login 拿 token / 各端点 payload / 上传文件流 / 错误处理 + dify_bot 账号 SQL 配置). ⑨ v1.1.79 MCP 增量: backend/src/main/java/com/industrial/erp/modules/mcp/{McpController,McpToolRegistry,McpAuditService}.java + scripts/erp_mcp_bridge.py + scripts/verify_mcp.sh + sql/51_hermes_mcp_bot.sql + docs/24_Hermes调ERP-MCP自动建档指南.md. 部署 (双站 home + 飞诺 failover): ① 工作流 jar md5 f46bd2253768e69dd7b23d61a29e6ca2 (101,206,778 bytes; workflow classes 24 个 + 3 detail XML + 12 个 safelist perm row + 3 mcp classes 已全部打进 jar); pc-web dist entry index-C1cItXz9.js (workflow-*.js + 4 视图 .js/.css 全部 bake, 演练照片 / 整改照片 / 隐患照片 等 thumbnail 列已生成); 双站 sql50 + sql50b 已运行 (base_tenant 4 列全部命中 + wf_* 表 6 列全部命中); 双站 /api/workflow/{tenant,maintain,safety,emergency}/page 401→登录后 200, /api/workflow/dashboard/upcoming?days=30 已返回 1 条 home 实测 SIN202610060001, /api/system/upload/file (走 /api 前缀) 实测 200 返回 URL `/upload/yyyyMM/dd/xxx.png`; 飞诺 dist bind-mount 源为 /vol2/erp-system/pc-web/dist-new (而非 /vol2/erp-system/pc-web/dist, 部署要点). ② **v1.1.79 MCP 双站二次重部署** (修复审计 bug 后): 后端 jar md5 282abec0254fdce1e856bf8e406ad8d8 (101,219,358 bytes; McpController/McpToolRegistry/McpAuditService classes 全部打进), home (192.168.0.150) + 飞诺 (192.168.0.32) 各跑 sql/51_hermes_mcp_bot.sql (HERMES_BOT 角色 + hermes_bot 用户, 占位 bcrypt 部署后改), hermes_bot 真实密码 `hermesMCP2026!` 已 UPDATE 到两站 sys_user; 双站 /api/mcp (JSON-RPC 2.0) 已健康 — tools/list 返回 2 工具 (erp_create/query_maintenance_order, 无 check/delete), tools/call 建草稿 / 查单 200; 双站 sys_oper_log MCP 审计实写 (home 3 行 + 飞诺 1 行, module='MCP工具调用', businessType='MCP', method='[MCP] ERP_CREATE_MAINTENANCE', username='hermes_bot'); 测试草稿 home `WM202610070002` + 飞诺 `WM202610070001`. **修复要点**: McpAuditService 原 @Async @EventListener 异步写审计在 Hermes 频繁调 MCP 时 0 行落库, 改直写 SysOperLogMapper.insert 同步写, 一次 1 行开销可忽略, 100% 落库. 部署踩坑: fail2ban 多次 sudo 密码失败锁 90-120s 必须 sleep, fn docker cp jar 后必须手动 restart 才生效, DockerKit COPY 层缓存用 `docker cp` 强制覆盖最稳. **注意**: Hermes 端 mcp_servers.erp.enabled 仍为 false (待用户切换 true + 把 ERP_MCP_TOKEN 写进 ~/.hermes/.env + 重启 gateway), MiniMax M3 vision 当前 402 欠费自动降级 Agnes 3.0-flash. 零后端业务破坏 — 现有审核/反审核/CRUD 行为不变, 仅增字段. 前序版本 v1.1.78: App 端 AI 助手语音输入)
+**当前版本**: v1.1.103 hotfix-1 (2026-10-19 — 开工仓库硬校验改降级放行. 现象: home 主站 PD202610190005 点开工报 "生产单未填仓库, 且仓库表中无默认仓库". 根因: home 3 个仓库(成品/原料/半成品) is_default 全 0 + 该单 warehouse_id=NULL + BOM 有明细 → 自动领料展开时仓库回退两个条件都命中不了 → PrdOrderService.release L255 抛错. 用户拍板: "开工不需要填仓库, 入库才需要" → 仓库是领料/入库环节数据, 不该阻塞开工主流程. 修法: release() 仓库缺失不再 throw, 改记 warn 日志 + 跳过自动领料展开 + 状态照样置 RELEASED/PRODUCING, 用户后续手动到「领料管理」建领料单时再填仓库 (与上一轮 "无 BOM 降级" 同一思路: 开工做能做的, 缺哪块数据降级跳过哪块, 不打死工单). 纯后端 1 文件 (PrdOrderService.release), 无 DDL/前端. home baked-in jar md5 `1c95906f` (101,460,004B) build --no-cache + rm -f + run 三连, PD202610190005 实测开工 200 → bill_status=PRODUCING + release_name=gpssong. 飞牛 canary 待同步 (需对齐同 jar md5). 前序 v1.1.103 正文:
+
+**v1.1.103 (2026-10-19 — App H5 端 4 处修复一轮, 含 v1.1.101~v1.1.102 全批 home 主站同步. 本轮 4 处: ① **App H5 502 Bad Gateway** — home 端 `erp-app-h5` 的 nginx.conf 写死 backend 容器 IP `172.18.0.4`, backend 重启换 IP 后反代 502, 改容器名 `erp-backend` (Docker DNS) + 转 bind-mount 形态 (消除"重建镜像回退"风险); ② **App H5 403 Invalid CORS request** — App H5 页面 origin `http://192.168.0.150:18090` 不在 ERP_CORS_ALLOWED_ORIGINS 白名单, Spring Security `setAllowCredentials(true)` + 精确白名单不匹配 → 403, 改 1 行 `config.addAllowedOriginPattern("http://192.168.*:*")` 一次覆盖整个内网段 (Spring Framework 6 `setAllowedOriginPatterns` 支持 `*` 通配); ③ **生产管理 4 入口缺 3** — 工作台生产管理 tab 只显示 1 个「生产加工单」, 缺扫码报工/半成品入库/成品入库/排程, dist chunk 全在, perm 全有, 模块开关 production 开, 真因: sql/53/110/113 seed 只授 PC 端, 0 行 APP 端授权 → LoginVO.appMenus 按 client_type='APP' 过滤拿不到 perm → dashboard visibleMenus 拿不到入口, 写 sql/124_v1103_home_production_app_perm.sql 给 6 业务角色 × 9 production perm 补 APP 授权 (NOT EXISTS 守门), 灌到 home 主站, appMenus 21→30 行, production 节点 4→13; ④ **备份 403 @SaCheckRole("admin") 死注解** — SysBackupController 5 写端点 + AuthController.setpwd 共 6 处 `@SaCheckRole("admin")` 字面量, SUPER_ADMIN 角色码不匹配 → 一律 403, 删 6 处注解 + 重打 jar 双站 docker cp + restart. 部署踩坑: home backend 是镜像内置 jar (build --no-cache + docker rm -f + docker run 三连, restart 不切 image); gpssong /tmp 只读 (root:wheel 755) 写脚本要落 /volume3/; --env-file 在 sudo 隔离下不可见 (gpssong 创建, sudo 看不到), 用 -e 17 个 env 一条条传; 容器内 baked-in jar md5 验证最快 `docker run --rm --entrypoint md5sum <image> /opt/app/app.jar` (不进容器). 用户操作: App 端退出重登刷 `localStorage.erp_permissions` (login.permissions 是混合端含全 29 个 production perm, perm-only 兜底会命中), 工作台生产管理 tab 4 个入口全显. 飞牛 canary 状态: 2026-10-19 已与 home 同 jar md5 (`911f01e0...` 101459745 bytes) + 同步 CORS 修复 + 已用 bind-mount 形态 (无需改动). memory 新增 erp-cors-192168-pattern.md + erp-app-client-type-perm-sync.md.
+
+**前序版本**: v1.1.102 (2026-10-18 — 全批同步 home 主站. 含 hotfix-1 CORS 飞牛白名单补内网直连 origin + hotfix-2 生产管理子标签 + 成品入库 APP 授权 + 部署 + 飞牛 App H5 bind-mount 同步. 飞牛 canary 完整版 v1.1.102 部署: 后端 jar md5 `911f01e0...` (101459745 bytes) + pc-web dist-new 全量替换 + app-h5 bind-mount 转换 + sys_menu 数据治理 + sql/110 prd_semi_in 表 + perm 部署. 前序 v1.1.101: XK 原料进货检验全流程 5 commit)
+
+**前序版本**: v1.1.101 (2026-10-15 — XK 原料进货检验 (Phase 1 IQC 进货查验, 食品接触塑料吹膜厂 XK16-204 审核) 5 commit 完整版. 决策: ① 范围 = 5 检验类合一 (IQC/FAI/PAT/OQC/OQC_RETURN) head+detail + 3 签字, 不重复造独立表; ② 飞牛 canary 先行; ③ 照片复用 /system/upload/file. 改动: ① 后端 12 Java 新文件 (QmsIqcItem/QmsIqcAttachment entity+mapper+service+controller) + 8 改 (XK 门禁 + PurReceiptService.createFromIqc + IQC→Receipt 强校验); ② sql/115/116 (2 新表 + 2 perm + 3 角色×PC 授权 + sys_menu 节点); ③ App 端 pages/scan/in.vue 重写 (IQC 流程) + pc-web 端 IQC 详情 + 5 处文件登记. 飞牛 canary 部署: 后端 mvn clean package (101.5MB) + pc-web dist (含 IqcDetail chunk) + App H5 bind-mount + 双站 sql/115/116 灌库. 验证: home 飞牛 PC 端 IQC 详情页加载 + 进货查验列表 8 行 + 飞牛后端 healthy. 前序 v1.1.100: 升 App 版本 1.1.91 → 1.1.100 + 工作台 8+ 模块扩 perm + 改 tabBar 5 tab + dashboard perm 入口)
+
+**前序版本**: v1.1.91 (2026-10-10 — XK 合规中心 (食品接触塑料吹膜厂 XK16-204 审核) 后端接入 + 飞牛 canary 部署. 用户 3 决策: ①方式 A 复用 (基础数据走 mes/workflow/em/purchase 既有 module, XK 只加 2 新表 xk_safety_check + xk_audit_log + 1 新 module modules/xk, 不重复造独立一套); ②飞牛 canary 先行 (home 待飞牛稳定 24h 后同步, 本次只飞牛); ③照片复用 /system/upload/file. 新增 modules/xk (2 entity XkSafetyCheck/XkAuditLog + 2 mapper + XkSafetyCheckService + XkAuditService + XkController /xk/* 9 端点: dashboard 聚合 report+mes+qms+wf+em / material 走 PurReceiptService / trace 走 MesReportService.batchTrace / maintenance 走 WfMaintain+EquipmentService / safety 走新表 / print+audit 走新表 + 同步直写 SHA256 审计, McpAuditService 教训). 改 2 前端文件 (pc-web/src/api/xk.js + app/src/api/xk.js: sleep+mock 全换 request 真请求, 保留函数签名 → 视图 0 改动; app index.js 补 export {request}). sql/55_xk_compliance.sql (2 新表 + 2 sys_config DASHBOARD_CONFIG/XK_AUDIT_RETENTION_YEARS + 2 F perm xk:audit:{list,archive} + 3 角色×PC 授权 6 行, 全 information_schema 探测幂等). 版本号 5 处对齐 1.1.91. 飞牛验证: 后端 healthy + /api/xk/* 9 端点登录态全 200 (dashboard 真实 ERP KPI totalSales=724096 / maintenance 4 条真 wf_maintain_record / print retentionYears=2) + pc-web dist-new 158 assets + xk-KIMEhkpR.js 在线 HTTP 200 / app H5 bind-mount 71 assets 在线. home 未部署 (待批准). 前序 v1.1.90: MES 第二阶段 质量/工艺/设备)
+
+**前序版本**: v1.1.80 (2026-10-09 — MES 第一阶段「打开车间黑箱」: 工单管理+扫码报工 + 物料批次绑定. 用户 4 决策: ① 工序按 BOM/产品定制 (mes_process_def, 开单展开 prd_process 死表); ② 报工到量+合格/不良+操作人; ③ 批次主表 mes_batch + 流向表 mes_batch_link (原料批领料时登记, 成品批成品入库时登记, 膜卷 SEMI 二期); ④ App 扫飞鹅生产单标签 (billNo QR) 报工. 新增 modules/mes (4 entity + 4 mapper + MesReportService + MesController) + sql/53_v180_mes_workorder.sql (3 新表 + prd_process 加 from_def_id + production:report:{add,list} perm 授 6 角色); PrdOrderService.release 开单展开工序 + PrdRequisitionService.check 领料登记 RAW 批 + PrdFinishedInService.check 成品入库登记 FG 批 (两边界同步直写 sys_oper_log module=MES报工); PC 端 工单进度/工序配置 两视图 + App 端 扫码报工 页 + dashboard/角色白名单登记; 报工只动 prd_process 不动库存 (半成品在制品账二期), 批次「领料时才登记」(不碰采购入库). 前序 v1.1.79 hotfix-1)
+
+**前序版本**: v1.1.79 hotfix-1 (2026-10-07 — 修复 MCP 审计 @Async @EventListener 漏写 sys_oper_log bug, McpAuditService 改直写 SysOperLogMapper.insert 同步写 + 双站 jar 重打重部署 md5 282abec0. 见 changelog §v1.1.79 hotfix-1) + v1.1.79 MCP: Hermes 多模态识别工单照片 → POST /api/mcp (JSON-RPC 2.0, 工具白名单 erp_create/query_maintenance_order) → 生成维保草稿; Hermes stdio 桥接脚本 scripts/erp_mcp_bridge.py (零第三方依赖, 协议由 Hermes 官方 stdio client 管) + sql/51_hermes_mcp_bot.sql 一站式建 HERMES_BOT 角色+用户(仅 work:maintain:add+list, 无 check/delete, 权限边界落 RBAC); docs/24_Hermes调ERP-MCP自动建档指南.md; security 4 条全落地 (人工审批/工具白名单/全量审计/RBAC 双收敛). 用户目标: 用户要把设备维保/安全检查/应急预案(含租客)等台账从纸笔搬到 ERP; 巡检员希望能拍照 → 自动生成记录. 用户决策: ① 深度 = 简单 CRUD + 审核/反审核 + 删除 (不做审批流转引擎); ② 租客 = 新建主数据表 base_tenant; ③ 仅 PC 端 (不上 App); ④ Dify/Hermes 触发永远只生成草稿, 审核留人工. 改动: ① 后端 8 entity (BaseTenant + 3 head + 3 detail + WfMaintain/WfSafety/WfEmergency head 加 audit + @Version + 雪花 ID), 4 service (简单台账 + 审核/反审核, 复用 BillNoGenerator 常量 BILL_WM/BILL_SIN/BILL_EP), 4 controller (SaCheckPermission work:*:list/add/edit/delete/check/uncheck orRole=admin); ② sql/50_v179_workflow_module.sql (4 表 CREATE TABLE IF NOT EXISTS + sys_menu M/C/B 节点 + 6 内置角色 PC 授权, information_schema 探测 client_type 列); ③ sql/50b_v179_workflow_uploads.sql (ALTER wf_emergency_plan 加 contact_phone/drill_photos/drill_attachment, wf_emergency_detail 加 step_photo, wf_safety_record 加 attachment, wf_safety_detail 加 risk_photo — 4 列全部信息守门幂等); ④ WfDashboardService + WfDashboardController GET /workflow/dashboard/upcoming?days=N — 聚合 3 类 next_due_date/next_drill_date, 按 dueDate ASC, daysLeft + type 字段, 任一 work:*:list perm 即可 (orRole=admin); ⑤ 前端 pc-web/src/api/workflow.js + 4 视图 (Tenant/Maintain/Safety/Emergency) — 增 contactPhone/drillPhotos/drillAttachment/stepPhoto/riskPhoto/attachment 字段, el-input + input[type=file] + el-dialog 图片预览, 演练照片 (逗号分隔多 URL) + 演练附件 (单文件 URL) + 演练步骤照片 (per-row) + 隐患照片 (per-row) + 整改照片 (per-row 多图) 完整 UI; ⑥ uploadFile() helper (走共享 axios instance, FormData 走 /api/system/upload/file — SaTokenConfig 已放白名单, /upload/** 已配静态资源路径); ⑦ dashboardApi.upcoming(days=30) + WfDashboard 卡片路由 (隐藏 — 用户选择先用原 dashboard 4 区结构, 后续 KPI 区+看板合并时再加); ⑧ docs/23_Dify工作流自动归档触发指南.md (完整 Dify 编排方案: HTTP 节点配置 / login 拿 token / 各端点 payload / 上传文件流 / 错误处理 + dify_bot 账号 SQL 配置). ⑨ v1.1.79 MCP 增量: backend/src/main/java/com/industrial/erp/modules/mcp/{McpController,McpToolRegistry,McpAuditService}.java + scripts/erp_mcp_bridge.py + scripts/verify_mcp.sh + sql/51_hermes_mcp_bot.sql + docs/24_Hermes调ERP-MCP自动建档指南.md. 部署 (双站 home + 飞诺 failover): ① 工作流 jar md5 f46bd2253768e69dd7b23d61a29e6ca2 (101,206,778 bytes; workflow classes 24 个 + 3 detail XML + 12 个 safelist perm row + 3 mcp classes 已全部打进 jar); pc-web dist entry index-C1cItXz9.js (workflow-*.js + 4 视图 .js/.css 全部 bake, 演练照片 / 整改照片 / 隐患照片 等 thumbnail 列已生成); 双站 sql50 + sql50b 已运行 (base_tenant 4 列全部命中 + wf_* 表 6 列全部命中); 双站 /api/workflow/{tenant,maintain,safety,emergency}/page 401→登录后 200, /api/workflow/dashboard/upcoming?days=30 已返回 1 条 home 实测 SIN202610060001, /api/system/upload/file (走 /api 前缀) 实测 200 返回 URL `/upload/yyyyMM/dd/xxx.png`; 飞诺 dist bind-mount 源为 /vol2/erp-system/pc-web/dist-new (而非 /vol2/erp-system/pc-web/dist, 部署要点). ② **v1.1.79 MCP 双站二次重部署** (修复审计 bug 后): 后端 jar md5 282abec0254fdce1e856bf8e406ad8d8 (101,219,358 bytes; McpController/McpToolRegistry/McpAuditService classes 全部打进), home (192.168.0.150) + 飞诺 (192.168.0.32) 各跑 sql/51_hermes_mcp_bot.sql (HERMES_BOT 角色 + hermes_bot 用户, 占位 bcrypt 部署后改), hermes_bot 真实密码 `hermesMCP2026!` 已 UPDATE 到两站 sys_user; 双站 /api/mcp (JSON-RPC 2.0) 已健康 — tools/list 返回 2 工具 (erp_create/query_maintenance_order, 无 check/delete), tools/call 建草稿 / 查单 200; 双站 sys_oper_log MCP 审计实写 (home 3 行 + 飞诺 1 行, module='MCP工具调用', businessType='MCP', method='[MCP] ERP_CREATE_MAINTENANCE', username='hermes_bot'); 测试草稿 home `WM202610070002` + 飞诺 `WM202610070001`. **修复要点**: McpAuditService 原 @Async @EventListener 异步写审计在 Hermes 频繁调 MCP 时 0 行落库, 改直写 SysOperLogMapper.insert 同步写, 一次 1 行开销可忽略, 100% 落库. 部署踩坑: fail2ban 多次 sudo 密码失败锁 90-120s 必须 sleep, fn docker cp jar 后必须手动 restart 才生效, DockerKit COPY 层缓存用 `docker cp` 强制覆盖最稳. **注意**: Hermes 端 mcp_servers.erp.enabled 仍为 false (待用户切换 true + 把 ERP_MCP_TOKEN 写进 ~/.hermes/.env + 重启 gateway), MiniMax M3 vision 当前 402 欠费自动降级 Agnes 3.0-flash. 零后端业务破坏 — 现有审核/反审核/CRUD 行为不变, 仅增字段. 前序版本 v1.1.78: App 端 AI 助手语音输入)
 
 **前序版本**: v1.1.76 hotfix-1 (2026-10-05 — 飞鹅打印日志 `system:feie:log` 403 修复. 用户反馈: PC 端 系统设置 → 飞鹅打印日志 tab 打开立刻 `GET /api/feie/log/page?... 403`. 根因: sql/21 建 system:feie:log 节点 (C 型, parent=飞鹅打印机) 时只授给老角色码 'admin'/'manager', 后续角色码迁移到 6 新内置角色 (SUPER_ADMIN/PURCHASE_MGR/SALES_MGR/WAREHOUSE_MGR/PRODUCTION_MGR/FINANCE) 时漏了这条授权 → @SaCheckPermission 对所有新角色拦截 403. sql/48 不动 feie 与 AI 助手无关, 是历史遗漏授权. 修复: 新 seed sql/49_v176hotfix_feie_log_grant.sql 给 6 新内置角色 × PC 各补一行 system:feie:log 授权 (沿用 sql/41 决策飞鹅菜单保持 PC-only 不授 APP; INSERT IGNORE + information_schema 探测 client_type 老库 2 列退化). **无后端/前端代码改动**, 无需重建容器/jar/dist, 用户重登或 token 刷新即生效. 教训: 角色码迁移时必须**回头扫所有 C/F 型 sys_menu 节点**是否都补授到新角色码——光给 M 型目录授权没用, 端点门禁认的是按钮/C 节点 perms). 前序版本 v1.1.75: AI 集成全套)
 
@@ -40,7 +52,135 @@
 
 **再再前序**: v1.1.55 hotfix-2 (App 端 canCheck/canUncheck 走 getAppPermissions() 而非混合端 getPermissions() — 后端 selectPermsByUserId 不分端, 临时方案靠前端 storage 派生, 受 APK 升级/storage 残留影响; R9 上线后 getAppPermissions() 可继续保留作 fallback, 但不再依赖)
 
-## changelog (倒序)
+**设计原则 (R16 — uni-app showLoading/hideLoading 配对规范)**:
+- **showLoading 与 hideLoading 必须配对**: 任何 `uni.showLoading(...)` 调用必须在同一函数的 `try`/`catch`/`finally` 三处至少有一处对应的 `uni.hideLoading()` 兜底
+- **catch 里 hideLoading 的前提是 try 内 showLoading**: 如果函数体**没 showLoading**, catch 里就不应调 hideLoading (uni-app 报 `hideLoading` 无对应 showLoading 警告, 干扰诊断)
+- **401 路径**: 拦截器会自动 `reLaunch` 跳登录页, hideLoading 不影响; 但 showLoading 的 mask=true 会挡住跳转, 401 路径前最好 hideLoading 一次
+- **R13 拦截器双弹规范**: 拦截器已弹后端 msg (网络错/反代 502/业务 4xx), 组件 catch 不再 `uni.showToast` 重复弹; 但 showLoading/hideLoading 不在此规则内 (loading 是 UI 状态, 与 toast 不同)
+- **统一模板**:
+  ```js
+  async function onXxx() {
+    if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: 'Xxx中...', mask: true })
+    try {
+      await api.xxx()
+      if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+      // 业务 toast
+    } catch (e) {
+      if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+      // 业务弹窗 / 静默 (R13)
+    } finally {
+      // 兜底: 必 hideLoading (uni-app 文档推荐)
+      if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    }
+  }
+  ```
+- **例外**: 不 showLoading 的函数 catch 里也不 hideLoading (例如 `onDelete` 静默调 API, 失败 console.warn, 没 showLoading 就不需要 hideLoading)
+
+**v1.1.103 改动**:
+1. **App H5 502 Bad Gateway 修复** — home 端 `erp-app-h5` 容器 nginx.conf 写死 backend 容器旧 IP `172.18.0.4:8080`, backend 重启后换成 `172.18.0.5` → nginx `Connection refused` → 502 → 前端兜底 403 "服务暂不可用". 改容器名 `erp-backend` (Docker DNS) + 转 bind-mount 形态
+2. **App H5 403 "Invalid CORS request" 根治** — Spring Security `setAllowCredentials(true)` 精确白名单不匹配 App H5 页面 origin `192.168.0.150:18090`, 加 `config.addAllowedOriginPattern("http://192.168.*:*")` 一次覆盖整个内网段
+3. **备份 403 @SaCheckRole("admin") 死注解** — `SysBackupController` 5 写端点 + `AuthController.setpwd` 共 6 处 `@SaCheckRole("admin")`, SUPER_ADMIN 角色码不匹配一律 403; 删 6 处注解 + 重打 jar 双站 docker cp
+4. **App H5 生产管理 4 入口缺 3** — home 主站 `sys_role_menu` 上 9 个 production 核心 perm 在 6 业务角色全 0 行 APP 授权 → appMenus 拿不到 perm → dashboard 入口不显示. 写 `sql/124_v1103_home_production_app_perm.sql` 给 6 角色 × 9 perm 补 APP 授权, NOT EXISTS 守门幂等
+5. **App H5 开工 BOM 硬阻断容错** — 后端 `PrdOrderService.release` 在 `bomId==null` 时直接 `throw "未配置BOM, 无法展开领料单"`. 工业品吹膜厂实际场景工单常先开工后补 BOM, 不该硬阻断. 改成**无 BOM 降级** (标 RELEASED, 跳过自动领料单 + 跳过工序展开, 日志 warn 提醒, 用户后续手动建领料). 同步修 `order-detail.vue` `onDelete` catch 里多余的 `hideLoading` 调用 (违反 R16)
+6. **App H5 编辑工单 BOM 字段截断** — `BaseProductService.detail` 不返回 bomName (避免 base→production 模块循环依赖), 前端 `onProductChange` 主动调 `bomApi.detail(p.bomId)` 拿 bomCode/bomName, 不再显示 19 位雪花 ID 截断
+7. **开工仓库硬校验改降级放行 (hotfix-1)** — home 3 仓库 `is_default` 全 0 + 工单 `warehouse_id=NULL` + BOM 有明细 → 自动领料展开仓库回退失败 → `release()` L255 抛 "生产单未填仓库...". 用户拍板 "开工不需要填仓库, 入库才需要". 改法: 仓库解析顺序不变 (生产单自带 → 默认仓库 → 都没有), 但 "都没有" 时**不再 throw**, 改记 warn + 跳过自动领料展开, 状态照样置 RELEASED/PRODUCING (用 `canExpand = !bomNoDetails && reqWarehouseId != null` 统一判定, 弃 `-1L` 哨兵值); 开工核心动作 (XK 留痕 + 工序展开) 与仓库无关不受影响. 用户后续手动到「领料管理」建领料单时再填仓库
+
+**改动文件**:
+| 文件 | 类型 | 说明 |
+|---|---|---|
+| `backend/.../config/SecurityConfig.java` | 改 | + `addAllowedOriginPattern("http://192.168.*:*")` |
+| `backend/.../system/controller/SysBackupController.java` | 改 | 删 5 处 `@SaCheckRole("admin")` + import |
+| `backend/.../auth/controller/AuthController.java` | 改 | 删 `setpwd` 1 处 `@SaCheckRole("admin")` + import |
+| `backend/.../production/service/PrdOrderService.java` | 改 | release() 无 BOM 降级 (throw→warn+RELEASED) + **仓库缺失降级** (hotfix-1, `canExpand` 判定, 弃硬校验) |
+| `app/src/pages/production/order-detail.vue` | 改 | onDelete catch 删多余 hideLoading + 新增 Edit/Delete |
+| `app/src/pages/production/order-list.vue` | 改 | 操作列加编辑/删除按钮 |
+| `app/src/pages/dashboard/index.vue` | 改 | (v1.1.102 hotfix-2 已加 8 个 XK 子分类入口) |
+| `sql/124_v1103_home_production_app_perm.sql` | 新 | 6 角色 × 9 perm 补 APP 授权 |
+| `pc-web/src/views/production/Order.vue` | 改 | 编辑/删除按钮 + BOM 主动拉取 |
+
+**部署** (双站 home + 飞牛):
+- **后端 jar**: Mac mvn clean package → **hotfix-1 最新 md5 `1c95906f9af68a9cd63beb2760b97aeb` (101,460,004B)** (v1.1.103 正文 md5 `911f01e0...` 101,459,745B) → home `docker build --no-cache` + `docker rm -f erp-backend` + `docker run` (17 env 走 `run_home_backend.sh`, --env-file 在 sudo 隔离下不可见) → baked-in jar md5 验证 `docker exec erp-backend md5sum /opt/app/app.jar` → 飞牛 `cat|ssh` 流 jar → `docker cp /opt/app/app.jar` → `docker restart`
+- **sql/124**: 双站 mysql 各跑一遍 (NOT EXISTS 守门, 重复灌安全)
+- **前端**: `npm run build` → 飞牛 `/vol2/erp-system/pc-web/dist-new` 全量替换 + home `/volume3/docker/erp-system/pc-web-new/dist` 全量替换 + `docker restart` 双站 (bind-mount 即时生效)
+- **App H5 容器 (home)**: `nginx.conf` 改容器名 + 转 bind-mount; **App H5 容器 (飞牛)**: 已是 bind-mount 形态无需改; **APK 产物**: 本次没改 H5 端代码, 不需要重打 APK
+
+**验证**:
+- **home CORS**: 容器内 baked-in jar md5 `911f01e0...` ✓ + 登录 `Origin: http://192.168.0.150:18090` 200 + `Origin: http://192.168.1.100:8080` 200 (profile 绝对 base) ✓
+- **飞牛 CORS**: `Origin: http://192.168.0.150:18090` 200 ✓
+- **App H5 入口**: 灌 sql/124 后 gpssong 重登, 生产管理 tab 4 个入口全显 (生产加工单 / 扫码报工 / 半成品入库 / 成品入库) + 5 个 XK 子分类
+- **开工容错**: `PD202610170001` (无 BOM) 点开工 → 标 RELEASED, 不再报 "请检查BOM配置", 不阻断
+- **开工仓库降级 (hotfix-1)**: `PD202610190005` (BOM 有明细 + warehouse_id=NULL + 库中无默认仓库) 点开工 → 200 成功, bill_status 落 `PRODUCING` (BOM 有明细工序展开成功) + `release_name=gpssong` (XK 留痕), 不再报 "生产单未填仓库". 容器内 jar md5 `1c95906f` 与本地一致
+
+**回滚**:
+- 后端 jar 双站回退到 v1.1.102 jar (md5 `61944e8abba0afbc914072888b76f0da`) + docker cp + restart (hotfix-1 则回退到 v1.1.103 正文 md5 `911f01e0...`)
+- 删 `sql/124_v1103_home_production_app_perm.sql` 灌的 54 行授权 (DELETE FROM sys_role_menu WHERE menu_id IN (...))
+- nginx.conf 改回 IP `172.18.0.5` (但下次 backend 重启又会 502, 推荐保留容器名方案)
+
+**边界**:
+- CORS 通配 `http://192.168.*:*` 仅覆盖内网段 (192.168.0.0/16), 公网 origin 仍走精确白名单 (v1.1.79+ 已加 home.93gushi.com:8088/8089 等)
+- BOM 降级后用户**手动**到「领料管理」创建领料单; 后续若补 BOM, 该工单不会再自动展开领料 (已 RELEASED)
+- 没配 `mes_process_def.is_default=1` 工序链的产品, 即使 BOM 在也跳过工序展开 (零破坏, 不报工)
+- **仓库降级 (hotfix-1)**: 仓库缺失时只跳过"自动领料展开", 开工主流程 (留痕/工序) 照常; 用户后续手动建领料单时**必须**填仓库 (`prd_requisition.warehouse_id NOT NULL`); 若想让未来自动展开有仓库可用, 可在「仓库管理」设一个 `is_default=1` 默认仓库
+
+**前序版本**: v1.1.99 (2026-10-17 — 参考 ruoyi-vue-pro MES 完善车间闭环: C1 工单状态机接入工序完工(硬门禁) + C2 批次全链追溯(料→半成品→成品→客户) + C3 质量门禁对称化(OQC/OQC_RETURN 软门禁)+ 工艺参数生效 + C4 生产排程/设备 OEE(2 新表) + 附带清理(Trace 去 mock + 维保双表统一). 用户拍板 C1–C4 全做 + C1 完工走硬门禁. 实证诊断 6 缺口: ① STATUS_PRODUCING 死枚举 0 处写入 + finish() 不校验工序全完工; ② 批次追溯 3 段断链(成品→客户 customer_id 永 NULL / 半成品→原料 rawBatchNo 硬编码 NULL / 无服务端全链递归); ③ OQC/PAT/OQC_RETURN 只建草稿不校验合格(IQC/FAI 有硬门禁但不对称); ④ mes_process_param.is_critical+上下限有字段无判定逻辑; ⑤ 排程/OEE/设备占用全无; ⑥ xk/Trace.vue 是 mock 壳. 后端改: MesReportService(C1 allProcessesFinished/listUnfinished helper + C2 traceFull BFS 全链/resolveRawBatchForOrder/registerFgOutToCustomer + C3 工艺参数越限判定), PrdOrderService(release 写 STATUS_PRODUCING + finish 硬门禁), PrdFinishedInService(check 双硬门禁 工序未完工/无合格OQC 不能入库), PrdSemiInService(check raw 取值不再 null), SalDeliveryService(check 每行写 FG_OUT link 带 customer_id), SalReturnService(check OQC_RETURN 软门禁), QmsInspectionService(+findOqc/hasPassedOqc/findOqcReturn/hasPassedOqcReturn), EmMaintainOrderService(+pageForXk 不校验本 service perm 供 XK 复用), MesController(+trace-full/schedule/oee/process-time 端点), XkController(设备维保从 WfMaintainRecord 老表切 EmMaintainOrder 新表 + +traceFull 端点). 后端新: MesSchedule/MesProcessTime entity + 2 mapper + MesScheduleService(排程 CRUD+冲突检测+设备承接校验+OEE). sql/113_v199_mes_schedule_oee.sql (2 新表 mes_schedule/mes_process_time + 2 F perm production:schedule:{list,edit} + 6 内置角色×PC 授权, 仿 sql/54 幂等). 前端: 新 Schedule.vue(排程甘特/列表/OEE 3 tab) + api/production.js(mesApi 加 6 C4 方法+batchTraceFull) + 改 Order.vue/Trace.vue/报工页 report.vue/Trace 去 mock(api/xk.js 移 unsplash 假图+kg 占位, 时间线走 /xk/trace/full)/router/index.js(+production/schedule)/MainLayout.vue. 飞牛 canary 部署: C4 SQL 灌库(2表+2perm+24行角色授权命中) + 后端 mvn clean package 101MB + **飞牛 jar 必须 docker cp 覆盖 erp-backend-failover:/opt/app/app.jar + docker restart**(jar 烘焙进镜像, cp+restart 无效) + 前端 dist 146 js dist-new 全量替换. 验证: 后端 healthy /api/auth/captcha 200 + 新端点 /mes/batch/trace-full//mes/schedule/page//mes/oee/1//xk/trace/full 全 401(路由已注册+门禁正常, 非 404) + Schedule-CNITiQiQ.js 在线 200 + mes_schedule/mes_process_time SHOW TABLES 命中. 边界: C1–C3 零 schema 回滚=还原 Java; C4 回滚=还原 Java + DROP 2 表 + 删 2 perm; 报工仍不动 inv_stock(WIP 账二期); production:schedule:{list,edit} 是新 perm 飞牛已授权 6 角色但已有登录用户 Sa-Token session 缓存旧 perm 数组 → 需退出重登才见"生产排程"菜单; 可选 sql/112_v199_batch_link_backfill.sql 回填历史 sal_delivery FG 批→客户 link(默认未写未跑); home NAS(192.168.0.150) 未同步待批准. 前序 v1.1.91: XK 合规中心)
+
+**4 个独立 bug 一轮修完, home 主站全部命中, 飞牛 canary 状态对齐**:
+
+#### 1. App H5 502 Bad Gateway
+- **症状**: `http://192.168.0.150:18090/#/pages/dashboard/index` 进工作台后, 任何 `/api/*` 请求 502 (后端连不上)
+- **根因**: home 端 `erp-app-h5` 容器 nginx.conf line 30 写死 `proxy_pass http://172.18.0.4:8080/api/`, 这是 backend 容器**旧** IP, backend 重启后 Docker 网络重分配, 容器从 `172.18.0.4` 换成 `172.18.0.5` → nginx Connection refused → 502 → 前端兜底成 403 "服务暂不可用"
+- **修法**: 改容器名 `erp_backend:8080` (Docker 网络 DNS 自动解析, 不依赖 IP), 推 `docker cp` 进容器 + `nginx -s reload` (无 full container restart); 同时把 home 端 `erp-app-h5` 从镜像内置 conf 改成 **bind-mount** 形态 (对齐飞牛 canary, 消除"重建镜像回退"风险)
+- **验证**: `GET /api/auth/captcha` via app-h5 → 200 + 1743B, 容器名 `erp-backend` DNS 解析成功
+
+#### 2. App H5 403 "Invalid CORS request"
+- **症状**: App H5 页面 `POST /api/auth/login` 返回 403 + `ct=` (Content-Type 空), 弹"服务暂不可用, 请稍后重试"
+- **根因**: App H5 页面 origin `http://192.168.0.150:18090` 不在 backend `ERP_CORS_ALLOWED_ORIGINS` 白名单 (白名单全是 host 域名 8088/18080/80/5173 等, 没有任何一条 `192.168.*:*` 端口), 跨域登录触发 CORS 预检, Spring Security `setAllowCredentials(true)` + 精确白名单不匹配 → 403
+- **根治** (1 行代码): `backend/.../config/SecurityConfig.java` 加 `config.addAllowedOriginPattern("http://192.168.*:*")`. Spring Framework 6 `setAllowedOriginPatterns` 支持 `*` 通配 host 段, 一次覆盖整个内网段, 后续新加内网 IP 也不用动
+- **为什么用 Pattern 不是逐条加**: 一次 `http://192.168.*:*` 覆盖整个内网段, 比逐条加 17 个 origin 优雅
+- **验证**: home `Origin: http://192.168.0.150:18090` + `Origin: http://192.168.1.100:8080` (profile 绝对 base) 都 200 + token
+
+#### 3. 生产管理 4 入口缺 3 (扫码报工/半成品入库/成品入库)
+- **症状**: 用户截图 `http://192.168.0.150:18090/#/pages/dashboard/index` 生产管理 tab 只显示 1 个「生产加工单」
+- **排查** (4 层):
+  - dist chunk `pages-production-report.DGt6E7Nn.js` 在 ✓, 字符串 "扫码报工" 在 ✓
+  - 模块开关 `production.enabled=true` ✓
+  - 登录 perm 数组 `production:report:list/add` 含 ✓ (gpssong 登录实测 235 个 perm)
+  - dashboard perm-only 兜底代码 (line 270-278) 在 ✓
+- **真正根因** (最后一层): `LoginVO.appMenus` 按 `client_type='APP'` 过滤 `sys_role_menu`. home 主站同步 sql seed 时漏灌 APP 端授权 — 9 个 production 关键 perm 在 home 0 行 APP 授权 (PC:APP 授权数 243:29 5-10 倍差距). appMenus 21 行只含 production:order:list, 其它 9 个 perm 不进, dashboard 兜底代码读 `serverMenus` 拿不到
+- **修法**: 写 `sql/124_v1103_home_production_app_perm.sql`, 给 6 业务角色 × 9 production perm 补 APP 授权, NOT EXISTS 守门幂等; 灌到 home 后复测 appMenus 21→30 行, production 节点 4→13
+- **用户操作**: App H5 退出登录 → 重登 gpssong/850225song → 工作台生产管理 tab 4 个入口全显 (生产加工单 / 扫码报工 / 半成品入库 / 成品入库)
+
+#### 4. 备份 403 @SaCheckRole("admin") 死注解
+- **症状**: home 数据备份页「立即备份」`POST /api/system/backup/manual` 报 403
+- **根因** (区别于"缺 perm 节点"和"缺表/列"两类): 代码级死注解. `SysBackupController` 5 个写端点 + `AuthController.setpwd` 共 6 处用 `@SaCheckRole("admin")`. Sa-Token `StpUtil.hasRole("admin")` 字面量匹配, 但项目角色码已迁移到 6 新内置角色 (SUPER_ADMIN/PURCHASE_MGR/...), 没有任何角色叫 `admin` → 全部 403
+- **方法体已有正确兜底**: `permService.requireSuperAdmin()` → `SecurityContext.isSuperAdmin()` (认 uid=1 或 session `isAdmin=1`). 外层死注解先拦了, 永远到不了方法体
+- **修法** (纯代码, 需重打 jar): 删 6 处 `@SaCheckRole("admin")` + 各自未用的 `import cn.dev33.satoken.annotation.SaCheckRole;`. 鉴权回归 `@SaCheckLogin` + 方法体 `requireSuperAdmin`
+- **双站部署**: 飞牛 canary `cat|ssh` 流 jar → `docker cp` 覆盖 `erp-backend-failover:/opt/app/app.jar` → restart; home 同路径 (但 home 是 baked-in jar, 需 build --no-cache + docker rm -f + docker run 三连)
+
+#### 部署踩坑 (本轮 4 个)
+1. **home backend 是镜像内置 jar** — Dockerfile `COPY industrial-erp-*.jar app.jar` 烤进镜像, `docker restart` / `docker cp` 都不生效, 必须 `build --no-cache` + `docker rm -f` + `docker run` 三连
+2. **gpssong /tmp 只读** (root:wheel 755) — 写脚本要落 `/volume3/docker/erp-system/`, chmod 也可能权限被拒
+3. **`--env-file` 在 sudo 隔离下失败** — `sudo docker run --env-file /tmp/...env` 报 "no such file" (gpssong 创建, sudo 看不到), 改成 17 个 `-e key=value` 写 bash 脚本一次性执行
+4. **容器内 baked-in jar md5 验证** — 最快方法 `docker run --rm --entrypoint md5sum <image> /opt/app/app.jar` (不进容器)
+
+#### 飞牛 canary 状态 (2026-10-19)
+- 飞牛 已在同 jar md5 `911f01e0...` (101459745 bytes) + 同步 CORS 修复 + 已是 bind-mount 形态
+- 用户实测: `http://192.168.0.32:8080/api/auth/login` + `Origin: http://192.168.0.150:18090` 200 + token ✓
+
+#### 教训 (写入 memory)
+- **跨域 origin 不在白名单 → 403** `Invalid CORS request` + `ct=` (空 Content-Type) 是 CORS 拒绝指纹, 区别于权限 403
+- **App H5 页面直连 backend (不同源)** 时永远触发 CORS 预检, 白名单要含页面 URL 不是 backend host:port
+- **内网段 CORS 用 `setAllowedOriginPatterns("http://192.168.*:*")` 通配** 比逐条加优雅, 后续新 IP 不用动
+- **镜像内置 jar 的 home backend 部署** 必须 `build --no-cache` + `docker rm -f` + `docker run` 三连, `docker restart` / `docker cp` 都不生效
+- **跨站同步 perm seed 时**, sql/53/56/110/113/115/116 等每次必须给 6 业务角色 PC + APP 双授权, 漏一个就 dashboard 少图标; 检查方法: `SELECT client_type, COUNT(*) FROM sys_role_menu GROUP BY client_type` 期望 5-10 倍差距, 漏 APP 端立即见
+- **用户改完权限后必须重新登录**才能刷 `localStorage.erp_permissions` (login 接口响应里给, 不走实时拉取)
+- **检查 dashboard 入口缺失的 SOP**: ① `curl /api/auth/login clientType=APP` 看 `appMenus` 数组 → ② 查 `sys_role_menu` 缺哪个 `client_type` → ③ 灌 SQL 补行 → ④ 用户重登生效
+- **403 三类根因区分法** (写入 memory): ① 缺 sys_menu perm 节点 → 灌 SQL; ② 缺表/列 → 灌 DDL; ③ 代码级死注解 (本次) → 改 Java + 重打 jar, 灌 SQL 无效
+
+#### memory 新增
+- `erp-cors-192168-pattern.md` — 3 层 502/401/403 根因链 + `setAllowedOriginPatterns` 通配根治 + 部署踩坑
+- `erp-app-client-type-perm-sync.md` — 跨站同步 APP 端 perm 漏灌 root cause + sql/124 修复 + 检查 SOP
+
 ### v1.1.79 hotfix-1 (2026-10-07) — MCP 审计 @Async @EventListener 漏写 sys_oper_log 修复 + 双站重部署
 
 **用户反馈 (2026-10-07)**: v1.1.79 MCP 后端首次部署到双站后, `/api/mcp` 三个方法都通 (login / tools/list / tools/call 建草稿 / 白名单拒绝 delete 全 200), 但 `sys_oper_log` 查 `module='MCP工具调用'` **0 行** — 审计漏写. Hermes 频繁调 MCP 时, 即使主流程 200, 后续审计/合规查询全空, 安监留痕失败.
