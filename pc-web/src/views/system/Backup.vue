@@ -31,7 +31,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next"
-        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" />
+        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize" @current-change="loadData" />
     </div>
 
     <!-- 选择性清空数据对话框 -->
@@ -173,7 +173,8 @@ function formatSize(bytes) {
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
   return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
-async function loadData() {
+async function loadData(page) {
+  if (page) query.pageNum = page
   loading.value = true
   try { data.value = (await backupApi.page(query)).data } finally { loading.value = false }
 }

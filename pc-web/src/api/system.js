@@ -57,6 +57,27 @@ export const configApi = {
   updateValue: (key, value) => request.put('/system/config/value', { key, value })
 }
 
+/**
+ * 对接方式 (v1.1.80) — 系统设置「对接方式」tab 的状态端点 + LLM provider 顺序意图记录.
+ * 状态端点只读 (脱敏), provider 顺序写 sys_config.AI_PROVIDER_ORDER (仅记录意图, 实际生效需重建 jar).
+ */
+export const integrationApi = {
+  getAi: () => request.get('/system/integration/ai'),
+  getMcp: () => request.get('/system/integration/mcp'),
+  getDify: () => request.get('/system/integration/dify'),
+  /**
+   * v1.1.80 — 应用 AI 集成覆盖 (写 sys_config.AI_INTEGRATION JSON + 强刷 LLM 链, 即时生效).
+   * json 形如 {"llm":{"providerOrder":"...","slot0":{...},"slot1":{...}},"asr":{"key":"...","model":"..."}}.
+   * 空串 = 清除覆盖 (回落纯 env). 走 /system/integration/apply (非通用 /config/value, 顺带 rebuild LlmClient).
+   */
+  applyIntegration: (json) => request.post('/system/integration/apply', { json }),
+  /** v1.1.80 前遗留的 provider 顺序意图记录 key (DB 覆盖上线后主路径改走 AI_INTEGRATION). */
+  setProviderOrder: (order) => configApi.updateValue('AI_PROVIDER_ORDER', order),
+  getProviderOrder: () => configApi.getByKey('AI_PROVIDER_ORDER'),
+  /** MCP 探活: 直接对 /api/mcp 发 tools/list (当前登录 token 鉴权). */
+  testMcp: () => request.post('/mcp', { jsonrpc: '2.0', id: Date.now(), method: 'tools/list', params: {} })
+}
+
 export const backupApi = {
   page: (params) => request.get('/system/backup/page', { params }),
   manual: () => request.post('/system/backup/manual'),

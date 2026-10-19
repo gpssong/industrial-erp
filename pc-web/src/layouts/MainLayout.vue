@@ -1,52 +1,80 @@
 <template>
-  <el-container class="layout-container">
-    <div v-if="isMobile && mobileOpen" class="mobile-mask" @click="mobileOpen = false"></div>
-    <el-aside :width="collapse ? '64px' : '220px'" class="sidebar"
-              :class="{ 'is-mobile-open': isMobile && mobileOpen }">
-      <div class="logo" :class="{ collapsed: collapse }">
-        <span v-if="!collapse || isMobile">🏭 {{ systemName }}</span>
-        <span v-else>ERP</span>
+  <div class="app-shell">
+    <div v-if="isMobile && mobileOpen" class="mobile-scrim" @click="mobileOpen = false"></div>
+
+    <!-- 左侧深 navy 渐变 sidebar (Figma) -->
+    <aside class="sidebar" :class="{ collapsed: collapse && !isMobile, 'is-mobile-open': isMobile && mobileOpen }">
+      <div class="brand" @click="$router.push('/dashboard')">
+        <span class="brand-symbol"><i/><i/><i/></span>
+        <div v-if="!collapse || isMobile" class="brand-text">
+          <strong>{{ systemName }}</strong>
+          <small>ERP + MES</small>
+        </div>
       </div>
+
+      <!-- 左侧深 navy 渐变 sidebar (Figma 4 组: 经营总览/供应链/生产与质量/经营支持) -->
       <el-menu :default-active="route.path" :router="true" :collapse="collapse && !isMobile"
-               background-color="#001529" text-color="#dcdcdc"
-               active-text-color="#fff" @select="onMenuSelect">
-        <template v-for="m in menuTree" :key="m.path">
-          <el-sub-menu v-if="m.children && m.children.length" :index="m.path">
-            <template #title>
+               class="side-nav" @select="onMenuSelect">
+        <template v-for="g in menuTree" :key="g.group">
+          <div class="nav-caption" v-if="!collapse || isMobile">{{ g.group }}</div>
+          <template v-for="m in g.items" :key="m.path">
+            <el-sub-menu v-if="m.children && m.children.length" :index="m.virtual ? 'virtual:' + m.path : m.path">
+              <template #title>
+                <el-icon><component :is="m.icon" /></el-icon>
+                <span class="nav-label">{{ m.title }}</span>
+                <el-badge v-if="m.badge" :value="m.badge" class="nav-badge" type="danger" />
+                <i v-else class="nav-arrow" :class="{ open: isSubOpen(m) }"/>
+              </template>
+              <el-menu-item v-for="c in m.children" :key="c.path" :index="c.path">
+                <el-icon><component :is="c.icon" /></el-icon>
+                <template #title>{{ c.title }}</template>
+              </el-menu-item>
+            </el-sub-menu>
+            <el-menu-item v-else :index="m.path">
               <el-icon><component :is="m.icon" /></el-icon>
-              <span>{{ m.title }}</span>
-            </template>
-            <el-menu-item v-for="c in m.children" :key="c.path" :index="c.path">
-              <el-icon><component :is="c.icon" /></el-icon>
-              <template #title>{{ c.title }}</template>
+              <span class="nav-label">{{ m.title }}</span>
+              <el-badge v-if="m.badge" :value="m.badge" class="nav-badge" type="danger" />
             </el-menu-item>
-          </el-sub-menu>
-          <el-menu-item v-else :index="m.path">
-            <el-icon><component :is="m.icon" /></el-icon>
-            <template #title>{{ m.title }}</template>
-          </el-menu-item>
+          </template>
         </template>
       </el-menu>
-    </el-aside>
 
-    <el-container>
-      <el-header class="header">
-        <div class="header-left">
-          <el-icon class="collapse-btn" @click="onCollapseClick">
-            <component :is="collapse ? 'Expand' : 'Fold'" />
-          </el-icon>
-          <el-breadcrumb separator="/">
-            <el-breadcrumb-item :to="{ path: '/' }">首页</el-breadcrumb-item>
-            <el-breadcrumb-item v-for="b in breadcrumbs" :key="b.path">{{ b.title }}</el-breadcrumb-item>
-          </el-breadcrumb>
+      <div class="side-footer">
+        <div class="side-factory">
+          <span class="live-dot"/>
+          <div><strong>{{ factoryName }}</strong><small>系统运行正常</small></div>
         </div>
-        <div class="header-right">
-          <span class="company">{{ userInfo?.nickname || userInfo?.username || '用户' }}</span>
-          <el-dropdown @command="onCommand">
-            <span class="user-trigger">
-              <el-avatar :size="28">{{ (userInfo?.nickname || userInfo?.username || '用户').charAt(0) }}</el-avatar>
-              <span style="margin-left:8px">{{ userInfo?.nickname || userInfo?.username || '用户' }}</span>
-            </span>
+
+        <div class="profile" @click="onProfileClick">
+          <span class="avatar">{{ (userInfo?.nickname || userInfo?.username || '用').charAt(0) }}</span>
+          <div class="profile-text">
+            <strong>{{ userInfo?.nickname || userInfo?.username || '用户' }}</strong>
+            <small>{{ (userInfo?.roles && userInfo.roles[0]) || '用户' }}</small>
+          </div>
+        <el-icon class="profile-more"><More /></el-icon>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主区 -->
+    <div class="main-shell">
+      <header class="topbar">
+        <button class="menu-button" @click="onCollapseClick" :aria-label="'打开菜单'">
+          <el-icon><component :is="collapse ? 'Expand' : 'Fold'" /></el-icon>
+        </button>
+        <div class="mobile-current">
+          <span>{{ currentTitle }}</span>
+          <small>华东一厂 · 早班</small>
+        </div>
+        <div class="global-search">
+          <el-icon><Search /></el-icon>
+          <input placeholder="搜索工单、批次、设备…" />
+          <kbd>⌘ K</kbd>
+        </div>
+        <div class="top-actions">
+          <span class="shift"><i/> 早班 08:00–16:00</span>
+          <el-dropdown @command="onCommand" trigger="click">
+            <button class="icon-button bell" aria-label="消息"><el-icon><Bell /></el-icon><b/></button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="changePassword"><el-icon><Key /></el-icon>修改密码</el-dropdown-item>
@@ -55,16 +83,21 @@
             </template>
           </el-dropdown>
         </div>
-      </el-header>
-      <el-main class="main-content">
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" :key="$route.fullPath" />
-          </transition>
-        </router-view>
-      </el-main>
-    </el-container>
-  </el-container>
+      </header>
+
+      <main class="content">
+        <div class="content-shell" :class="{ 'with-hub': showHubSidebar }">
+          <!-- v1.1.92: 购销存管理 — 左侧分类卡常驻 (Figma image #18+#20) -->
+          <HubSidebar v-if="showHubSidebar" />
+          <div class="content-main">
+            <router-view v-slot="{ Component }">
+              <component :is="Component" :key="$route.fullPath" />
+            </router-view>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
 
   <!-- 修改密码弹窗 -->
   <el-dialog v-model="pwdDialogVisible" title="修改密码" width="420px" destroy-on-close>
@@ -90,9 +123,10 @@
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Key, SwitchButton } from '@element-plus/icons-vue'
+import { Key, SwitchButton, More, Search, Bell } from '@element-plus/icons-vue'
 import { useUserStore } from '@/store/user'
 import { useSystemName } from '@/composables/useSystemName'
+import HubSidebar from '@/components/HubSidebar.vue'
 import { userApi } from '@/api/system'
 
 const route = useRoute()
@@ -101,7 +135,15 @@ const userStore = useUserStore()
 const collapse = ref(false)
 const isMobile = ref(false)
 const mobileOpen = ref(false)
-const { systemName, loadSystemName } = useSystemName()
+const { systemName, factoryName, loadSystemName } = useSystemName()
+
+// 顶栏移动端当前页标题 (取当前 route 命中菜单的 title)
+const currentTitle = computed(() => {
+  const m = route.matched.filter(r => r.meta && r.meta.title)
+  return m.length ? m[m.length - 1].meta.title : '工作台'
+})
+
+function onProfileClick() { pwdDialogVisible.value = true }
 
 const userInfo = computed(() => userStore.userInfo)
 
@@ -124,104 +166,72 @@ const isAdmin = computed(() => {
   return (u.roles || []).includes('SUPER_ADMIN')
 })
 
-// 根据权限过滤菜单树
+// 根据权限过滤菜单树 — 按 Figma mockup 分 4 组: 经营总览 / 供应链 / 生产与质量 / 经营支持
+// 原 ERP 模块统一收进「购销存管理」子菜单 (供应链组), 其余为 XK/MES 扁平页
 const menuTree = computed(() => {
   const raw = [
-    { path: '/dashboard', title: '工作台', icon: 'Odometer' },
     {
-      path: '/system', title: '系统管理', icon: 'Setting',
-      children: [
-        { path: '/system/user', title: '用户管理', icon: 'User' },
-        { path: '/system/role', title: '角色管理', icon: 'UserFilled' },
-        { path: '/system/menu', title: '菜单管理', icon: 'Menu' },
-        { path: '/system/dept', title: '部门管理', icon: 'OfficeBuilding' },
-        { path: '/system/settings', title: '系统设置', icon: 'Setting' },
-        { path: '/system/print-template', title: '打印模板', icon: 'Printer' }
+      group: '经营总览', items: [
+        { path: '/dashboard', title: '经营驾驶舱', icon: 'Odometer' }
       ]
     },
     {
-      path: '/base', title: '基础资料', icon: 'Goods',
-      children: [
-        { path: '/base/product', title: '商品管理', icon: 'Goods' },
-        { path: '/base/customer', title: '客户管理', icon: 'Avatar' },
-        { path: '/base/supplier', title: '供应商管理', icon: 'Connection' },
-        { path: '/base/warehouse', title: '仓库管理', icon: 'House' },
-        { path: '/base/unit', title: '计量单位', icon: 'DataLine' }
-      ]
-    },
-    {
-      path: '/purchase', title: '采购管理', icon: 'List',
-      children: [
-        { path: '/purchase/order', title: '采购订单', icon: 'List' },
+      group: '供应链', items: [
+        // 购销存管理 = hub 页, 聚合全部原 ERP 模块入口 (Figma 布局, 见 views/erp/Hub.vue)
+        { path: '/erp', title: '购销存管理', icon: 'Document' },
+        { path: '/xk/material', title: '合格供应商', icon: 'CircleCheck' },
         { path: '/purchase/receipt', title: '采购入库', icon: 'Box' },
-        { path: '/purchase/return', title: '采购退货', icon: 'Back' }
+        { path: '/xk/trace', title: '库存与追溯', icon: 'Promotion' }
       ]
     },
     {
-      path: '/sales', title: '销售管理', icon: 'Sell',
-      children: [
-        { path: '/sales/order', title: '销售订单', icon: 'Tickets' },
-        { path: '/sales/delivery', title: '销售出库', icon: 'TakeawayBox' },
-        { path: '/sales/return', title: '销售退货', icon: 'Refresh' }
+      group: '生产与质量', items: [
+        { path: '/production/order', title: '生产工单', icon: 'SetUp' },
+        { path: '/production/requisition', title: '领料记录', icon: 'Notebook' },
+        { path: '/production/finished-in', title: '成品入库', icon: 'Box' },
+        { path: '/production/semi-in', title: '半成品入库', icon: 'Box' },
+        { path: '/production/schedule', title: '生产排程', icon: 'DataLine' },
+        { path: '/xk/maintenance', title: '设备维保', icon: 'Tools', badge: 6 },
+        { path: '/xk/safety', title: '质量与XK检查', icon: 'CircleCheck' },
+        { path: '/report/inspection', title: '检验台账', icon: 'List' }
       ]
     },
     {
-      path: '/inventory', title: '库存管理', icon: 'Grid',
-      children: [
-        { path: '/inventory/stock', title: '库存查询', icon: 'Grid' },
-        { path: '/inventory/ledger', title: '库存台账', icon: 'Notebook' },
-        { path: '/inventory/check', title: '库存盘点', icon: 'Document' }
-      ]
-    },
-    {
-      path: '/production', title: '生产管理', icon: 'SetUp',
-      children: [
-        { path: '/production/bom', title: 'BOM清单', icon: 'Files' },
-        { path: '/production/order', title: '生产加工单', icon: 'SetUp' }
-      ]
-    },
-    {
-      path: '/finance/arap', title: '应收应付', icon: 'Money'
-    },
-    {
-      path: '/workflow', title: '工作流', icon: 'Flag',
-      children: [
-        { path: '/workflow/maintain', title: '设备维保记录', icon: 'Tools' },
-        { path: '/workflow/safety', title: '安全检查记录', icon: 'Document' },
-        { path: '/workflow/emergency', title: '应急预案', icon: 'Warning' },
-        { path: '/workflow/tenant', title: '租客管理', icon: 'User' }
-      ]
-    },
-    {
-      path: '/report', title: '报表中心', icon: 'DataAnalysis',
-      children: [
-        { path: '/report/sales', title: '销售报表', icon: 'TrendCharts' },
-        { path: '/report/inventory', title: '库存报表', icon: 'PieChart' },
-        { path: '/report/recycle', title: '回收站', icon: 'Delete' },
-        { path: '/report/ai', title: 'AI 助手', icon: 'ChatDotRound' }
+      group: '经营支持', items: [
+        { path: '/xk/print', title: '单据与打印', icon: 'Printer' },
+        { path: '/xk/audit', title: '审计归档', icon: 'Clock' }
       ]
     }
   ]
 
-  // 管理员看到所有菜单
+  // 过滤单个节点 (父菜单或叶子)
+  const filterNode = (m) => {
+    if (m.children && m.children.length) {
+      const children = m.children.filter(c => (c.children ? filterNode(c) : allowedPaths.value.has(c.path)))
+      return children.length ? { ...m, children } : null
+    }
+    return allowedPaths.value.has(m.path) ? m : null
+  }
+
+  // 管理员看到全部 (原样返回 groups)
   if (isAdmin.value) return raw
 
-  // 普通用户: 根据后端返回的 menus 过滤
+  // 普通用户: 按后端 menus 过滤, 空组 (items 全被滤掉) 隐藏
   return raw
-    .map(m => {
-      if (m.children && m.children.length) {
-        const filteredChildren = m.children.filter(c => allowedPaths.value.has(c.path))
-        // 父菜单: 有子菜单可见则保留
-        if (filteredChildren.length > 0) {
-          return { ...m, children: filteredChildren }
-        }
-        return null
-      }
-      // 无子菜单: 直接检查路径
-      return allowedPaths.value.has(m.path) ? m : null
-    })
-    .filter(Boolean)
+    .map(g => ({ ...g, items: g.items.map(filterNode).filter(Boolean) }))
+    .filter(g => g.items.length > 0)
 })
+
+// v1.1.92: 购销存管理 — 业务子路由下显示持久左列 (Figma image #18+#20)
+const showHubSidebar = computed(() => {
+  const p = route.path
+  if (p === '/erp') return true
+  return /^\/(base|purchase|sales|inventory|production|finance|report|system|xk\/(material|trace))/.test(p)
+})
+
+// el-sub-menu 展开状态 (供箭头 icon 用): 默认 ERP 子菜单展开
+const subOpen = ref({ '/erp': true })
+const isSubOpen = (m) => subOpen.value[m.virtual ? 'virtual:' + m.path : m.path] !== false
 
 function checkMobile() {
   isMobile.value = window.innerWidth <= 768
@@ -243,11 +253,6 @@ function onMenuSelect() {
   // 手机上选中菜单后自动关闭抽屉
   if (isMobile.value) mobileOpen.value = false
 }
-
-const breadcrumbs = computed(() => {
-  const m = route.matched.filter(r => r.meta && r.meta.title)
-  return m
-})
 
 async function onCommand(cmd) {
   if (cmd === 'logout') {
@@ -334,21 +339,182 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
-.layout-container { height: 100%; }
+// =====================================================================
+// Figma "ERP MES Management System" 视觉 — 全局壳 (sidebar + topbar + content)
+// 深 navy 渐变 sidebar / 白 topbar + 全局搜索·班次·铃铛 / 浅灰 canvas
+// =====================================================================
+.app-shell { min-height: 100vh; display: flex; }
+
+// —— sidebar: 深 navy 渐变 + brand + 深底 el-menu ——
 .sidebar {
-  background: #001529; transition: width 0.3s;
-  .logo { height: 60px; color: #fff; display: flex; justify-content: center; align-items: center;
-          font-size: 18px; font-weight: bold; border-bottom: 1px solid #1f2d3d; }
-  :deep(.el-menu) { border-right: none; }
+  width: 252px;
+  background: linear-gradient(180deg, var(--menu-bg) 0%, var(--menu-bg-deep) 100%);
+  color: #dbe8f5;
+  padding: 24px 16px 16px;
+  position: fixed; inset: 0 auto 0 0;
+  display: flex; flex-direction: column;
+  z-index: 40;
+  &.collapsed { width: 84px; }
+  &.is-mobile-open { transform: none; box-shadow: 20px 0 40px rgba(6, 24, 42, .2); }
+  transition: width .28s ease, transform .25s ease;
 }
-.header { background: #fff; box-shadow: 0 1px 4px rgba(0,21,41,0.08);
-  display: flex; justify-content: space-between; align-items: center; padding: 0 16px;
-  .header-left { display: flex; align-items: center; gap: 16px; .collapse-btn { font-size: 18px; cursor: pointer; } }
-  .header-right { display: flex; align-items: center; gap: 16px;
-    .user-trigger { display: flex; align-items: center; cursor: pointer; } }
-  .company { color: #888; font-size: 12px; }
+.brand {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 12px 24px; color: #fff; cursor: pointer;
 }
-.main-content { background: #f0f2f5; padding: 12px; }
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.brand-symbol {
+  display: inline-flex; width: 38px; height: 38px; padding: 8px; gap: 3px;
+  align-items: flex-end; border-radius: 11px; background: var(--primary-color);
+  flex: 0 0 auto;
+  i { flex: 1; background: #fff; border-radius: 2px 2px 0 0; transform: skewY(-18deg); }
+  i:nth-child(1) { height: 50%; } i:nth-child(2) { height: 72%; } i:nth-child(3) { height: 94%; }
+}
+.brand-text { display: flex; flex-direction: column; }
+.brand-text strong { font-size: 17px; letter-spacing: .04em; font-weight: 750; }
+.brand-text small { color: #8ca5bd; font-size: 10px; letter-spacing: .16em; margin-top: 2px; }
+
+.nav-caption { padding: 10px 13px 6px; color: #6f8ba7; font-size: 11px; letter-spacing: .16em;
+  &:not(:first-child) { margin-top: 6px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 12px; }
+}
+
+.side-nav {
+  flex: 1; overflow-y: auto; border: 0 !important;
+  --el-menu-bg-color: transparent;
+  --el-menu-text-color: #aebfd0;
+  --el-menu-active-color: #fff;
+  background: transparent !important;
+  .el-menu-item, .el-sub-menu__title {
+    height: 44px; line-height: 44px; margin: 2px 0; border-radius: 9px;
+    color: #aebfd0 !important; font-size: 13.5px;
+    &:hover { background: rgba(255, 255, 255, .06); color: #fff !important; }
+  }
+  .el-menu-item.is-active {
+    background: var(--menu-active) !important; color: #fff !important;
+    box-shadow: 0 8px 22px rgba(0, 84, 174, .35);
+  }
+  .el-menu-item.is-active + .el-sub-menu .el-menu-item, .is-active { border-left: 0; }
+  :deep(.el-menu-item), :deep(.el-sub-menu__title) {
+    border-left: 0 !important;
+  }
+  :deep(.el-sub-menu .el-menu-item) { min-height: 40px; line-height: 40px; background: transparent; }
+  :deep(.el-sub-menu .el-menu-item.is-active) { background: var(--menu-active) !important; }
+  :deep(.el-sub-menu__title:hover), :deep(.el-menu-item:hover) { background: rgba(255,255,255,.06); }
+  // 标签 + badge + 折叠箭头
+  .nav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .el-sub-menu__title { position: relative; display: flex; align-items: center; gap: 10px; }
+  .nav-arrow {
+    width: 0; height: 0; border-left: 5px solid rgba(255,255,255,.45);
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+    margin-left: auto; transition: transform .18s;
+    &.open { transform: rotate(90deg); }
+  }
+  .nav-badge { margin-left: auto; }
+  .nav-badge .el-badge__content {
+    background: #f0443a !important; color: #fff; border: 0;
+    box-shadow: 0 0 0 3px rgba(240,68,58,.2);
+  }
+}
+
+.side-factory {
+  margin: 12px 3px; padding: 13px;
+  border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.04);
+  border-radius: 10px; display: flex; align-items: center; gap: 9px;
+}
+// 底部固定 footer (工厂 + 用户), 菜单区在其上方独立滚动, 子菜单展开不再被 footer 遮住
+.side-footer { flex: 0 0 auto; margin-top: auto; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #42d09a; box-shadow: 0 0 0 4px rgba(66,208,154,.12); flex: 0 0 auto; }
+.side-factory div { flex: 1; }
+.side-factory strong { display: block; font-size: 12px; color: #dbe8f5; }
+.side-factory small { display: block; font-size: 10px; color: #7f9ab4; margin-top: 2px; }
+
+.profile {
+  border: 0; background: transparent; color: #fff;
+  padding: 12px 8px 0; border-top: 1px solid rgba(255,255,255,.08);
+  display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer;
+}
+.profile .avatar {
+  width: 35px; height: 35px; display: grid; place-items: center;
+  border-radius: 9px; background: #33516e; font-size: 14px; font-weight: 700; flex: 0 0 auto;
+}
+.profile-text { flex: 1; min-width: 0; }
+.profile-text strong { display: block; font-size: 13px; }
+.profile-text small { display: block; color: #839bb2; font-size: 10px; margin-top: 2px; }
+.profile-more { color: #839bb2; }
+
+// —— 主区 + 顶栏 ——
+.main-shell { margin-left: 252px; width: calc(100% - 252px); min-height: 100vh; display: flex; flex-direction: column; }
+.sidebar.collapsed ~ .main-shell, .sidebar.collapsed + .main-shell { margin-left: 84px; width: calc(100% - 84px); }
+
+.topbar {
+  height: 68px; padding: 0 28px;
+  background: rgba(255,255,255,.93); border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  position: sticky; top: 0; z-index: 30; backdrop-filter: blur(12px);
+}
+.menu-button {
+  border: 0; background: #f5f7fa; color: #617084; border-radius: 9px;
+  width: 38px; height: 38px; display: grid; place-items: center; flex: 0 0 auto;
+  &:hover { background: #eaeef3; color: var(--primary-color); }
+}
+.mobile-current { display: none; }
+.global-search {
+  display: flex; align-items: center; gap: 10px; color: #8a96a6;
+  width: min(420px, 45%); padding: 0 4px;
+  .el-icon { flex: 0 0 auto; }
+  input { border: 0; outline: 0; background: transparent; flex: 1; font-size: 13px; color: var(--text); }
+  kbd { padding: 3px 7px; background: #f0f3f7; border: 1px solid #e1e7ee; border-radius: 5px; color: #8994a2; font-size: 10px; font-family: inherit; }
+}
+.top-actions { display: flex; align-items: center; gap: 12px; }
+.shift {
+  color: var(--muted); font-size: 12px; border-right: 1px solid var(--line); padding-right: 16px;
+  display: inline-flex; align-items: center; white-space: nowrap;
+  i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--success); margin-right: 6px; }
+}
+.icon-button {
+  border: 0; background: #f5f7fa; color: #617084; border-radius: 9px;
+  width: 38px; height: 38px; display: grid; place-items: center; position: relative;
+  &:hover { background: #eaeef3; color: var(--primary-color); }
+  &.bell b { position: absolute; width: 7px; height: 7px; background: var(--danger); border: 2px solid #fff; border-radius: 50%; right: 8px; top: 8px; }
+}
+
+.content { flex: 1; padding: 24px 28px 60px; width: 100%; max-width: 1560px; margin: 0 auto; }
+
+// v1.1.92: 购销存管理常驻左列布局 — 当 HubSidebar 显示时, 让 content 自适应两栏
+.content-shell {
+  display: block;
+}
+.content-shell.with-hub {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+.content-shell.with-hub .content-main { flex: 1; min-width: 0; }
+@media (max-width: 1050px) {
+  .content-shell.with-hub { flex-direction: column; gap: 14px; }
+}
+
+
+.mobile-scrim {
+  display: none;
+}
+
+// —— 响应式: 移动端抽屉 sidebar ——
+@media (max-width: 1050px) {
+  .sidebar { width: 230px; }
+  .main-shell { margin-left: 230px; width: calc(100% - 230px); }
+}
+@media (max-width: 768px) {
+  .sidebar { width: 278px; transform: translateX(-100%); }
+  .sidebar.is-mobile-open { transform: none; }
+  .sidebar.collapsed { width: 278px; }
+  .main-shell { margin: 0; width: 100%; }
+  .mobile-scrim {
+    display: block; position: fixed; inset: 0; background: rgba(5, 19, 32, .42); z-index: 35;
+  }
+  .topbar { height: 62px; padding: 0 16px; }
+  .mobile-current { display: flex; flex-direction: column; margin-left: 6px; flex: 1; }
+  .mobile-current span { font-size: 14px; font-weight: 750; color: var(--text); }
+  .mobile-current small { color: var(--muted); font-size: 10px; margin-top: 2px; }
+  .global-search, .shift { display: none; }
+}
 </style>

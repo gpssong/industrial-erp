@@ -1,77 +1,103 @@
 <template>
-  <div class="login-container">
-    <div class="login-box">
-      <div class="login-header">
-        <h1 class="industrial-title">企业级工业 ERP</h1>
-        <p>薄膜 / 塑料 / 五金 / 加工 / 工贸一体</p>
-      </div>
-      <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="onLogin" label-width="80px" size="large">
-        <el-form-item label="账号" prop="username">
-          <el-input v-model="form.username" placeholder="请输入账号" clearable>
-            <template #prefix><el-icon><User /></el-icon></template>
-          </el-input>
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" placeholder="请输入密码" show-password
-                    @keyup.enter="onLogin">
-            <template #prefix><el-icon><Lock /></el-icon></template>
-          </el-input>
-        </el-form-item>
-        <el-form-item>
-          <el-checkbox v-model="form.remember">记住我</el-checkbox>
-        </el-form-item>
-        <el-button type="primary" @click="onLogin" :loading="loading" style="width:100%">登 录</el-button>
-      </el-form>
-
-      <!-- 服务器连接设置 (折叠面板) -->
-      <div class="server-config">
-        <div class="toggle-row" @click="serverPanelOpen = !serverPanelOpen">
-          <el-icon><Setting /></el-icon>
-          <span>服务器连接设置</span>
-          <el-icon class="toggle-arrow" :class="{ open: serverPanelOpen }"><ArrowDown /></el-icon>
-          <span class="current-server">{{ currentServer }}</span>
+  <div class="login-page">
+    <!-- 左: 工厂视觉 + slogan (Figma .login-visual) -->
+    <section class="login-visual">
+      <img
+        src="https://images.unsplash.com/photo-1770119074920-3c5603188095?crop=entropy&cs=tinysrgb&fit=crop&fm=jpg&q=80&w=1200"
+        alt="现代化生产车间" />
+      <div class="login-overlay">
+        <div class="login-brand">
+          <span class="brand-symbol"><i/><i/><i/></span>
+          <span>{{ systemName }}</span>
         </div>
-        <el-collapse-transition>
-          <div v-show="serverPanelOpen" class="server-panel">
-            <el-form label-width="80px" size="small">
-              <el-form-item label="API 地址">
-                <el-input v-model="serverBase" placeholder="如 http://home.93gushi.com/api" clearable>
-                  <template #append>
-                    <el-button @click="saveServerBase">保存</el-button>
-                  </template>
-                </el-input>
-              </el-form-item>
-              <div class="server-tip">
-                当前：{{ currentServer }}
-                <el-link v-if="serverBase" type="danger" :underline="false" @click="resetServerBase" style="margin-left:8px">
-                  恢复默认
-                </el-link>
-              </div>
-            </el-form>
-          </div>
-        </el-collapse-transition>
+        <div>
+          <div class="login-kicker">ERP + MES 一体化管理平台</div>
+          <div class="login-slogan">让每一批原料可追溯，<br/>让每一道工序更透明。</div>
+          <p>连接生产、仓储、设备与安全，驱动工厂数字化运营。</p>
+        </div>
+        <div class="visual-foot">HUASU · SMART FACTORY</div>
       </div>
+    </section>
 
-      <div class="login-tips">
-        <span v-if="isDev">默认账号: <b>admin</b> / 密码: <b>admin123</b></span>
+    <!-- 右: 登录卡 (Figma .login-form) -->
+    <section class="login-form">
+      <div class="login-card">
+        <div class="mobile-brand"><span class="brand-symbol sm"><i/><i/><i/></span> {{ systemName }}</div>
+        <div class="login-title">欢迎回来</div>
+        <p class="login-sub">请登录您的工厂管理账号</p>
+
+        <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="onLogin" label-position="top" size="large">
+          <el-form-item label="账号" prop="username">
+            <el-input v-model="form.username" placeholder="请输入账号" clearable>
+              <template #prefix><el-icon><User /></el-icon></template>
+            </el-input>
+          </el-form-item>
+          <el-form-item label="密码" prop="password">
+            <el-input v-model="form.password" type="password" placeholder="请输入密码" show-password
+                      @keyup.enter="onLogin">
+              <template #prefix><el-icon><Lock /></el-icon></template>
+            </el-input>
+          </el-form-item>
+          <div class="login-options">
+            <el-checkbox v-model="form.remember">记住我</el-checkbox>
+          </div>
+          <el-button type="primary" native-type="button" @click="onLogin" :loading="loading" class="login-btn">
+            登录系统<el-icon style="margin-left:6px"><ArrowRight /></el-icon>
+          </el-button>
+        </el-form>
+
+        <!-- 服务器连接设置 (折叠面板, 保留) -->
+        <div class="server-config">
+          <div class="toggle-row" @click="serverPanelOpen = !serverPanelOpen">
+            <el-icon><Setting /></el-icon>
+            <span>服务器连接设置</span>
+            <el-icon class="toggle-arrow" :class="{ open: serverPanelOpen }"><ArrowDown /></el-icon>
+            <span class="current-server">{{ currentServer }}</span>
+          </div>
+          <el-collapse-transition>
+            <div v-show="serverPanelOpen" class="server-panel">
+              <el-form label-width="70px" size="small">
+                <el-form-item label="API 地址">
+                  <el-input v-model="serverBase" placeholder="如 http://home.93gushi.com/api" clearable>
+                    <template #append>
+                      <el-button @click="saveServerBase">保存</el-button>
+                    </template>
+                  </el-input>
+                </el-form-item>
+                <div class="server-tip">
+                  当前：{{ currentServer }}
+                  <el-link v-if="serverBase" type="danger" :underline="false" @click="resetServerBase" style="margin-left:8px">
+                    恢复默认
+                  </el-link>
+                </div>
+              </el-form>
+            </div>
+          </el-collapse-transition>
+        </div>
+
+        <div class="login-tips" v-if="isDev">
+          <el-icon><CircleCheckFilled /></el-icon>
+          <span>默认账号 <b>admin</b> / 密码 <b>admin123</b> (开发环境)</span>
+        </div>
       </div>
-    </div>
-    <div class="login-bg"></div>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElCollapseTransition } from 'element-plus'
-import { User, Lock, Setting, ArrowDown } from '@element-plus/icons-vue'
+import { User, Lock, Setting, ArrowDown, ArrowRight, CircleCheckFilled } from '@element-plus/icons-vue'
+import { useSystemName } from '@/composables/useSystemName'
 
 const router = useRouter()
 const route = useRoute()
 const user = useUserStore()
 const formRef = ref()
 const loading = ref(false)
+const { systemName, loadSystemName } = useSystemName()
 
 // 仅在开发模式下默认填入账号, 生产环境要求用户手动输入
 const isDev = import.meta.env.DEV
@@ -139,51 +165,89 @@ async function onLogin() {
     loading.value = false
   }
 }
+
+onMounted(() => { loadSystemName() })
 </script>
 
 <style scoped lang="scss">
-.login-container {
-  display: flex; height: 100vh; background: linear-gradient(135deg, #1e6091 0%, #2980b9 100%);
-  position: relative;
-  .login-box {
-    position: relative; z-index: 2;
-    background: #fff; width: 460px; margin: auto; padding: 32px 40px 24px;
-    border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,0.18);
-    .login-header { text-align: center; margin-bottom: 24px;
-      h1 { margin: 0 0 4px; }
-      p { color: #999; font-size: 12px; margin: 0; }
-    }
-    .login-tips { margin-top: 12px; text-align: center; color: #888; font-size: 12px; }
-    .server-config {
-      margin-top: 18px; padding-top: 14px;
-      border-top: 1px dashed #e4e7ed;
-      .toggle-row {
-        display: flex; align-items: center; gap: 6px;
-        cursor: pointer; user-select: none;
-        color: #606266; font-size: 13px;
-        padding: 4px 0;
-        &:hover { color: #409eff; }
-        .toggle-arrow { transition: transform .25s; margin-left: 2px; }
-        .toggle-arrow.open { transform: rotate(180deg); }
-        .current-server {
-          margin-left: auto; color: #909399; font-size: 11px;
-          max-width: 180px; overflow: hidden; text-overflow: ellipsis;
-          white-space: nowrap; font-family: Consolas, monospace;
-        }
-      }
-      .server-panel {
-        padding: 12px 0 4px;
-        .server-tip {
-          color: #909399; font-size: 11px; margin-top: 6px;
-          font-family: Consolas, monospace;
-        }
-      }
+// Figma 分屏登录 (.login-page)
+.login-page {
+  min-height: 100vh; display: grid; grid-template-columns: 1.15fr .85fr; background: #fff;
+}
+.login-visual {
+  margin: 14px; position: relative; border-radius: 18px; overflow: hidden;
+  > img { width: 100%; height: 100%; object-fit: cover; filter: saturate(.65); }
+}
+.login-overlay {
+  position: absolute; inset: 0; padding: 40px 46px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  color: #fff; background: linear-gradient(140deg, rgba(5, 30, 54, .91), rgba(9, 50, 89, .54));
+}
+.login-brand { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 750; }
+.brand-symbol {
+  display: inline-flex; width: 44px; height: 44px; padding: 9px; gap: 3px;
+  align-items: flex-end; border-radius: 12px; background: var(--primary-color);
+  i { flex: 1; background: #fff; border-radius: 2px 2px 0 0; transform: skewY(-18deg); }
+  i:nth-child(1) { height: 50%; } i:nth-child(2) { height: 72%; } i:nth-child(3) { height: 94%; }
+  &.sm { width: 34px; height: 34px; padding: 7px; }
+}
+.login-kicker { color: #8dc6ff; font-size: 12px; font-weight: 700; letter-spacing: .12em; }
+.login-slogan {
+  font-size: clamp(28px, 3vw, 48px); font-weight: 760; line-height: 1.28;
+  margin-top: 17px; letter-spacing: -.025em;
+}
+.login-overlay p { color: #c4d3e1; line-height: 1.8; font-size: 13px; margin: 12px 0 0; }
+.visual-foot { color: #7e9ab4; font-size: 10px; letter-spacing: .2em; }
+
+.login-form { display: grid; place-items: center; padding: 40px; }
+.login-card { width: min(400px, 100%); }
+.mobile-brand {
+  display: none; align-items: center; gap: 10px; color: var(--text); font-weight: 750; margin-bottom: 40px; font-size: 17px;
+}
+.login-title { font-size: 30px; font-weight: 780; color: var(--text); }
+.login-sub { color: var(--muted); font-size: 13px; margin: 8px 0 26px; }
+
+:deep(.el-form-item__label) { font-size: 12px; font-weight: 650; color: #4c5a6c; }
+:deep(.el-input__wrapper) { min-height: 44px; border-radius: 8px; }
+.login-options { display: flex; justify-content: flex-start; margin: 2px 0 18px; }
+.login-btn {
+  width: 100%; min-height: 48px; font-size: 14px; font-weight: 700;
+  background: var(--primary-color); border: 0; border-radius: 9px;
+  &:hover { background: var(--primary-dark); }
+}
+
+.server-config {
+  margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line);
+  .toggle-row {
+    display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;
+    color: var(--muted); font-size: 13px; padding: 4px 0;
+    &:hover { color: var(--primary-color); }
+    .toggle-arrow { transition: transform .25s; margin-left: 2px; }
+    .toggle-arrow.open { transform: rotate(180deg); }
+    .current-server {
+      margin-left: auto; color: #9aa6b4; font-size: 11px;
+      max-width: 170px; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; font-family: ui-monospace, monospace;
     }
   }
-  .login-bg {
-    position: absolute; inset: 0; opacity: 0.1;
-    background-image: radial-gradient(circle at 20% 30%, #fff 1px, transparent 1px);
-    background-size: 50px 50px;
+  .server-panel {
+    padding: 12px 0 4px;
+    .server-tip { color: #9aa6b4; font-size: 11px; margin-top: 6px; font-family: ui-monospace, monospace; }
   }
+}
+
+.login-tips {
+  margin-top: 20px; display: flex; align-items: center; justify-content: center; gap: 7px;
+  color: #8290a0; font-size: 12px;
+  .el-icon { color: var(--success); }
+}
+
+// 移动端: 单列
+@media (max-width: 860px) {
+  .login-page { grid-template-columns: 1fr; background: linear-gradient(180deg, #f4f8fc, #fff); }
+  .login-visual { display: none; }
+  .login-form { padding: 40px 24px; }
+  .mobile-brand { display: flex; }
+  .login-title { font-size: 27px; }
 }
 </style>
