@@ -63,6 +63,9 @@ public class PrdOrderController {
         return R.ok();
     }
 
+    @PostMapping("/{id}/void")
+    public R<Void> voidOrder(@PathVariable Long id) { service.voidOrder(id); return R.ok(); }
+
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
 

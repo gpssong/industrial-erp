@@ -16,6 +16,7 @@ import com.industrial.erp.modules.sales.entity.SalReturn;
 import com.industrial.erp.modules.sales.entity.SalReturnDetail;
 import com.industrial.erp.modules.sales.mapper.SalReturnDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalReturnMapper;
+import com.industrial.erp.modules.qms.service.QmsInspectionService;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
 import org.slf4j.Logger;
@@ -47,12 +48,15 @@ public class SalReturnService {
     private final FinArapService arapService;
     private final PermissionService permService;
     private final com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper;
+    /** v1.1.90+: QMS 自动触发器 (OQC_RETURN 草稿在 check() 末 try/catch 调用) */
+    private final QmsInspectionService qmsInspectionService;
 
     public SalReturnService(SalReturnMapper returnMapper, SalReturnDetailMapper returnDetailMapper,
                             BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper,
                             BillNoGenerator billNoGenerator, StockService stockService,
                             FinArapService arapService, PermissionService permService,
-                            com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper) {
+                            com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper,
+                            QmsInspectionService qmsInspectionService) {
         this.returnMapper = returnMapper;
         this.returnDetailMapper = returnDetailMapper;
         this.customerMapper = customerMapper;
@@ -62,6 +66,7 @@ public class SalReturnService {
         this.arapService = arapService;
         this.permService = permService;
         this.productMapper = productMapper;
+        this.qmsInspectionService = qmsInspectionService;
     }
 
     public IPage<SalReturn> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String billStatus) {
@@ -130,6 +135,13 @@ public class SalReturnService {
             d.setReturnId(ret.getId());
             returnDetailMapper.insert(d);
         }
+        // v1.1.99 C3 质量门禁对称化: 建退货单即自动建 OQC_RETURN 草稿 (先检后退货, 与成品 OQC 对称).
+        // 从 check() 挪到 add(), 避免「审核后才建草稿→草稿未 PASS→永远审不了」死锁.
+        try {
+            qmsInspectionService.createOnReturn(ret);
+        } catch (Exception ex) {
+            log.warn("[SalReturn.add] QMS OQC_RETURN auto-create failed (non-blocking): {}", ex.getMessage());
+        }
     }
 
     /**
@@ -165,6 +177,16 @@ public class SalReturnService {
 
         // 写入反向 AR (冲减应收)
         arapService.reverseArForReturn(r);
+
+        // v1.1.99 C3 质量门禁对称化 (软门禁, 零回归): 若该退货单已关联 OQC_RETURN 检验单, 必须已合格放行才允许退货审核;
+        // 无 OQC_RETURN 单 (旧数据/未建) 不拦, 保持向后兼容.
+        com.industrial.erp.modules.qms.entity.MesQualityInspection oqcRet = qmsInspectionService.findOqcReturnBySalReturnId(id);
+        if (oqcRet != null && !qmsInspectionService.hasPassedOqcReturn(id)) {
+            throw BizException.of("XK 合规: 销售退货单关联 OQC_RETURN 检验单 " + oqcRet.getBillNo()
+                    + " 判定为 " + oqcRet.getResult()
+                    + (Constants.RESULT_PASS.equals(oqcRet.getResult()) && !Constants.STATUS_CHECKED.equals(oqcRet.getStatus()) ? " (尚未审核放行)" : "")
+                    + ", 未合格不能退货; 请放行 OQC_RETURN 后重试");
+        }
 
         log.info("销售退货审核: billNo={}, amount={}", r.getBillNo(), r.getTotalAmountTax());
     }

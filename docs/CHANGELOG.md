@@ -2,6 +2,59 @@
 > 本文件保留"当前版本"标题段 + 关键架构决策 + 部署速查。
 
 ## changelog (倒序)
+### v1.1.99 (2026-10-17) — 参考 ruoyi-vue-pro MES 完善车间闭环 (C1 工单状态机 + C2 全链追溯 + C3 质量门禁对称/工艺参数 + C4 排程 OEE + 附带清理)
+
+**用户诉求**: "参考 ruoyi-vue-pro 的 MES 系统，针对现在项目作出完善方案"。用户拍板 **C1–C4 全做 + C1 完工走硬门禁**。
+
+**实证诊断** (读遍 mes/qms/pdm/em/production 5 module + 前端, 结论: 一期已落地"主数据+批次登记+工序定义+质量单+采购/半成品 XK 门禁"且全真后端, 但对照 ruoyi-vue-pro 有 6 类缺口):
+1. **工单状态机断头** — `Constants.STATUS_PRODUCING`(:83) 定义了但全后端 0 处写入; `finish()` 靠人工、不校验工序全完工。
+2. **批次追溯 3 段断链** — ① 成品→客户 `customer_id` 永 NULL (`SalDeliveryService` 不写 link); ② 半成品→原料 `rawBatchNo` 硬编码 NULL (`PrdSemiInService.java:116`); ③ 无服务端全链递归 (`batchTrace` 只单层)。
+3. **质量门禁不对称** — IQC/FAI 有硬门禁; OQC/PAT/OQC_RETURN 只自动建草稿不校验合格。
+4. **工艺参数不生效** — `mes_process_param.is_critical`+上下限有字段无判定逻辑, 报工不读参数。
+5. **排程/OEE/设备占用全无** — 无排程表/工序耗时/OEE/工单派到设备实例。
+6. **前端批次溯源页 mock 壳** — `xk/Trace.vue` 走 `xkMock`, `unit:'kg'` 硬编码/`customer:'-'` 占位/unsplash 假照片。
+
+**C1 工单状态机接入工序完工 (零 schema, 硬门禁)**:
+- `MesReportService` +2 helper: `allProcessesFinished(orderId)` (无工序实例=未配工序链存量单→返回 true 不阻塞老流程; 有则要求全部 status=FINISHED) + `listUnfinishedProcessNames`。
+- `PrdOrderService.release()` 展开工序成功 → 把工单 `billStatus` 置 `STATUS_PRODUCING` (让 :83 死枚举活起来); 没展开工序的存量单维持 RELEASED 不变。
+- `PrdOrderService.finish()` 开头硬门禁: 未完工工序 → 抛错列出未完工序名。
+- **实际完工入口 `PrdFinishedInService.check()`** 也加同门禁 (关联 `prdOrderId` 的入库, 该工单未完工工序不能入库; 独立无工单入库不拦) — 这才是"工序驱动主流程"真闭环。
+
+**C2 打通批次全链追溯**:
+- `SalDeliveryService.check()` 出库循环: 每个有 `batchNo` 的明细行写 `mes_batch_link(billType=FG_OUT, child=FG批, customer_id=出库客户)` 打通成品→客户出口 (副作用登记, 失败仅 warn 不阻塞出库主流程); 新增 `MesReportService.registerFgOutToCustomer`。
+- `PrdSemiInService.check()`: `registerSemiOnFinish` 的 `rawBatchNo` 不再传 null, 改 `MesReportService.resolveRawBatchForOrder` (查该工单领料登记的 RAW 批 ISSUE 行最新 parent) 打通半成品→原料上游断链。
+- 服务端全链递归 `MesReportService.traceFull(batchNo)`: BFS 双向展开 料→半成品→成品→客户 (深度上限 8 + 已访问集防脏环), 一次返回整棵链 DTO (含客户出口 customer/customerName)。端点 `/mes/batch/trace-full/{batchNo}` + `/xk/trace/full/{batchNo}`。
+
+**C3 质量门禁对称化 + 工艺参数生效**:
+- `QmsInspectionService` 加 4 helper (仿 hasPassedFai): `findOqcByFinishedInId`+`hasPassedOqc` (PRD_FINISHED_IN/OQC) + `findOqcReturnBySalReturnId`+`hasPassedOqcReturn` (SAL_RETURN/OQC_RETURN)。
+- **软门禁零回归**: 自动建草稿从 `check()` 挪到 `add()` (避免"审核后才建草稿→草稿未 PASS→永远审不了"死锁); `PrdFinishedInService.check()`/`SalReturnService.check()` 加软门禁 — 仅当**已存在** OQC/OQC_RETURN 单且未合格才拒, 无单(旧数据)放行。
+- 工艺参数生效: `MesController.ReportDTO` +可选 `paramValues`; `MesReportService.reportWork` 加 6 参重载, 关键参数 (isCritical=1 且配上下限) 越限 → 本次合格量转不良/不自动完工 + 审计 `REPORT_WORK_PARAM_VIOLATION`; 旧 5 参签名保留作兼容重载。App 报工页 `production/report.vue` 关键工序展开参数输入框 (读 `pdmParamList`)。
+
+**C4 生产排程 + 设备 OEE (唯一需 DDL)**:
+- `sql/113_v199_mes_schedule_oee.sql`: 2 新表 `mes_schedule` (工单×设备×工序×时段 排程实例) + `mes_process_time` (工序实际耗时流水, OEE 数据源) + 2 F perm `production:schedule:{list,edit}` + 6 内置角色×PC 授权 (INSERT IGNORE + CROSS JOIN NOT EXISTS 双保险, 仿 sql/54 模式)。
+- 新 `modules/mes`: `MesSchedule`/`MesProcessTime` entity + 2 mapper + `MesScheduleService` (排程 CRUD + 同设备同时段冲突检测(仅提示不阻断) + 设备承接校验 + OEE=可用工时×稼动率×性能率×良品率 简化算法) + `MesController` 6 端点 (`/mes/schedule/*`, `/mes/oee/{equipmentId}`, `/mes/process-time`)。
+- 前端新页 `pc-web/src/views/production/Schedule.vue` (排程甘特/列表/设备 OEE 三 tab, el-table+时间轴 div 不引重型组件) + router `production/schedule` + `MainLayout.vue` 生产菜单项。
+
+**附带清理**:
+- **Trace 去 mock**: `xk/Trace.vue` 批次台账/时间线改读真 `traceFull` (去 `unit:'kg'`/`customer:'-'` 占位 + unsplash 假图 `PHOTO` 置 null); `api/xk.js` `traceBatches`/`traceTimeline` 移除 mock shape 强转, 时间线走 `/xk/trace/full`。
+- **维保双表统一**: `XkController` 设备维保 KPI/列表从老 `WfMaintainRecordService` 切到 `EmMaintainOrderService.pageForXk` (em_maintain 新表, 与 `xk/Maintenance.vue` 数据源对齐), 消除"XK 合规中心读旧表、维保功能页读新表"分裂; `api/xk.js` `maintenanceOrders` 字段映射改 em 实体 (orderNo/equipmentName/maintContent/planDate/operator/status)。
+
+**改动文件**:
+- 后端改: `MesReportService` (C1 helper + C2 traceFull/resolveRaw/registerFgOut + C3 参数判定), `PrdOrderService` (C1 硬门禁+PRODUCING), `SalDeliveryService` (C2 FG_OUT link), `PrdSemiInService` (C2 raw 取值), `PrdFinishedInService` (C1+C3 门禁), `SalReturnService` (C3 门禁), `QmsInspectionService` (C3 OQC helper), `MesController`/`XkController` (端点+维保切表), `EmMaintainOrderService` (+pageForXk)。
+- 后端新: `MesSchedule`/`MesProcessTime` + 2 mapper + `MesScheduleService`; `sql/113_v199_mes_schedule_oee.sql`。
+- 前端: `Schedule.vue` (新) + `api/production.js` (mesApi 加 6 C4 方法 + batchTraceFull) + `Order.vue`/`Trace.vue`/`report.vue`/`api/xk.js`/`router/index.js`/`MainLayout.vue`。
+
+**部署 (飞牛 canary 先行, home 未同步待批准)**:
+- C4 SQL 灌飞牛 (2 表 + 2 perm + 24 行 PC 角色授权 已落库) → 后端 `mvn clean package` + **飞牛 jar 必须 `docker cp` 覆盖进 `erp-backend-failover:/opt/app/app.jar` + `docker restart`** (飞牛 jar 烘焙进镜像, cp+restart 无效) → 前端 `npm run build` (dist 146 js) + `dist-new` 全量替换。
+- **验证**: 后端 healthy (`/api/auth/captcha` 200); 新端点 `/mes/batch/trace-full`/`/mes/schedule/page`/`/mes/oee/1`/`/xk/trace/full` 全 401 (路由已注册+门禁正常, 非 404); `Schedule-CNITiQiQ.js` 在线 HTTP 200; `mes_schedule`/`mes_process_time` SHOW TABLES 命中。
+
+**边界/待办**:
+- C1–C3 零 schema 回滚 = 还原 Java; C4 回滚 = 还原 Java + `DROP TABLE mes_schedule/mes_process_time` + 删 2 perm 节点。
+- 报工仍不动 `inv_stock` (WIP 在制品账不在本次范围)。
+- **可选** `sql/112_v199_batch_link_backfill.sql`: 回填历史 `sal_delivery` 的 FG 批→客户 link 让老数据可追溯 (默认未写未跑)。
+- `production:schedule:{list,edit}` 是**新** perm, 飞牛已授权 6 角色, 但已有登录用户 Sa-Token session 缓存旧 perm 数组 → 相关账号需**退出重登**才能在菜单看到"生产排程"。
+- home NAS (192.168.0.150) 未同步, 按 [[canary-first]] 需用户批准。
+
 ### v1.1.80 hotfix (2026-10-08) — CORS 白名单补 `:18080` 域名 origin (登录 403 修复)
 
 **用户反馈 (2026-10-08)**: `POST http://home.93gushi.com:18080/api/auth/login 403 (Forbidden)` — 登录 403, 怀疑 `home.93gushi.com:18080` 没加进白名单.

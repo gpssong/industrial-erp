@@ -112,6 +112,30 @@ public class FeiePrintService {
     }
 
     /**
+     * v1.1.102 — 批量打印 (多选行). 逐行调 print(), 某行失败 catch 住不中断其他行,
+     * 汇总返回 {成功数, 失败数, 失败明细[]}. 未配打印机时 getActiveConfig 会抛错, 整体失败.
+     */
+    public Map<String, Object> printBatch(String bizType, List<Long> billIds) {
+        List<Long> ids = billIds == null ? new java.util.ArrayList<>() : billIds.stream().distinct().toList();
+        int ok = 0;
+        List<String> failed = new java.util.ArrayList<>();
+        for (Long id : ids) {
+            try {
+                print(bizType, id);
+                ok++;
+            } catch (Exception e) {
+                failed.add("id=" + id + " " + e.getMessage());
+            }
+        }
+        Map<String, Object> r = new java.util.HashMap<>();
+        r.put("total", ids.size());
+        r.put("success", ok);
+        r.put("failed", failed.size());
+        r.put("failedItems", failed);
+        return r;
+    }
+
+    /**
      * 发送到飞鹅云 (指定打印机)
      */
     public String printWithConfig(String bizType, Long billId, Long configId) {

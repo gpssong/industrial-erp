@@ -16,11 +16,13 @@ public interface WfMaintainRecordMapper extends BaseMapper<WfMaintainRecord> {
             "  <if test=\"deviceName != null and deviceName != ''\">AND r.device_name LIKE CONCAT('%', #{deviceName}, '%')</if>" +
             "  <if test=\"billStatus != null and billStatus != ''\">AND r.bill_status = #{billStatus}</if>" +
             "  <if test=\"overdue != null and overdue\">AND r.next_due_date IS NOT NULL AND r.next_due_date &lt; CURDATE()</if>" +
+            "  <if test=\"deviceId != null\">AND r.device_id = #{deviceId}</if>" +
             "</where> " +
             "ORDER BY r.id DESC" +
             "</script>")
     IPage<WfMaintainRecord> selectPageList(IPage<WfMaintainRecord> page,
             @Param("deviceName") String deviceName,
             @Param("billStatus") String billStatus,
-            @Param("overdue") Boolean overdue);
+            @Param("overdue") Boolean overdue,
+            @Param("deviceId") Long deviceId);
 }

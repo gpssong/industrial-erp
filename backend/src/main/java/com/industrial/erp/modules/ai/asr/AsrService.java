@@ -5,9 +5,12 @@ import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.ai.client.LlmClient;
 import com.industrial.erp.modules.ai.config.AiProperties;
+import com.industrial.erp.modules.system.service.SysConfigService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Base64;
@@ -39,19 +42,36 @@ public class AsrService {
 
     private final AiProperties props;
 
+    /** v1.1.80: DB 覆盖读取 (可选注入). 缺失时 ASR 纯 env 行为不变. */
+    @Autowired(required = false)
+    private SysConfigService sysConfigService;
+
     public AsrService(AiProperties props) {
         this.props = props;
     }
 
-    /** ASR 是否配置 (key 非空即启用). 与 LlmClient.enabled() 同款语义. */
+    /** v1.1.80: 读 sys_config.AI_INTEGRATION 刷 ASR 覆盖字段 (DB 即时生效, 无需重建 jar). */
+    private void refreshFromDb() {
+        if (sysConfigService == null) return;
+        try {
+            String json = sysConfigService.getByKey(LlmClient.DB_KEY);
+            props.applyIntegrationJson(json);   // null → 清 override, 纯 env
+        } catch (Exception e) {
+            log.warn("[ASR] 读 sys_config.{} 失败, 回落纯 env: {}", LlmClient.DB_KEY, e.getMessage());
+        }
+    }
+
+    /** ASR 是否配置 (key 非空即启用). 与 LlmClient.enabled() 同款语义.
+     *  v1.1.80: 读 effective (DB 覆盖优先). */
     public boolean enabled() {
-        String k = props.getAsrKey();
+        String k = props.effectiveAsrKey();
         return k != null && !k.trim().isEmpty();
     }
 
-    /** 当前 ASR model (供 VO / 运维日志; 兼容前端展示). */
+    /** 当前 ASR model (供 VO / 运维日志; 兼容前端展示).
+     *  v1.1.80: 读 effective (DB 覆盖优先). */
     public String model() {
-        return props.getAsrModel();
+        return props.effectiveAsrModel();
     }
 
     /**
@@ -63,6 +83,7 @@ public class AsrService {
      * @throws BizException 未配 key / 网络失败 / HTTP 非 2xx
      */
     public String transcribe(byte[] audio, String contentType) {
+        refreshFromDb();   // v1.1.80: 刷 DB 覆盖 (改 sys_config.AI_INTEGRATION 即时生效)
         if (!enabled()) {
             throw new BizException("语音识别未配置: 请设置 ERP_AI_ASR_KEY (DashScope ASR)");
         }
@@ -71,8 +92,8 @@ public class AsrService {
         }
 
         String b64 = Base64.getEncoder().encodeToString(audio);
-        String model = props.getAsrModel();
-        String url = props.getAsrBaseUrl() + "/" + model;
+        String model = props.effectiveAsrModel();
+        String url = props.effectiveAsrBaseUrl() + "/" + model;
 
         // DashScope 短音频同步识别: input.file_data 为 base64, parameters.sample_rate 固定 16000.
         // 响应字段 output.text (paraformer-v2 / paraformer-realtime-v2 通用). 字段名以实测为准.
@@ -84,10 +105,10 @@ public class AsrService {
         String raw;
         int status;
         try (HttpResponse resp = HttpRequest.post(url)
-                .header("Authorization", "Bearer " + props.getAsrKey())
+                .header("Authorization", "Bearer " + props.effectiveAsrKey())
                 .header("Content-Type", "application/json")
                 .body(body.toString())
-                .timeout(props.getAsrTimeoutMs())
+                .timeout(props.effectiveAsrTimeoutMs())
                 .execute()) {
             status = resp.getStatus();
             raw = resp.body();

@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
 @Service
 public class SalDeliveryService {
 
-    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher, BaseProductMapper productMapper, SalOrderMapper orderMapper) {
+    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher, BaseProductMapper productMapper, SalOrderMapper orderMapper, com.industrial.erp.modules.mes.service.MesReportService mesReportService) {
         this.deliveryMapper = deliveryMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
@@ -64,6 +64,7 @@ public class SalDeliveryService {
         this.operLogPublisher = operLogPublisher;
         this.productMapper = productMapper;
         this.orderMapper = orderMapper;
+        this.mesReportService = mesReportService;
     }
 
     private static final Logger log = LoggerFactory.getLogger(SalDeliveryService.class);
@@ -80,6 +81,8 @@ public class SalDeliveryService {
     private final FinArapService arapService;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    /** v1.1.99 C2: 销售出库登记 FG 批次→客户 流向 (打通追溯出口). */
+    private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
 
     public IPage<SalDelivery> page(Integer pageNum, Integer pageSize, String billNo, Long customerId, String customerName, String billStatus, String productName) {
         permService.requirePerm("sales:delivery:list");
@@ -215,6 +218,13 @@ public class SalDeliveryService {
         BigDecimal totalAmountTax = BigDecimal.ZERO;
         int line = 0;
         for (SalDeliveryDetail d : delivery.getDetails()) {
+            // S2 安全红线: 数量/单价基本守卫 — 防止 0 或负数行算出 0/负 AR 金额入库.
+            if (d.getQty() == null || d.getQty().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BizException("第 " + (line + 1) + " 行数量必须大于 0, 当前=" + d.getQty());
+            }
+            if (d.getPrice() == null || d.getPrice().compareTo(BigDecimal.ZERO) < 0) {
+                throw new BizException("第 " + (line + 1) + " 行单价不能为负数, 当前=" + d.getPrice());
+            }
             d.setLineNo(++line);
             if (d.getTaxRate() == null) d.setTaxRate(c.getTaxRate() == null ? new BigDecimal("13.00") : c.getTaxRate());
             d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
@@ -288,6 +298,13 @@ public class SalDeliveryService {
         BigDecimal totalAmountTax = BigDecimal.ZERO;
         int line = 0;
         for (SalDeliveryDetail d : delivery.getDetails()) {
+            // S2 安全红线: 数量/单价基本守卫 — 防止 0 或负数行算出 0/负 AR 金额入库.
+            if (d.getQty() == null || d.getQty().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BizException("第 " + (line + 1) + " 行数量必须大于 0, 当前=" + d.getQty());
+            }
+            if (d.getPrice() == null || d.getPrice().compareTo(BigDecimal.ZERO) < 0) {
+                throw new BizException("第 " + (line + 1) + " 行单价不能为负数, 当前=" + d.getPrice());
+            }
             d.setLineNo(++line);
             if (d.getTaxRate() == null) d.setTaxRate(c.getTaxRate() == null ? new BigDecimal("13.00") : c.getTaxRate());
             d.setAmount(d.getPrice().multiply(d.getQty()).setScale(4, RoundingMode.HALF_UP));
@@ -415,6 +432,22 @@ public class SalDeliveryService {
                 if (od != null) {
                     od.setOutQty(shipped);
                     orderDetailMapper.updateById(od);
+                }
+            }
+        }
+
+        // 6. v1.1.99 C2: 销售出库 = FG 成品批次流向客户的追溯出口时机.
+        // 每个有 batchNo 的明细行登记 FG 批次 + mes_batch_link(FG_OUT, customer_id).
+        // MES 是副作用登记, 失败只记日志不阻塞出库主流程 (库存/成本/AR 已落库).
+        if (details != null) {
+            for (SalDeliveryDetail det : details) {
+                if (det.getBatchNo() == null || det.getBatchNo().isEmpty()) continue;
+                try {
+                    mesReportService.registerFgOutToCustomer(det.getBatchNo(), d.getCustomerId(),
+                            det.getQty(), null, d.getBillNo());
+                } catch (Exception e) {
+                    log.warn("[MES] 销售出库登记 FG 批次→客户失败 (不阻塞出库) billNo={} batchNo={} err={}",
+                            d.getBillNo(), det.getBatchNo(), e.getMessage());
                 }
             }
         }

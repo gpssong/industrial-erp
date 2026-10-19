@@ -44,6 +44,13 @@ public class BaseProduct {
     private Integer isWeigh;
     private Integer isBatch;
     private Integer isSn;
+    /** 食品级 (XK16-204 食品接触原料): 0=工业品 1=食品级, v1.1.99 加 */
+    private Integer isFoodGrade;
+    /** v1.1.100 食品接触合规 (GB 4806 / 食品相关产品生产许可证): 4 字段, 限值/标准号由用户填, 不硬编码 */
+    private String foodUseDesc;
+    private String foodExecStd;
+    private BigDecimal foodMigrationLimit;
+    private String foodFilingNo;
     private Integer shelfLifeDays;
     private BigDecimal safetyStock;
     private String imageUrl;
@@ -123,6 +130,16 @@ public class BaseProduct {
     public void setIsBatch(Integer isBatch) { this.isBatch = isBatch; }
     public Integer getIsSn() { return isSn; }
     public void setIsSn(Integer isSn) { this.isSn = isSn; }
+    public Integer getIsFoodGrade() { return isFoodGrade; }
+    public void setIsFoodGrade(Integer isFoodGrade) { this.isFoodGrade = isFoodGrade; }
+    public String getFoodUseDesc() { return foodUseDesc; }
+    public void setFoodUseDesc(String foodUseDesc) { this.foodUseDesc = foodUseDesc; }
+    public String getFoodExecStd() { return foodExecStd; }
+    public void setFoodExecStd(String foodExecStd) { this.foodExecStd = foodExecStd; }
+    public BigDecimal getFoodMigrationLimit() { return foodMigrationLimit; }
+    public void setFoodMigrationLimit(BigDecimal foodMigrationLimit) { this.foodMigrationLimit = foodMigrationLimit; }
+    public String getFoodFilingNo() { return foodFilingNo; }
+    public void setFoodFilingNo(String foodFilingNo) { this.foodFilingNo = foodFilingNo; }
     public Integer getShelfLifeDays() { return shelfLifeDays; }
     public void setShelfLifeDays(Integer shelfLifeDays) { this.shelfLifeDays = shelfLifeDays; }
     public BigDecimal getSafetyStock() { return safetyStock; }

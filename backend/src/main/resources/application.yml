@@ -98,7 +98,7 @@ sa-token:
     path: /
 
 erp:
-  version: ${ERP_VERSION:1.1.78}
+  version: ${ERP_VERSION:1.1.101}
   # v1.1.75 AI 集成第一步 — 通用 LLM 网关 (OpenAI 兼容协议, 支持通义/DeepSeek/OpenAI/OpenRouter).
   # key 为空时 AI 端点快速失败并提示"未配置", 不影响其他功能. 密钥只走 env, 不进 git.
   #
@@ -119,11 +119,12 @@ erp:
     cooldown-long-ms: ${ERP_AI_FAILOVER_COOLDOWN_LONG_MS:1800000}
     strip-thinking: ${ERP_AI_STRIP_THINKING:true}
     providers: ${ERP_AI_PROVIDERS:}
-    # provider slot 0 (主, 默认 agnes)
+    # provider slot 0 (主, 默认 agnes). 默认 model/baseUrl 与「agnes」名字自洽 (Agnes flash @ apihub.agnes-ai.com),
+    # 避免老默认 (qwen-plus @ dashscope) 与「agnes」槽位名混搭误导. env 有值时仍以 env 为准 (零破坏).
     provider0-name: ${ERP_AI_PROVIDER0_NAME:agnes}
     provider0-key: ${ERP_AI_PROVIDER0_KEY:${ERP_AI_API_KEY:}}
-    provider0-model: ${ERP_AI_PROVIDER0_MODEL:${ERP_AI_MODEL:qwen-plus}}
-    provider0-base-url: ${ERP_AI_PROVIDER0_BASE_URL:${ERP_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}}
+    provider0-model: ${ERP_AI_PROVIDER0_MODEL:agnes-2.5-flash}
+    provider0-base-url: ${ERP_AI_PROVIDER0_BASE_URL:https://apihub.agnes-ai.com/v1}
     provider0-timeout-ms: ${ERP_AI_PROVIDER0_TIMEOUT_MS:${ERP_AI_TIMEOUT_MS:60000}}
     provider0-strip-thinking: ${ERP_AI_PROVIDER0_STRIP_THINKING:false}
     # provider slot 1 (备, 默认 minimax)

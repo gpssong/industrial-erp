@@ -8,16 +8,20 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.ai.config.AiProperties;
+import com.industrial.erp.modules.system.service.SysConfigService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -42,8 +46,26 @@ public class LlmClient {
 
     private static final Logger log = LoggerFactory.getLogger(LlmClient.class);
 
+    /** sys_config 里存 AI 集成覆盖的 key (DB 非空字段覆盖 env, 即时生效). */
+    public static final String DB_KEY = "AI_INTEGRATION";
+
+    /** provider 链的 TTL cache 窗口 (ms). 改 DB 后最迟 30s 自动生效, 无需重建 jar. */
+    private static final long CHAIN_TTL_MS = 30_000L;
+
     private final AiProperties props;
     private final List<ProviderState> chain = new ArrayList<>();
+
+    /** DB 覆盖读取: 可选注入 (SysConfigService 缺失时纯 env 工作, 零破坏). */
+    @Autowired(required = false)
+    private SysConfigService sysConfigService;
+
+    /** provider 链 cache: 上次构建的时间戳 + 对应的 chain 快照 (供 cooldown 保留). */
+    private volatile long lastChainBuiltAt = 0L;
+    private volatile List<ProviderState> cachedChain = new ArrayList<>();
+    /** 上次成功解析的 DB JSON (cache 窗口内复用它做覆盖, 避免每请求 DB 查). */
+    private volatile String cachedIntegrationJson;
+    /** provider name → 其上次 cooldownUntil (链重建时按 name 保留, 不断连). */
+    private final Map<String, Long> cooldownByProvider = new HashMap<>();
 
     public LlmClient(AiProperties props) {
         this.props = props;
@@ -51,35 +73,106 @@ public class LlmClient {
 
     @PostConstruct
     void init() {
-        // 1) 解析 providers (逗号串) → slot name 顺序
-        Set<String> order = parseProviders(props.getProviders());
+        rebuildChain(true);
+    }
 
-        // 2) 按 slot 索引 0/1 取 provider 配置, 顺序由 order 决定
+    /**
+     * v1.1.80 — 重建 provider 链 (DB 覆盖 + env 兜底).
+     *
+     * <p>读 sys_config.{@value #DB_KEY} JSON → {@link AiProperties#applyIntegrationJson} 覆盖,
+     * 再按 {@code effectiveXxx()} 构建链. cooldown 按 provider name 保留, 重建不断连.
+     *
+     * @param force true = 忽略 TTL 立即重建 (controller updateValue 回调); false = 尊重 TTL.
+     */
+    public void rebuildChain(boolean force) {
+        long now = System.currentTimeMillis();
+        if (!force && now - lastChainBuiltAt < CHAIN_TTL_MS) {
+            return;   // TTL 窗口内, 用 cache
+        }
+        // 1) 读 DB 覆盖 (SysConfigService 缺失 → null, 纯 env 行为不变)
+        if (sysConfigService != null) {
+            String json = null;
+            try {
+                json = sysConfigService.getByKey(DB_KEY);
+            } catch (Exception e) {
+                log.warn("[LLM] 读 sys_config.{} 失败, 回落纯 env: {}", DB_KEY, e.getMessage());
+            }
+            props.applyIntegrationJson(json);
+            cachedIntegrationJson = json;
+        } else if (cachedIntegrationJson != null) {
+            // 二次调用 (TTL 过期) 时 SysConfigService 还没注入: 复用上次 JSON
+            props.applyIntegrationJson(cachedIntegrationJson);
+        }
+
+        // 2) 记录旧链的 cooldown (按 name), 供新链保留
+        Map<String, Long> oldCooldowns = new HashMap<>();
+        for (ProviderState s : cachedChain) {
+            oldCooldowns.put(s.cfg.name, s.cooldownUntil);
+        }
+
+        // 3) 重建链
+        List<ProviderState> fresh = buildChain();
+        // 4) 按 name 恢复 cooldown (只恢复仍存在的 provider)
+        for (ProviderState s : fresh) {
+            Long cd = oldCooldowns.get(s.cfg.name);
+            if (cd != null) {
+                s.cooldownUntil = cd;
+                cooldownByProvider.put(s.cfg.name, cd);
+            }
+        }
+        cachedChain = fresh;
+        chain.clear();
+        chain.addAll(fresh);
+        lastChainBuiltAt = now;
+        if (force) logChainBuilt();
+    }
+
+    /** 强制重建 (controller 改 DB 后回调, 立即生效不等 TTL). */
+    public void rebuild() {
+        rebuildChain(true);
+    }
+
+    private List<ProviderState> buildChain() {
+        List<ProviderState> out = new ArrayList<>();
+        Set<String> order = parseProviders(props.effectiveProviders());
+        boolean legacy = props.effectiveLegacyApiKey() != null
+                && !props.effectiveLegacyApiKey().trim().isEmpty();
+
+        if (order.isEmpty()) {
+            // 兜底: providerOrder 空但某 slot 有 key (env 或 DB) 时, 按「slot0 有 key → agnes; slot1 有 key → minimax」顺序推。
+            // 修: 用户在「对接方式」填了 slot key 但没开 provider 开关 (providerOrder=""), 原逻辑 order 空 → 整链空 → 误报「未配置」。
+            // parseProviders 空时返回 Collections.emptySet() (不可变), 故这里新建可变 LinkedHashSet.
+            order = new LinkedHashSet<>();
+            if (nonBlank(props.effectiveProvider0Key())) order.add("agnes");
+            if (nonBlank(props.effectiveProvider1Key())) order.add("minimax");
+            // legacy key 单独由下方 `else if (legacy)` 分支处理 (default 名), 不塞进 order.
+        }
+
         if (!order.isEmpty()) {
             for (String name : order) {
                 ProviderState st = buildSlot(name);
-                if (st != null) chain.add(st);
+                if (st != null) out.add(st);
             }
-            if (hasLegacy() && chain.size() == 1
-                    && "default".equals(chain.get(0).cfg.name)) {
-                // 单 provider + legacy: 不 warn (行为兼容 v1.1.75)
-            } else if (hasLegacy()) {
+            if (legacy && out.size() == 1 && "default".equals(out.get(0).cfg.name)) {
+                // 单 provider + legacy: 兼容 v1.1.75, 不 warn
+            } else if (legacy) {
                 log.warn("[LLM] legacy env ignored: providers={}", order);
             }
-        } else if (hasLegacy()) {
-            // v1.1.75 兼容路径: 单 default provider
-            chain.add(new ProviderState(new ProviderConfig(
+        } else if (legacy) {
+            out.add(new ProviderState(new ProviderConfig(
                     "default",
-                    props.getLegacyApiKey(),
-                    props.getLegacyModel(),
-                    props.getLegacyBaseUrl(),
+                    props.effectiveLegacyApiKey(),
+                    props.effectiveLegacyModel(),
+                    props.effectiveLegacyBaseUrl(),
                     props.getLegacyTimeoutMs(),
                     false)));
-        } else {
-            log.warn("[LLM] 未启用: providers 空且 legacy api-key 也为空");
         }
+        return out;
+    }
 
-        log.info("[LLM] initialized {} providers: [{}]",
+    /** 首构建日志 (区分「从未配过」与「配过但现在空了」). */
+    private void logChainBuilt() {
+        log.info("[LLM] chain rebuilt ({} providers): [{}]",
                 chain.size(),
                 chain.stream().map(s -> s.cfg.name).reduce((a, b) -> a + "," + b).orElse(""));
     }
@@ -94,23 +187,28 @@ public class LlmClient {
         return out;
     }
 
-    /** 根据 slot name 取配置. name 不在 0/1 slot 内返回 null (skip). */
+    /** null/空白判定 (供 buildChain 兜底推 provider 顺序). */
+    private static boolean nonBlank(String s) {
+        return s != null && !s.trim().isEmpty();
+    }
+
+    /** 根据 slot name 取配置 (DB 覆盖优先). name 不在 0/1 slot 内返回 null (skip). */
     private ProviderState buildSlot(String name) {
         ProviderConfig cfg;
         if ("agnes".equals(name)) {
             cfg = new ProviderConfig(name,
-                    props.getProvider0Key(),
-                    props.getProvider0Model(),
-                    props.getProvider0BaseUrl(),
-                    props.getProvider0TimeoutMs(),
-                    props.isProvider0StripThinking());
+                    props.effectiveProvider0Key(),
+                    props.effectiveProvider0Model(),
+                    props.effectiveProvider0BaseUrl(),
+                    props.effectiveProvider0TimeoutMs(),
+                    props.effectiveProvider0StripThinking());
         } else if ("minimax".equals(name)) {
             cfg = new ProviderConfig(name,
-                    props.getProvider1Key(),
-                    props.getProvider1Model(),
-                    props.getProvider1BaseUrl(),
-                    props.getProvider1TimeoutMs(),
-                    props.isProvider1StripThinking());
+                    props.effectiveProvider1Key(),
+                    props.effectiveProvider1Model(),
+                    props.effectiveProvider1BaseUrl(),
+                    props.effectiveProvider1TimeoutMs(),
+                    props.effectiveProvider1StripThinking());
         } else {
             log.warn("[LLM] unknown provider name '{}', skipped (slot 0/1 only)", name);
             return null;
@@ -123,13 +221,15 @@ public class LlmClient {
     }
 
     private boolean hasLegacy() {
-        return props.getLegacyApiKey() != null && !props.getLegacyApiKey().trim().isEmpty();
+        return props.effectiveLegacyApiKey() != null && !props.effectiveLegacyApiKey().trim().isEmpty();
     }
 
     /**
      * 是否启用. 与 v1.1.75 语义一致 (key 非空即启用, 不区分 provider 数).
+     * v1.1.80: 调用前尊重 TTL 刷 provider 链 (DB 覆盖).
      */
     public boolean enabled() {
+        rebuildChain(false);
         if (chain.isEmpty()) return hasLegacy();
         return true;
     }
@@ -145,6 +245,23 @@ public class LlmClient {
             if (now >= s.cooldownUntil) return s.cfg.model;
         }
         return chain.get(0).cfg.model;
+    }
+
+    /** v1.1.80: 实际命中的 provider 名 (供前端展示当前生效顺序). 空链 → "(未配置)". */
+    public String activeProvider() {
+        if (chain.isEmpty()) return hasLegacy() ? "legacy" : "(未配置)";
+        long now = System.currentTimeMillis();
+        for (ProviderState s : chain) {
+            if (now >= s.cooldownUntil) return s.cfg.name;
+        }
+        return chain.get(0).cfg.name;
+    }
+
+    /** v1.1.80: 当前 provider 顺序 (DB 覆盖后) — 供前端 /sysconfig 回显即时生效状态. */
+    public List<String> providerOrder() {
+        List<String> names = new ArrayList<>();
+        for (ProviderState s : chain) names.add(s.cfg.name);
+        return names;
     }
 
     /**
@@ -179,10 +296,14 @@ public class LlmClient {
     /** 统一的 failover 主循环. */
     private ChatResult chatInternal(List<JSONObject> messages, JSONArray tools,
                                     int maxTokens, double temperature) {
+        // v1.1.80: 每次调用前尊重 TTL 刷 DB 覆盖 (改 DB 即时生效, 无需重建 jar)
+        rebuildChain(false);
+
         if (!enabled()) {
             throw new BizException(
                     "AI 功能未配置: 请设置环境变量 ERP_AI_API_KEY "
-                            + "(或 ERP_AI_PROVIDER0_KEY / ERP_AI_PROVIDER1_KEY 启用 failover)");
+                            + "(或 ERP_AI_PROVIDER0_KEY / ERP_AI_PROVIDER1_KEY 启用 failover, "
+                            + "或在 系统设置→对接方式 配 AI_INTEGRATION)");
         }
 
         List<String> attempted = new ArrayList<>();
@@ -205,6 +326,7 @@ public class LlmClient {
             } catch (HttpFailoverSignal sig) {
                 long cd = sig.isQuota ? props.getCooldownLongMs() : props.getCooldownMs();
                 state.cooldownUntil = System.currentTimeMillis() + cd;
+                cooldownByProvider.put(state.cfg.name, state.cooldownUntil);
                 log.warn("[LLM] provider {} failed (status={}, isQuota={}), cooldown {}s, try next",
                         state.cfg.name, sig.status, sig.isQuota, cd / 1000);
                 attempted.add(state.cfg.name + "(fail " + sig.status + ")");

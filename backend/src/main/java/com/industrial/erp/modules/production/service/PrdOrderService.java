@@ -25,6 +25,7 @@ import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
+import com.industrial.erp.security.SecurityContext;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,8 +56,10 @@ public class PrdOrderService {
     private final StockService stockService;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    /** v1.1.80 MES: 开单时按产品默认工序链展开 prd_process 工序实例. */
+    private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
 
-    public PrdOrderService(PrdOrderMapper orderMapper, PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper, PrdFinishedInMapper finishedInMapper, PrdBomService bomService, BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher) {
+    public PrdOrderService(PrdOrderMapper orderMapper, PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper, PrdFinishedInMapper finishedInMapper, PrdBomService bomService, BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher, com.industrial.erp.modules.mes.service.MesReportService mesReportService) {
         this.orderMapper = orderMapper;
         this.reqMapper = reqMapper;
         this.reqDetailMapper = reqDetailMapper;
@@ -68,6 +71,7 @@ public class PrdOrderService {
         this.stockService = stockService;
         this.permService = permService;
         this.operLogPublisher = operLogPublisher;
+        this.mesReportService = mesReportService;
     }
 
     public IPage<PrdOrder> page(Integer pageNum, Integer pageSize, String billNo, String billStatus, String productName) {
@@ -119,6 +123,12 @@ public class PrdOrderService {
                 order.setPMaterial(p.getMaterial());
                 order.setPColorNo(p.getColorNo());
                 order.setModel(p.getModel());
+                // v1.1.100 食品合规 5 字段从 base_product 带出 (食品级成品回显 执行标准/备案/用途/限值)
+                order.setPFoodExecStd(p.getFoodExecStd());
+                order.setPFoodFilingNo(p.getFoodFilingNo());
+                order.setPFoodUseDesc(p.getFoodUseDesc());
+                order.setPFoodMigrationLimit(p.getFoodMigrationLimit());
+                order.setPIsFoodGrade(p.getIsFoodGrade());
             }
         }
         // 从 BOM 表取 bomCode/bomName + 备注
@@ -210,7 +220,9 @@ public class PrdOrderService {
     }
 
     /**
-     * 开工: 按 BOM 自动展开领料单
+     * 开工: 按 BOM 自动展开领料单. v1.1.103+ 容错: 未配置 BOM 的工单 (工业品/临时生产常见)
+     * 不再硬阻断, 而是降级为"无 BOM 开工" (不展开领料单, 不展开工序, 状态置 RELEASED,
+     * 提示用户后续手动到领料管理创建领料单, 保持零阻塞).
      */
     @Transactional(rollbackFor = Exception.class)
     public Long release(Long orderId) {
@@ -220,69 +232,110 @@ public class PrdOrderService {
         if (!Constants.STATUS_DRAFT.equals(order.getBillStatus()) && !Constants.STATUS_RELEASED.equals(order.getBillStatus())) {
             throw BizException.of("当前状态不可开工");
         }
-        if (order.getBomId() == null) throw BizException.of("未配置BOM, 无法展开领料单");
+        // v1.1.103+: BOM 缺失降级 (不抛错) — 工业品吹膜厂实际场景工单常先开工后补 BOM.
+        // 走完下面 "无 BOM 降级" 路径后, 工序展开也跳过, 状态直接置 RELEASED.
+        // v1.1.103+ 降级标志: 领料展开需要 BOM 明细 + 可用仓库 (生产单的或默认仓库)。
+        // 缺仓库时开工本身不该被卡死 (仓库是领料/入库环节才需要的) → 跳过领料展开, 状态照样 RELEASED,
+        // 用户后续手动到「领料管理」建领料单时再填仓库。缺 BOM 则 BOM 相关展开都跳过。
+        boolean noBom = (order.getBomId() == null);
+        PrdBom bom = noBom ? null : bomService.detail(order.getBomId());
+        boolean bomNoDetails = noBom || bom == null || bom.getDetails() == null || bom.getDetails().isEmpty();
 
-        PrdBom bom = bomService.detail(order.getBomId());
-        if (bom == null || bom.getDetails() == null) throw BizException.of("BOM无明细");
-
-        // 计算每种原料的实际用量 = baseQty * (planQty / bom.baseQty) * (1 + lossRate/100)
-        BigDecimal ratio = order.getPlanQty().divide(bom.getBaseQty() == null ? BigDecimal.ONE : bom.getBaseQty(), 6, RoundingMode.HALF_UP);
-
-        // 仓库回退: 生产单可能没填仓库 (prd_order.warehouse_id nullable),
-        // 但 prd_requisition.warehouse_id NOT NULL, 直接 NULL 会爆 SQLIntegrityConstraintViolation.
-        // 优先用生产单的; 没有则取仓库表 is_default=1 的默认仓库; 都没有报错让用户去维护仓库.
+        // 解析领料用仓库: 优先生产单自带的, 没有则仓库表 is_default=1 的默认仓库; 都没有 → null (降级).
         Long reqWarehouseId = order.getWarehouseId();
         if (reqWarehouseId == null) {
             BaseWarehouse defaultWh = warehouseMapper.selectOne(new LambdaQueryWrapper<BaseWarehouse>()
                     .eq(BaseWarehouse::getIsDefault, 1)
                     .eq(BaseWarehouse::getDeleted, 0)
                     .last("LIMIT 1"));
-            if (defaultWh == null) {
-                throw BizException.of("生产单未填仓库, 且仓库表中无默认仓库. 请先在 '仓库管理' 中设置一个默认仓库, 或编辑本生产单填写仓库后再开工.");
-            }
-            reqWarehouseId = defaultWh.getId();
+            reqWarehouseId = defaultWh == null ? null : defaultWh.getId();
         }
+        boolean canExpand = !bomNoDetails && reqWarehouseId != null;
 
-        PrdRequisition req = new PrdRequisition();
-        req.setBillNo(billNoGenerator.generate(Constants.BILL_RQ));
-        req.setBillDate(LocalDate.now());
-        req.setPrdOrderId(order.getId());
-        req.setPrdOrderNo(order.getBillNo());
-        req.setWarehouseId(reqWarehouseId);
-        req.setWorkshop(order.getWorkshop());
-        req.setWorkshopId(order.getWorkshopId());
-        req.setBillType("ISSUE");
-        req.setBillStatus(Constants.STATUS_DRAFT);
-        req.setDetails(new java.util.ArrayList<>());
-        int line = 0;
-        for (PrdBomDetail bd : bom.getDetails()) {
-            PrdRequisitionDetail rd = new PrdRequisitionDetail();
-            rd.setLineNo(++line);
-            rd.setProductId(bd.getProductId());
-            rd.setProductCode(bd.getProductCode());
-            rd.setProductName(bd.getProductName());
-            rd.setUnitId(bd.getUnitId());
-            rd.setUnitName(bd.getUnitName());
-            BigDecimal base = bd.getBaseQty() == null ? BigDecimal.ZERO : bd.getBaseQty();
-            BigDecimal loss = bd.getLossRate() == null ? BigDecimal.ZERO : bd.getLossRate();
-            BigDecimal need = base.multiply(ratio).multiply(BigDecimal.ONE.add(loss.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP)));
-            rd.setQty(need.setScale(4, RoundingMode.HALF_UP));
-            req.getDetails().add(rd);
-        }
-        reqMapper.insert(req);
-        for (PrdRequisitionDetail rd : req.getDetails()) {
-            rd.setId(null);
-            rd.setRequisitionId(req.getId());
-            reqDetailMapper.insert(rd);
+        if (!bomNoDetails) {
+            // 计算每种原料的实际用量 = baseQty * (planQty / bom.baseQty) * (1 + lossRate/100)
+            BigDecimal ratio = order.getPlanQty().divide(bom.getBaseQty() == null ? BigDecimal.ONE : bom.getBaseQty(), 6, RoundingMode.HALF_UP);
+
+            if (canExpand) {
+                PrdRequisition req = new PrdRequisition();
+                req.setBillNo(billNoGenerator.generate(Constants.BILL_RQ));
+                req.setBillDate(LocalDate.now());
+                req.setPrdOrderId(order.getId());
+                req.setPrdOrderNo(order.getBillNo());
+                req.setWarehouseId(reqWarehouseId);
+                req.setWorkshop(order.getWorkshop());
+                req.setWorkshopId(order.getWorkshopId());
+                req.setBillType("ISSUE");
+                req.setBillStatus(Constants.STATUS_DRAFT);
+                req.setDetails(new java.util.ArrayList<>());
+                int line = 0;
+                for (PrdBomDetail bd : bom.getDetails()) {
+                    PrdRequisitionDetail rd = new PrdRequisitionDetail();
+                    rd.setLineNo(++line);
+                    rd.setProductId(bd.getProductId());
+                    rd.setProductCode(bd.getProductCode());
+                    rd.setProductName(bd.getProductName());
+                    rd.setUnitId(bd.getUnitId());
+                    rd.setUnitName(bd.getUnitName());
+                    BigDecimal base = bd.getBaseQty() == null ? BigDecimal.ZERO : bd.getBaseQty();
+                    BigDecimal loss = bd.getLossRate() == null ? BigDecimal.ZERO : bd.getLossRate();
+                    BigDecimal need = base.multiply(ratio).multiply(BigDecimal.ONE.add(loss.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP)));
+                    rd.setQty(need.setScale(4, RoundingMode.HALF_UP));
+                    req.getDetails().add(rd);
+                }
+                reqMapper.insert(req);
+                for (PrdRequisitionDetail rd : req.getDetails()) {
+                    rd.setId(null);
+                    rd.setRequisitionId(req.getId());
+                    reqDetailMapper.insert(rd);
+                }
+            } else if (bomNoDetails) {
+                // 无 BOM 降级: 打日志提醒, 不阻塞开工.
+                org.slf4j.LoggerFactory.getLogger(PrdOrderService.class)
+                        .warn("[PrdOrder.release] 工单 {} 未配置 BOM 或 BOM 无明细, 跳过自动领料单展开, 状态直接置 RELEASED. 用户可后续手动建领料单.",
+                                order.getBillNo());
+            } else {
+                // BOM 有明细但仓库缺失 (生产单没填 + 无默认仓库): 降级跳过领料展开, 不阻塞开工.
+                org.slf4j.LoggerFactory.getLogger(PrdOrderService.class)
+                        .warn("[PrdOrder.release] 工单 {} BOM 有明细但未填仓库且仓库表无默认仓库, 跳过自动领料单展开 (仓库为领料环节所需, 不阻塞开工). 用户可后续手动到「领料管理」建领料单并填写仓库.",
+                                order.getBillNo());
+            }
         }
 
         // 更新生产单状态
         PrdOrder upd = new PrdOrder();
         upd.setId(orderId);
         upd.setBillStatus(Constants.STATUS_RELEASED);
+        // v1.1.102 XK — 留痕: 记录是哪个账号(吹膜工)点的开工
+        upd.setReleaseBy(SecurityContext.getUserId());
+        upd.setReleaseName(SecurityContext.getUsername());
         orderMapper.updateById(upd);
 
-        return req.getId();
+        // v1.1.80 MES: 开单展开工序实例 (产品默认工序链 mes_process_def.is_default=1).
+        // 没配工序定义的产品 → 不展开 (零破坏, 存量单照常开工只是没有工序可报工).
+        // v1.1.103+: 无 BOM 工单也跳过工序展开 (工序跟着 BOM 才有意义).
+        boolean processesExpanded = false;
+        if (!bomNoDetails) {
+            try {
+                java.util.List<Long> procIds = mesReportService.expandProcessesOnRelease(order);
+                processesExpanded = !procIds.isEmpty();
+            } catch (Exception e) {
+                // 工序展开失败不阻塞开单主流程 (领料单已生成), 记日志降级.
+                org.slf4j.LoggerFactory.getLogger(PrdOrderService.class)
+                        .warn("[MES] 开单展开工序失败 (不阻塞开工) orderId={} err={}", orderId, e.getMessage());
+            }
+        }
+        // v1.1.99 C1: 展开了工序链 → 工单进入「生产中」(STATUS_PRODUCING), 让死枚举活起来.
+        // 没展开工序的存量单维持 RELEASED, 行为不变.
+        if (processesExpanded) {
+            PrdOrder prod = new PrdOrder();
+            prod.setId(orderId);
+            prod.setBillStatus(Constants.STATUS_PRODUCING);
+            orderMapper.updateById(prod);
+        }
+
+        // v1.1.103+ 返回工单 id (兼容前端既有调用: var r = await api.prdOrderRelease(id); 显示 r.data)
+        return orderId;
     }
 
     /**
@@ -293,6 +346,13 @@ public class PrdOrderService {
         permService.requirePerm("production:order:finish");
         PrdOrder order = orderMapper.selectById(orderId);
         if (order == null) throw BizException.of("生产单不存在");
+
+        // v1.1.99 C1 工单状态机硬门禁: 配置了工序链的工单, 必须全部工序完工才允许完工.
+        // 没配工序链 (无 prd_process 实例) 的存量单 allProcessesFinished=true, 不阻塞老流程.
+        if (!mesReportService.allProcessesFinished(orderId)) {
+            throw BizException.of("存在未完工工序, 不能完工: "
+                    + String.join("、", mesReportService.listUnfinishedProcessNames(orderId)));
+        }
 
         BigDecimal actual = (goodQty == null ? BigDecimal.ZERO : goodQty).add(lossQty == null ? BigDecimal.ZERO : lossQty);
         BigDecimal lossRate = order.getPlanQty().compareTo(BigDecimal.ZERO) == 0
@@ -348,6 +408,29 @@ public class PrdOrderService {
         upd.setGoodQty(goodQty);
         upd.setLossQty(lossQty);
         upd.setLossRate(lossRate);
+        orderMapper.updateById(upd);
+    }
+
+    /**
+     * 作废生产单: billStatus → CLOSED (已作废).
+     * XK 合规: 生产记录禁止物理删除, 作废只改状态, 留痕 (OperLog).
+     * 允许从 DRAFT / RELEASED 作废; 已完工 (FINISHED) 或已作废 (CLOSED) 不可再作废.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @OperLog(module = "生产加工单", businessType = "VOID", saveParam = true)
+    public void voidOrder(Long orderId) {
+        permService.requirePerm("production:order:edit");
+        PrdOrder order = orderMapper.selectById(orderId);
+        if (order == null) throw BizException.of("生产单不存在");
+        if (Constants.STATUS_FINISHED.equals(order.getBillStatus())) {
+            throw BizException.of("已完工的生产单不能作废");
+        }
+        if (Constants.STATUS_CLOSED.equals(order.getBillStatus())) {
+            throw BizException.of("该生产单已作废, 无需重复操作");
+        }
+        PrdOrder upd = new PrdOrder();
+        upd.setId(orderId);
+        upd.setBillStatus(Constants.STATUS_CLOSED);
         orderMapper.updateById(upd);
     }
 

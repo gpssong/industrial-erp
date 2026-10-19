@@ -26,6 +26,10 @@ public class BaseSupplier {
     private String bankName;
     private String bankAccount;
     private BigDecimal taxRate;
+    /** v1.1.100 食品资质 (XK 食品接触原料准入): 3 字段, 证明编号/有效期由用户填 */
+    private String foodCertNo;
+    private java.time.LocalDate foodCertExp;
+    private String foodCertType;
     private Integer status;
     private String remark;
     @TableField(fill = FieldFill.INSERT)
@@ -76,6 +80,12 @@ public class BaseSupplier {
     public void setBankAccount(String bankAccount) { this.bankAccount = bankAccount; }
     public BigDecimal getTaxRate() { return taxRate; }
     public void setTaxRate(BigDecimal taxRate) { this.taxRate = taxRate; }
+    public String getFoodCertNo() { return foodCertNo; }
+    public void setFoodCertNo(String foodCertNo) { this.foodCertNo = foodCertNo; }
+    public java.time.LocalDate getFoodCertExp() { return foodCertExp; }
+    public void setFoodCertExp(java.time.LocalDate foodCertExp) { this.foodCertExp = foodCertExp; }
+    public String getFoodCertType() { return foodCertType; }
+    public void setFoodCertType(String foodCertType) { this.foodCertType = foodCertType; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }
     public String getRemark() { return remark; }

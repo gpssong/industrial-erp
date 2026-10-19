@@ -47,6 +47,10 @@ public class SecurityConfig {
         config.setAllowedOrigins(origins);
         config.addAllowedOriginPattern("http://localhost:*");
         config.addAllowedOriginPattern("http://127.0.0.1:*");
+        // v1.1.103: 覆盖内网 App H5 / PC 直连 origin (App H5 页面 http://192.168.0.x:18090,
+        //          或 profile 里配置的服务器绝对 base http://192.168.1.x:8080 等),
+        //          登录/业务直连 backend 时带上 Origin 触发 CORS 预检, 白名单漏配则 403 "Invalid CORS request".
+        config.addAllowedOriginPattern("http://192.168.*:*");
         config.addAllowedMethod("*");
         config.addAllowedHeader("*");
         config.addExposedHeader("Authorization");

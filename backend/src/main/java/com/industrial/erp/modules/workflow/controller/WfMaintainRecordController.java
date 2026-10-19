@@ -29,8 +29,9 @@ public class WfMaintainRecordController {
                                                 @RequestParam(defaultValue = "20") Integer pageSize,
                                                 @RequestParam(required = false) String deviceName,
                                                 @RequestParam(required = false) String billStatus,
-                                                @RequestParam(required = false) Boolean overdue) {
-        PageResult<WfMaintainRecord> pr = PageResult.of(service.page(pageNum, pageSize, deviceName, billStatus, overdue));
+                                                @RequestParam(required = false) Boolean overdue,
+                                                @RequestParam(required = false) Long deviceId) {
+        PageResult<WfMaintainRecord> pr = PageResult.of(service.page(pageNum, pageSize, deviceName, billStatus, overdue, deviceId));
         CreateByNameInjector.inject(userMapper, pr.getRecords(), WfMaintainRecord::getCreateBy, WfMaintainRecord::setCreateByName);
         return R.ok(pr);
     }

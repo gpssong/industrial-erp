@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.qms.mapper.MesQualityDefectMapper">
+    <select id="selectByInspectionId" resultType="com.industrial.erp.modules.qms.entity.MesQualityDefect">
+        SELECT * FROM mes_quality_defect
+        WHERE inspection_id = #{inspectionId} AND deleted = 0
+        ORDER BY line_no ASC
+    </select>
+    <update id="deleteByInspectionId">
+        UPDATE mes_quality_defect SET deleted = 1
+        WHERE inspection_id = #{inspectionId} AND deleted = 0
+    </update>
+</mapper>

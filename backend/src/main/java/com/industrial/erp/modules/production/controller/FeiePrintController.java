@@ -87,6 +87,22 @@ public class FeiePrintController {
         return R.ok("ok", feiePrintService.printWithConfig(bizType, id, configId));
     }
 
+    @Operation(summary = "批量发送到飞鹅云打印 (多选行, body=[id1,id2,...] 或 {ids:[...]})")
+    @PostMapping("/print/{bizType}/batch")
+    @SaCheckPermission(value = {"production:order:feie-print"}, orRole = "admin")
+    @OperLog(module = "飞鹅云打印", businessType = "PRINT_BATCH")
+    public R<Map<String, Object>> printBillBatch(@PathVariable String bizType,
+                                                  @RequestBody List<Long> ids) {
+        Map<String, Object> result = feiePrintService.printBatch(bizType, ids);
+        int success = (Integer) result.getOrDefault("success", 0);
+        int failed = (Integer) result.getOrDefault("failed", 0);
+        if (failed == 0) {
+            return R.ok("已打印 " + success + " 张", result);
+        }
+        // 部分失败: 也返回 200 (成功的那些已下发), 明细在 result.failedItems
+        return R.ok("打印完成: 成功 " + success + ", 失败 " + failed, result);
+    }
+
     // ==================== 打印机配置管理 ====================
 
     @Operation(summary = "获取所有打印机配置")

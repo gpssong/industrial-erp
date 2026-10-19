@@ -34,10 +34,16 @@ public class SysUploadController {
             ".pdf", ".xls", ".xlsx", ".doc", ".docx"
     );
 
+    // S3 安全红线: 文件大小上限 10MB (业务上证书/图片/合同均足够, 拦截巨型文件 DoS / 撑爆磁盘)
+    private static final long MAX_FILE_SIZE = 10L * 1024L * 1024L;
+
     @Operation(summary = "上传文件 (图片/文档)")
     @PostMapping("/file")
     public Map<String, Object> upload(@RequestParam("file") MultipartFile file) throws IOException {
         if (file.isEmpty()) throw new RuntimeException("文件为空");
+        if (file.getSize() > MAX_FILE_SIZE) {
+            throw new RuntimeException("文件超过 10MB 上限, 当前=" + file.getSize() + " 字节");
+        }
 
         // 根据日期分目录: yyyyMM/dd
         java.time.LocalDate today = java.time.LocalDate.now();

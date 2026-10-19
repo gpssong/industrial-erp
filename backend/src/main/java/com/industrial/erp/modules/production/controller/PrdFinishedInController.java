@@ -33,4 +33,14 @@ public class PrdFinishedInController {
     @SaCheckPermission(value = {"production:finished-in:check"}, orRole = "admin")
     @PostMapping("/{id}/check")
     public R<Void> check(@PathVariable Long id) { service.check(id); return R.ok(); }
+
+    /** v1.1.95+: 删除入库单 (仅 DRAFT). */
+    @SaCheckPermission(value = {"production:finished-in:delete"}, orRole = "admin")
+    @DeleteMapping("/{id}")
+    public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
+
+    /** v1.1.95+: 反审核 (CHECKED→DRAFT), 同步出库冲掉入库库存. */
+    @SaCheckPermission(value = {"production:finished-in:uncheck"}, orRole = "admin")
+    @PostMapping("/{id}/uncheck")
+    public R<Void> uncheck(@PathVariable Long id) { service.uncheck(id); return R.ok(); }
 }

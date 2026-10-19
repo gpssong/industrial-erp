@@ -34,7 +34,9 @@ import java.util.List;
 @Service
 public class PrdRequisitionService {
 
-    public PrdRequisitionService(PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper detailMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher) {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PrdRequisitionService.class);
+
+    public PrdRequisitionService(PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper detailMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher, com.industrial.erp.modules.mes.service.MesReportService mesReportService) {
         this.reqMapper = reqMapper;
         this.detailMapper = detailMapper;
         this.warehouseMapper = warehouseMapper;
@@ -42,6 +44,7 @@ public class PrdRequisitionService {
         this.stockService = stockService;
         this.permService = permService;
         this.operLogPublisher = operLogPublisher;
+        this.mesReportService = mesReportService;
     }
 
     private final PrdRequisitionMapper reqMapper;
@@ -51,6 +54,8 @@ public class PrdRequisitionService {
     private final StockService stockService;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    /** v1.1.80 MES: 领料时登记 RAW 原料批次 + 写批次流向. */
+    private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
 
     public IPage<PrdRequisition> page(Integer pageNum, Integer pageSize, String billNo, String billType) {
         permService.requirePerm("production:requisition:list");
@@ -113,6 +118,16 @@ public class PrdRequisitionService {
                         d.getProductId(), d.getUnitId(), d.getUnitName(), d.getBatchNo(),
                         d.getQty(), d.getPrice(), req.getBillNo(),
                         null, null, "领料 " + req.getBillNo());
+                // v1.1.80 MES: 领料 = 原料批次登记时机 (不碰采购入库).
+                // 有 batchNo 的领料明细自动登记 RAW 批次; child 暂空 (半成品卷二期才产生, 一期只登记原料).
+                if (StrUtil.isNotBlank(d.getBatchNo())) {
+                    try {
+                        mesReportService.registerRawOnIssue(d.getBatchNo(), null, d.getQty(),
+                                req.getPrdOrderId(), req.getId(), req.getBillNo());
+                    } catch (Exception e) {
+                        log.warn("[MES] 领料登记 RAW 批次失败 (不阻塞库存审核) batchNo={} err={}", d.getBatchNo(), e.getMessage());
+                    }
+                }
             } else if ("RETURN".equals(req.getBillType())) {
                 stockService.inStock(Constants.LEDGER_PROD_OUT, req.getId(), req.getBillNo(), d.getId(),
                         req.getWarehouseId(), whName, d.getLocationId(), null,

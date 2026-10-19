@@ -25,6 +25,7 @@ import com.industrial.erp.modules.purchase.mapper.PurOrderDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurOrderMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptMapper;
+import com.industrial.erp.modules.qms.service.QmsInspectionService;
 import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
@@ -46,7 +47,7 @@ import java.util.Map;
 @Service
 public class PurReceiptService {
 
-    public PurReceiptService(PurReceiptMapper receiptMapper, PurReceiptDetailMapper receiptDetailMapper, PurOrderMapper orderMapper, PurOrderDetailMapper orderDetailMapper, BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, OperLogPublisher operLogPublisher, BaseProductMapper productMapper) {
+    public PurReceiptService(PurReceiptMapper receiptMapper, PurReceiptDetailMapper receiptDetailMapper, PurOrderMapper orderMapper, PurOrderDetailMapper orderDetailMapper, BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, OperLogPublisher operLogPublisher, BaseProductMapper productMapper, QmsInspectionService qmsInspectionService, com.industrial.erp.modules.purchase.service.PurInboundPlanService inboundPlanService) {
         this.receiptMapper = receiptMapper;
         this.receiptDetailMapper = receiptDetailMapper;
         this.orderMapper = orderMapper;
@@ -59,6 +60,8 @@ public class PurReceiptService {
         this.permService = permService;
         this.operLogPublisher = operLogPublisher;
         this.productMapper = productMapper;
+        this.qmsInspectionService = qmsInspectionService;
+        this.inboundPlanService = inboundPlanService;
     }
 
     private final PurReceiptMapper receiptMapper;
@@ -73,6 +76,10 @@ public class PurReceiptService {
     private final FinArapService arapService;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    /** v1.1.90+: QMS 自动触发器 (IQC 草稿在 check() 末 try/catch 调用, 不阻塞主审核) */
+    private final QmsInspectionService qmsInspectionService;
+    /** v1.1.101 XK — 采购计划 service (createFromIqc 走 plan → 收 plan 上下文) */
+    private final com.industrial.erp.modules.purchase.service.PurInboundPlanService inboundPlanService;
 
     public IPage<PurReceipt> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus, String productName) {
         permService.requirePerm("purchase:receipt:list");
@@ -151,6 +158,10 @@ public class PurReceiptService {
         // 校验供应商
         BaseSupplier s = supplierMapper.selectById(receipt.getSupplierId());
         if (s == null) throw BizException.of("供应商不存在");
+        // v1.1.95 XK 门禁: 食品接触塑料 XK 合规 — 只能向「合格」供应商采购, 暂停供货的不能建单
+        if (s.getStatus() != null && s.getStatus() != 1) {
+            throw BizException.of("XK 合规: 供应商 " + s.getSupplierName() + " 当前为「暂停供货」, 不能创建采购入库单; 请先在合格供应商名录中恢复供货");
+        }
         receipt.setSupplierName(s.getSupplierName());
         // 校验仓库
         BaseWarehouse w = warehouseMapper.selectById(receipt.getWarehouseId());
@@ -200,6 +211,10 @@ public class PurReceiptService {
         // 校验供应商
         BaseSupplier s = supplierMapper.selectById(receipt.getSupplierId());
         if (s == null) throw BizException.of("供应商不存在");
+        // v1.1.95 XK 门禁: 暂停供货供应商不能修改/建单
+        if (s.getStatus() != null && s.getStatus() != 1) {
+            throw BizException.of("XK 合规: 供应商 " + s.getSupplierName() + " 当前为「暂停供货」, 不能修改采购入库单");
+        }
         receipt.setSupplierName(s.getSupplierName());
         // 校验仓库
         BaseWarehouse w = warehouseMapper.selectById(receipt.getWarehouseId());
@@ -278,6 +293,21 @@ public class PurReceiptService {
         if (!Constants.STATUS_DRAFT.equals(r.getBillStatus())) {
             throw BizException.of("只有草稿状态可审核");
         }
+        // v1.1.95 XK 三步门禁: 食品接触塑料 XK 合规 — 检验合格才入库 (先检验后入库).
+        // 须存在该入库单关联的 IQC 检验单且 result=PASS(或 PASS_DISPOSITION, status=CHECKED);
+        // 未检验 / 不合格 / 未审核的 IQC 一律拒绝入库.
+        if (!qmsInspectionService.hasPassedIqc(id)) {
+            com.industrial.erp.modules.qms.entity.MesQualityInspection iqc = qmsInspectionService.findIqcByReceiptId(id);
+            if (iqc == null) {
+                throw BizException.of("XK 合规: 该入库单未关联 IQC 来料检验, 不能入库; 请先完成「到货与原料检验」并判定合格 (PASS)");
+            }
+            throw BizException.of("XK 合规: 关联 IQC 检验单 " + iqc.getBillNo() + " 判定为 " + iqc.getResult()
+                    + (Constants.RESULT_PASS.equals(iqc.getResult()) && !Constants.STATUS_CHECKED.equals(iqc.getStatus()) ? " (尚未审核放行)" : "")
+                    + ", 不合格/未放行不能入库; 请拒收或放行后重试");
+        }
+        // 冗余快照: 把关联 IQC 的判定结果/报告号/抽样数/检验人 写回入库单 (供 XK 前端展示 + 审计留痕)
+        qmsInspectionService.snapshotXkGate(r);
+
         List<PurReceiptDetail> details = receiptDetailMapper.selectByReceiptId(id);
         BaseWarehouse wh = warehouseMapper.selectById(r.getWarehouseId());
 
@@ -304,10 +334,25 @@ public class PurReceiptService {
         PurReceipt upd = new PurReceipt();
         upd.setId(id);
         upd.setBillStatus(Constants.STATUS_CHECKED);
+        // v1.1.95 XK: 落库冗余快照 (检验报告号/判定结果/抽样数/检验人)
+        upd.setInspectionReportNo(r.getInspectionReportNo());
+        upd.setInspectionResult(r.getInspectionResult());
+        upd.setSampleQty(r.getSampleQty());
+        upd.setInspectorName(r.getInspectorName());
         receiptMapper.updateById(upd);
 
         // 写入应付台账
         arapService.createApForPurchase(r, details);
+
+        // v1.1.95: XK 三步流程 — 检验已在入库前完成 (上面门禁校验过合格 IQC), 不再审核后自动建草稿.
+        // 兜底: 仅当该入库单完全没有关联 IQC 时 (老数据/异常), 自动补一张 DRAFT IQC 供后续检验; 不阻塞入库.
+        try {
+            if (qmsInspectionService.findIqcByReceiptId(id) == null) {
+                qmsInspectionService.createOnReceipt(r);
+            }
+        } catch (Exception ex) {
+            log.warn("[PurReceipt.check] QMS IQC auto-create failed (non-blocking): {}", ex.getMessage());
+        }
 
         log.info("采购入库审核: billNo={}, amount={}", r.getBillNo(), r.getTotalAmountTax());
     }
@@ -347,6 +392,208 @@ public class PurReceiptService {
         upd.setId(id);
         upd.setBillStatus(Constants.STATUS_DRAFT);
         receiptMapper.updateById(upd);
+    }
+
+    // ==================================================================
+    // v1.1.101 XK — 从 IQC 检验单自动建 DRAFT 采购入库单 (App 端 "生成报告并自动入库" 入口)
+    // ==================================================================
+
+    /**
+     * v1.1.101 XK — App 端 pages/scan/in "生成报告并自动入库" 调本方法.
+     *
+     * <p>从已审核 PASS 的 IQC + 关联采购计划自动建 DRAFT 采购入库单. 门禁:
+     * <ol>
+     *   <li>{@code qmsInspectionService.hasPassedIqcForPlan(planId, iqcId)} 必须 true</li>
+     *   <li>供应商必须 status=1 (沿用 add() 的合格名录门禁)</li>
+     *   <li>1 行明细 (一期简化): productId/qty/spec/batchNo/warehouseId 从 plan + iqc 冗余快照</li>
+     *   <li>价格默认 0 (财务在 PC 端补录), amount=0</li>
+     *   <li>XK 6 列快照: inspectionReportNo/inspectionResult/sampleQty/inspectorName 从 IQC 写入</li>
+     *   <li>更新 plan 状态 → INBOUNDED</li>
+     * </ol>
+     *
+     * @return 新建入库单 id
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @OperLog(module="采购入库", businessType="ADD", saveParam=true)
+    public Long createFromIqc(Long planId, Long iqcId) {
+        permService.requirePerm("purchase:receipt:add");
+        // 1. 硬门禁: IQC 已审核 PASS
+        if (!qmsInspectionService.hasPassedIqcForPlan(planId, iqcId)) {
+            throw BizException.of("IQC 检验未合格或未审核, 不能入库");
+        }
+        com.industrial.erp.modules.qms.entity.MesQualityInspection iqc =
+                qmsInspectionService.findIqcByPlanId(planId);
+        if (iqc == null || !Constants.INSPECTION_IQC.equals(iqc.getInspectionType())) {
+            throw BizException.of("关联的检验单不是 IQC 类型");
+        }
+        // 2. 计划
+        com.industrial.erp.modules.purchase.entity.PurInboundPlan plan =
+                inboundPlanService.findById(planId);
+        if (plan == null) throw BizException.of("采购计划不存在");
+
+        // 3. 供应商合格名录
+        BaseSupplier s = supplierMapper.selectById(plan.getSupplierId());
+        if (s == null) throw BizException.of("供应商不存在");
+        if (s.getStatus() != null && s.getStatus() != 1) {
+            throw BizException.of("XK: 供应商 " + s.getSupplierName() + " 当前暂停供货, 不能入库");
+        }
+        // 4. 仓库
+        if (plan.getWarehouseId() == null) throw BizException.of("采购计划未指定仓库, 请先在 PC 端补录");
+        BaseWarehouse w = warehouseMapper.selectById(plan.getWarehouseId());
+        if (w == null) throw BizException.of("仓库不存在");
+
+        // 5. 构造 head
+        PurReceipt receipt = new PurReceipt();
+        receipt.setBillNo(billNoGenerator.generate(Constants.BILL_RKP));
+        receipt.setBillDate(LocalDate.now());
+        receipt.setBillStatus(Constants.STATUS_DRAFT);
+        receipt.setBillType("NORMAL");
+        receipt.setSupplierId(plan.getSupplierId());
+        receipt.setSupplierName(s.getSupplierName());
+        receipt.setWarehouseId(plan.getWarehouseId());
+        receipt.setWarehouseName(w.getWarehouseName());
+        receipt.setRemark("v1.1.101 XK 自动入库, 来源采购计划 " + plan.getPlanNo());
+
+        // 6. 1 行明细 (一期简化)
+        PurReceiptDetail d = new PurReceiptDetail();
+        d.setLineNo(1);
+        d.setProductId(plan.getProductId());
+        d.setProductCode(plan.getProductCode());
+        d.setProductName(plan.getProductName());
+        d.setSpec(plan.getSpec());
+        d.setUnitId(plan.getUnitId());
+        d.setUnitName(plan.getUnitName());
+        d.setQty(plan.getPlanQty() == null ? BigDecimal.ZERO : plan.getPlanQty());
+        d.setPrice(BigDecimal.ZERO);  // 一期: 价格为 0, 财务在 PC 端补录
+        d.setTaxRate(s.getTaxRate() == null ? new BigDecimal("13.00") : s.getTaxRate());
+        d.setAmount(BigDecimal.ZERO);
+        d.setTaxAmount(BigDecimal.ZERO);
+        d.setAmountTax(BigDecimal.ZERO);
+        d.setBatchNo(iqc.getBatchNo());
+        receipt.setDetails(java.util.Collections.singletonList(d));
+
+        // 7. 汇总
+        receipt.setTotalQty(d.getQty());
+        receipt.setTotalAmount(BigDecimal.ZERO);
+        receipt.setTaxAmount(BigDecimal.ZERO);
+        receipt.setTotalAmountTax(BigDecimal.ZERO);
+        receipt.setPaidAmount(BigDecimal.ZERO);
+
+        // 8. XK 冗余快照 (前端列表展示 + 审计追溯)
+        receipt.setInspectionReportNo(iqc.getBillNo());
+        receipt.setInspectionResult(Constants.RESULT_PASS);
+        receipt.setSampleQty(iqc.getSampleQty());
+        receipt.setInspectorName(iqc.getInspectorName());
+
+        // 9. 落库
+        receiptMapper.insert(receipt);
+        d.setId(null);
+        d.setReceiptId(receipt.getId());
+        receiptDetailMapper.insert(d);
+
+        // 10. 更新 plan 状态 INBOUNDED
+        inboundPlanService.updateStatus(planId, "INBOUNDED");
+        log.info("[PurReceipt] createFromIqc: planId={} iqcId={} → receiptId={} billNo={}",
+                planId, iqcId, receipt.getId(), receipt.getBillNo());
+        return receipt.getId();
+    }
+
+    /**
+     * v1.1.101 订单为源 — 从采购订单 + 已合格 IQC 自动建 DRAFT 采购入库单 (完全对齐 PC).
+     * 与 createFromIqc 平行: 源上下文从 PurInboundPlan 换为 PurOrder, 明细按订单全部行展开.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Long createFromOrder(Long orderId, Long iqcId) {
+        permService.requirePerm("purchase:receipt:add");
+        // 1. 硬门禁: IQC 已审核 PASS (订单版)
+        if (!qmsInspectionService.hasPassedIqcForOrder(orderId, iqcId)) {
+            throw BizException.of("IQC 检验未合格或未审核, 不能入库");
+        }
+        // 2. 订单
+        com.industrial.erp.modules.purchase.entity.PurOrder order = orderMapper.selectById(orderId);
+        if (order == null) throw BizException.of("采购订单不存在");
+        // 3. 供应商合格名录
+        BaseSupplier s = supplierMapper.selectById(order.getSupplierId());
+        if (s == null) throw BizException.of("供应商不存在");
+        if (s.getStatus() != null && s.getStatus() != 1) {
+            throw BizException.of("XK: 供应商 " + s.getSupplierName() + " 当前暂停供货, 不能入库");
+        }
+        // 4. 仓库
+        if (order.getWarehouseId() == null) throw BizException.of("采购订单未指定仓库, 请先在 PC 端补录");
+        BaseWarehouse w = warehouseMapper.selectById(order.getWarehouseId());
+        if (w == null) throw BizException.of("仓库不存在");
+
+        // 5. 构造 head
+        PurReceipt receipt = new PurReceipt();
+        receipt.setBillNo(billNoGenerator.generate(Constants.BILL_RKP));
+        receipt.setBillDate(LocalDate.now());
+        receipt.setBillStatus(Constants.STATUS_DRAFT);
+        receipt.setBillType("NORMAL");
+        receipt.setSupplierId(order.getSupplierId());
+        receipt.setSupplierName(s.getSupplierName());
+        receipt.setWarehouseId(order.getWarehouseId());
+        receipt.setWarehouseName(w.getWarehouseName());
+        receipt.setOrderId(orderId);
+        receipt.setRemark("v1.1.101 XK 自动入库, 来源采购订单 " + order.getBillNo());
+
+        // 6. 明细: 按订单全部行展开 (一期价格为 0, 财务 PC 补录; 数量 = 订单行 qty - 已入)
+        java.util.List<com.industrial.erp.modules.purchase.entity.PurOrderDetail> odtls =
+                orderDetailMapper.selectByOrderId(orderId);
+        if (odtls == null || odtls.isEmpty()) throw BizException.of("采购订单无明细行, 不能入库");
+        java.util.List<PurReceiptDetail> dtls = new java.util.ArrayList<>();
+        java.math.BigDecimal totalQty = java.math.BigDecimal.ZERO;
+        int line = 1;
+        for (com.industrial.erp.modules.purchase.entity.PurOrderDetail od : odtls) {
+            PurReceiptDetail d = new PurReceiptDetail();
+            d.setLineNo(line++);
+            d.setProductId(od.getProductId());
+            d.setProductCode(od.getProductCode());
+            d.setProductName(od.getProductName());
+            d.setSpec(od.getSpec());
+            d.setUnitId(od.getUnitId());
+            d.setUnitName(od.getUnitName());
+            java.math.BigDecimal remain = od.getQty() == null ? java.math.BigDecimal.ZERO
+                    : od.getQty().subtract(od.getInQty() == null ? java.math.BigDecimal.ZERO : od.getInQty());
+            if (remain.compareTo(java.math.BigDecimal.ZERO) < 0) remain = java.math.BigDecimal.ZERO;
+            d.setQty(remain);
+            d.setPrice(java.math.BigDecimal.ZERO);  // 一期价格为 0
+            d.setTaxRate(s.getTaxRate() == null ? new java.math.BigDecimal("13.00") : s.getTaxRate());
+            d.setAmount(java.math.BigDecimal.ZERO);
+            d.setTaxAmount(java.math.BigDecimal.ZERO);
+            d.setAmountTax(java.math.BigDecimal.ZERO);
+            d.setBatchNo(null);
+            dtls.add(d);
+            totalQty = totalQty.add(remain);
+        }
+        receipt.setDetails(dtls);
+
+        // 7. 汇总
+        receipt.setTotalQty(totalQty);
+        receipt.setTotalAmount(java.math.BigDecimal.ZERO);
+        receipt.setTaxAmount(java.math.BigDecimal.ZERO);
+        receipt.setTotalAmountTax(java.math.BigDecimal.ZERO);
+        receipt.setPaidAmount(java.math.BigDecimal.ZERO);
+
+        // 8. XK 冗余快照
+        com.industrial.erp.modules.qms.entity.MesQualityInspection iqc =
+                qmsInspectionService.findIqcByOrderId(orderId);
+        if (iqc != null) {
+            receipt.setInspectionReportNo(iqc.getBillNo());
+            receipt.setInspectionResult(Constants.RESULT_PASS);
+            receipt.setSampleQty(iqc.getSampleQty());
+            receipt.setInspectorName(iqc.getInspectorName());
+        }
+
+        // 9. 落库
+        receiptMapper.insert(receipt);
+        for (PurReceiptDetail d : dtls) {
+            d.setId(null);
+            d.setReceiptId(receipt.getId());
+            receiptDetailMapper.insert(d);
+        }
+        log.info("[PurReceipt] createFromOrder: orderId={} iqcId={} → receiptId={} billNo={} lines={}",
+                orderId, iqcId, receipt.getId(), receipt.getBillNo(), dtls.size());
+        return receipt.getId();
     }
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PurReceiptService.class);
