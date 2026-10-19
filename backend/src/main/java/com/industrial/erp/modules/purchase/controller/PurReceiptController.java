@@ -7,6 +7,7 @@ import com.industrial.erp.common.R;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.service.PurReceiptService;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,16 +45,17 @@ public class PurReceiptController {
 
     @SaCheckPermission(value = {"purchase:receipt:add"}, orRole = "admin")
     @PostMapping
-    public R<Void> add(@RequestBody PurReceipt receipt) {
+    public R<Long> add(@RequestBody PurReceipt receipt) {
         service.add(receipt);
-        return R.ok();
+        // v1.1.95 XK: 返回新建入库单 id, 供三步流程「签署检验 → 自动入库」链接后续步骤
+        return R.ok(receipt.getId());
     }
 
     @SaCheckPermission(value = {"purchase:receipt:edit"}, orRole = "admin")
     @PutMapping
-    public R<Void> update(@RequestBody PurReceipt receipt) {
+    public R<Long> update(@RequestBody PurReceipt receipt) {
         service.update(receipt);
-        return R.ok();
+        return R.ok(receipt.getId());
     }
 
     @SaCheckPermission(value = {"purchase:receipt:delete"}, orRole = "admin")
@@ -94,5 +96,30 @@ public class PurReceiptController {
     @GetMapping("/supplier-history-products")
     public R<java.util.List<java.util.Map<String, Object>>> supplierHistoryProducts(@RequestParam Long supplierId) {
         return R.ok(service.getSupplierHistoryProducts(supplierId));
+    }
+
+    /**
+     * v1.1.101 XK — App 端 pages/scan/in "生成报告并自动入库" 调本端点.
+     * <p>从已审核 PASS 的 IQC + 关联采购计划自动建 DRAFT 采购入库单 (DRAFT, 待 PC 端财务补录价格后审核).</p>
+     */
+    @Operation(summary = "XK 自动入库 — 从 IQC 检验单建 DRAFT 采购入库单")
+    @SaCheckPermission(value = {"purchase:receipt:add"}, orRole = "admin")
+    @PostMapping("/create-from-iqc")
+    public R<java.util.Map<String, Object>> createFromIqc(@RequestBody java.util.Map<String, Long> body) {
+        Long planId = body == null ? null : body.get("planId");
+        Long iqcId = body == null ? null : body.get("iqcId");
+        Long receiptId = service.createFromIqc(planId, iqcId);
+        return R.ok(java.util.Map.of("receiptId", receiptId));
+    }
+
+    /**
+     * v1.1.101 订单为源 — 从采购订单 + 已合格 IQC 自动建 DRAFT 入库单 (完全对齐 PC).
+     */
+    @PostMapping("/create-from-order")
+    public R<java.util.Map<String, Object>> createFromOrder(@RequestBody java.util.Map<String, Long> body) {
+        Long orderId = body == null ? null : body.get("orderId");
+        Long iqcId = body == null ? null : body.get("iqcId");
+        Long receiptId = service.createFromOrder(orderId, iqcId);
+        return R.ok(java.util.Map.of("receiptId", receiptId));
     }
 }

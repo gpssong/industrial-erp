@@ -36,7 +36,7 @@ public class BaseProductService {
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
 
-    public IPage<BaseProduct> page(Integer pageNum, Integer pageSize, String keyword, Long categoryId) {
+    public IPage<BaseProduct> page(Integer pageNum, Integer pageSize, String keyword, Long categoryId, String productType) {
         permService.requirePerm("base:product:list");
         Page<BaseProduct> p = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<BaseProduct> w = new LambdaQueryWrapper<>();
@@ -48,6 +48,7 @@ public class BaseProductService {
                     .or().like(BaseProduct::getMaterial, keyword));
         }
         if (categoryId != null) w.eq(BaseProduct::getCategoryId, categoryId);
+        if (StrUtil.isNotBlank(productType)) w.eq(BaseProduct::getProductType, productType);
         w.orderByDesc(BaseProduct::getId);
         return productMapper.selectPage(p, w);
     }

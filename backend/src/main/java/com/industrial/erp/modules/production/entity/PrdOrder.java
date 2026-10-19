@@ -27,6 +27,17 @@ public class PrdOrder {
     private transient String pMaterial;
     @TableField(exist = false)
     private transient String pColorNo;
+    // ===== v1.1.100 食品合规 (transient, 从 base_product JOIN 注入, 食品级成品回显) =====
+    @TableField(exist = false)
+    private transient String pFoodExecStd;
+    @TableField(exist = false)
+    private transient String pFoodFilingNo;
+    @TableField(exist = false)
+    private transient String pFoodUseDesc;
+    @TableField(exist = false)
+    private transient java.math.BigDecimal pFoodMigrationLimit;
+    @TableField(exist = false)
+    private transient Integer pIsFoodGrade;
     @TableField(exist = false)
     private transient String bomRemark;
 
@@ -62,6 +73,8 @@ public class PrdOrder {
     private String workshop;
     private Long workshopId;
     private Long warehouseId;
+    /** 原料批号 (v1.1.99 新增, 食品级成品 XK16-204 必填) */
+    private String batchNo;
     private String leader;
     private LocalDate startDate;
     private LocalDate endDate;
@@ -71,6 +84,10 @@ public class PrdOrder {
     private Long sourceBillId;
     private String sourceBillNo;
     private String remark;
+    /** v1.1.102 XK — 开工操作人 (sys_user.id, 吹膜工在 App 端点「开工」时写入) */
+    private Long releaseBy;
+    /** v1.1.102 XK — 开工操作人姓名 (sys_user.username 快照, 展示用) */
+    private String releaseName;
     @TableField(fill = FieldFill.INSERT)
 
     private Long createBy;
@@ -137,6 +154,8 @@ public class PrdOrder {
     public void setWorkshopId(Long workshopId) { this.workshopId = workshopId; }
     public Long getWarehouseId() { return warehouseId; }
     public void setWarehouseId(Long warehouseId) { this.warehouseId = warehouseId; }
+    public String getBatchNo() { return batchNo; }
+    public void setBatchNo(String batchNo) { this.batchNo = batchNo; }
     public String getLeader() { return leader; }
     public void setLeader(String leader) { this.leader = leader; }
     public LocalDate getStartDate() { return startDate; }
@@ -155,6 +174,10 @@ public class PrdOrder {
     public void setSourceBillNo(String sourceBillNo) { this.sourceBillNo = sourceBillNo; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
+    public Long getReleaseBy() { return releaseBy; }
+    public void setReleaseBy(Long releaseBy) { this.releaseBy = releaseBy; }
+    public String getReleaseName() { return releaseName; }
+    public void setReleaseName(String releaseName) { this.releaseName = releaseName; }
     public Long getCreateBy() { return createBy; }
     public void setCreateBy(Long createBy) { this.createBy = createBy; }
     public LocalDateTime getCreateTime() { return createTime; }
@@ -180,6 +203,16 @@ public class PrdOrder {
     /** 色号, 从 base_product.colorNo JOIN 注入 (打印模板用) */
     public String getPColorNo() { return pColorNo; }
     public void setPColorNo(String pColorNo) { this.pColorNo = pColorNo; }
+    public String getPFoodExecStd() { return pFoodExecStd; }
+    public void setPFoodExecStd(String pFoodExecStd) { this.pFoodExecStd = pFoodExecStd; }
+    public String getPFoodFilingNo() { return pFoodFilingNo; }
+    public void setPFoodFilingNo(String pFoodFilingNo) { this.pFoodFilingNo = pFoodFilingNo; }
+    public String getPFoodUseDesc() { return pFoodUseDesc; }
+    public void setPFoodUseDesc(String pFoodUseDesc) { this.pFoodUseDesc = pFoodUseDesc; }
+    public java.math.BigDecimal getPFoodMigrationLimit() { return pFoodMigrationLimit; }
+    public void setPFoodMigrationLimit(java.math.BigDecimal pFoodMigrationLimit) { this.pFoodMigrationLimit = pFoodMigrationLimit; }
+    public Integer getPIsFoodGrade() { return pIsFoodGrade; }
+    public void setPIsFoodGrade(Integer pIsFoodGrade) { this.pIsFoodGrade = pIsFoodGrade; }
     /** 模板字段: colorNo = 色号 */
     public String getColorNo() { return pColorNo; }
     public void setColorNo(String colorNo) { this.pColorNo = colorNo; }

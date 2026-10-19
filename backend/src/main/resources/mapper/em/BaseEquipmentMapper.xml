@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.em.mapper.BaseEquipmentMapper">
+    <select id="selectByWorkshopAndType" resultType="com.industrial.erp.modules.em.entity.BaseEquipment">
+        SELECT * FROM base_equipment
+        WHERE deleted = 0
+        <if test="workshop != null and workshop != ''">AND workshop = #{workshop}</if>
+        <if test="type != null and type != ''">AND equipment_type = #{type}</if>
+        ORDER BY equipment_code ASC
+    </select>
+</mapper>

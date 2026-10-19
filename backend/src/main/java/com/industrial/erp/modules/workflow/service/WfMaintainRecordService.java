@@ -27,12 +27,14 @@ public class WfMaintainRecordService {
 
     public WfMaintainRecordService(WfMaintainRecordMapper recordMapper, WfMaintainDetailMapper detailMapper,
                                    BillNoGenerator billNoGenerator, PermissionService permService,
-                                   OperLogPublisher operLogPublisher) {
+                                   OperLogPublisher operLogPublisher,
+                                   com.industrial.erp.modules.em.service.EquipmentService equipmentService) {
         this.recordMapper = recordMapper;
         this.detailMapper = detailMapper;
         this.billNoGenerator = billNoGenerator;
         this.permService = permService;
         this.operLogPublisher = operLogPublisher;
+        this.equipmentService = equipmentService;
     }
 
     private final WfMaintainRecordMapper recordMapper;
@@ -40,11 +42,13 @@ public class WfMaintainRecordService {
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    /** v1.1.90+: 注入 EquipmentService 用于 add() 时按 deviceId 回填 deviceName (兼容老数据 NULL) */
+    private final com.industrial.erp.modules.em.service.EquipmentService equipmentService;
 
-    public IPage<WfMaintainRecord> page(Integer pageNum, Integer pageSize, String deviceName, String billStatus, Boolean overdue) {
+    public IPage<WfMaintainRecord> page(Integer pageNum, Integer pageSize, String deviceName, String billStatus, Boolean overdue, Long deviceId) {
         permService.requirePerm("work:maintain:list");
         Page<WfMaintainRecord> p = new Page<>(pageNum, pageSize);
-        return recordMapper.selectPageList(p, deviceName, billStatus, overdue);
+        return recordMapper.selectPageList(p, deviceName, billStatus, overdue, deviceId);
     }
 
     public WfMaintainRecord detail(Long id) {
@@ -60,6 +64,17 @@ public class WfMaintainRecordService {
         if (StrUtil.isBlank(r.getRecordNo())) r.setRecordNo(billNoGenerator.generate(Constants.BILL_WM));
         if (StrUtil.isBlank(r.getBillStatus())) r.setBillStatus(Constants.STATUS_DRAFT);
         if (r.getMaintDate() == null) r.setMaintDate(LocalDate.now());
+        // v1.1.90+: 若按 deviceId 选了设备, 反查填一下 deviceName (兼容老 free-text 显示)
+        if (r.getDeviceId() != null) {
+            try {
+                com.industrial.erp.modules.em.entity.BaseEquipment eq = equipmentService.findById(r.getDeviceId());
+                if (eq != null) {
+                    if (StrUtil.isBlank(r.getDeviceName())) r.setDeviceName(eq.getEquipmentName());
+                }
+            } catch (Exception ex) {
+                // EM 模块未跑 SQL 时, 不要让 add() 失败 — 静默回退
+            }
+        }
         recordMapper.insert(r);
         insertDetails(r);
     }

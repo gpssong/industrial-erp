@@ -19,6 +19,8 @@ public class WfMaintainRecord {
     private Long id;
     private String recordNo;
     private String deviceName;
+    /** v1.1.90+: 关联 base_equipment.id (兼容老数据 NULL, deviceName 保留冗余显示) */
+    private Long deviceId;
     private LocalDate maintDate;
     private String maintType;
     private String operator;
@@ -51,6 +53,8 @@ public class WfMaintainRecord {
     public void setRecordNo(String recordNo) { this.recordNo = recordNo; }
     public String getDeviceName() { return deviceName; }
     public void setDeviceName(String deviceName) { this.deviceName = deviceName; }
+    public Long getDeviceId() { return deviceId; }
+    public void setDeviceId(Long deviceId) { this.deviceId = deviceId; }
     public LocalDate getMaintDate() { return maintDate; }
     public void setMaintDate(LocalDate maintDate) { this.maintDate = maintDate; }
     public String getMaintType() { return maintType; }

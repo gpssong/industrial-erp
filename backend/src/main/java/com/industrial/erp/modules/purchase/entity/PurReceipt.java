@@ -37,6 +37,13 @@ public class PurReceipt {
     private String billStatus;
     private String deliveryNo;
     private String remark;
+    // v1.1.95 XK 三步采购入库 — 检验/附件/照片落库字段
+    private String inspectionReportNo;
+    private String inspectionResult;
+    private BigDecimal sampleQty;
+    private String inspectorName;
+    private String reportFiles;
+    private String labelPhotos;
     @TableField(fill = FieldFill.INSERT)
 
     private Long createBy;
@@ -121,6 +128,19 @@ public class PurReceipt {
     public void setDeliveryNo(String deliveryNo) { this.deliveryNo = deliveryNo; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
+    // v1.1.95 XK 字段
+    public String getInspectionReportNo() { return inspectionReportNo; }
+    public void setInspectionReportNo(String inspectionReportNo) { this.inspectionReportNo = inspectionReportNo; }
+    public String getInspectionResult() { return inspectionResult; }
+    public void setInspectionResult(String inspectionResult) { this.inspectionResult = inspectionResult; }
+    public BigDecimal getSampleQty() { return sampleQty; }
+    public void setSampleQty(BigDecimal sampleQty) { this.sampleQty = sampleQty; }
+    public String getInspectorName() { return inspectorName; }
+    public void setInspectorName(String inspectorName) { this.inspectorName = inspectorName; }
+    public String getReportFiles() { return reportFiles; }
+    public void setReportFiles(String reportFiles) { this.reportFiles = reportFiles; }
+    public String getLabelPhotos() { return labelPhotos; }
+    public void setLabelPhotos(String labelPhotos) { this.labelPhotos = labelPhotos; }
     public Long getCreateBy() { return createBy; }
     public void setCreateBy(Long createBy) { this.createBy = createBy; }
     public LocalDateTime getCreateTime() { return createTime; }

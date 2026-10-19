@@ -20,6 +20,7 @@ public final class Constants {
     public static final String BILL_PD = "PD";
     public static final String BILL_RQ = "RQ";
     public static final String BILL_PFI = "PFI";
+    public static final String BILL_PSI = "PSI";  // v1.1.98 半成品入库单号前缀
     public static final String BILL_OI = "OI";
     public static final String BILL_OPI = "OPI";
     public static final String BILL_OPF = "OPF";
@@ -37,6 +38,42 @@ public final class Constants {
     public static final String BILL_SIN = "SIN";
     public static final String BILL_EP = "EP";
 
+    // v1.1.90+: 质量检验单据前缀 (QI)
+    public static final String BILL_QI = "QI";
+
+    // v1.1.90+: 质量检验 inspection_type
+    public static final String INSPECTION_IQC = "IQC";
+    public static final String INSPECTION_FAI = "FAI";
+    public static final String INSPECTION_PAT = "PAT";
+    public static final String INSPECTION_OQC = "OQC";
+    public static final String INSPECTION_OQC_RETURN = "OQC_RETURN";
+
+    // v1.1.90+: 检验结果 result
+    public static final String RESULT_PASS = "PASS";
+    public static final String RESULT_FAIL = "FAIL";
+    public static final String RESULT_HOLD = "HOLD";
+    public static final String RESULT_PASS_DISPOSITION = "PASS_DISPOSITION";
+    public static final String RESULT_FAIL_REJECT = "FAIL_REJECT";
+
+    // v1.1.90+: batch status 复用 v1.1.80 常量 BATCH_FROZEN/SCRAP, 此处枚举补充
+    // BATCH_TYPE_RAW/SEMI/FG 已在 v1.1.80 定义
+    public static final String BATCH_FROZEN = "FROZEN";
+    public static final String BATCH_SCRAP = "SCRAP";
+    public static final String BATCH_ACTIVE = "ACTIVE";
+
+    // v1.1.90+: 设备类型 (equipment_type)
+    public static final String EQUIPMENT_TYPE_FILM_BLOWING = "FILM_BLOWING";
+    public static final String EQUIPMENT_TYPE_SIDE_SEAL = "SIDE_SEAL";
+    public static final String EQUIPMENT_TYPE_BAG_MAKING = "BAG_MAKING";
+    public static final String EQUIPMENT_TYPE_PRINTING = "PRINTING";
+    public static final String EQUIPMENT_TYPE_LAMINATING = "LAMINATING";
+    public static final String EQUIPMENT_TYPE_SLITTING = "SLITTING";
+
+    // v1.1.90+: SOP 状态 (mes_process_sop.status)
+    public static final String SOP_DRAFT = "DRAFT";
+    public static final String SOP_ACTIVE = "ACTIVE";
+    public static final String SOP_DEPRECATED = "DEPRECATED";
+
     public static final String STATUS_DRAFT = "DRAFT";
     public static final String STATUS_CHECKED = "CHECKED";
     public static final String STATUS_FINISHED = "FINISHED";
@@ -49,6 +86,21 @@ public final class Constants {
     public static final String STATUS_UNPAID = "UNPAID";
     public static final String STATUS_PARTIAL = "PARTIAL";
     public static final String STATUS_PAID = "PAID";
+
+    // === v1.1.80 MES — prd_process 工序实例 status (TINYINT, 见 PrdProcess 实体) ===
+    /** 未开工 (开单展开后初始态) */
+    public static final int PROC_STATUS_UNSTARTED = 0;
+    /** 进行中 (已报过工未完成) */
+    public static final int PROC_STATUS_IN_PROGRESS = 1;
+    /** 完成 */
+    public static final int PROC_STATUS_FINISHED = 2;
+    /** 回退 (反报工) */
+    public static final int PROC_STATUS_ROLLED_BACK = 3;
+
+    // === v1.1.80 MES — mes_batch.batch_type ===
+    public static final String BATCH_TYPE_RAW = "RAW";
+    public static final String BATCH_TYPE_SEMI = "SEMI";
+    public static final String BATCH_TYPE_FG = "FG";
 
     public static final String REDIS_BILL_NO = "erp:billno:";
     public static final String REDIS_PRINT_LOCK = "erp:print:lock:";

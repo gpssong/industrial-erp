@@ -36,8 +36,9 @@ public class BaseProductController {
     public R<PageResult<BaseProduct>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                            @RequestParam(defaultValue = "20") Integer pageSize,
                                            @RequestParam(required = false) String keyword,
-                                           @RequestParam(required = false) Long categoryId) {
-        PageResult<BaseProduct> pr = PageResult.of(service.page(pageNum, pageSize, keyword, categoryId));
+                                           @RequestParam(required = false) Long categoryId,
+                                           @RequestParam(required = false) String productType) {
+        PageResult<BaseProduct> pr = PageResult.of(service.page(pageNum, pageSize, keyword, categoryId, productType));
         CreateByNameInjector.inject(userMapper, pr.getRecords(), BaseProduct::getCreateBy, BaseProduct::setCreateByName);
         return R.ok(pr);
     }

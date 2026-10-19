@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.pdm.mapper.MesProcessSopMapper">
+
+  <select id="selectByProcessDefId" resultType="com.industrial.erp.modules.pdm.entity.MesProcessSop">
+    SELECT * FROM mes_process_sop
+    WHERE process_def_id = #{processDefId} AND deleted = 0
+    ORDER BY effective_date DESC, id DESC
+  </select>
+
+  <select id="selectActiveByProcessDefId" resultType="com.industrial.erp.modules.pdm.entity.MesProcessSop">
+    SELECT * FROM mes_process_sop
+    WHERE process_def_id = #{processDefId} AND status = 'ACTIVE' AND deleted = 0
+    LIMIT 1
+  </select>
+
+</mapper>

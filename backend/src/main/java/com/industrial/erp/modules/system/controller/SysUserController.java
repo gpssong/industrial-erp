@@ -91,7 +91,11 @@ public class SysUserController {
     @Operation(summary = "重置密码")
     @SaCheckPermission(value = {"system:user:reset-pwd"}, orRole = "admin")
     @PostMapping("/{id}/resetPwd")
-    public R<Void> resetPwd(@PathVariable Long id, @RequestParam(defaultValue = "123456") String newPwd) {
+    public R<Void> resetPwd(@PathVariable Long id, @RequestParam(required = false) String newPwd) {
+        // S1 安全红线: 去掉 defaultValue=123456, 必传; 同时 service 内做 8位+字母+数字 复杂度校验.
+        if (newPwd == null || newPwd.isEmpty()) {
+            return R.fail(400, "新密码不能为空, 至少 8 位且同时含字母和数字");
+        }
         userService.resetPassword(id, newPwd);
         return R.ok();
     }

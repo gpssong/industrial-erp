@@ -1,0 +1,112 @@
+package com.industrial.erp.modules.production.entity;
+
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
+import com.baomidou.mybatisplus.annotation.TableName;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/**
+ * v1.1.98 半成品入库单 — 打通 原料批 → 半成品卷批 → 成品批 追溯链.
+ * 对齐 PrdFinishedIn, 新增 XK 门禁快照列 (关联合格 FAI 检验单判定).
+ */
+@TableName("prd_semi_in")
+public class PrdSemiIn {
+    @TableId(type = IdType.ASSIGN_ID)
+    private Long id;
+    private String billNo;
+    private LocalDate billDate;
+    private Long prdOrderId;
+    private String prdOrderNo;
+    private Long productId;
+    private String productCode;
+    private String productName;
+    private String spec;
+    private Long unitId;
+    private String unitName;
+    private BigDecimal qty;
+    private BigDecimal price;
+    private BigDecimal amount;
+    private Long warehouseId;
+    private Long locationId;
+    private String batchNo;
+    private String billStatus;
+    // v1.1.98 XK 门禁快照 (仿 pur_receipt v1.1.95)
+    private String inspectionReportNo;
+    private String inspectionResult;
+    private BigDecimal sampleQty;
+    private String inspectorName;
+    private String remark;
+    @TableField(fill = FieldFill.INSERT)
+    private Long createBy;
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createTime;
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private Long updateBy;
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updateTime;
+    @TableLogic
+    private Integer deleted = 0;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getBillNo() { return billNo; }
+    public void setBillNo(String billNo) { this.billNo = billNo; }
+    public LocalDate getBillDate() { return billDate; }
+    public void setBillDate(LocalDate billDate) { this.billDate = billDate; }
+    public Long getPrdOrderId() { return prdOrderId; }
+    public void setPrdOrderId(Long prdOrderId) { this.prdOrderId = prdOrderId; }
+    public String getPrdOrderNo() { return prdOrderNo; }
+    public void setPrdOrderNo(String prdOrderNo) { this.prdOrderNo = prdOrderNo; }
+    public Long getProductId() { return productId; }
+    public void setProductId(Long productId) { this.productId = productId; }
+    public String getProductCode() { return productCode; }
+    public void setProductCode(String productCode) { this.productCode = productCode; }
+    public String getProductName() { return productName; }
+    public void setProductName(String productName) { this.productName = productName; }
+    public String getSpec() { return spec; }
+    public void setSpec(String spec) { this.spec = spec; }
+    public Long getUnitId() { return unitId; }
+    public void setUnitId(Long unitId) { this.unitId = unitId; }
+    public String getUnitName() { return unitName; }
+    public void setUnitName(String unitName) { this.unitName = unitName; }
+    public BigDecimal getQty() { return qty; }
+    public void setQty(BigDecimal qty) { this.qty = qty; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public BigDecimal getAmount() { return amount; }
+    public void setAmount(BigDecimal amount) { this.amount = amount; }
+    public Long getWarehouseId() { return warehouseId; }
+    public void setWarehouseId(Long warehouseId) { this.warehouseId = warehouseId; }
+    public Long getLocationId() { return locationId; }
+    public void setLocationId(Long locationId) { this.locationId = locationId; }
+    public String getBatchNo() { return batchNo; }
+    public void setBatchNo(String batchNo) { this.batchNo = batchNo; }
+    public String getBillStatus() { return billStatus; }
+    public void setBillStatus(String billStatus) { this.billStatus = billStatus; }
+    public String getInspectionReportNo() { return inspectionReportNo; }
+    public void setInspectionReportNo(String inspectionReportNo) { this.inspectionReportNo = inspectionReportNo; }
+    public String getInspectionResult() { return inspectionResult; }
+    public void setInspectionResult(String inspectionResult) { this.inspectionResult = inspectionResult; }
+    public BigDecimal getSampleQty() { return sampleQty; }
+    public void setSampleQty(BigDecimal sampleQty) { this.sampleQty = sampleQty; }
+    public String getInspectorName() { return inspectorName; }
+    public void setInspectorName(String inspectorName) { this.inspectorName = inspectorName; }
+    public String getRemark() { return remark; }
+    public void setRemark(String remark) { this.remark = remark; }
+    public Long getCreateBy() { return createBy; }
+    public void setCreateBy(Long createBy) { this.createBy = createBy; }
+    public LocalDateTime getCreateTime() { return createTime; }
+    public void setCreateTime(LocalDateTime createTime) { this.createTime = createTime; }
+    public Long getUpdateBy() { return updateBy; }
+    public void setUpdateBy(Long updateBy) { this.updateBy = updateBy; }
+    public LocalDateTime getUpdateTime() { return updateTime; }
+    public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
+    public Integer getDeleted() { return deleted; }
+    public void setDeleted(Integer deleted) { this.deleted = deleted; }
+}
