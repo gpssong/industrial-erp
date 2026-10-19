@@ -110,6 +110,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -138,6 +139,8 @@ const form = reactive({
 let productId = null // 编辑时的 ID, 从路由参数获取
 
 onLoad((options) => {
+  // v1.1.80+: 模块停用守卫
+  if (!guardPage('base')) return
   if (options.id) {
     productId = Number(options.id)
     loadProduct(productId)

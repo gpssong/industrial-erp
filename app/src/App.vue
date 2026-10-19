@@ -5,7 +5,8 @@
 </template>
 <script setup>
 import { onLaunch, onShow } from '@dcloudio/uni-app'
-import { onAppBack } from './utils/nav.js'
+import { onAppBack, navigateTo } from './utils/nav.js'
+import { loadFromServer as loadAppModuleConfig } from './utils/appModuleEnabled.js'
 
 // v1.1.8+: Token 由后端 Set-Cookie (httpOnly) 自动管理, 不再从 storage 读取 erp_token.
 // 自动登录仅检查 erp_user 是否仍在 localStorage (页面刷新后 Cookie 仍有效).
@@ -25,13 +26,19 @@ function tryAutoLogin() {
   if (cur && cur !== 'pages/login/index') return
 
   // 已在登录页则直接跳工作台
-  uni.reLaunch({ url: '/pages/dashboard/index' })
+  // H5 运行时 uni.reLaunch 在 onLaunch 阶段 (uni-h5 router 首个 page 未挂好) 会 reject 'reLaunch:fail',
+  // 用 navigateTo (原生走 uni, H5 走 hash 路由) 兜底, 行为不变且 H5 不再报错.
+  navigateTo('/pages/dashboard/index')
 }
 
 onLaunch(() => {
   console.log('App Launch')
   // 首次启动, 如果有 token 就跳过登录
   tryAutoLogin()
+
+  // v1.1.80+: 启动时拉 App 模块开关 (后台静默, 失败 fallback 全开)
+  // 必须在 tryAutoLogin 之后, 避免 login 页触发时延迟跳转
+  loadAppModuleConfig().catch(() => { /* 静默 */ })
 
   // v1.1.54+: 全局拦截 Android 硬件返回键
   // - 工作台 / 登录页 → 放行 (允许退出 App)
@@ -49,6 +56,8 @@ onLaunch(() => {
 onShow(() => {
   // 每次从后台回到前台, 也尝试一次 (处理用户已登录但被路由回登录页的边缘情况)
   tryAutoLogin()
+  // v1.1.80+: 切前台时刷新 App 模块配置 (5 min TTL 内不重复打)
+  loadAppModuleConfig().catch(() => { /* 静默 */ })
 })
 </script>
 <style>

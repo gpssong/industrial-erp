@@ -4,10 +4,12 @@ export function isNative() {
 }
 
 // 实际 tabBar 页面 (与 pages.json 的 tabBar.list 保持一致)
+// v1.1.100+: 加工单 tab (order-list) — 原生走 switchTab, H5 走 hash
 const TABBAR_PAGES = [
   '/pages/dashboard/index',
   '/pages/inventory/query',
   '/pages/scan/in',
+  '/pages/production/order-list',
   '/pages/profile/index'
 ]
 

@@ -59,6 +59,7 @@
 import { ref, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { applyTabBar } from '../../utils/permission.js'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const STATUS_OPTIONS = [
   { value: '',        label: '全部' },
@@ -125,7 +126,11 @@ function goDetail(item) {
   uni.navigateTo({ url: '/pages/purchase/receipt-detail?id=' + String(item.id) })
 }
 
-onMounted(() => { loadData(); applyTabBar() })
+onMounted(() => {
+  // v1.1.80+: 模块停用守卫
+  if (!guardPage('purchase')) return
+  loadData(); applyTabBar()
+})
 
 // 上拉加载更多 (App 端页面生命周期)
 import { onReachBottom, onPullDownRefresh } from '@dcloudio/uni-app'

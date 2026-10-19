@@ -65,6 +65,7 @@
 import { ref, onMounted, nextTick } from 'vue'
 import api from '../../api/index.js'
 import { applyTabBar } from '../../utils/permission.js'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const messages = ref([])
 const q = ref('')
@@ -226,6 +227,8 @@ function scrollBottom() {
 }
 
 onMounted(() => {
+  // v1.1.80+: 模块停用守卫
+  if (!guardPage('report')) return
   applyTabBar()
   detectSpeech()
   loadReplenish()
