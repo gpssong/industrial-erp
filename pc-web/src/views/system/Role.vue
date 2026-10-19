@@ -1,5 +1,15 @@
 <template>
   <div>
+    <!-- Figma 页面标题 -->
+    <div class="xk-page-heading">
+      <div>
+        <div class="xk-eyebrow">系统管理 / 角色</div>
+        <h1 class="xk-title">角色管理</h1>
+      </div>
+      <div class="xk-heading-actions">
+        <el-button type="primary" @click="loadData">查询</el-button>
+      </div>
+    </div>
     <div class="search-bar">
       <el-form :model="query" inline>
         <el-form-item label="角色名称">
@@ -32,7 +42,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
-        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
+        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize"
         :page-sizes="[10,20,50,100]" @current-change="loadData" @size-change="loadData" />
     </div>
 
@@ -165,12 +175,23 @@ const APP_MENU_WHITELIST = [
     // 外勤盘点: perms=inventory:check:list → sys_menu id=603 path=/inventory/check
     { name: '外勤盘点',         perms: 'inventory:check:list',  idApp: 'app-603-check' },
     // 生产加工单 (新增): perms=production:order:list → sys_menu id=702 path=/production/order
-    { name: '生产加工单 (新增)', perms: 'production:order:list', idApp: 'app-702-add' }
+    { name: '生产加工单 (新增)', perms: 'production:order:list', idApp: 'app-702-add' },
+    // v1.1.80 MES: 扫码报工 perms=production:report:list (F 型 perm 载体, sql/53 seed, 授 6 角色)
+    { name: '扫码报工', perms: 'production:report:list', idApp: 'app-mes-report' },
+    // v1.1.90 QMS: 质量检验 App 入口 (扫码发起 IQC/FAI/PAT/OQC) — perms=quality:inspection:list (sql/54 seed)
+    { name: '质量检验', perms: 'quality:inspection:list', idApp: 'app-qms-inspection' },
+    // v1.1.90 PDM: 工艺 SOP 查询 (工人 App 查参数+SOP) — perms=pdm:sop:list
+    { name: '工艺 SOP', perms: 'pdm:sop:list', idApp: 'app-pdm-sop' }
   ]},
   { name: '报表中心', children: [
     { name: '经营简报 (KPI)', perms: 'report:view', idApp: 'app-951-report' },
     // v1.1.76+: AI 助手 (对话 + 补货预测); perms=report:ai → 命中 sql/48 建的 sys_menu 行
     { name: 'AI 助手', perms: 'report:ai', idApp: 'app-ai-assist' }
+  ]},
+  // v1.1.90 EM: 设备中心 (设备主数据 + 维保计划 + 报修 App 入口)
+  { name: '设备中心', children: [
+    { name: '设备主数据', perms: 'equipment:master:list', idApp: 'app-em-master' },
+    { name: '设备维保计划', perms: 'equipment:maintain:list', idApp: 'app-em-maintain' }
   ]}
 ]
 

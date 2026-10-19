@@ -1,5 +1,15 @@
 <template>
   <div>
+    <!-- Figma 页面标题 -->
+    <div class="xk-page-heading">
+      <div>
+        <div class="xk-eyebrow">采购管理 / 退货</div>
+        <h1 class="xk-title">采购退货</h1>
+      </div>
+      <div class="xk-heading-actions">
+        <el-button @click="loadData">查询</el-button>
+      </div>
+    </div>
     <div class="search-bar">
       <el-form :model="query" inline>
         <el-form-item label="单号"><el-input v-model="query.billNo" clearable /></el-form-item>
@@ -44,7 +54,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize" @current-change="loadData" @size-change="loadData" :page-sizes="[10,20,50,100]" />
+        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize" @current-change="loadData" @size-change="loadData" :page-sizes="[10,20,50,100]" />
     </div>
     <el-dialog v-model="dialogVisible" title="新增采购退货单" width="1100px" destroy-on-close>
       <el-form :model="form" label-width="100px">

@@ -7,6 +7,8 @@ export const feiePrintApi = {
   print: (bizType, id) => request.post(`/feie/print/${bizType}/${id}`),
   // 通用飞鹅打印 (指定配置)
   printWithConfig: (bizType, id, configId) => request.post(`/feie/print/${bizType}/${id}/config/${configId}`),
+  // v1.1.102 批量飞鹅打印 (多选行, ids=[...])
+  printBatch: (bizType, ids) => request.post(`/feie/print/${bizType}/batch`, ids),
 
   // 打印机配置管理
   listPrinters: () => request.get('/feie/printers'),

@@ -1,5 +1,15 @@
 <template>
   <div>
+    <!-- Figma 页面标题 -->
+    <div class="xk-page-heading">
+      <div>
+        <div class="xk-eyebrow">基础资料 / 计量</div>
+        <h1 class="xk-title">计量单位</h1>
+      </div>
+      <div class="xk-heading-actions">
+        <el-button type="primary" @click="onAdd">新增单位</el-button>
+      </div>
+    </div>
     <div class="page-card">
       <div class="table-toolbar">
         <div class="left"><el-button type="primary" @click="onAdd">新增单位</el-button></div>

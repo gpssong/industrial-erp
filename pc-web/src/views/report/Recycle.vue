@@ -1,5 +1,24 @@
 <template>
   <div>
+    <!-- Figma 页面标题 + XK 合规条 -->
+    <div class="xk-page-heading">
+      <div>
+        <div class="xk-eyebrow">XK 生产许可档案中心</div>
+        <h1 class="xk-title">回收站 · 记录归档</h1>
+      </div>
+      <div class="xk-heading-actions">
+        <span class="xk-badge xk-badge-red">彻底删除不可恢复</span>
+      </div>
+    </div>
+    <div class="xk-compliance-strip">
+      <el-icon class="xk-cs-icon"><Promotion /></el-icon>
+      <div class="xk-cs-body">
+        <strong>XK 生产许可受控记录</strong>
+        <small>恢复 = 把单据翻回可用 (草稿)；彻底删除 = 物理删除、不可恢复，请谨慎 · 原始记录与修改日志保存 ≥ 2 年</small>
+      </div>
+      <span class="xk-cs-badge">XK 受控</span>
+    </div>
+
     <div class="search-bar">
       <el-form :model="query" inline>
         <el-form-item label="关键词">
@@ -68,6 +87,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Promotion } from '@element-plus/icons-vue'
 import { reportApi } from '@/api/report'
 
 // 11 类单据 (key 与后端 RecycleType 一一对应)

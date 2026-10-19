@@ -145,8 +145,8 @@
         class="pager" background
         layout="total, prev, pager, next, jumper"
         :total="Number(data.total)"
-        v-model:current-page="query.pageNum"
-        v-model:page-size="query.pageSize"
+        :current-page="query.pageNum"
+        :page-size="query.pageSize"
         @current-change="loadData"
       />
       <el-pagination
@@ -154,8 +154,8 @@
         class="pager" background
         layout="total, prev, pager, next, jumper"
         :total="Number(issuedData.total)"
-        v-model:current-page="issuedQuery.pageNum"
-        v-model:page-size="issuedQuery.pageSize"
+        :current-page="issuedQuery.pageNum"
+        :page-size="issuedQuery.pageSize"
         @current-change="loadIssuedData"
       />
     </div>

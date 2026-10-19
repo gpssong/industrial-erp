@@ -1,13 +1,44 @@
 <template>
   <div>
+    <!-- Figma 页面标题 -->
+    <div class="xk-page-heading">
+      <div>
+        <div class="xk-eyebrow">基础资料 / 商品</div>
+        <h1 class="xk-title">商品管理</h1>
+      </div>
+      <div class="xk-heading-actions">
+        <el-button @click="loadData">查询</el-button>
+      </div>
+    </div>
     <div class="search-bar">
       <el-form :model="query" inline>
         <el-form-item label="关键字"><el-input v-model="query.keyword" placeholder="编码/名称/条码/规格" clearable /></el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="query.productType" placeholder="全部" clearable style="width:130px">
+            <el-option label="原材料" value="RAW" />
+            <el-option label="半成品" value="SEMI" />
+            <el-option label="成品" value="FG" />
+            <el-option label="商品" value="GOODS" />
+            <el-option label="服务" value="SERVICE" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="loadData"><el-icon><Search /></el-icon>查询</el-button>
           <el-button @click="reset">重置</el-button>
         </el-form-item>
       </el-form>
+    </div>
+    <!-- 类型统计卡 (原料/半成品/成品 数量, 点击筛选) -->
+    <div class="type-stats">
+      <div class="stat-card" :class="{ active: query.productType === 'RAW' }" @click="filterByType('RAW')">
+        <b>{{ typeStats.RAW }}</b><span>原材料</span>
+      </div>
+      <div class="stat-card" :class="{ active: query.productType === 'SEMI' }" @click="filterByType('SEMI')">
+        <b>{{ typeStats.SEMI }}</b><span>半成品</span>
+      </div>
+      <div class="stat-card" :class="{ active: query.productType === 'FG' }" @click="filterByType('FG')">
+        <b>{{ typeStats.FG }}</b><span>成品</span>
+      </div>
     </div>
     <div class="page-card">
       <div class="table-toolbar">
@@ -26,9 +57,20 @@
         </el-table-column>
         <el-table-column prop="productCode" label="商品编码" width="140" />
         <el-table-column prop="productName" label="商品名称" />
+        <el-table-column prop="productType" label="类型" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.productType" :type="PT_TAG[row.productType] || 'info'" size="small" effect="light">
+              {{ PT_LABEL[row.productType] || row.productType }}
+            </el-tag>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="spec" label="规格" width="160" />
         <el-table-column prop="model" label="型号" width="120" />
         <el-table-column prop="material" label="材质" width="80" />
+        <el-table-column prop="foodExecStd" label="执行标准" width="110">
+          <template #default="{ row }">{{ row.foodExecStd || (row.isFoodGrade === 1 ? '食品级' : '-') }}</template>
+        </el-table-column>
         <el-table-column prop="thickness" label="长度" width="80" />
         <el-table-column prop="width" label="宽度" width="80" />
         <el-table-column prop="density" label="厚度" width="80" />
@@ -58,7 +100,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
-        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
+        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize"
         :page-sizes="[10,20,50,100]" @current-change="loadData" @size-change="loadData" />
     </div>
 
@@ -71,8 +113,21 @@
           <el-col :span="8"><el-form-item label="型号"><el-input v-model="form.model" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="类型">
+              <el-select v-model="form.productType" style="width:100%" placeholder="成品">
+                <el-option label="原材料" value="RAW" />
+                <el-option label="半成品" value="SEMI" />
+                <el-option label="成品" value="FG" />
+                <el-option label="商品" value="GOODS" />
+                <el-option label="服务" value="SERVICE" />
+              </el-select>
+            </el-form-item>
+          </el-col>
           <el-col :span="8"><el-form-item label="规格"><el-input v-model="form.spec" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="材质"><el-input v-model="form.material" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="色号"><el-input v-model="form.colorNo" /></el-form-item></el-col>
         </el-row>
         <el-row :gutter="12">
@@ -93,6 +148,21 @@
           <el-col :span="8"><el-form-item label="安全库存"><el-input v-model.number="form.safetyStock" type="number" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="批次管理"><el-switch v-model="form.isBatch" :active-value="1" :inactive-value="0" /></el-form-item></el-col>
           <el-col :span="8"><el-form-item label="序列号"><el-switch v-model="form.isSn" :active-value="1" :inactive-value="0" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="8"><el-form-item label="食品级"><el-switch v-model="form.isFoodGrade" :active-value="1" :inactive-value="0" /><span class="form-hint-inline">亮=食品级, 暗=工业品</span></el-form-item></el-col>
+        </el-row>
+        <!-- v1.1.100 食品合规 4 字段: 仅食品级 (isFoodGrade=1) 展开; 限值/标准号留空由用户填真实 GB 号, 不硬编码 -->
+        <el-alert v-if="form.isFoodGrade === 1" type="info" :closable="false" show-icon
+          title="食品接触合规 (GB 4806 / 食品相关产品生产许可证)" style="margin-bottom:12px"
+          description="食品级商品请填写执行标准号/备案编号/总迁移量限值/用途, 用于 XK 食品接触合规台账与出厂检验。" />
+        <el-row :gutter="12" v-if="form.isFoodGrade === 1">
+          <el-col :span="8"><el-form-item label="食品级用途"><el-input v-model="form.foodUseDesc" placeholder="如 食品接触/食品保鲜袋" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="执行标准号"><el-input v-model="form.foodExecStd" placeholder="如 GB 4806.7" /></el-form-item></el-col>
+          <el-col :span="8"><el-form-item label="备案编号"><el-input v-model="form.foodFilingNo" placeholder="食品相关产品生产许可证/备案号" /></el-form-item></el-col>
+        </el-row>
+        <el-row :gutter="12" v-if="form.isFoodGrade === 1">
+          <el-col :span="8"><el-form-item label="总迁移量限值"><el-input-number v-model="form.foodMigrationLimit" :precision="3" :controls="false" style="width:100%" placeholder="mg/dm2, 可空" /><span class="form-hint-inline">mg/dm2</span></el-form-item></el-col>
         </el-row>
 
         <!-- 商品照片 -->
@@ -180,8 +250,27 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 import request from '@/utils/request'
 
-const query = reactive({ pageNum: 1, pageSize: 20, keyword: '' })
+const query = reactive({ pageNum: 1, pageSize: 20, keyword: '', productType: '' })
 const data = ref({ records: [], total: 0 })
+const typeStats = reactive({ RAW: 0, SEMI: 0, FG: 0 })
+const PT_LABEL = { RAW: '原材料', SEMI: '半成品', FG: '成品', GOODS: '商品', SERVICE: '服务' }
+const PT_TAG   = { RAW: 'danger', SEMI: 'warning', FG: 'success', GOODS: 'info', SERVICE: '' }
+
+async function loadTypeStats() {
+  const [r1, r2, r3] = await Promise.allSettled([
+    productApi.page({ pageNum: 1, pageSize: 1, productType: 'RAW' }),
+    productApi.page({ pageNum: 1, pageSize: 1, productType: 'SEMI' }),
+    productApi.page({ pageNum: 1, pageSize: 1, productType: 'FG' })
+  ])
+  const t = p => (p.status === 'fulfilled' ? Number(p.value?.data?.total || 0) : 0)
+  typeStats.RAW = t(r1); typeStats.SEMI = t(r2); typeStats.FG = t(r3)
+}
+
+function filterByType(v) {
+  query.productType = (query.productType === v) ? '' : v
+  query.pageNum = 1
+  loadData()
+}
 const loading = ref(false)
 const dialogVisible = ref(false)
 const stockVisible = ref(false)
@@ -202,9 +291,13 @@ const previewImgUrl = ref('')
 
 const form = reactive({
   id: null, productCode: '', productName: '', spec: '', model: '', material: '',
+  productType: 'FG',
   thickness: null, width: null, density: null, gramWeight: null, colorNo: '', barcode: '',
   salesPrice: 0, purchasePrice: 0, costPrice: 0,
-  taxRate: 13.00, safetyStock: 0, isBatch: 1, isSn: 0, status: 1,
+  taxRate: 13.00, safetyStock: 0, isBatch: 1, isSn: 0,
+  isFoodGrade: 0,
+  foodUseDesc: '', foodExecStd: '', foodFilingNo: '', foodMigrationLimit: null,
+  status: 1,
   remark: '', images: [], imageUrl: '', units: []
 })
 const rules = {
@@ -277,7 +370,7 @@ async function loadData() {
   } finally { loading.value = false }
 }
 
-function reset() { query.keyword = ''; loadData() }
+function reset() { query.keyword = ''; query.productType = ''; loadData() }
 
 function onAdd() {
   form.id = null
@@ -286,6 +379,7 @@ function onAdd() {
   form.spec = ''
   form.model = ''
   form.material = ''
+  form.productType = 'FG'
   form.thickness = null
   form.width = null
   form.density = null
@@ -299,6 +393,11 @@ function onAdd() {
   form.safetyStock = 0
   form.isBatch = 1
   form.isSn = 0
+  form.isFoodGrade = 0
+  form.foodUseDesc = ''
+  form.foodExecStd = ''
+  form.foodFilingNo = ''
+  form.foodMigrationLimit = null
   form.status = 1
   form.remark = ''
   form.bomId = null
@@ -324,6 +423,7 @@ async function onDelete(row) {
   await productApi.delete(row.id)
   ElMessage.success('删除成功')
   loadData()
+  loadTypeStats()
 }
 
 function addUnit() {
@@ -347,6 +447,7 @@ async function onSubmit() {
     ElMessage.success('保存成功')
     dialogVisible.value = false
     loadData()
+    loadTypeStats()
   } finally { submitting.value = false }
 }
 
@@ -357,7 +458,7 @@ async function onStock(row) {
 }
 
 // 加载 BOM 列表 (供配方下拉使用)
-onMounted(() => { loadData(); loadBomList() })
+onMounted(() => { loadData(); loadBomList(); loadTypeStats() })
 </script>
 
 <style scoped>
@@ -371,5 +472,25 @@ onMounted(() => { loadData(); loadBomList() })
 .image-item { position: relative; width: 100px; height: 100px; }
 .image-item img { width: 100%; height: 100%; object-fit: cover; border-radius: 6px; border: 1px solid #eee; cursor: pointer; }
 .del-btn { position: absolute; top: -6px; right: -6px; }
+.form-hint-inline { margin-left: 8px; color: #909399; font-size: 12px; }
 .tip { color: #999; font-size: 12px; }
+.muted { color: #c0c4cc; font-size: 12px; }
+.type-stats {
+  display: flex; gap: 12px; padding: 0 4px;
+}
+.type-stats .stat-card {
+  flex: 0 0 auto; min-width: 130px; padding: 12px 16px;
+  background: #f7f9fc; border: 1px solid #e8edf3; border-radius: 10px;
+  cursor: pointer; transition: all .15s;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.type-stats .stat-card b { font-size: 22px; font-weight: 700; color: #1f2a3a; }
+.type-stats .stat-card span { font-size: 12px; color: #6b7a8f; }
+.type-stats .stat-card:hover { border-color: #c7d4e3; background: #eef3f9; }
+.type-stats .stat-card.active {
+  border-color: var(--el-color-primary, #409eff);
+  background: #ecf5ff;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, .18);
+}
+.type-stats .stat-card.active b { color: var(--el-color-primary, #409eff); }
 </style>

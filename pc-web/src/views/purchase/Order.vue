@@ -1,5 +1,15 @@
 <template>
   <div>
+    <!-- Figma 页面标题 -->
+    <div class="xk-page-heading">
+      <div>
+        <div class="xk-eyebrow">采购管理 / 订单</div>
+        <h1 class="xk-title">采购订单</h1>
+      </div>
+      <div class="xk-heading-actions">
+        <el-button @click="loadData">查询</el-button>
+      </div>
+    </div>
     <div class="search-bar">
       <el-form :model="query" inline>
         <el-form-item label="单号"><el-input v-model="query.billNo" placeholder="单号" clearable /></el-form-item>
@@ -34,7 +44,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="Number(data.total)" v-model:current-page="query.pageNum" v-model:page-size="query.pageSize"
+        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize"
         @current-change="loadData" @size-change="loadData" />
     </div>
 

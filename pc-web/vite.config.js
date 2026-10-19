@@ -38,6 +38,8 @@ export default defineConfig({
     ],
     proxy: {
       '/api': {
+        // dev 本地看效果: 指向本地后端 (localhost:8080, 登录 admin/默认密码).
+        // 切回飞牛真数据: 'http://192.168.0.32:8080' (登录 gpssong/850225song).
         target: 'http://localhost:8080',
         changeOrigin: true,
         // 修复 PUT/DELETE 请求被 Vite proxy 拦截返回 403 的问题
