@@ -51,14 +51,37 @@ const nativeDefault = 'http://home.93gushi.com:8088/api'
 const apiBase = ref('')
 const currentDisplay = ref('')
 
+function isH5Runtime() {
+  return typeof window !== 'undefined' && typeof document !== 'undefined' && typeof plus === 'undefined'
+}
+function effectiveBase() {
+  const override = apiBase.value.trim()
+  if (isH5Runtime()) {
+    if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
+    return (window.location.origin) + '/api (同源)'
+  }
+  return (override && /^https?:\/\//.test(override) ? override.replace(/\/$/, '') : nativeDefault)
+}
+function persistApiBase(val) {
+  if (val && /^https?:\/\//.test(val)) {
+    try { localStorage.setItem('erp_api_base', val.replace(/\/$/, '')) } catch (e) {}
+  } else {
+    try { localStorage.removeItem('erp_api_base') } catch (e) {}
+  }
+  currentDisplay.value = effectiveBase()
+}
 function onSaveServer() {
-  // 已停用: API 地址硬编码, 不再读取 localStorage
+  persistApiBase(apiBase.value.trim())
 }
 function onResetServer() {
-  // 已停用
+  apiBase.value = ''
+  persistApiBase('')
 }
 
-onMounted(() => {})
+onMounted(() => {
+  apiBase.value = (() => { try { return localStorage.getItem('erp_api_base') || '' } catch (e) { return '' } })()
+  currentDisplay.value = effectiveBase()
+})
 
 async function onLogin() {
   try {

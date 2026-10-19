@@ -77,6 +77,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import api from '../../api/index.js'
 import { doScan, stopScan } from '../../utils/scan.js'
 import { checkPagePermission } from '../../utils/permission.js'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const list = ref([])
 const manualCode = ref('')
@@ -308,6 +309,8 @@ async function onSubmit() {
 onUnmounted(() => { stopScan() })
 
 onMounted(() => {
+  // v1.1.80+: 模块停用守卫 (admin 全局一刀切 — 库存模块关了连外勤盘点都不能用)
+  if (!guardPage('inventory')) return
   if (!checkPagePermission('/pages/count/index')) {
     toast('无访问权限')
     setTimeout(() => window.history.back(), 500)

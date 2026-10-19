@@ -1,8 +1,26 @@
-// App 端 API 基地址 — 永远使用绝对路径, 不读 localStorage 缓存
+// App 端 API 基地址
+// - 原生 / Capacitor: 写死绝对地址 (避免 WebView 里读 localStorage 缓存出问题)
+// - H5 (浏览器): 用「同源 /api」, 由部署侧的 nginx (如飞牛 18090) 反代到 backend, 天然无 CORS.
+//   这正是登录页 placeholder "留空使用默认: /api" 暗示的既有设计, 之前 getBase() 误把 H5 也硬成绝对域名, 才在 :18090 上跨域打到 home.93gushi.com:8088 触发 CORS.
 const DEFAULT_API = 'http://home.93gushi.com:8088/api'
 
+// H5 同源默认: 浏览器把 API 打到当前 origin 下的 /api, 由 nginx 反代到 backend.
+// 原生走写死绝对地址, 行为与 v1.1.99 之前一致, 零破坏.
+function isH5Runtime() {
+  return typeof window !== 'undefined' && typeof document !== 'undefined' && typeof plus === 'undefined'
+}
+
 function getBase() {
-  // 硬编码直接返回, 避免 Capacitor WebView 环境中 localStorage 缓存导致的问题
+  if (isH5Runtime()) {
+    // 同源: 相对路径 '/api', fetch/uni.request 会自动拼上当前 origin.
+    // 允许用户在「服务器设置」填了绝对地址时覆盖 (读 erp_api_base, 带 scheme → 视为显式覆盖).
+    try {
+      const override = localStorage.getItem('erp_api_base')
+      if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
+    } catch (e) {}
+    return '/api'
+  }
+  // 原生 / Capacitor: 保持写死绝对地址
   return DEFAULT_API
 }
 
@@ -83,7 +101,12 @@ function request({ url, method = 'GET', data = {}, contentType }) {
           reject(Object.assign(d, { needRelogin: true }))
           // 异步跳转 (用 setTimeout 避免阻塞 reject)
           setTimeout(() => {
-            try { uni.reLaunch({ url: '/pages/login/index' }) } catch (e) {}
+            // H5: 走 hash 路由 (uni.reLaunch 在 401 场景可能 'reLaunch:fail'); 原生: uni.reLaunch
+            if (isH5Runtime() && typeof window !== 'undefined') {
+              window.location.hash = '#/pages/login/index'
+            } else {
+              try { uni.reLaunch({ url: '/pages/login/index' }) } catch (e) {}
+            }
           }, 100)
         } else {
           if (typeof uni !== 'undefined' && uni.showToast) {
@@ -196,15 +219,71 @@ export const api = {
   prdOrderUpdate: (id, data) => request({ url: '/production/order/' + id, method: 'PUT', data, contentType: 'json' }),
   prdOrderRelease: (id) => request({ url: '/production/order/' + id + '/release', method: 'POST' }),
   prdOrderDelete: (id) => request({ url: '/production/order/' + id, method: 'DELETE' }),
+  // v1.1.101 App XK 吹膜生产全流程 — 半成品入库 / 成品入库 (仓管现场建单 + 过门禁审核)
+  // 复用 PC 端已有后端端点, App 端只补前端调用入口
+  prdSemiInPage:    (params) => request({ url: '/production/semi-in/page', data: params }),
+  prdSemiInAdd:     (data) => request({ url: '/production/semi-in', method: 'POST', data, contentType: 'json' }),
+  prdSemiInCheck:   (id) => request({ url: '/production/semi-in/' + id + '/check', method: 'POST' }),
+  prdSemiInUncheck: (id) => request({ url: '/production/semi-in/' + id + '/uncheck', method: 'POST' }),
+  prdSemiInDelete:  (id) => request({ url: '/production/semi-in/' + id, method: 'DELETE' }),
+  prdFinishedInPage:    (params) => request({ url: '/production/finished-in/page', data: params }),
+  prdFinishedInAdd:     (data) => request({ url: '/production/finished-in', method: 'POST', data, contentType: 'json' }),
+  prdFinishedInCheck:   (id) => request({ url: '/production/finished-in/' + id + '/check', method: 'POST' }),
+  prdFinishedInUncheck: (id) => request({ url: '/production/finished-in/' + id + '/uncheck', method: 'POST' }),
+  prdFinishedInDelete:  (id) => request({ url: '/production/finished-in/' + id, method: 'DELETE' }),
   // v1.1.11+: 分享 PDF (返回完整 URL, 配合 baseURL, 给 uni.downloadFile 用)
   prdOrderPdfUrl: (id) => {
     let base = ''
     try { base = (localStorage.getItem('erp_api_base') || '').replace(/\/$/, '') } catch (e) {}
-    if (!base) base = 'http://home.93gushi.com:8088/api'
+    if (!base) base = isH5Runtime() ? window.location.origin + '/api' : DEFAULT_API
     return base + '/production/order/' + id + '/pdf'
   },
   // 飞鹅云打印
   feiePrint: (bizType, id) => request({ url: '/feie/print/' + bizType + '/' + id, method: 'POST' }),
+  // v1.1.80 MES: 扫码报工 — 按生产单号查工序实例 + 报工提交
+  prdOrderProgress: (orderId) => request({ url: '/mes/order/' + orderId + '/progress' }),
+  mesReport: (data) => request({ url: '/mes/report', method: 'POST', data, contentType: 'json' }),
+  // v1.1.90 Phase 2 — 质量检验 (QMS)
+  // 4 类 IQC/FAI/PAT/OQC 合一, App 端只提交草稿 (DRAFT), 审核走 PC 端
+  qmsInspectionPage: (params) => request({ url: '/qms/inspection/page', data: params }),
+  qmsInspectionDetail: (id) => request({ url: '/qms/inspection/' + id }),
+  qmsInspectionCreate: (data) => request({ url: '/qms/inspection', method: 'POST', data, contentType: 'json' }),
+  qmsInspectionCheck: (id, data) => request({ url: '/qms/inspection/' + id + '/check', method: 'POST', data, contentType: 'json' }),
+  qmsInspectionReject: (id, data) => request({ url: '/qms/inspection/' + id + '/reject', method: 'POST', data, contentType: 'json' }),
+  // v1.1.90 Phase 2 — 工艺参数 + SOP (PDM, App 只读)
+  pdmParamList: (processDefId) => request({ url: '/pdm/process/param/list', data: { processDefId } }),
+  pdmSopList: (processDefId) => request({ url: '/pdm/process/sop/list', data: { processDefId } }),
+  pdmSopActivate: (id) => request({ url: '/pdm/process/sop/' + id + '/activate', method: 'POST' }),
+  // 工序定义列表 (复用 MES 一期端点, App 端拉工序链)
+  mesProcessDefList: (productId) => request({ url: '/mes/process-def/list', data: productId != null ? { productId } : {} }),
+  // v1.1.90 Phase 2 — 设备台账 + 维保 (EM)
+  equipmentPage: (params) => request({ url: '/base/equipment/page', data: params }),
+  equipmentProcessList: (equipmentId) => request({ url: '/base/equipment/process/list', data: { equipmentId } }),
+  maintainPage: (params) => request({ url: '/workflow/maintain/page', data: params }),
+  maintainAdd: (data) => request({ url: '/workflow/maintain', method: 'POST', data, contentType: 'json' }),
+  // v1.1.100+: XK 端点拿 em_maintain_order 新表 PENDING 工单 (dashboard 现场待办复用).
+  // v1.1.99 附带清理后 wf_maintain_record 老表已废弃, em 模块本身无独立 controller,
+  //   /xk/maintenance/orders 是 App 端唯一能拿新表数据的接口.
+  xkMaintenanceOrders: (params) => request({ url: '/xk/maintenance/orders', data: params || {} }),
+  // v1.1.102 hotfix-4: 设备报修写新表 em_maintain_order (与 XK 设备维保页同源).
+  // 旧 maintainAdd (/workflow/maintain 老表) 与维保页不通, 报修后维保页看不到工单.
+  emMaintainOrderAdd: (data) => request({ url: '/em/maintain-order', method: 'POST', data, contentType: 'json' }),
+  emMaintainOrderComplete: (id, result, reviewer) => request({ url: '/em/maintain-order/' + id + '/complete', method: 'POST', data: { result, reviewer }, contentType: 'json' }),
+  // v1.1.99 C4 MES 排程 + OEE (App 端联动)
+  // - schedulePage: 分页查排程实例 (按工单/设备/时间窗)
+  // - scheduleGantt: 单设备甘特数据 (按日 24h 时间条)
+  // - scheduleSave: 新建/更新排程 (App 端工人可手动派单到设备)
+  // - scheduleCancel: 取消排程
+  // - oee: 单设备 OEE 三率 (稼动率 × 性能率 × 良品率)
+  // - traceFull: 批次全链追溯 (料→半成品→成品→客户, BFS 8 层), 替代老 mock 链
+  schedulePage:    (params) => request({ url: '/mes/schedule/page', data: params || {} }),
+  scheduleGantt:   (equipmentId) => request({ url: '/mes/schedule/gantt/' + equipmentId }),
+  scheduleSave:    (data) => request({ url: '/mes/schedule', method: 'POST', data, contentType: 'json' }),
+  scheduleCancel:  (id) => request({ url: '/mes/schedule/' + id + '/cancel', method: 'POST' }),
+  oee:             (equipmentId) => request({ url: '/mes/oee/' + equipmentId }),
+  batchTraceFull:  (batchNo) => request({ url: '/mes/batch/trace-full/' + batchNo }),
+  // 设备列表 (App 端选设备调)
+  equipmentList:   () => request({ url: '/base/equipment/list' }),
   // 报表
   dashboard: () => request({ url: '/report/dashboard' }),
   inventorySummary: () => request({ url: '/report/inventory/summary' }),
@@ -257,5 +336,10 @@ export const api = {
   userAssignRoles: (id, roleIds) => request({ url: '/system/user/' + id + '/roles', method: 'PUT', data: roleIds }),
   // 角色管理
   rolePage: (params) => request({ url: '/system/role/page', data: params }),
+  // v1.1.80+: App 模块开关 (admin 全局一刀切, App 端只读)
+  // 后端走 sys_config 表, key=APP_MODULE_ENABLED, value=JSON 字符串
+  appModuleGetConfig: () => request({ url: '/system/config/key/APP_MODULE_ENABLED' })
 }
+// v1.1.91 XK 合规中心: 导出 request 供 api/xk.js 复用 (uni.request 已解包 R.data)
+export { request }
 export default api

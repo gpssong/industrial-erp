@@ -114,6 +114,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import api from '../../api/index.js'
 import { doScan, stopScan } from '../../utils/scan.js'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const code = ref('')
 const product = ref(null)
@@ -307,7 +308,11 @@ async function onSubmit() {
   }
 }
 
-onMounted(() => { loadCustomers(); loadWarehouses() })
+onMounted(() => {
+  // v1.1.80+: 模块停用守卫
+  if (!guardPage('sales')) return
+  loadCustomers(); loadWarehouses()
+})
 onUnmounted(() => { stopScan() })
 </script>
 

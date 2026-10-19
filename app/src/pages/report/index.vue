@@ -25,10 +25,13 @@
 import { ref, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { applyTabBar } from '../../utils/permission.js'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 const kpi = ref({ todaySales: 0, todayPurchase: 0, arBalance: 0, apBalance: 0 })
 const stockList = ref([])
 const today = new Date().toISOString().substring(0, 10)
 onMounted(async () => {
+  // v1.1.80+: 模块停用守卫
+  if (!guardPage('report')) return
   // v1.1.61 R13 全局重塑: 之前无 try-catch, 拦截器 reject 会静默吞 (空 page)
   //   补 try-catch, 拦截器已弹 toast (后端 msg / 网络错), 这里只 console + 兜底空值
   try {

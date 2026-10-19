@@ -22,6 +22,12 @@
           <text class="qty"> × {{ order.planQty || 0 }} {{ order.unitName || '' }}</text>
         </view>
 
+        <!-- v1.1.103: 单号二维码 (扫了可定位/搜索该单, 长按或点放大) -->
+        <view v-if="qrCodeUrl" class="qr-block" @click="previewQrCode">
+          <image :src="qrCodeUrl" mode="aspectFit" class="qr-img" />
+          <view class="qr-hint">📱 扫码查看此生产单 · 点击放大</view>
+        </view>
+
         <!-- BOM 名 (详情才有) -->
         <view v-if="order.bomName || order.bomCode" class="bom-line">
           <text class="muted">配方: </text>
@@ -85,6 +91,71 @@
         </view>
       </view>
 
+      <!-- v1.1.101 App XK 吹膜生产全流程 — 生产流程 6 步卡 (按状态 + 角色显隐) -->
+      <view class="card flow-card">
+        <view class="section-title">生产流程 (XK)</view>
+        <view class="flow-steps">
+          <!-- ① 开工 -->
+          <view class="flow-step" :class="{ done: stepDone(1) }">
+            <view class="step-no">{{ stepDone(1) ? '✓' : '①' }}</view>
+            <view class="step-body">
+              <text class="step-name">开工 · 吹膜</text>
+              <text class="step-desc">展开领料 + 工序链, 状态转生产中</text>
+              <view v-if="order.releaseName" class="release-who">👤 开工: <text class="release-val">{{ order.releaseName }}</text></view>
+              <button v-if="canRelease()" class="step-btn" @click="onRelease">开工</button>
+            </view>
+          </view>
+          <!-- ② 首检/巡检 -->
+          <view class="flow-step">
+            <view class="step-no">②</view>
+            <view class="step-body">
+              <text class="step-name">首检 / 巡检 · 检验员</text>
+              <text class="step-desc">逐检验项打分 + 拍照, 现场签合格放行</text>
+              <view v-if="canInspect()" class="step-btns">
+                <button class="step-btn small" @click="goScan('/pages/scan/fai')">做首检</button>
+                <button class="step-btn small" @click="goScan('/pages/scan/pat')">做巡检</button>
+              </view>
+            </view>
+          </view>
+          <!-- ③ 半成品入库 -->
+          <view class="flow-step">
+            <view class="step-no">③</view>
+            <view class="step-body">
+              <text class="step-name">半成品入库 · 仓管</text>
+              <text class="step-desc">FAI 首检合格后入半成品仓</text>
+              <button v-if="canSemiIn()" class="step-btn" @click="goScan('/pages/scan/semi-in')">建半成品入库</button>
+            </view>
+          </view>
+          <!-- ④ 制袋工序报工 -->
+          <view class="flow-step">
+            <view class="step-no">④</view>
+            <view class="step-body">
+              <text class="step-name">制袋 · 报工完工</text>
+              <text class="step-desc">制袋工序扫码报工, 累计良/不良</text>
+              <button v-if="canReport()" class="step-btn" @click="goScan('/pages/production/report')">工序报工</button>
+            </view>
+          </view>
+          <!-- ⑤ 成品检验 -->
+          <view class="flow-step">
+            <view class="step-no">⑤</view>
+            <view class="step-body">
+              <text class="step-name">成品检验 OQC · 检验员</text>
+              <text class="step-desc">成品检打分 + 拍照, 现场签合格</text>
+              <button v-if="canInspect()" class="step-btn" @click="goScanOqc()">做成品检</button>
+            </view>
+          </view>
+          <!-- ⑥ 成品入库 -->
+          <view class="flow-step">
+            <view class="step-no">⑥</view>
+            <view class="step-body">
+              <text class="step-name">成品入库 · 仓管</text>
+              <text class="step-desc">工序全完工 + OQC 放行后入成品仓</text>
+              <button v-if="canFinishedIn()" class="step-btn" @click="goScan('/pages/scan/finished-in')">建成品入库</button>
+            </view>
+          </view>
+        </view>
+      </view>
+
       <!-- 备注 -->
       <view v-if="order.remark" class="card">
         <view class="section-title">备注</view>
@@ -118,6 +189,8 @@ import { Share } from '@capacitor/share'
 import { registerPlugin } from '@capacitor/core'
 // v1.1.29+: 自定义原生分享 plugin (绕开 Capacitor Share 6 + FileProvider 路径兼容问题)
 const NativeShare = registerPlugin('NativeShare')
+// v1.1.103: QR 码生成 (扫了可直接定位/搜索该生产单)
+import QRCode from 'qrcode'
 import api from '../../api/index.js'
 import { applyTabBar, isAdmin, getPermissions } from '../../utils/permission.js'
 import { navigateTo } from '../../utils/nav.js'
@@ -135,6 +208,10 @@ const editable = ref(false)
 const releasable = ref(false)
 const deletable = ref(false)
 const orderId = ref(null)  // v1.1.11+ 修: ref 替代 let, 避免 reLaunch 之间模块级 let 缓存
+// v1.1.101: XK 生产流程 6 步 — 角色/perm 可见性
+const p = ref([])
+// v1.1.103: 单号二维码 (QR 码内容 = billNo, 扫码能定位/搜索该单)
+const qrCodeUrl = ref('')
 
 function statusTag(s) { return STATUS_MAP[s] || s || '—' }
 
@@ -179,19 +256,50 @@ async function loadOrder(id) {
     if (r && typeof r === 'object' && r.id) {
       order.value = r
       requisitionDetails.value = (r.requisitionDetails) || []
+      // v1.1.103: 生成单号二维码 (扫了能定位/搜索该单)
+      genQrCode(r.billNo)
     } else {
       order.value = null
       requisitionDetails.value = []
+      qrCodeUrl.value = ''
     }
+    p.value = getPermissions()
     checkPerms()
   } catch (e) {
     order.value = null
     loadError.value = true
+    qrCodeUrl.value = ''
     // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
     console.warn('[order-detail.loadOrder] 失败:', e)
     if (e && e.code === 401) return
   } finally {
     loading.value = false
+  }
+}
+
+// v1.1.103: 生成单号 QR 码 (dataURL, 160px, H5/App 通用)
+// 内容: 单号 billNo (扫码能在搜索框直接定位该单, 简单实用)
+async function genQrCode(billNo) {
+  if (!billNo) { qrCodeUrl.value = ''; return }
+  try {
+    const dataUrl = await QRCode.toDataURL(String(billNo), {
+      width: 160,
+      margin: 1,
+      errorCorrectionLevel: 'M',  // M 适合短文本, 抗污损中等
+      color: { dark: '#1e6091', light: '#ffffff' }  // 主色蓝, 贴合 UI
+    })
+    qrCodeUrl.value = dataUrl
+  } catch (err) {
+    console.warn('[order-detail.genQrCode] 失败:', err)
+    qrCodeUrl.value = ''
+  }
+}
+
+// v1.1.103: 点击 QR 码放大预览 (H5 走 uni.previewImage, App 走原生预览)
+function previewQrCode() {
+  if (!qrCodeUrl.value) return
+  if (typeof uni !== 'undefined' && uni.previewImage) {
+    uni.previewImage({ urls: [qrCodeUrl.value], current: qrCodeUrl.value, indicator: 'number' })
   }
 }
 
@@ -231,8 +339,7 @@ async function onDelete() {
     if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: '已删除', icon: 'success' })
     setTimeout(() => navigateTo('/pages/production/order-list'), 800)
   } catch (e) {
-    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
-    // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
+    // v1.1.61 R13: 拦截器已弹后端 msg, catch 不重复弹. 没 showLoading, 不调 hideLoading
     console.warn('[order-detail.onDelete] 失败:', e)
     if (e && e.code === 401) return
   }
@@ -290,6 +397,37 @@ onLoad((options) => {
     loadOrder(orderId.value)
   }
 })
+
+// ============ v1.1.101 XK 生产流程 6 步 — 显隐 + 跳转 ============
+function hasPerm(code) { return isAdmin() || p.value.includes(code) }
+function stepDone(n) {
+  const s = order.value && order.value.billStatus
+  // ① 开工 = 已 RELEASED 及以后
+  return n === 1 ? !!s && s !== 'DRAFT' : false
+}
+function canRelease() {
+  return hasPerm('production:order:release') && order.value && order.value.billStatus === 'DRAFT'
+}
+function canInspect() {
+  return hasPerm('quality:inspection:check') && order.value && ['RELEASED', 'PRODUCING'].includes(order.value.billStatus)
+}
+function canSemiIn() {
+  return hasPerm('production:semi-in:add') && order.value && order.value.billStatus !== 'DRAFT'
+}
+function canReport() {
+  return hasPerm('production:report:add') && order.value && ['RELEASED', 'PRODUCING'].includes(order.value.billStatus)
+}
+function canFinishedIn() {
+  return hasPerm('production:finished-in:add') && order.value && order.value.billStatus !== 'DRAFT'
+}
+function goScan(path) {
+  navigateTo(path + '?orderId=' + encodeURIComponent(orderId.value))
+}
+function goScanOqc() {
+  // 成品检 = OQC, 复用巡检页做成品检打分草稿; 深度签放行走 finished-in 门禁
+  navigateTo('/pages/scan/pat?orderId=' + encodeURIComponent(orderId.value))
+}
+
 onMounted(() => { applyTabBar() })
 </script>
 
@@ -304,6 +442,10 @@ onMounted(() => { applyTabBar() })
 .qty { color: #1e6091; font-weight: bold; font-size: 16px; margin-left: 4px; }
 .bom-line { margin-top: 8px; font-size: 13px; }
 .bom-name { color: #67c23a; font-weight: 500; }
+/* v1.1.103: 单号二维码块 (居中, 160px, 蓝主题) */
+.qr-block { display: flex; flex-direction: column; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f0f0; }
+.qr-img { width: 160px; height: 160px; background: #fff; padding: 4px; border: 1px solid #eee; border-radius: 6px; }
+.qr-hint { font-size: 11px; color: #909399; margin-top: 6px; }
 .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #f0f0f0; }
 .info-item { display: flex; flex-direction: column; }
 .info-label { font-size: 11px; color: #999; }
@@ -335,4 +477,20 @@ onMounted(() => { applyTabBar() })
 .tag-finished { background: #d9ecff; color: #1890ff; }
 .tag-closed { background: #f4f4f5; color: #909399; }
 .empty { text-align: center; color: #999; padding: 60px 20px; font-size: 14px; }
+/* v1.1.101 XK 生产流程 6 步卡 */
+.flow-card { background: #fff; }
+.flow-steps { display: flex; flex-direction: column; gap: 10px; }
+.flow-step { display: flex; gap: 10px; padding: 10px; border: 1px solid #ebeef5; border-radius: 8px; }
+.flow-step.done { border-color: #67c23a; background: #f0f9eb; }
+.step-no { width: 26px; height: 26px; flex: none; border-radius: 50%; background: #1e6091; color: #fff; font-size: 13px; display: flex; align-items: center; justify-content: center; font-weight: 600; }
+.flow-step.done .step-no { background: #67c23a; }
+.step-body { flex: 1; }
+.step-name { font-size: 14px; font-weight: 500; color: #303133; display: block; }
+.step-desc { font-size: 11px; color: #909399; display: block; margin: 2px 0 6px; }
+.step-btn { margin-top: 4px; background: #1e6091; color: #fff; border: none; border-radius: 6px; height: 32px; line-height: 32px; font-size: 13px; padding: 0 14px; }
+.step-btn:active { background: #2980b9; }
+.step-btn.small { display: inline-block; margin-right: 6px; background: #ecf5fb; color: #1e6091; }
+.step-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+.release-who { font-size: 12px; color: #606266; margin-top: 4px; }
+.release-val { font-weight: 600; color: #1e6091; }
 </style>

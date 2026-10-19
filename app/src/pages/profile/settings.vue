@@ -20,9 +20,26 @@
 import { ref, onMounted } from 'vue'
 const apiBase = ref('')
 const currentBase = ref('')
+
+// H5 浏览器: 默认走「同源 /api」(由部署侧 nginx 反代到 backend), 填了绝对地址才覆盖.
+// 原生/Capacitor: 默认写死 http://home.93gushi.com:8088/api.
+function isH5Runtime() {
+  return typeof window !== 'undefined' && typeof document !== 'undefined' && typeof plus === 'undefined'
+}
+const NATIVE_DEFAULT = 'http://home.93gushi.com:8088/api'
+
+function effectiveBase() {
+  const override = uni.getStorageSync('erp_api_base') || ''
+  if (isH5Runtime()) {
+    if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
+    return (typeof window !== 'undefined' ? window.location.origin : '') + '/api (同源)'
+  }
+  return (override && /^https?:\/\//.test(override) ? override.replace(/\/$/, '') : NATIVE_DEFAULT)
+}
+
 onMounted(() => {
-  currentBase.value = uni.getStorageSync('erp_api_base') || '未设置（使用默认）'
   apiBase.value = uni.getStorageSync('erp_api_base') || ''
+  currentBase.value = effectiveBase()
 })
 function onSave() {
   const val = apiBase.value.trim()
@@ -33,6 +50,7 @@ function onSave() {
     uni.removeStorageSync('erp_api_base')
     uni.showToast({ title: '已恢复默认' })
   }
+  currentBase.value = effectiveBase()
   setTimeout(() => {
     uni.removeStorageSync('erp_user')
     uni.reLaunch({ url: '/pages/login/index' })

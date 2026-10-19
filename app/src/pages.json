@@ -3,8 +3,12 @@
     { "path": "pages/login/index", "style": { "navigationBarTitleText": "登录" } },
     { "path": "pages/dashboard/index", "style": { "navigationBarTitleText": "工作台" } },
     { "path": "pages/inventory/query", "style": { "navigationBarTitleText": "库存查询" } },
-    { "path": "pages/scan/in", "style": { "navigationBarTitleText": "扫码入库" } },
+    { "path": "pages/scan/in", "style": { "navigationBarTitleText": "原料入库" } },
     { "path": "pages/scan/out", "style": { "navigationBarTitleText": "扫码出库(销售)" } },
+    { "path": "pages/scan/fai", "style": { "navigationBarTitleText": "首检 (FAI)" } },
+    { "path": "pages/scan/pat", "style": { "navigationBarTitleText": "巡检 (PAT)" } },
+    { "path": "pages/scan/semi-in", "style": { "navigationBarTitleText": "半成品入库" } },
+    { "path": "pages/scan/finished-in", "style": { "navigationBarTitleText": "成品入库" } },
     { "path": "pages/count/index", "style": { "navigationBarTitleText": "外勤盘点" } },
     { "path": "pages/report/index", "style": { "navigationBarTitleText": "经营简报" } },
     { "path": "pages/report/ai", "style": { "navigationBarTitleText": "AI 助手" } },
@@ -16,10 +20,26 @@
     { "path": "pages/production/order-add", "style": { "navigationBarTitleText": "新增生产单" } },
     { "path": "pages/production/order-list", "style": { "navigationBarTitleText": "生产加工单" } },
     { "path": "pages/production/order-detail", "style": { "navigationBarTitleText": "生产单详情" } },
+    { "path": "pages/production/report", "style": { "navigationBarTitleText": "扫码报工" } },
+    // v1.1.90 MES Phase 2: 质量检验 (IQC/FAI/PAT/OQC) + 工艺 SOP + 设备
+    { "path": "pages/quality/inspect", "style": { "navigationBarTitleText": "质量检验" } },
+    { "path": "pages/process/sop", "style": { "navigationBarTitleText": "工艺 SOP" } },
+    { "path": "pages/equipment/my", "style": { "navigationBarTitleText": "设备台账" } },
     { "path": "pages/sales/delivery-list", "style": { "navigationBarTitleText": "销售出库单" } },
     { "path": "pages/sales/delivery-detail", "style": { "navigationBarTitleText": "出库单详情" } },
     { "path": "pages/purchase/receipt-list", "style": { "navigationBarTitleText": "采购入库单" } },
-    { "path": "pages/purchase/receipt-detail", "style": { "navigationBarTitleText": "入库单详情" } }
+    { "path": "pages/purchase/receipt-detail", "style": { "navigationBarTitleText": "入库单详情" } },
+    // v1.1.91 XK 合规中心 (食品接触塑料吹膜厂 — XK16-204 审核)
+    { "path": "pages/xk/dashboard",    "style": { "navigationBarTitleText": "XK 工作台" } },
+    { "path": "pages/xk/material",     "style": { "navigationBarTitleText": "原料入库" } },
+    { "path": "pages/xk/trace",        "style": { "navigationBarTitleText": "批次溯源" } },
+    { "path": "pages/xk/maintenance",  "style": { "navigationBarTitleText": "设备维保" } },
+    { "path": "pages/xk/safety",       "style": { "navigationBarTitleText": "安全卫生" } },
+    { "path": "pages/xk/print",        "style": { "navigationBarTitleText": "单据打印" } },
+    { "path": "pages/xk/audit",        "style": { "navigationBarTitleText": "审计归档" } },
+    // v1.1.99 C4 App 端联动 — 排程 + 设备 OEE
+    { "path": "pages/production/schedule", "style": { "navigationBarTitleText": "生产排程" } },
+    { "path": "pages/production/oee",      "style": { "navigationBarTitleText": "设备 OEE" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",
@@ -32,10 +52,11 @@
     "selectedColor": "#1e6091",
     "backgroundColor": "#fff",
     "list": [
-      { "pagePath": "pages/dashboard/index", "text": "工作台" },
-      { "pagePath": "pages/inventory/query", "text": "库存" },
-      { "pagePath": "pages/scan/in", "text": "扫码入库" },
-      { "pagePath": "pages/profile/index", "text": "我的" }
+      { "pagePath": "pages/dashboard/index",        "text": "工作台" },
+      { "pagePath": "pages/inventory/query",        "text": "库存" },
+      { "pagePath": "pages/scan/in",               "text": "原料入库" },
+      { "pagePath": "pages/production/order-list", "text": "工单" },
+      { "pagePath": "pages/profile/index",          "text": "我的" }
     ]
   }
 }

@@ -31,6 +31,7 @@ import { ref, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { doScan } from '../../utils/scan.js'
 import { applyTabBar } from '../../utils/permission.js'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const keyword = ref('')
 const list = ref([])
@@ -56,7 +57,11 @@ async function onScan() {
   })
 }
 
-onMounted(() => { loadData(); applyTabBar() })
+onMounted(() => {
+  // v1.1.80+: 模块停用守卫
+  if (!guardPage('inventory')) return
+  loadData(); applyTabBar()
+})
 </script>
 <style scoped>
 .container { padding: 12px; }

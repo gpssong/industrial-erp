@@ -112,6 +112,7 @@ import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
 import { getAppPermissions, isAdmin } from '../../utils/permission.js'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const order = ref({})
 const loadError = ref(false)
@@ -202,6 +203,8 @@ async function reload() {
 }
 
 onLoad(async (q) => {
+  // v1.1.80+: 模块停用守卫
+  if (!guardPage('sales')) return
   loading.value = true
   try {
     const id = q && q.id

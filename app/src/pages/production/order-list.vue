@@ -36,6 +36,7 @@
         <text class="muted">{{ item.workshop || '未指定车间' }} · 损耗 {{ item.lossRate || 0 }}%</text>
         <text class="qty">× {{ item.planQty || 0 }}</text>
       </view>
+      <view v-if="item.releaseName" class="release-line muted">👤 开工: <text class="release-val">{{ item.releaseName }}</text></view>
     </view>
 
     <view v-if="!loading && !list.length" class="empty">暂无生产单</view>
@@ -51,6 +52,7 @@ import { ref, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
 import { applyTabBar } from '../../utils/permission.js'
+import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const STATUS_OPTIONS = [
   { value: '',        label: '全部' },
@@ -106,7 +108,11 @@ function goAdd() {
   uni.navigateTo({ url: '/pages/production/order-add' })
 }
 
-onMounted(() => { loadData(); applyTabBar() })
+onMounted(() => {
+  // v1.1.80+: 模块停用守卫
+  if (!guardPage('production')) return
+  loadData(); applyTabBar()
+})
 </script>
 
 <style scoped>
@@ -130,6 +136,8 @@ onMounted(() => { loadData(); applyTabBar() })
 .bottom-line { margin-top: 6px; }
 .muted { color: #999; font-size: 12px; }
 .qty { color: #1e6091; font-weight: bold; font-size: 16px; }
+.release-line { margin-top: 4px; font-size: 12px; }
+.release-val { color: #1e6091; font-weight: 600; }
 .tag { padding: 2px 10px; border-radius: 10px; font-size: 12px; }
 .tag-draft { background: #f4f4f5; color: #909399; }
 .tag-released { background: #e1f3d8; color: #67c23a; }
