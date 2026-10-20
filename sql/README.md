@@ -143,6 +143,19 @@ cat 0*.sql | mysql -uroot -p industrial_erp
 (默认 `root` / `erp_root_pwd` / `industrial_erp`, 与 `docker-compose` 保持一致)。
 
 **首次巡检结果 (2026-10-20)**: home 缺 8 列 / 飞牛缺 7 列, 集中在
-`sql/17_add_model_field.sql` (6 张明细表的 `model` 列) 与
-`sql/07_schema_outsource_finance.sql` (`fin_invoice_apply.invoice_status` /
-`fin_invoice_apply.uninvoiced_amount`)。按报告清单逐条 `SOURCE` 对应文件补齐后重跑即绿。
+`sql/17_add_model_field.sql` (明细表的 `model` 列) 与
+`sql/24_add_invoice_tables.sql` (`fin_invoice_apply.invoice_status` /
+`fin_invoice_apply.uninvoiced_amount`), home 另缺 `base_equipment.photo_url`
+(`sql/107`)。
+
+**补灌 (2026-10-20, 双站已绿)**: 因 sql/17、sql/24 是裸 `ALTER TABLE ADD COLUMN`
+(非幂等, 整文件重跑会 Duplicate), 单独写 **`sql/90_drift_fill_columns.sql`** —
+全部用 `information_schema` 探测 + `PREPARE/EXECUTE` 幂等写法, 缺哪列补哪列, 重跑 0 副作用。
+飞牛 canary 先灌复检无漂移 → home 再灌复检无漂移。双站现均 `缺 0 表 / 0 列`。
+
+```bash
+# 补灌双站缺列 (本机有 mysql 客户端 + 能直连 3306 时):
+mysql -h192.168.0.32 -uroot -perp_root_pwd industrial_erp --default-character-set=utf8mb4 < sql/90_drift_fill_columns.sql   # 飞牛
+mysql -h192.168.0.150 -uroot -perp_root_pwd industrial_erp --default-character-set=utf8mb4 < sql/90_drift_fill_columns.sql  # home
+# 灌后各站 sql-drift-check.sh 复检 → 应报 "无漂移"
+```
