@@ -23,9 +23,8 @@ const currentBase = ref('')
 
 // H5 浏览器: 默认走「同源 /api」(由部署侧 nginx 反代到 backend), 填了绝对地址才覆盖.
 // 原生/Capacitor: 默认写死 http://home.93gushi.com:8088/api.
-function isH5Runtime() {
-  return typeof window !== 'undefined' && typeof document !== 'undefined' && typeof plus === 'undefined'
-}
+// v1.1.105: 原判断只认 `plus`, 会把 Capacitor APK 误判成 H5, 页面显示「同源 /api」误导用户。
+import { isH5Runtime } from '../../utils/runtime.js'
 const NATIVE_DEFAULT = 'http://home.93gushi.com:8088/api'
 
 function effectiveBase() {

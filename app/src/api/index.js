@@ -2,12 +2,21 @@
 // - 原生 / Capacitor: 写死绝对地址 (避免 WebView 里读 localStorage 缓存出问题)
 // - H5 (浏览器): 用「同源 /api」, 由部署侧的 nginx (如飞牛 18090) 反代到 backend, 天然无 CORS.
 //   这正是登录页 placeholder "留空使用默认: /api" 暗示的既有设计, 之前 getBase() 误把 H5 也硬成绝对域名, 才在 :18090 上跨域打到 home.93gushi.com:8088 触发 CORS.
+//
+// v1.1.105: isH5Runtime() 原先在本文件复制一份 (只认 `plus`), 误把 Capacitor APK 判成 H5
+//           → base 变 '/api' → 请求打回 WebView 自己的 localhost 拿到 index.html → 登录失败。
+//           判定逻辑收敛到 utils/runtime.js 单一权威源, 此处只 import。
+import { isH5Runtime } from '../utils/runtime.js'
+
 const DEFAULT_API = 'http://home.93gushi.com:8088/api'
 
-// H5 同源默认: 浏览器把 API 打到当前 origin 下的 /api, 由 nginx 反代到 backend.
-// 原生走写死绝对地址, 行为与 v1.1.99 之前一致, 零破坏.
-function isH5Runtime() {
-  return typeof window !== 'undefined' && typeof document !== 'undefined' && typeof plus === 'undefined'
+// 原生 / Capacitor 默认地址也读 storage 的显式覆盖 (服务器设置里填了绝对地址时生效)
+function getNativeBase() {
+  try {
+    const override = localStorage.getItem('erp_api_base')
+    if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
+  } catch (e) {}
+  return DEFAULT_API
 }
 
 function getBase() {
@@ -20,8 +29,8 @@ function getBase() {
     } catch (e) {}
     return '/api'
   }
-  // 原生 / Capacitor: 保持写死绝对地址
-  return DEFAULT_API
+  // 原生 / Capacitor: 绝对地址 (默认写死 home, 用户在服务器设置填了绝对地址则覆盖)
+  return getNativeBase()
 }
 
 function getToken() {
@@ -235,7 +244,7 @@ export const api = {
   prdOrderPdfUrl: (id) => {
     let base = ''
     try { base = (localStorage.getItem('erp_api_base') || '').replace(/\/$/, '') } catch (e) {}
-    if (!base) base = isH5Runtime() ? window.location.origin + '/api' : DEFAULT_API
+    if (!base) base = isH5Runtime() ? window.location.origin + '/api' : getNativeBase()
     return base + '/production/order/' + id + '/pdf'
   },
   // 飞鹅云打印
