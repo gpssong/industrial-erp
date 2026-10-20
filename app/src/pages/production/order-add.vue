@@ -404,7 +404,6 @@ async function doFeiePrint(orderId) {
 
 <style scoped>
 .container { padding: 12px; background: #f5f5f5; min-height: 100vh; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .section-title { font-size: 14px; font-weight: bold; display: block; margin-bottom: 8px; color: #333; border-left: 3px solid #1e6091; padding-left: 8px; }
 .form-item { margin: 8px 0; }
 .label { display: block; font-size: 12px; color: #999; margin-bottom: 4px; }

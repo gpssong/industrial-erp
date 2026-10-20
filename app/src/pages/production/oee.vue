@@ -167,7 +167,6 @@ onMounted(() => {
 
 <style scoped>
 .container { padding: 12px; }
-.card { background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.05) }
 .muted { color:#909399;font-size:12px }
 .picker-card { border-left:3px solid #1e6091 }
 .picker-title { font-size:13px;font-weight:600;margin-bottom:8px }

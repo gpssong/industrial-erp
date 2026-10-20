@@ -41,16 +41,16 @@
           <text class="stamp">已审核 · 只读</text>
         </view>
         <view class="paper-title">原料入库检验单</view>
-        <view class="paper-meta">唯一编号: RK-20250618-0086 · 生成时间: 2025-06-18 14:26:32 · 操作人: 张伟</view>
+        <view class="paper-meta">唯一编号: {{ bill.billNo || '—' }} · 生成时间: {{ bill.generatedAt }} · 操作人: {{ bill.operator || '—' }}</view>
 
         <view class="paper-table">
           <view class="pt-row">
-            <text class="pt-th">供应商</text><text class="pt-td">中石化华东</text>
-            <text class="pt-th">入库日期</text><text class="pt-td">2025-06-18</text>
+            <text class="pt-th">供应商</text><text class="pt-td">{{ bill.supplier || '—' }}</text>
+            <text class="pt-th">入库日期</text><text class="pt-td">{{ bill.billDate || '—' }}</text>
           </view>
           <view class="pt-row">
-            <text class="pt-th">仓库</text><text class="pt-td">原料一库</text>
-            <text class="pt-th">制单人</text><text class="pt-td">张伟</text>
+            <text class="pt-th">仓库</text><text class="pt-td">{{ bill.warehouse || '—' }}</text>
+            <text class="pt-th">制单人</text><text class="pt-td">{{ bill.operator || '—' }}</text>
           </view>
         </view>
 
@@ -62,27 +62,31 @@
             <text class="dt-th">库位</text>
             <text class="dt-th">质检</text>
           </view>
-          <view class="dt-body">
-            <text class="dt-td">LLDPE 7042</text>
-            <text class="dt-td">RM20250618-031</text>
-            <text class="dt-td">12,800 kg</text>
-            <text class="dt-td">A-03-12</text>
-            <text class="dt-td"><text class="tag-pass">合格</text></text>
+          <view v-for="(d, i) in bill.details" :key="i" class="dt-body">
+            <text class="dt-td">{{ d.productName }}</text>
+            <text class="dt-td">{{ d.batchNo || '—' }}</text>
+            <text class="dt-td">{{ d.qty }} {{ d.unitName || '' }}</text>
+            <text class="dt-td">{{ d.location || '—' }}</text>
+            <text class="dt-td"><text class="tag-pass">{{ d.iqcResult || '合格' }}</text></text>
+          </view>
+          <view v-if="!bill.details.length" class="dt-body">
+            <text class="dt-td" style="flex:1; text-align:center; color:#999">暂无可打印的入库明细</text>
           </view>
         </view>
 
-        <view class="photos-section">
+        <!-- v1.1.106: 原为 2 张 unsplash 外链 (别人的库存照片, 打印出来是假证据) -->
+        <view v-if="bill.photos.length" class="photos-section">
           <view class="section-title">📷 原料标签及到货照片</view>
           <view class="photo-row">
-            <view class="photo-cell">
-              <image src="https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=400" mode="aspectFill" class="photo" />
-              <view class="photo-cap">包装标签正面</view>
-            </view>
-            <view class="photo-cell">
-              <image src="https://images.unsplash.com/photo-1565514020179-026b92b84bb6?w=400" mode="aspectFill" class="photo" />
-              <view class="photo-cap">到货外观</view>
+            <view v-for="(p, i) in bill.photos" :key="i" class="photo-cell">
+              <image :src="p" mode="aspectFill" class="photo" />
+              <view class="photo-cap">照片 {{ i + 1 }}</view>
             </view>
           </view>
+        </view>
+        <view v-else class="photos-section">
+          <view class="section-title">📷 原料标签及到货照片</view>
+          <view class="photo-empty-note">该入库单未上传标签照片 (在「原料入库」页拍照上传后再打印)</view>
         </view>
 
         <view class="note-block">
@@ -91,20 +95,19 @@
 
         <view class="sign-table">
           <view class="sign-row">
-            <text class="sign-th">仓库员</text><text class="sign-td">张伟</text>
-            <text class="sign-th">质量 QA</text><text class="sign-td">李敏</text>
-            <text class="sign-th">审核人</text><text class="sign-td">陈军</text>
+            <text class="sign-th">仓库员</text><text class="sign-td">{{ bill.operator || '—' }}</text>
+            <text class="sign-th">质量 QA</text><text class="sign-td">{{ bill.iqcInspector || '—' }}</text>
+            <text class="sign-th">审核人</text><text class="sign-td">{{ bill.checker || '—' }}</text>
           </view>
         </view>
 
         <view class="paper-footer">
-          <text>华塑包装制造有限公司 · 系统生成 · 校验值 SHA256: <text class="hash">4FEB…92A1</text> · 不可篡改</text>
+          <text>系统生成 · 生成时间以服务器时间戳为准 (XK16-204 R5) · 保存年限 {{ retentionYears }} 年 · 不可篡改</text>
         </view>
       </view>
     </view>
 
     <view class="bottom-actions">
-      <button class="btn-plain">下载 PDF</button>
       <button class="btn-primary" @click="onPrint">🖨 打印单据</button>
     </view>
     <view class="footer-space"></view>
@@ -112,9 +115,59 @@
 </template>
 
 <script>
+// v1.1.106: 本页原为纯演示页 — 单号/供应商/数量/签章人/照片全是硬编码字符串,
+//   2 张照片还是 unsplash 外链 (别人的仓库照片)。打印出来就是一份假 XK 合规记录。
+//   现在接真后端: 取最新已审核采购入库单 (含明细 + labelPhotos) + XK 留存年限配置。
+import { materialDraft, printPreview } from '@/api/xk'
+import { photosFromJson } from '@/utils/photo.js'
+
 export default {
+  data() {
+    return {
+      retentionYears: '2',
+      bill: {
+        billNo: '', supplier: '', billDate: '', warehouse: '', operator: '',
+        iqcInspector: '', checker: '', generatedAt: '', details: [], photos: []
+      }
+    }
+  },
+  onShow() { this.load() },
   methods: {
-    onPrint() { uni.showToast({ title: '已发送到打印机 (mock)', icon: 'success' }) }
+    async load() {
+      // 留存年限 (XK16-204 要求 ≥2 年)
+      try {
+        const p = await printPreview()
+        if (p && p.code === 200) this.retentionYears = p.retentionYears || '2'
+      } catch (e) { /* 兜底 2 */ }
+
+      // 取最近一张已审核入库单作为打印内容
+      try {
+        const d = await materialDraft()
+        if (d && d.code === 200) {
+          this.bill.billNo = d.billNo || ''
+          this.bill.supplier = d.supplier || ''
+          this.bill.billDate = d.billDate || ''
+          this.bill.warehouse = d.warehouse || ''
+          this.bill.operator = d.operator || ''
+          this.bill.iqcInspector = d.iqcInspector || ''
+          this.bill.checker = d.checker || ''
+          this.bill.details = (d.details || []).map(x => ({
+            productName: x.productName || '-',
+            batchNo: x.batchNo || '',
+            qty: x.qty != null ? x.qty : '-',
+            unitName: x.unitName || '',
+            location: x.location || '',
+            iqcResult: x.iqcResult || '合格'
+          }))
+          this.bill.photos = photosFromJson(d.labelPhotos)
+        }
+      } catch (e) { /* 空态由模板兜底 */ }
+      this.bill.generatedAt = new Date().toLocaleString('zh-CN', { hour12: false })
+    },
+    onPrint() {
+      if (!this.bill.billNo) { uni.showToast({ title: '暂无可打印的入库单', icon: 'none' }); return }
+      uni.showToast({ title: '请使用 PC 端打印模板出单', icon: 'none', duration: 2500 })
+    }
   }
 }
 </script>
@@ -158,6 +211,7 @@ export default {
 .tag-pass { background: #e1f5e1; color: #27ae60; padding: 1px 6px; border-radius: 3px; font-size: 10px; }
 
 .photos-section { margin-bottom: 10px; }
+.photo-empty-note { font-size: 11px; color: #999; padding: 10px; text-align: center; border: 1px dashed #ddd; border-radius: 4px; }
 .section-title { font-size: 12px; font-weight: 600; color: #1e6091; margin-bottom: 6px; }
 .photo-row { display: flex; gap: 6px; }
 .photo-cell { flex: 1; border: 1px solid #e0e0e0; }

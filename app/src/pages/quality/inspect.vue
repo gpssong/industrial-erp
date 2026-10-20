@@ -234,7 +234,6 @@ onMounted(() => {
 
 <style scoped>
 .container { padding: 12px; padding-bottom: 40px; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
 .tab { flex: 1; text-align: center; padding: 8px 4px; font-size: 13px; border-radius: 6px; background: #f4f4f5; color: #606266; }
 .tab-active { background: #1e6091; color: #fff; }

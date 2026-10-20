@@ -433,7 +433,6 @@ onMounted(() => { applyTabBar() })
 
 <style scoped>
 .container { padding: 12px; padding-bottom: 32px; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .row { display: flex; justify-content: space-between; align-items: center; }
 .bill-no { font-weight: bold; font-size: 17px; color: #303133; }
 .muted { color: #999; font-size: 12px; }

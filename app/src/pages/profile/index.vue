@@ -55,7 +55,7 @@ import { applyTabBar, isAdmin } from '../../utils/permission.js'
 //   CLAUDE.md 顶部版本号靠人工同步
 //   ⚠️ 发版 checklist (build-app.sh 跑之前必查): 1) 此处 2) CLAUDE.md 顶部 3) docs/CHANGELOG.md
 //      v1.1.58 → v1.1.63 期间 (2026-09-28 用户反馈) 5 个版本没同步, 页面一直显示 1.1.58
-const APP_VERSION = '1.1.105'
+const APP_VERSION = '1.1.106'
 
 const user = ref({})
 
@@ -161,7 +161,6 @@ onMounted(() => {
 </script>
 <style scoped>
 .container { padding: 12px; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .avatar { width: 60px; height: 60px; border-radius: 50%; background: #1e6091; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; }
 .muted { color: #999; font-size: 12px; margin-top: 2px; }
 .section-title { font-size: 13px; color: #999; margin-bottom: 8px; }

@@ -29,7 +29,11 @@ export PATH="$JAVA_HOME/bin:$PATH"
 java -version
 
 echo "==> [1.5/5] 版本一致性检查 (v1.1.63 加, 防 5 版漂移: 1.1.58→1.1.63 期间 APP_VERSION 一直没改)"
-# 三处版本号必须一致: profile 页 APP_VERSION (用户看到的) / manifest.json versionName (OS 级) / CLAUDE.md 顶部
+# 四处版本号必须一致:
+#   1. profile 页 APP_VERSION (用户看到的)          — src/pages/profile/index.vue
+#   2. src/manifest.json versionName (uni/H5 资源)   — 同时被 gradle 读成 APK OS 级版本
+#   3. CLAUDE.md 顶部 当前版本
+#   4. android/app/build.gradle 从 manifest.json 读 (v1.1.106 起不再硬编码)
 APP_V=$(grep -oE "APP_VERSION = '[0-9.]+'" src/pages/profile/index.vue | grep -oE "[0-9.]+")
 MAN_V=$(grep -oE '"versionName"[^,]*' src/manifest.json | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)
 CLAUDE_V=$(grep -oE '当前版本\*\*: v[0-9.]+' ../CLAUDE.md | grep -oE '[0-9]+(\.[0-9]+)+' | head -1)
@@ -46,6 +50,21 @@ if [ -n "$APP_V" ] && [ -n "$CLAUDE_V" ] && [ "$APP_V" != "$CLAUDE_V" ]; then
 fi
 echo "   ✓ 三处版本号一致 (v$APP_V)"
 
+echo "==> [1.7/5] v1.1.106: 校验 gradle 从 manifest.json 读版本 (不再硬编码 1.0)"
+# 背景: build.gradle 曾长期硬编码 versionCode 1 / versionName "1.0", 校验全部只看 H5 资源字符串,
+#       APK 的 OS 级版本号却一直是 1.0 (aapt dump badging 实测)。现在 gradle 读 manifest.json,
+#       这里加一道源码级断言, 防止有人改回硬编码。
+if grep -qE '^[[:space:]]*versionName[[:space:]]+"' android/app/build.gradle; then
+    echo "✗ android/app/build.gradle 又出现硬编码 versionName! 应改为从 ../../src/manifest.json 读"
+    echo "   当前: $(grep -nE '^[[:space:]]*versionName|^[[:space:]]*versionCode' android/app/build.gradle | head -3)"
+    exit 1
+fi
+if ! grep -q "src/manifest.json" android/app/build.gradle; then
+    echo "✗ android/app/build.gradle 未从 src/manifest.json 读版本号 (v1.1.106 回归)"
+    exit 1
+fi
+echo "   ✓ gradle 版本号走 manifest.json 单一事实源"
+
 echo "==> [2/5] 清理 dist/build/h5 + cap sync 缓存"
 rm -rf dist/build
 rm -rf unpackage/cache
@@ -57,9 +76,10 @@ npm run build:h5
 echo "==> [4/5] npx cap sync android"
 npx cap sync android
 
-echo "==> [4.5/5] v1.1.48 bug 防御: 检查 capacitor.settings.gradle 含 :capacitor-share"
+echo "==> [4.5/5] v1.1.48 bug 防御: 检查 capacitor.settings.gradle 含 :capacitor-share / :capacitor-app"
+# cap sync 会重写 capacitor.settings.gradle, 把手动 include 的模块冲掉, 这里补回来
 if ! grep -q ":capacitor-share" android/capacitor.settings.gradle; then
-    echo "✗ 缺少 :capacitor-share 配置! 自动追加..."
+    echo "   缺少 :capacitor-share 配置! 自动追加..."
     cat >> android/capacitor.settings.gradle <<'EOF'
 
 // v1.1.49 build-app.sh 自动追加 (CLI 6.x cap sync 不会扫 @capacitor/share)
@@ -67,6 +87,38 @@ include ':capacitor-share'
 project(':capacitor-share').projectDir = new File('../node_modules/@capacitor/share/android')
 EOF
 fi
+# v1.1.106: @capacitor/app 提供 backButton 硬件返回键事件源
+if ! grep -q ":capacitor-app" android/capacitor.settings.gradle; then
+    echo "   缺少 :capacitor-app 配置! 自动追加..."
+    cat >> android/capacitor.settings.gradle <<'EOF'
+
+// v1.1.106 build-app.sh 自动追加 — @capacitor/app 提供 backButton 硬件返回键事件源
+include ':capacitor-app'
+project(':capacitor-app').projectDir = new File('../node_modules/@capacitor/app/android')
+EOF
+fi
+
+echo "==> [4.7/5] v1.1.106: 校验 capacitor.plugins.json 含 AppPlugin (backButton 事件源)"
+# CLI 6.x 不会扫 @CapacitorPlugin 注解, 必须显式登记 AppPlugin, 否则 backButton 静默失效
+if ! grep -q "app.AppPlugin" android/app/src/main/assets/capacitor.plugins.json 2>/dev/null; then
+    echo "   capacitor.plugins.json 缺 AppPlugin! 自动追加..."
+    python3 - <<'PYEOF'
+import json, pathlib
+p = pathlib.Path('android/app/src/main/assets/capacitor.plugins.json')
+try:
+    items = json.loads(p.read_text()) if p.exists() else []
+except Exception:
+    items = []
+if not any(i.get('classpath') == 'com.capacitorjs.plugins.app.AppPlugin' for i in items):
+    items.append({"pkg": "@capacitor/app",
+                  "classpath": "com.capacitorjs.plugins.app.AppPlugin"})
+    p.write_text(json.dumps(items, indent=2) + "\n")
+    print("   已追加 AppPlugin")
+else:
+    print("   AppPlugin 已存在")
+PYEOF
+fi
+echo "   ✓ backButton 事件源已就位"
 
 echo "==> [5/5] ./gradlew assembleDebug (不带 --offline, 新插件需离线缓存)"
 (cd android && ./gradlew assembleDebug 2>&1 | tail -20)
@@ -114,6 +166,42 @@ if [ "$EMBEDDED_V" != "$MAN_V" ]; then
     exit 1
 fi
 echo "   ✓ APK 内嵌版本 = manifest.versionName = v$EMBEDDED_V, 可交付"
+
+# ============================================================
+# [6.5/6] v1.1.106 防呆: 校验 APK 的 **OS 级** 版本号
+#   背景 — [6/6] 只校验 H5 资源里的字符串字面量, 完全没碰 AndroidManifest。
+#         而 uni 的 src/manifest.json 不进 APK 的 AndroidManifest, APK 的
+#         versionName/versionCode 由 android/app/build.gradle 决定。
+#         那里曾长期硬编码 versionCode 1 / versionName "1.0",
+#         所以用户装的 APK 系统层一直是 1.0 (aapt dump badging 实测)。
+#   做法: 直接用 aapt2/aapt 读 APK 的 AndroidManifest, 比对 versionName。
+#         优先用 $ANDROID_HOME/build-tools 下最新的 aapt; 都没有就跳过 (不阻塞构建)。
+# ============================================================
+echo "==> [6.5/6] 校验 APK OS 级 versionName (v1.1.106 加, 防 gradle 硬编码回归)"
+AAPT=""
+for d in "${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools"/*/; do
+    [ -x "$d/aapt" ] && AAPT="$d/aapt"
+done
+if [ -z "$AAPT" ]; then
+    echo "   ⚠ 未找到 aapt (build-tools), 跳过 OS 级版本校验 (不阻塞)"
+else
+    MAN_V_CODE=$(grep -oE '"versionCode"[^,]*' src/manifest.json | grep -oE '[0-9]+' | head -1)
+    BADGING=$("$AAPT" dump badging "$APK" 2>/dev/null | head -1)
+    APK_OS_V=$(echo "$BADGING" | grep -oE "versionName='[^']+'" | cut -d"'" -f2)
+    APK_OS_C=$(echo "$BADGING" | grep -oE "versionCode='[^']+'" | cut -d"'" -f2)
+    echo "   APK OS 级: versionName=$APK_OS_V  versionCode=$APK_OS_C"
+    echo "   期望:       versionName=$MAN_V  versionCode=$MAN_V_CODE"
+    if [ "$APK_OS_V" != "$MAN_V" ]; then
+        echo "✗ APK OS 级版本漂移: $APK_OS_V != manifest.versionName ($MAN_V)"
+        echo "   说明 android/app/build.gradle 没从 src/manifest.json 读版本 — 本次 APK 不可交付!"
+        exit 1
+    fi
+    if [ -n "$MAN_V_CODE" ] && [ -n "$APK_OS_C" ] && [ "$APK_OS_C" != "$MAN_V_CODE" ]; then
+        echo "✗ APK versionCode 漂移: $APK_OS_C != manifest.versionCode ($MAN_V_CODE)"
+        exit 1
+    fi
+    echo "   ✓ APK OS 级版本号 = manifest.json, 系统设置/更新检测能看到正确版本"
+fi
 
 MD5=$(md5 "$APK" | awk '{print $NF}')
 SIZE=$(wc -c < "$APK" | tr -d ' ')

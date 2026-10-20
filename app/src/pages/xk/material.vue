@@ -89,15 +89,16 @@
 
 <script>
 import { materialDraft, submitMaterial } from '@/api/xk'
+import { addPhotoTo, photosToJson, photosFromJson } from '@/utils/photo.js'
 
 export default {
   data() {
     return {
       form: {
-        billNo: '', billDate: '2025-10-10', supplier: '中石化华东', inboundDate: '2025-10-10',
-        reportNo: 'JY-20251010-4421', warehouse: '原料一库', product: 'LLDPE 7042',
-        productLine: '食品袋', batchNo: 'RM20251010-031', qty: 12800, location: 'A-03-12',
-        photos: ['https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=400']
+        billNo: '', billDate: '2025-10-10', supplier: '', inboundDate: '2025-10-10',
+        reportNo: '', warehouse: '', product: '',
+        productLine: '食品袋', batchNo: '', qty: 0, location: '',
+        photos: []
       },
       submitting: false
     }
@@ -131,19 +132,22 @@ export default {
         this.form.reportNo = r.reportNo
         this.form.warehouse = r.warehouse
         this.form.productLine = r.productLine
+        // v1.1.106: 后端 labelPhotos 存的是 URL 数组 (JSON 字符串)
+        this.form.photos = photosFromJson(r.labelPhotos)
       }
     },
-    onScan() { uni.showToast({ title: '打开相机 (mock)', icon: 'none' }) },
-    onAddPhoto() {
-      if (this.form.photos.length >= 6) { uni.showToast({ title: '最多 6 张', icon: 'none' }); return }
-      this.form.photos.push('https://images.unsplash.com/photo-1611273426858-450d8e3c9fce?w=400')
-      uni.showToast({ title: '已添加 (mock)', icon: 'none' })
-    },
+    // v1.1.106: 真选图 + 真上传 (原来直接 push 一个 unsplash 外链, 用户照片从来没传过)
+    onAddPhoto() { return addPhotoTo(this.form.photos) },
     onSave() { uni.showToast({ title: '已保存草稿', icon: 'success' }) },
     async onSubmit() {
       if (this.score < 100) { uni.showToast({ title: 'XK 信息完整度未达 100%', icon: 'none' }); return }
       this.submitting = true
-      const r = await submitMaterial(this.form)
+      // v1.1.106: 照片 URL 数组回传后端 (PurReceipt.labelPhotos)
+      const payload = Object.assign({}, this.form, {
+        labelPhotos: photosToJson(this.form.photos)
+      })
+      delete payload.photos
+      const r = await submitMaterial(payload)
       this.submitting = false
       uni.showToast({ title: r.message, icon: 'success' })
     }

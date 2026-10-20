@@ -1,5 +1,17 @@
 apply plugin: 'com.android.application'
 
+// v1.1.106: APK 的 OS 级版本号从 src/manifest.json 读取, 不再硬编码。
+//   背景: 原来这里写死 versionCode 1 / versionName "1.0", 而 src/manifest.json 已经
+//   推进到 1.1.10x。uni 的 manifest.json 只影响 H5 资源, **不进 APK 的 AndroidManifest**,
+//   于是打出来的 APK 系统层永远是 1.0 (aapt dump badging 实测确认)。
+//   后果: (1) 系统设置/小米更新检测显示 1.0; (2) versionCode 恒为 1, 无法做版本递增判断。
+//   现在单一事实源 = src/manifest.json, 与 profile 页 APP_VERSION / CLAUDE.md 顶部同源。
+def manifestJson = new groovy.json.JsonSlurper().parseText(
+    file('../../src/manifest.json').text
+)
+def appVersionName = manifestJson.versionName
+def appVersionCode = manifestJson.versionCode
+
 android {
     namespace "com.pengcheng.erp"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +19,8 @@ android {
         applicationId "com.pengcheng.erp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -47,11 +59,14 @@ dependencies {
     implementation project(':capacitor-community-barcode-scanner')
     // v1.1.11+: 分享 PDF 给微信/QQ — Capacitor Share 6
     implementation project(':capacitor-share')
+    // v1.1.106+: 硬件返回键事件源 — Capacitor App 6 (App.addListener('backButton'))
+    implementation project(':capacitor-app')
 }
 
 // v1.1.29+: 防 `npx cap sync android` 把 capacitor.plugins.json 重置为 []
-// (CLI 6.x 不会自动扫描 @CapacitorPlugin 注解, 必须显式列 3 个本地 classpath)
-// 在每次 packageDebug 前校验, 文件缺失/为空/缺 Share 条目就重写
+// (CLI 6.x 不会自动扫描 @CapacitorPlugin 注解, 必须显式列 classpath)
+// 在每次 packageDebug 前校验, 文件缺失/为空/缺关键条目就重写
+// v1.1.106: 增列 @capacitor/app 的 AppPlugin —— backButton 硬件返回键的唯一来源
 tasks.matching { it.name == 'mergeDebugAssets' }.configureEach {
     doFirst {
         def pluginJson = file('src/main/assets/capacitor.plugins.json')
@@ -69,13 +84,20 @@ tasks.matching { it.name == 'mergeDebugAssets' }.configureEach {
     "classpath": "com.capacitorjs.plugins.share.SharePlugin"
   },
   {
+    "pkg": "@capacitor/app",
+    "classpath": "com.capacitorjs.plugins.app.AppPlugin"
+  },
+  {
     "pkg": "@capacitor-community/barcode-scanner",
     "classpath": "com.getcapacitor.community.barcodescanner.BarcodeScanner"
   }
 ]
 '''
-        if (!pluginJson.exists() || pluginJson.text == '[]\n' || !pluginJson.text.contains('SharePlugin') || !pluginJson.text.contains('NativeSharePlugin')) {
-            logger.warn("[v1.1.29] 修复 capacitor.plugins.json (CLI sync 会重置为 [])")
+        def required = ['NativeScannerPlugin', 'NativeSharePlugin', 'SharePlugin', 'app.AppPlugin']
+        def missing = required.findAll { !pluginJson.exists() || !pluginJson.text.contains(it) }
+        if (pluginJson.exists() && pluginJson.text == '[]\n') missing = required
+        if (missing) {
+            logger.warn("[v1.1.29] 修复 capacitor.plugins.json (CLI sync 会重置为 []), 缺失: ${missing}")
             pluginJson.text = expected
         }
     }

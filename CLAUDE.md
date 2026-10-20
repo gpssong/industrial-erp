@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.105 (2026-10-20 — App APK 无法登录 hotfix: `isH5Runtime()` 只认 `plus` 全局, Capacitor APK 无 `plus` → 误判 H5 → API base 变 `/api` → 请求打回 WebView localhost 拿 index.html; 后端 CORS 两处漏配无端口 `http://localhost` → 403).
+**当前版本**: v1.1.106 (2026-10-20 — App APK 端检查 + 4 批修复: (1) 硬件 back 键改用 @capacitor/app (原 plus.key 在 Capacitor 下从不触发, v1.1.60 规则表成死代码); (2) APK OS 级 versionName/versionCode 接入 src/manifest.json (原 gradle 硬编码 1.0, build-app.sh 加 [1.7]+[6.5] 校验); (3) XK 三页照片真选图+真上传走 /system/upload/file, 清掉全部 unsplash mock 图; (4) 清理 .bak + package.json 版本对齐 + .card 基础样式收口 common.css).
 
 ## 速查
 

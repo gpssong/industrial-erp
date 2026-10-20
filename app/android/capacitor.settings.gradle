@@ -5,3 +5,7 @@ project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/
 // v1.1.49 build-app.sh 自动追加 (CLI 6.x cap sync 不会扫 @capacitor/share)
 include ':capacitor-share'
 project(':capacitor-share').projectDir = new File('../node_modules/@capacitor/share/android')
+
+// v1.1.106 build-app.sh 自动追加 — @capacitor/app 提供 backButton 硬件返回键事件源
+include ':capacitor-app'
+project(':capacitor-app').projectDir = new File('../node_modules/@capacitor/app/android')

@@ -170,7 +170,6 @@ async function onLogin() {
 .btn-outline:hover { background: #1e6091; color: #fff; }
 .btn-row { display: flex; gap: 8px; margin-top: 8px; }
 .muted { color: #999; font-size: 12px; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .server-section { margin-top: 16px; }
 .server-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .server-toggle .arrow { transition: transform 0.2s; font-size: 10px; }
