@@ -1125,7 +1125,9 @@ async function onSaveEnvRecord() {
       envType: 'CLEANLINESS',
       checkTitle: '生产环境检查 · V1.2',
       checkContent: '洁净区物料下发现外包装破损, 存在异物与虫害风险',
-      plannedAt: new Date().toISOString().slice(0, 16).replace('T', ' ')
+      // v1.1.108 hotfix: 后端 plannedAt 是 LocalDateTime, 必须 ISO 'YYYY-MM-DDTHH:mm:ss' (含秒 + T)
+      //   原来 .slice(0,16).replace('T',' ') 给的是 "YYYY-MM-DD HH:mm" (无秒 + 空格), Jackson 无法反序列化
+      plannedAt: new Date().toISOString().slice(0, 19)
     }
     let r
     if (envSel.value && envSel.value.id) {
@@ -1179,7 +1181,8 @@ async function onSaveEnvPass() {
       envType: 'CLEANLINESS',
       checkTitle: '生产环境检查 · V1.2 (全部合格)',
       checkContent: '5 项检查全部符合, 无需整改. 检查项:\n' + snapshot,
-      plannedAt: new Date().toISOString().slice(0, 16).replace('T', ' ')
+      // v1.1.108 hotfix: 同上, plannedAt 必须 ISO 'YYYY-MM-DDTHH:mm:ss' (Jackson 反序列化 LocalDateTime)
+      plannedAt: new Date().toISOString().slice(0, 19)
     }
     let r
     if (envSel.value && envSel.value.id) {

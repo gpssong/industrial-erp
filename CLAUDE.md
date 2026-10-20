@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.108 (2026-10-20 — PC XK 生产环境检查 tab 两项补强: (1) 检查清单 5 项右侧由只读「符合/发现问题」标签改为 `el-switch` 开关, 开=符合/关=发现问题, 任意项关自动展开「卫生问题整改记录」表单, 全符合则隐藏; (2) **全符合场景也支持归档一条检查记录** (绿条加「保存合格检查记录」按钮, 走 `save` 建 DRAFT → `check(level=null, rectifyStatus=DONE)` 翻 CHECKED; 后端 X6 照片门禁只对 MEDIUM/HIGH, 全合格 0 照片合法; 检查项快照写 `checkContent`). `envAlertCount` 改为统计 ISSUE 项数. 纯 PC 前端 (Safety.vue), 不动后端/App/SQL. 飞牛 canary 已上线, home 主站待同步.
+**当前版本**: v1.1.108 (2026-10-20 — PC XK 生产环境检查 tab 两项补强 + 1 hotfix: (1) 检查清单 5 项右侧由只读「符合/发现问题」标签改为 `el-switch` 开关, 开=符合/关=发现问题, 任意项关自动展开「卫生问题整改记录」表单, 全符合则隐藏; (2) **全符合场景也支持归档一条检查记录** (绿条加「保存合格检查记录」按钮, 走 `save` 建 DRAFT → `check(level=null, rectifyStatus=DONE)` 翻 CHECKED; 后端 X6 照片门禁只对 MEDIUM/HIGH, 全合格 0 照片合法; 检查项快照写 `checkContent`). **hotfix: plannedAt 改 ISO `YYYY-MM-DDTHH:mm:ss`** — 原 `.slice(0,16).replace('T',' ')` 出 "YYYY-MM-DD HH:mm" (无秒+空格), Jackson 反序列化 `LocalDateTime` 报 500; 整改路径 save 走强类型 entity 本也踩, 修前 X6 强制照片先抛错掩盖, 全合格路径无照片必填校验才暴露. 两处统一改对, **不动后端**. `envAlertCount` 改为统计 ISSUE 项数. 纯 PC 前端 (Safety.vue), 不动后端/App/SQL. 飞牛 canary 已上线, home 主站待同步.
 **前版本 v1.1.107**: App APK 隐私/卫生第三批: (1) 关 uni-stat 遥测 — `src/manifest.json` 加 `h5.uniStatistics.enable=false`, H5/APK 产物不再向 DCloud 公网 `tongji.dcloud.io`/`tongji-collector.dcloud.net.cn` 上报设备/页面数据; (2) `index.html` SW 注册加 `!window.Capacitor` 守卫, 消掉 APK WebView 里常驻的 `Failed to register /static/sw.js` 报错 (PWA 离线缓存只给浏览器 H5); (3) `api/index.js` 抽 `logDebug()` 走 `import.meta.env.DEV`, 生产 H5/APK 静默 DEBUG 级日志, 保留网络层/非JSON 的 warn (R13 诊断价值). 纯 App 端, 不动后端/PC/SQL.
 
 ## 速查

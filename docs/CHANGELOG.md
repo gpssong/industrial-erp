@@ -5,7 +5,7 @@
 
 ### v1.1.108 (2026-10-20 — XK 生产环境检查: 检查项右侧改开关 + 全合格也能归档)
 
-PC 端 `/xk/safety` 生产环境检查 tab, 两项补强:
+PC 端 `/xk/safety` 生产环境检查 tab, 两项补强 + 一项 hotfix:
 
 **(1) 检查清单 5 项右侧原本固定显示「符合/发现问题」标签, 改为 `el-switch` 开关, 可手动切换每项状态。**
 
@@ -23,9 +23,18 @@ PC 端 `/xk/safety` 生产环境检查 tab, 两项补强:
   台账里那条记录能看到本次查了哪些项各自结论。
 - 标题前缀 "生产环境检查 · V1.2 (全部合格)" 与发现问题的 "生产环境检查 · V1.2" 区分, 便于「检验记录与报告」tab 筛 ENV 时一眼识别。
 
+**(3) plannedAt 反序列化 hotfix。** 整改分支 + 全合格分支 payload 里 `plannedAt` 原用
+`new Date().toISOString().slice(0, 16).replace('T', ' ')` 生成 `"YYYY-MM-DD HH:mm"`(无秒 + 空格),
+而后端 `XkEnvCheck.plannedAt` 是 `LocalDateTime`, Jackson 反序列化失败抛 500
+("Cannot deserialize value of type `java.time.LocalDateTime` from String '2026-10-20 09:14'")。
+整改路径走 `save(payload) → check(payload)` 两步, save 一步走强类型 entity (XkEnvCheckController POST 用 `@RequestBody XkEnvCheck`),
+原本就踩同一个坑, 只是 X6 强制照片门禁先抛错中断了用户感知; 全合格路径无照片必填校验, 走到 plannedAt 才暴雷。
+两处统一改成 `new Date().toISOString().slice(0, 19)` → `"YYYY-MM-DDTHH:mm:ss"` (Jackson 默认 ISO LocalDateTime 格式)。
+「新建环境检查弹窗」(`envForm.plannedAt` 经 `el-date-picker` value-format `YYYY-MM-DD HH:mm:ss`) 不受影响, 一致未动。
+
 **纯 PC 前端改动, 不动后端 / App / SQL。** `envItems` 仍是 V1.2 固定模板 mock (真实逐项数据待后端 `xk_env_check_template` 落地)。
 
-飞牛 canary 已上线验证 (线上 index → `index-CDb0BTk-`, Safety → `Safety-DAxZbMJK`)。home 主站待 canary 验证后同步。
+飞牛 canary 已上线验证 (线上 index → `index-DzyV4PjR`, Safety → `Safety-OtOYVIWq`)。home 主站待 canary 验证后同步。
 
 ### v1.1.107 (2026-10-20 — App APK 隐私/卫生第三批)
 
