@@ -28,6 +28,37 @@ jobs:
           mvn -B compile -DskipTests 2>&1 | tail -20
         timeout-minutes: 10
 
+  # v1.1.104+: 跑单元测试 (14 个测试类覆盖), 挡掉 PR 上的回归 (如 MyBatis-Plus FieldFill 漏写 / SysBackupController 死注解类教训)
+  #   注意: 跳过 Testcontainers 集成测试 (*IT.java 需 Docker), 只跑 *Test.java 单元测试
+  backend-test:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Run unit tests (skip Testcontainers integration tests)
+        run: |
+          cd backend
+          mvn -B test -Dtest='!Integration*Test,!*IT' -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tail -40
+        timeout-minutes: 12
+
+  # v1.1.104+: scripts/check-perm.py 检查 controller method 防护 (默认 report-only 模式, 不挡 PR).
+  #   历史上发现 13 个漏 perm method (PrdOrderController 7 个, FeiePrintController.previewBill 等),
+  #   留给用户决策如何处理历史 leak.
+  check-perm:
+    name: Check Controller perm coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run check-perm.py (report-only)
+        run: python3 scripts/check-perm.py
+
   pc-web-build:
     name: PC Web build
     runs-on: ubuntu-latest
