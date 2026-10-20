@@ -1,6 +1,11 @@
 // 统一导航: 原生 App 走 uni API, H5 走 hash 路由
+// v1.1.105: 原判断只认 HBuilder 的 `plus`, 会把 Capacitor APK 误判成 H5
+//           → 原生 App 里所有跳转退化成 window.location.hash, uni.switchTab/reLaunch 全失效。
+//           统一收敛到 utils/runtime.js (先认 window.Capacitor, 再退回 plus)。
+import { isNativeApp } from './runtime.js'
+
 export function isNative() {
-  return typeof plus !== 'undefined'
+  return isNativeApp()
 }
 
 // 实际 tabBar 页面 (与 pages.json 的 tabBar.list 保持一致)

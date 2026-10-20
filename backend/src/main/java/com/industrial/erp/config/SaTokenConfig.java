@@ -146,7 +146,12 @@ public class SaTokenConfig implements WebMvcConfigurer {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowCredentials(true);
         config.addAllowedMethod("*");
+        // v1.1.105: 补无端口形态。Capacitor WebView 的 origin 就是 http://localhost
+        //          (androidScheme=http, 默认无端口), 只配 "http://localhost:*" 匹配不到,
+        //          实测 GET/OPTIONS 均 403 → App 全端登录失败。
+        config.addAllowedOriginPattern("http://localhost");
         config.addAllowedOriginPattern("http://localhost:*");
+        config.addAllowedOriginPattern("http://127.0.0.1");
         config.addAllowedOriginPattern("http://127.0.0.1:*");
         // 注: 公网精确域名 (如 http://home.93gushi.com:8088) 由 addCorsMappings() 处理,
         //     本 filter 只兜底 Capacitor WebView 的端口通配场景, 不再硬编码.

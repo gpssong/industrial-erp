@@ -28,7 +28,7 @@
       <div v-show="showServer" class="server-body">
         <div class="form-item">
           <label class="label">API 地址</label>
-          <input class="input" type="text" v-model="apiBase" :placeholder="isNativePlatform ? '留空使用默认: ' + nativeDefault : '留空使用默认: /api'" />
+          <input class="input" type="text" v-model="apiBase" :placeholder="isNativeApp() ? '留空使用默认: ' + nativeDefault : '留空使用默认: /api'" />
         </div>
         <div class="btn-row">
           <button class="btn btn-sm" @click="onSaveServer">保存</button>
@@ -51,9 +51,10 @@ const nativeDefault = 'http://home.93gushi.com:8088/api'
 const apiBase = ref('')
 const currentDisplay = ref('')
 
-function isH5Runtime() {
-  return typeof window !== 'undefined' && typeof document !== 'undefined' && typeof plus === 'undefined'
-}
+// v1.1.105: 原判断只认 `plus`, 会把 Capacitor APK 误判成 H5 (登录页跟着显示错默认值),
+//           统一收敛到 utils/runtime.js。
+import { isH5Runtime, isNativeApp } from '../../utils/runtime.js'
+
 function effectiveBase() {
   const override = apiBase.value.trim()
   if (isH5Runtime()) {

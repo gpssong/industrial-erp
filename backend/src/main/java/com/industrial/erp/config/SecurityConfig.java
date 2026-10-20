@@ -45,7 +45,12 @@ public class SecurityConfig {
         // Spring Boot 3.x (Framework 6): setAllowedOrigins 不支持 "*" 通配
         // 对需要通配的 origin, 改用 setAllowedOriginPatterns
         config.setAllowedOrigins(origins);
+        // v1.1.105: Capacitor WebView 的真实 origin 是**无端口**的 http://localhost
+        //          (capacitor.config.json androidScheme=http, 无端口), 实测带端口的 ":*" 通配
+        //          匹配不到 → 登录/业务请求 403 "Invalid CORS request"。无端口形态必须单列。
+        config.addAllowedOriginPattern("http://localhost");
         config.addAllowedOriginPattern("http://localhost:*");
+        config.addAllowedOriginPattern("http://127.0.0.1");
         config.addAllowedOriginPattern("http://127.0.0.1:*");
         // v1.1.103: 覆盖内网 App H5 / PC 直连 origin (App H5 页面 http://192.168.0.x:18090,
         //          或 profile 里配置的服务器绝对 base http://192.168.1.x:8080 等),

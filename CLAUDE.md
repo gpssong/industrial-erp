@@ -1,6 +1,6 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.103 hotfix-1 (2026-10-20 — home 自检后拆分 CLAUDE.md, 完整正文移至 `docs/CHANGELOG.md`).
+**当前版本**: v1.1.105 (2026-10-20 — App APK 无法登录 hotfix: `isH5Runtime()` 只认 `plus` 全局, Capacitor APK 无 `plus` → 误判 H5 → API base 变 `/api` → 请求打回 WebView localhost 拿 index.html; 后端 CORS 两处漏配无端口 `http://localhost` → 403).
 
 ## 速查
 
