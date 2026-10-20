@@ -34,7 +34,13 @@ PC 端 `/xk/safety` 生产环境检查 tab, 两项补强 + 一项 hotfix:
 现在 helper 输出北京时区当前时间, 19 位字符串 `2026-10-20 17:30:01` (与后端列存储时区匹配, 也避免 8h 时差误存)。
 
 整改路径同样原本踩 `@JsonFormat` 时区+格式双重约束, hotfix-3 一并修正。
-「新建环境检查弹窗」(`envForm.plannedAt` 经 `el-date-picker` `value-format="YYYY-MM-DD HH:mm:ss"`) 一致未动 — el-date-picker 本来就生成空格分隔正确格式。
+**(4) beforePhotos/afterPhotos hotfix-4。** 全合格分支 payload 里 `beforePhotos/afterPhotos` 原写 `''`,
+MySQL `JSON` 列不接受空字符串, 报 "Invalid JSON text: The document is empty at position 0"。
+- 整改分支用 `JSON.stringify(arr || [])` 已发合法 JSON 数组 `'[]'`(0 张) 或真数组串, 不动
+- 全合格分支统一改 `EMPTY_JSON_ARR = '[]'` — 合法 JSON 空数组, 后端 X6 (StrUtil.isBlank) 对 `'[]'` 返回 false, MEDIUM/HIGH 照片必填门禁仍正确触发
+- 调研: 前端统一语义, 照片字段恒发合法 JSON 文本 — '[]' 或真数组串, 不再发空字符串
+
+注: 这是 plannedAt 热修时埋的次生错误, plannedAt 已修对后这次才暴露。
 
 **纯 PC 前端改动, 不动后端 / App / SQL。** `envItems` 仍是 V1.2 固定模板 mock (真实逐项数据待后端 `xk_env_check_template` 落地)。
 

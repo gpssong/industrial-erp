@@ -1125,6 +1125,12 @@ function nowBeijingStr() {
   return s.replace(/\//g, '-')
 }
 
+// v1.1.108 hotfix-4: MySQL JSON 列不接受空字符串 '' (报 "Invalid JSON text: The document is empty"),
+//   必须发合法的 JSON 文本 — 空数组 '[]' 或 null. 后端 X6 (StrUtil.isBlank) 对 '[]' 返回 false (有内容),
+//   MEDIUM/HIGH 照片必填门禁仍能正确触发. 整改分支用 JSON.stringify(arr || []) 已合法, 不动;
+//   全合格分支原写 '' 必须改成 '[]'.
+const EMPTY_JSON_ARR = '[]'
+
 async function onSaveEnvRecord() {
   if (!rectifyForm.value.owner) { ElMessage.warning('请填写整改负责人'); return }
   if (!rectifyForm.value.deadline) { ElMessage.warning('请选择整改期限'); return }
@@ -1188,13 +1194,14 @@ async function onSaveEnvPass() {
       level: null,                          // 全合格, 无问题等级
       rectifyOwner: '', deadline: '', rectifyDesc: '',
       rectifyStatus: 'DONE',
-      beforePhotos: '', afterPhotos: '',
       workshop: '一车间',
       envType: 'CLEANLINESS',
       checkTitle: '生产环境检查 · V1.2 (全部合格)',
       checkContent: '5 项检查全部符合, 无需整改. 检查项:\n' + snapshot,
-      // v1.1.108 hotfix-3: 同 onSaveEnvRecord, plannedAt 匹配 @JsonFormat 格式
-      plannedAt: nowBeijingStr()
+      // v1.1.108 hotfix-3: plannedAt 匹配 @JsonFormat 格式
+      plannedAt: nowBeijingStr(),
+      // v1.1.108 hotfix-4: MySQL JSON 列不接受 '' — 发空数组 '[]' (合法的 JSON 文档)
+      beforePhotos: EMPTY_JSON_ARR, afterPhotos: EMPTY_JSON_ARR
     }
     let r
     if (envSel.value && envSel.value.id) {
