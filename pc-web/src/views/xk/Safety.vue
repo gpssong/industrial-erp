@@ -1112,6 +1112,19 @@ function onUploadPhoto(side) {
 }
 
 // 保存整改记录 → POST /xk/env-check/save (新建 DRAFT) 或 /xk/env-check/{id}/check (提交整改)
+// v1.1.108 hotfix-3: 后端 XkEnvCheck.plannedAt 字段 @JsonFormat(pattern="yyyy-MM-dd HH:mm:ss", timezone="GMT+8")
+//   强制 Jackson 用该格式反序列化 — 空格分隔 + 含秒。前端发 ISO 'T' 分隔(2026-10-20T09:18:47) 仍 500.
+//   改发 'YYYY-MM-DD HH:mm:ss' 空格分隔且含秒的北京时区时间, 与 @JsonFormat 严格对齐。
+//   (修前 v1.1.108 hotfix 用 .slice(0,16).replace('T',' ') 缺秒, hotfix-2 用 .slice(0,19) 是 'T' 分隔 — 两个都不对)
+// helper: 取当前北京时间的 'YYYY-MM-DD HH:mm:ss' 字符串 (HH:mm:ss 三段都补 0)
+function nowBeijingStr() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  // Date.toLocaleString('zh-CN', {timeZone:'Asia/Shanghai', hour12:false}) → "2026/10/20 09:18:47"
+  const s = d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+  return s.replace(/\//g, '-')
+}
+
 async function onSaveEnvRecord() {
   if (!rectifyForm.value.owner) { ElMessage.warning('请填写整改负责人'); return }
   if (!rectifyForm.value.deadline) { ElMessage.warning('请选择整改期限'); return }
@@ -1125,9 +1138,8 @@ async function onSaveEnvRecord() {
       envType: 'CLEANLINESS',
       checkTitle: '生产环境检查 · V1.2',
       checkContent: '洁净区物料下发现外包装破损, 存在异物与虫害风险',
-      // v1.1.108 hotfix: 后端 plannedAt 是 LocalDateTime, 必须 ISO 'YYYY-MM-DDTHH:mm:ss' (含秒 + T)
-      //   原来 .slice(0,16).replace('T',' ') 给的是 "YYYY-MM-DD HH:mm" (无秒 + 空格), Jackson 无法反序列化
-      plannedAt: new Date().toISOString().slice(0, 19)
+      // v1.1.108 hotfix-3: plannedAt 用 nowBeijingStr() 输出 'YYYY-MM-DD HH:mm:ss' 匹配 @JsonFormat
+      plannedAt: nowBeijingStr()
     }
     let r
     if (envSel.value && envSel.value.id) {
@@ -1181,8 +1193,8 @@ async function onSaveEnvPass() {
       envType: 'CLEANLINESS',
       checkTitle: '生产环境检查 · V1.2 (全部合格)',
       checkContent: '5 项检查全部符合, 无需整改. 检查项:\n' + snapshot,
-      // v1.1.108 hotfix: 同上, plannedAt 必须 ISO 'YYYY-MM-DDTHH:mm:ss' (Jackson 反序列化 LocalDateTime)
-      plannedAt: new Date().toISOString().slice(0, 19)
+      // v1.1.108 hotfix-3: 同 onSaveEnvRecord, plannedAt 匹配 @JsonFormat 格式
+      plannedAt: nowBeijingStr()
     }
     let r
     if (envSel.value && envSel.value.id) {

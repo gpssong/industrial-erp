@@ -23,14 +23,18 @@ PC 端 `/xk/safety` 生产环境检查 tab, 两项补强 + 一项 hotfix:
   台账里那条记录能看到本次查了哪些项各自结论。
 - 标题前缀 "生产环境检查 · V1.2 (全部合格)" 与发现问题的 "生产环境检查 · V1.2" 区分, 便于「检验记录与报告」tab 筛 ENV 时一眼识别。
 
-**(3) plannedAt 反序列化 hotfix。** 整改分支 + 全合格分支 payload 里 `plannedAt` 原用
-`new Date().toISOString().slice(0, 16).replace('T', ' ')` 生成 `"YYYY-MM-DD HH:mm"`(无秒 + 空格),
-而后端 `XkEnvCheck.plannedAt` 是 `LocalDateTime`, Jackson 反序列化失败抛 500
-("Cannot deserialize value of type `java.time.LocalDateTime` from String '2026-10-20 09:14'")。
-整改路径走 `save(payload) → check(payload)` 两步, save 一步走强类型 entity (XkEnvCheckController POST 用 `@RequestBody XkEnvCheck`),
-原本就踩同一个坑, 只是 X6 强制照片门禁先抛错中断了用户感知; 全合格路径无照片必填校验, 走到 plannedAt 才暴雷。
-两处统一改成 `new Date().toISOString().slice(0, 19)` → `"YYYY-MM-DDTHH:mm:ss"` (Jackson 默认 ISO LocalDateTime 格式)。
-「新建环境检查弹窗」(`envForm.plannedAt` 经 `el-date-picker` value-format `YYYY-MM-DD HH:mm:ss`) 不受影响, 一致未动。
+**(3) plannedAt 反序列化 hotfix-3 (前两版没修对)。** 整改分支 + 全合格分支 payload 里 `plannedAt` 最终格式:
+
+- v1.1.108 首次: `new Date().toISOString().slice(0, 16).replace('T', ' ')` → `"YYYY-MM-DD HH:mm"` (无秒 + 空格) — **错**, 无秒 Jackson 不接受
+- v1.1.108 hotfix-2: `new Date().toISOString().slice(0, 19)` → `"YYYY-MM-DDTHH:mm:ss"` (UTC 带秒 + T) — **错**, 后端字段 `@JsonFormat(pattern="yyyy-MM-dd HH:mm:ss", timezone="GMT+8")` 强制用该格式反序列化, 不接受 T 分隔 (报 "could not be parsed at index 10")
+- v1.1.108 hotfix-3 ✅: 新 helper `nowBeijingStr()` → `toLocaleString('zh-CN', {timeZone:'Asia/Shanghai', hour12:false}).replace(/\//g,'-')` → `"YYYY-MM-DD HH:mm:ss"` 北京时间, 与 `@JsonFormat` 严格对齐
+
+根因: 后端 `XkEnvCheck.plannedAt` 注解 `@JsonFormat(pattern="yyyy-MM-dd HH:mm:ss", timezone="GMT+8")` 同时管控序列化和反序列化,
+前端发 `T` 分隔或缺秒都会 500。前端 `new Date().toISOString()` 是 UTC 时间, 即便换成空格分隔格式也不行 — 必须用 `Asia/Shanghai` 时区转换。
+现在 helper 输出北京时区当前时间, 19 位字符串 `2026-10-20 17:30:01` (与后端列存储时区匹配, 也避免 8h 时差误存)。
+
+整改路径同样原本踩 `@JsonFormat` 时区+格式双重约束, hotfix-3 一并修正。
+「新建环境检查弹窗」(`envForm.plannedAt` 经 `el-date-picker` `value-format="YYYY-MM-DD HH:mm:ss"`) 一致未动 — el-date-picker 本来就生成空格分隔正确格式。
 
 **纯 PC 前端改动, 不动后端 / App / SQL。** `envItems` 仍是 V1.2 固定模板 mock (真实逐项数据待后端 `xk_env_check_template` 落地)。
 
