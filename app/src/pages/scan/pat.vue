@@ -141,7 +141,6 @@ export default {
 .xk-strip { background: #1e6091; color: #fff; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
 .strip-bread { font-size: 11px; opacity: .8; }
 .strip-title { font-size: 16px; font-weight: 600; margin-top: 2px; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
 .section-title { font-size: 14px; font-weight: 600; color: #303133; margin-bottom: 10px; }
 .muted { color: #909399; font-size: 12px; }
 .picker-box { height: 40px; line-height: 40px; border: 1px solid #dcdfe6; border-radius: 6px; padding: 0 10px; font-size: 14px; color: #303133; }

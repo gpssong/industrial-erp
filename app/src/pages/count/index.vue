@@ -322,7 +322,6 @@ onMounted(() => {
 
 <style scoped>
 .container { padding: 12px; background: #f5f5f5; min-height: 100vh; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .title { font-size: 15px; font-weight: bold; display: block; margin-bottom: 4px; }
 .muted { color: #999; font-size: 12px; }
 .form-item { margin: 4px 0; }

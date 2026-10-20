@@ -65,7 +65,6 @@ onMounted(() => {
 </script>
 <style scoped>
 .container { padding: 12px; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .search-bar { padding: 10px; }
 .search-row { display: flex; gap: 6px; align-items: center; }
 .input { flex: 1; height: 36px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 14px; }

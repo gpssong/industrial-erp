@@ -211,7 +211,6 @@ onMounted(() => {
 
 <style scoped>
 .container { padding: 12px; padding-bottom: 60px; }
-.card { background:#fff;border-radius:8px;padding:14px;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.05) }
 .muted { color:#909399;font-size:12px }
 .form-row { display:flex;align-items:center;gap:8px;margin-bottom:10px }
 .form-label { width:44px;font-size:13px;color:#606266;flex-shrink:0 }

@@ -8,20 +8,27 @@
 // 注意: Capacitor 和 barcode-scanner 依赖只在 H5 以外环境才加载,
 //       通过动态 import()/registerPlugin 实现 tree-shaking,
 //       避免 H5 产物白浪费 ~140KB。
+//
+// v1.1.106: 运行时判定收敛到 utils/runtime.js (R19 单一权威源)。
+//   原判断是本文件私有的第二套:
+//     isH5()       = window && document 存在        → APK 里恒为 true (WebView 当然有)
+//     isCapacitor()= typeof Capacitor !== 'undefined' → 查**裸全局**而非 window.Capacitor
+//   前者会把 APK 误判成 H5, 后者靠 @capacitor/core 恰好注入全局才碰巧能用 (非契约)。
+//   与 v1.1.105 登录失败的根因同源, 现在统一走 runtime.js。
 import { registerPlugin } from '@capacitor/core'
+import { isNativeApp, isH5Runtime } from './runtime.js'
 
 const NativeScanner = registerPlugin('NativeScanner')
 
 let BarcodeScanner = null // lazy-loaded below
-let _capacitor = null // lazy-cached Capacitor global
 
+// 保留导出名兼容既有调用方, 语义改为 runtime.js 的统一判定
 export function isH5() {
-  return typeof window !== 'undefined' && typeof document !== 'undefined'
+  return isH5Runtime()
 }
 
 export function isCapacitor() {
-  if (typeof Capacitor === 'undefined') return false
-  return Capacitor.isNativePlatform && Capacitor.isNativePlatform()
+  return isNativeApp()
 }
 
 // 懒加载 @capacitor-community/barcode-scanner
@@ -40,6 +47,7 @@ export function uniScanCodeAvailable() {
 
 // 强制关闭摄像头 (页面切换/退出时调用, 仅对 BarcodeScanner 插件有效)
 export async function stopScan() {
+  scanStarted = false
   if (isCapacitor()) {
     try {
       const BS = await getBarcodeScanner()
@@ -64,6 +72,7 @@ export async function doScan(opts) {
   // Capacitor: 优先用本地原生 ZXing (v1.1.8+)
   if (isCapacitor()) {
     try {
+      scanStarted = true
       const result = await NativeScanner.startScan()
       if (result && result.hasContent && result.content) {
         opts.onResult && opts.onResult(result.content)
@@ -107,10 +116,30 @@ function promptFallback(opts, prefixMsg) {
 }
 
 // 监听页面切换, 自动关闭摄像头 (仅 BarcodeScanner 插件需要)
-if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', () => { stopScan() })
-  window.addEventListener('beforeunload', () => { stopScan() })
-  if (typeof uni !== 'undefined') {
-    uni.on && uni.on('onHide', () => { stopScan() })
+//
+// v1.1.106: 原来这段在**模块顶层**无条件执行, 后果:
+//   1. 被 6 个 scan 页面各自 import → 同一批 pagehide/beforeunload 监听器重复注册 N 遍
+//   2. 无任何清理路径, 卸载页面后监听器仍在
+//   3. 从没启动过扫码也会调 stopScan() → 触发 @capacitor-community/barcode-scanner 的
+//      动态 import + stopScan(), 该插件对未启动的扫码会抛 "not implemented"
+// 现在: 改为幂等的 installScanLifecycle(), 由 App.vue onLaunch 显式调一次;
+// 并用 started 标志跳过"没扫过就别关"的空调用。
+let scanStarted = false
+let lifecycleInstalled = false
+
+export function installScanLifecycle() {
+  if (lifecycleInstalled) return
+  if (typeof window === 'undefined') return
+  lifecycleInstalled = true
+
+  const closeIfStarted = () => {
+    if (!scanStarted) return
+    scanStarted = false
+    stopScan()
+  }
+  window.addEventListener('pagehide', closeIfStarted)
+  window.addEventListener('beforeunload', closeIfStarted)
+  if (typeof uni !== 'undefined' && uni.on) {
+    uni.on('onHide', closeIfStarted)
   }
 }

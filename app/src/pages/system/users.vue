@@ -163,7 +163,6 @@ onMounted(() => {
 </script>
 <style scoped>
 .container { padding: 12px; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .title { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 8px; }
 .row { display: flex; justify-content: space-between; align-items: center; }
 .muted { color: #999; font-size: 12px; margin-top: 2px; }

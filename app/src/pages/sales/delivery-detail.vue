@@ -225,7 +225,6 @@ onLoad(async (q) => {
 
 <style scoped>
 .container { padding: 12px; padding-bottom: 40px; }
-.card { background: #fff; border-radius: 8px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .bill-no { font-weight: bold; font-size: 15px; color: #303133; word-break: break-all; }
 .section-title { font-size: 14px; font-weight: 600; color: #303133; margin-bottom: 10px; }

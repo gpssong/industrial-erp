@@ -159,11 +159,13 @@ function fetchRequest(url, method, data) {
       try { localStorage.removeItem('erp_menus') } catch (e) {}
       try { localStorage.removeItem('erp_permissions') } catch (e) {}
       // 异步跳转, 让调用方先处理 UI
+      // v1.1.106: 原用 `typeof plus` 判原生 (R19 已禁), Capacitor 下永不命中 →
+      //   401 后 H5 的 fetch 路径会漏跳转。统一走 runtime.js 的 isH5Runtime。
       setTimeout(() => {
-        if (typeof plus !== 'undefined' && typeof uni !== 'undefined') {
-          uni.reLaunch({ url: '/pages/login/index' })
-        } else if (typeof window !== 'undefined') {
+        if (isH5Runtime() && typeof window !== 'undefined') {
           window.location.hash = '#/pages/login/index'
+        } else if (typeof uni !== 'undefined') {
+          uni.reLaunch({ url: '/pages/login/index' })
         }
       }, 100)
       throw Object.assign(d, { needRelogin: true })

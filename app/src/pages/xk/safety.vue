@@ -82,13 +82,16 @@
 
 <script>
 import { safetyCheck } from '@/api/xk'
+import { addPhotoTo, photosFromJson } from '@/utils/photo.js'
 
 export default {
   data() {
     return {
       items: [],
-      reform: { owner: '赵海峰', deadline: '2025-06-19' },
-      photosBefore: ['https://images.unsplash.com/photo-1605000797499-95a51c5269ae?w=400'],
+      reform: { owner: '', deadline: '' },
+      // v1.1.106: 原来预置了一张 unsplash 外链 (用户会误以为是真实整改前照片),
+      //          改为空数组 — 真实照片由用户自己拍照上传。
+      photosBefore: [],
       photosAfter: []
     }
   },
@@ -98,12 +101,21 @@ export default {
   },
   onShow() { this.load() },
   methods: {
-    async load() { const r = await safetyCheck(); if (r && r.code === 200) this.items = r.items },
+    async load() {
+      const r = await safetyCheck()
+      if (r && r.code === 200) {
+        this.items = r.items
+        // v1.1.106: 回显后端已存的照片 (XkSafetyCheck.reformPhotosBefore/After)
+        this.photosBefore = photosFromJson(r.photosBefore)
+        this.photosAfter = photosFromJson(r.photosAfter)
+        if (r.reformOwner) this.reform.owner = r.reformOwner
+        if (r.reformDeadline) this.reform.deadline = r.reformDeadline
+      }
+    },
+    // v1.1.106: 真选图 + 真上传 (原来直接 push 一个 unsplash 外链)
     addPhoto(which) {
       const arr = which === 'before' ? 'photosBefore' : 'photosAfter'
-      if (this[arr].length >= 6) { uni.showToast({ title: '最多 6 张', icon: 'none' }); return }
-      this[arr].push('https://images.unsplash.com/photo-1581094271901-8022df4466f9?w=400')
-      uni.showToast({ title: '已添加 (mock)', icon: 'none' })
+      return addPhotoTo(this[arr])
     },
     onSubmit() { uni.showToast({ title: '检查单已提交, 闭环已建立', icon: 'success' }) }
   }

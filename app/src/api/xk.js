@@ -42,7 +42,7 @@ export const materialDraft = async () => {
   try {
     const list = await request({ url: '/xk/material/page', method: 'GET', data: { pageNum: 1, pageSize: 1, billStatus: 'DRAFT' } })
     const raw = list?.records?.[0]
-    if (!raw) return ok({ billNo: '', supplier: '', product: '', batchNo: '', qty: 0, location: '', reportNo: '', warehouse: '', productLine: '' })
+    if (!raw) return ok({ billNo: '', supplier: '', product: '', batchNo: '', qty: 0, location: '', reportNo: '', warehouse: '', productLine: '', labelPhotos: '' })
     const d = raw.details?.[0] || {}
     // app material.vue 读顶层字段 (r.billNo / r.supplier / ...)
     return ok({
@@ -54,7 +54,22 @@ export const materialDraft = async () => {
       location: d.location || '-',
       reportNo: 'JY-' + String(raw.billNo || ''),
       warehouse: raw.warehouseName || '-',
-      productLine: '食品袋'
+      productLine: '食品袋',
+      // v1.1.106: 原料标签照片 (PurReceipt.labelPhotos, JSON URL 数组)
+      labelPhotos: raw.labelPhotos || '',
+      // v1.1.106: 打印页需要完整明细 + 制单/检验/审核人
+      billDate: raw.billDate || '',
+      operator: raw.createByName || raw.operatorName || '',
+      iqcInspector: raw.iqcInspectorName || '',
+      checker: raw.checkByName || raw.updateByName || '',
+      details: (raw.details || []).map(x => ({
+        productName: x.productName || '-',
+        batchNo: x.batchNo || '',
+        qty: x.qty ?? 0,
+        unitName: x.unitName || '',
+        location: x.location || '',
+        iqcResult: x.iqcResult || ''
+      }))
     })
   } catch (e) { return fail(e.msg || '加载失败') }
 }
@@ -119,7 +134,14 @@ export const safetyCheck = async () => {
     // app safety.vue 读 r.items (5 项 status=OK/PROBLEM + text)
     let items = []
     try { items = c?.itemSnapshot ? JSON.parse(c.itemSnapshot) : [] } catch (_) { items = [] }
-    return Object.assign({ code: 200, recordNo: c?.checkNo || '' }, { items })
+    // v1.1.106: 一并回显整改前后照片 + 整改责任人/期限
+    return Object.assign({ code: 200, recordNo: c?.checkNo || '' }, {
+      items,
+      photosBefore: c?.reformPhotosBefore || '',
+      photosAfter: c?.reformPhotosAfter || '',
+      reformOwner: c?.reformOwner || '',
+      reformDeadline: c?.reformDeadline || ''
+    })
   } catch (e) { return fail(e.msg || '加载失败') }
 }
 
