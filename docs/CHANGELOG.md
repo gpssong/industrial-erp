@@ -3,6 +3,24 @@
 
 ## changelog (倒序)
 
+### v1.1.107 (2026-10-20 — App APK 隐私/卫生第三批)
+
+纯 App 端三项收尾, 不动后端 jar / PC 前端 / SQL。版本四处同步到 1.1.107 (profile / manifest.json / package.json / CLAUDE.md), build-app.sh 一致性校验通过。
+
+1. **关 uni-stat 遥测** — `src/manifest.json` 顶层加 `h5.uniStatistics: { enable: false }`。
+   根因: `@dcloudio/uni-h5` 框架核心默认内置统计模块, 生产产物里已实锤带
+   `https://tongji.dcloud.io/uni/stat.gif` + `https://tongji-collector.dcloud.net.cn` (带 appid hash),
+   每次 H5 页面访问向上报设备型号/屏幕/语言/网络类型/页面路径。企业内网 ERP 不该有这类公网遥测。
+   这是 uni-app 官方 manifest 开关 (非 patch), `build:h5` 后 grep 产物已无 `tongji`/`stat.gif` 串。
+2. **sw.js 注册加原生容器守卫** — `index.html` 里 `navigator.serviceWorker.register('/static/sw.js')`
+   外包 `!window.Capacitor` 判断。sw.js 是 PWA 离线缓存, 只给浏览器 H5 用; Capacitor APK 的
+   WebView (file://localhost, 无 http origin) 里注册拿不到 `/static/sw.js`, 常驻报
+   `Failed to register`。`window.Capacitor` 是 R19 权威判定 (APK 必有 / 浏览器 H5 必无),
+   index.html 是纯静态引不了 js 模块, 直接内联。App H5 (:18090, 浏览器打开) 仍正常注册 SW。
+3. **`api/index.js` DEBUG 日志生产静默** — 抽 `logDebug()` 走 `import.meta.env.DEV` (vite 构建期替换),
+   生产 H5/APK 下 6 处 `console.log([api] DEBUG …)` 全不执行; 保留 2 处 `console.warn`
+   (非 JSON 响应 / 网络失败) — 这些是 R13 原则下最值得留的诊断日志, 且带用户可见 toast。
+
 ### v1.1.105 (2026-10-20 — App APK 完全无法登录 hotfix: runtime 误判 + CORS 漏无端口 origin)
 
 真机 (小米 M2007J1SC) 装 APK 后**完全无法登录**。用 `adb logcat` + CORS 实测矩阵定位到**两个串联的坑**, 均已修复并双站部署 + 真机验证通过。决策沉淀 [ADR-0007](architecture/decisions/0007-app-runtime-probe-and-cors-origin.md), 原则见 CLAUDE.md **R19**。

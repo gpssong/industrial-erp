@@ -21,8 +21,13 @@
   <div id="app"></div>
   <script type="module" src="/src/main.js"></script>
   <script>
-    // 注册 Service Worker (PWA)
-    if ('serviceWorker' in navigator) {
+    // 注册 Service Worker (PWA) — 仅浏览器 H5。
+    // v1.1.107: 加原生容器守卫。sw.js 是 PWA 离线缓存, 只给浏览器 H5 用;
+    //   Capacitor APK 的 WebView (file://localhost, 无 http origin) 里 navigator.serviceWorker.register
+    //   拿不到 /static/sw.js, 会常驻报 "Failed to register" / 404。
+    //   R19: window.Capacitor 是"是不是原生容器"的权威判定 (APK 里必有, 浏览器 H5 里必无),
+    //   直接内联判断, 无需 import (index.html 是纯静态, 引不了 js 模块)。
+    if ('serviceWorker' in navigator && !window.Capacitor) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/static/sw.js').catch((err) => {
           console.warn('SW 注册失败:', err);

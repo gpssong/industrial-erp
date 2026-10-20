@@ -8,6 +8,13 @@
 //           判定逻辑收敛到 utils/runtime.js 单一权威源, 此处只 import。
 import { isH5Runtime } from '../utils/runtime.js'
 
+// v1.1.107: 生产构建静默 DEBUG 级日志。import.meta.env.DEV/PROD 由 vite 在构建期替换,
+//   生产 H5 / APK 里 DEV=false → 下面的 console.log(DEBUG) 全不执行, 只有 warn(网络层/非JSON)保留。
+//   保留 warn 是有意的: 非 JSON 响应 / 网络失败是最难排查的场景, R13 原则下值得打。
+const DEBUG = typeof import.meta !== 'undefined' ? !!import.meta.env?.DEV : false
+function logDebug(...a) { if (DEBUG) console.log(...a) }
+
+
 const DEFAULT_API = 'http://home.93gushi.com:8088/api'
 
 // 原生 / Capacitor 默认地址也读 storage 的显式覆盖 (服务器设置里填了绝对地址时生效)
@@ -44,14 +51,14 @@ function request({ url, method = 'GET', data = {}, contentType }) {
   const base = getBase()
   const fullUrl = base + url
 
-  console.log('[api] DEBUG base:', base)
-  console.log('[api] DEBUG fullUrl:', fullUrl)
-  console.log('[api] DEBUG uni.request type:', typeof uni, typeof uni?.request)
+  logDebug('[api] DEBUG base:', base)
+  logDebug('[api] DEBUG fullUrl:', fullUrl)
+  logDebug('[api] DEBUG uni.request type:', typeof uni, typeof uni?.request)
 
   // H5 环境 (浏览器预览): uni.request 不可用, 退化为原生 fetch
   // 检测方式: typeof uni.request !== 'function'
   if (typeof uni === 'undefined' || typeof uni.request !== 'function') {
-    console.log('[api] → using fetch for:', fullUrl)
+    logDebug('[api] → using fetch for:', fullUrl)
     return fetchRequest(fullUrl, method, data)
   }
 
@@ -139,7 +146,7 @@ function request({ url, method = 'GET', data = {}, contentType }) {
 
 // H5 (浏览器) 环境的 fetch 实现, 与 uni.request 行为一致
 function fetchRequest(url, method, data) {
-  console.log('[api] fetchRequest called, url:', url, 'method:', method)
+  logDebug('[api] fetchRequest called, url:', url, 'method:', method)
   return fetch(url, {
     method,
     credentials: 'include',  // httpOnly cookie
@@ -148,7 +155,7 @@ function fetchRequest(url, method, data) {
     body: data && method !== 'GET' ? JSON.stringify(data) : undefined
   })
   .then(r => {
-    console.log('[api] fetchResponse status:', r.status, 'url:', url)
+    logDebug('[api] fetchResponse status:', r.status, 'url:', url)
     return r.json()
   })
   .then(d => {
