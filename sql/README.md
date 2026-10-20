@@ -115,3 +115,34 @@ cat 0*.sql | mysql -uroot -p industrial_erp
 ```
 
 默认账号: `admin / admin123`
+
+---
+
+## 数据漂移巡检 (`scripts/sql-drift-check.sh`, v1.1.104 起)
+
+双站 (home `192.168.0.150` + 飞牛 `192.168.0.32`) 各跑一份 `industrial_erp`, 列结构靠手动
+`docker cp` SQL + `SOURCE` 同步。漏灌一列就表现为 "home 某功能 500 / 飞牛正常", 排查靠肉眼。
+本脚本固化这件事: 从 `sql/` 源码推导出 **期望表+列清单**, 拉 live DB 的 `INFORMATION_SCHEMA`
+对比, 自动输出 "live 缺哪些表/列" 与 "live 多哪些表/列"。
+
+```bash
+# 默认连 home (192.168.0.150), 只报"缺"
+./scripts/sql-drift-check.sh
+
+# 连飞牛 canary
+./scripts/sql-drift-check.sh --host 192.168.0.32
+
+# 同时报"live 多出的表/列" (评估是否回收临时表 / 回写 sql/)
+./scripts/sql-drift-check.sh --host 192.168.0.150 --extra
+
+# 离线自检: 只推导期望清单, 不连库 (CI 上可用)
+./scripts/sql-drift-check.sh --dry-run
+```
+
+覆盖密码/主机可走环境变量: `DB_HOST / DB_PORT / DB_USER / DB_PWD / DB_NAME`
+(默认 `root` / `erp_root_pwd` / `industrial_erp`, 与 `docker-compose` 保持一致)。
+
+**首次巡检结果 (2026-10-20)**: home 缺 8 列 / 飞牛缺 7 列, 集中在
+`sql/17_add_model_field.sql` (6 张明细表的 `model` 列) 与
+`sql/07_schema_outsource_finance.sql` (`fin_invoice_apply.invoice_status` /
+`fin_invoice_apply.uninvoiced_amount`)。按报告清单逐条 `SOURCE` 对应文件补齐后重跑即绿。
