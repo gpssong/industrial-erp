@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.system.controller;
 
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
@@ -72,7 +73,9 @@ public class SysUserController {
      * 注意: 这个路径必须在 /{id}... 之前注册, 但实际 @PutMapping("/me/password")
      * 是字面量不会跟 @PathVariable 冲突.
      * <p>无需 system:user:reset-pwd 权限 — 改自己的密码是基本功能.
+     * v1.1.104: 补 @SaCheckLogin 兜底 (历史裸奔, check-perm.py 报告).
      */
+    @SaCheckLogin
     @Operation(summary = "改自己的密码")
     @PutMapping("/me/password")
     public R<Void> changeMyPassword(@RequestBody java.util.Map<String, String> body) {

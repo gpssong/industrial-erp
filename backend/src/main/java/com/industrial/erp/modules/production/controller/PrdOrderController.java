@@ -33,6 +33,8 @@ public class PrdOrderController {
         this.userMapper = userMapper;
     }
 
+    // v1.1.104: 补全方法级 perm 拦截 (历史 v1.0 时代漏注解, v1.1.104 check-perm.py 脚本扫到)
+    @SaCheckPermission(value = {"production:order:list"}, orRole = "admin")
     @GetMapping("/page")
     public R<PageResult<PrdOrder>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                         @RequestParam(defaultValue = "20") Integer pageSize,
@@ -44,18 +46,24 @@ public class PrdOrderController {
         return R.ok(pr);
     }
 
+    @SaCheckPermission(value = {"production:order:list"}, orRole = "admin")
     @GetMapping("/{id}")
     public R<PrdOrder> detail(@PathVariable Long id) { return R.ok(service.detail(id)); }
 
+    @SaCheckPermission(value = {"production:order:add"}, orRole = "admin")
     @PostMapping
     public R<Long> add(@RequestBody PrdOrder o) { return R.ok(service.add(o)); }
 
+    @SaCheckPermission(value = {"production:order:edit"}, orRole = "admin")
     @PutMapping
     public R<Void> update(@RequestBody PrdOrder o) { service.update(o); return R.ok(); }
 
+    // v1.1.104: 开工 (release) 是高危 method (开工会触发自动领料单 + 工序展开 + 库存账), 必须有 perm
+    @SaCheckPermission(value = {"production:order:release"}, orRole = "admin")
     @PostMapping("/{id}/release")
     public R<Long> release(@PathVariable Long id) { return R.ok(service.release(id)); }
 
+    @SaCheckPermission(value = {"production:order:finish"}, orRole = "admin")
     @PostMapping("/{id}/finish")
     public R<Void> finish(@PathVariable Long id, @RequestParam BigDecimal goodQty,
                           @RequestParam BigDecimal lossQty, @RequestParam(required = false) Long warehouseId) {
@@ -63,9 +71,12 @@ public class PrdOrderController {
         return R.ok();
     }
 
+    // voidOrder 复用 production:order:edit perm (业务上"作废"是"编辑"的反向操作, 不新增 perm 节点)
+    @SaCheckPermission(value = {"production:order:edit"}, orRole = "admin")
     @PostMapping("/{id}/void")
     public R<Void> voidOrder(@PathVariable Long id) { service.voidOrder(id); return R.ok(); }
 
+    @SaCheckPermission(value = {"production:order:delete"}, orRole = "admin")
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
 

@@ -36,6 +36,9 @@ EXEMPT_KEYWORDS = re.compile(
     re.IGNORECASE
 )
 
+# v1.1.104+: 是否启用 strict 模式 (有 leak 时 exit 1, 默认 False)
+strict_mode = False
+
 def check_one_file(path: Path) -> list[str]:
     """返回 leaks 列表, 每个元素形如 'method 行号: <signature>'"""
     src = path.read_text(encoding='utf-8')
@@ -82,7 +85,11 @@ def check_one_file(path: Path) -> list[str]:
 
 
 def main():
-    action = sys.argv[1] if len(sys.argv) > 1 else "check"
+    args = sys.argv[1:]
+    global strict_mode
+    strict_mode = '--strict' in args
+    args = [a for a in args if a != '--strict']
+    action = args[0] if args else "check"
 
     if not CONTROLLER_DIR.exists():
         print(f"✗ controller dir not found: {CONTROLLER_DIR}")
@@ -108,10 +115,14 @@ def main():
             print("  修法: 在 @GetMapping/@PostMapping 紧上方加 @SaCheckPermission(\"xxx:yyy\", orRole=\"admin\")")
             print("  或在脚本白名单 EXEMPT_KEYWORDS 加类名前缀")
             print("  --list-leaks 模式也可显式列出, 不返回非零状态")
-            # v1.1.104 起: 不强制失败, 仅打印. 等用户决策后再开严格模式
-            print()
-            print("  当前模式: 报告但不失败 (迁移期)。加 --strict 启用严格模式")
-            return 0
+            if strict_mode:
+                print()
+                print("  --strict 模式: 历史 leak 已修, 启用严格模式 — exit 1")
+                return 1
+            else:
+                print()
+                print("  当前模式: 报告但不失败 (迁移期)。加 --strict 启用严格模式")
+                return 0
         else:
             print("  --list-leaks 模式: 列出全部, exit 0")
             return 0

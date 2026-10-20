@@ -45,19 +45,19 @@ jobs:
           mvn -B test -Dtest='!Integration*Test,!*IT' -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tail -40
         timeout-minutes: 12
 
-  # v1.1.104+: scripts/check-perm.py 检查 controller method 防护 (默认 report-only 模式, 不挡 PR).
-  #   历史上发现 13 个漏 perm method (PrdOrderController 7 个, FeiePrintController.previewBill 等),
-  #   留给用户决策如何处理历史 leak.
+  # v1.1.104: scripts/check-perm.py 检查 controller method 防护.
+  #   经过 v1.1.104 历史 perm 补全 (PrdOrderController 8 method + FeiePrintController.previewBill + ...) 后
+  #   全量零 leak. 启用 --strict 模式: 有 leak 时 exit 1, 挡 PR
   check-perm:
-    name: Check Controller perm coverage
+    name: Check Controller perm coverage (strict)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Run check-perm.py (report-only)
-        run: python3 scripts/check-perm.py
+      - name: Run check-perm.py --strict
+        run: python3 scripts/check-perm.py --strict
 
   pc-web-build:
     name: PC Web build
