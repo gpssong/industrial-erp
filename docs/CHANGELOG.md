@@ -3,7 +3,16 @@
 
 ## changelog (倒序)
 
-### v1.1.103 hotfix-1 (2026-10-20 — home 自检后 CLAUDE.md 3186 行拆分, 完整段从 CLAUDE.md 顶部归档到此)
+### v1.1.104 P2 (2026-10-19 — home 系统检查报告 P2 三项收尾: F 扫描 / G 决策库 / H 扫描)
+
+**P2 三项** (home 检查报告的第三阶段改善, 前序 P0/P1 已全落地):
+- **F 审计 @Async 扫描 (代码零改动, 健康)**: 全后端 `src/main` 仅 1 处 `@Async @EventListener` (`OperLogEventListener`), 写的是**操作日志** `sys_oper_log` (高频、容忍丢行, 异步合理)。合规模块 (XK/MCP/MES 报工/维保/卫生) 关键动作**全部已改同步直写**, 注释里 20+ 处 "不走 @Async" 是教训声明非漏网。结论: 无需改动, 设计合理 — 固化进 [ADR-0001](architecture/decisions/0001-audit-sync-direct-write.md)。
+- **G 决策库 `docs/architecture/decisions/` (新增)**: 建 ADR 目录 + `INDEX.md` + 首批 6 篇 (0001~0006): ① 审计同步直写 ② `sys_menu.perms` UNIQUE 索引 ③ perm 按 PC/App 端分流 ④ XK 合规复用既有 module 不重造 ⑤ 飞牛 canary 先行部署 ⑥ 后端 jar 双站双轨 (home baked-in / 飞牛 runtime mount)。每篇四段式 (背景/决定/备选/后果), 历史细节指向 CHANGELOG 锚点; `docs/00_文档索引.md` 挂入口。
+- **H System.out → Logger 扫描 (代码零改动, 健康)**: 全后端 `src/main` 仅 1 处 `System.out` — 启动类 `IndustrialErpApplication` 的启动 banner (Spring Boot 惯例, 故意 System.out)。非坏味道, 无需改动。
+
+**改动**: 新增 `docs/architecture/decisions/` 6 文件 + `INDEX.md`, 改 `docs/00_文档索引.md`, 本 CHANGELOG 段。无后端/前端代码 / 无 DDL / 无部署 (纯文档)。
+
+前序版本: v1.1.103 hotfix-1 (见下方完整正文)。
 
 **当前版本**: v1.1.103 hotfix-1 (2026-10-19 — 开工仓库硬校验改降级放行. 现象: home 主站 PD202610190005 点开工报 "生产单未填仓库, 且仓库表中无默认仓库". 根因: home 3 个仓库(成品/原料/半成品) is_default 全 0 + 该单 warehouse_id=NULL + BOM 有明细 → 自动领料展开时仓库回退两个条件都命中不了 → PrdOrderService.release L255 抛错. 用户拍板: "开工不需要填仓库, 入库才需要" → 仓库是领料/入库环节数据, 不该阻塞开工主流程. 修法: release() 仓库缺失不再 throw, 改记 warn 日志 + 跳过自动领料展开 + 状态照样置 RELEASED/PRODUCING, 用户后续手动到「领料管理」建领料单时再填仓库 (与上一轮 "无 BOM 降级" 同一思路: 开工做能做的, 缺哪块数据降级跳过哪块, 不打死工单). 纯后端 1 文件 (PrdOrderService.release), 无 DDL/前端. home baked-in jar md5 `1c95906f` (101,460,004B) build --no-cache + rm -f + run 三连, PD202610190005 实测开工 200 → bill_status=PRODUCING + release_name=gpssong. 飞牛 canary 待同步 (需对齐同 jar md5). 前序 v1.1.103 正文:
 
