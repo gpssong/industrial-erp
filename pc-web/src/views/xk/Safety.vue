@@ -359,9 +359,14 @@
                 <span class="env-no">{{ String(i + 1).padStart(2, '0') }}</span>
                 <span class="env-text">{{ it.text }}</span>
                 <span class="env-verdict">
-                  <el-icon v-if="it.status === 'PASS'" class="env-v-ic"><Check /></el-icon>
-                  <el-icon v-else class="env-v-ic"><WarningFilled /></el-icon>
-                  <span>{{ it.status === 'PASS' ? '符合' : '发现问题' }}</span>
+                  <span class="env-v-label" :class="it.status === 'PASS' ? 'ok' : 'bad'">{{ it.status === 'PASS' ? '符合' : '发现问题' }}</span>
+                  <!-- v1.1.108: 检查项右侧改开关 — 开=符合(PASS), 关=发现问题(ISSUE). 任意项关 → 触发下方整改表单; 全开 → 隐藏 -->
+                  <el-switch
+                    v-model="it.status"
+                    active-value="PASS"
+                    inactive-value="ISSUE"
+                    @change="onEnvItemToggle(it)"
+                  />
                 </span>
               </div>
             </div>
@@ -1055,7 +1060,16 @@ const envItems = ref([
 ])
 const hasIssue = computed(() => envItems.value.some(i => i.status === 'ISSUE'))
 const envCheckedCount = computed(() => envItems.value.filter(i => i.status === 'PASS').length)
-const envAlertCount = computed(() => hasIssue.value ? 1 : 0)
+// v1.1.108: 隐患数 = 发现问题的检查项数 (多项都开"问题"时累加, 不再写死 1)
+const envAlertCount = computed(() => envItems.value.filter(i => i.status === 'ISSUE').length)
+
+// v1.1.108: 检查项开关切换 — 关掉某项(设为"发现问题")自动弹整改表单; 全符合时由 hasIssue 收敛表单
+function onEnvItemToggle(it) {
+  // 开关 v-model 已改 it.status, 这里只是切到"发现问题"时提示用户填整改记录
+  if (it.status === 'ISSUE') {
+    ElMessage.warning('第 ' + (envItems.value.indexOf(it) + 1) + ' 项发现问题, 请在下方填写卫生问题整改记录')
+  }
+}
 
 function todayStr() {
   const d = new Date()
@@ -1654,6 +1668,13 @@ watch(tab, async (t) => {
 .env-row.pass .env-verdict { color: var(--success); }
 .env-row.issue .env-verdict { color: var(--danger); }
 .env-v-ic { font-size: 15px; }
+// v1.1.108: 检查项右侧开关 — 左侧文字标签(符合/发现问题)按状态着色, 开关 inline-prompt 显示 符合/问题
+.env-v-label { font-size: 12px; font-weight: 700; min-width: 40px; text-align: right; }
+.env-v-label.ok { color: var(--success); }
+.env-v-label.bad { color: var(--danger); }
+.env-row :deep(.el-switch) { --switch-on-color: #1f7a33; }
+.env-row :deep(.el-switch.is-checked .el-switch__core) { background-color: #1f7a33; border-color: #1f7a33; }
+.env-row :deep(.el-switch .el-switch__core) { min-width: 52px; }
 
 // 卫生问题整改记录 (嵌在 env-card 内部, 去掉独立阴影)
 .env-rectify-card {
