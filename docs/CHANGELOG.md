@@ -5,7 +5,7 @@
 
 ### v1.1.108 (2026-10-20 — XK 生产环境检查: 检查项右侧改开关 + 全合格也能归档)
 
-PC 端 `/xk/safety` 生产环境检查 tab, 两项补强 + 一项 hotfix:
+PC 端 `/xk/safety` 生产环境检查 tab, 两项补强 + 两次 hotfix:
 
 **(1) 检查清单 5 项右侧原本固定显示「符合/发现问题」标签, 改为 `el-switch` 开关, 可手动切换每项状态。**
 
@@ -44,7 +44,27 @@ MySQL `JSON` 列不接受空字符串, 报 "Invalid JSON text: The document is e
 
 **纯 PC 前端改动, 不动后端 / App / SQL。** `envItems` 仍是 V1.2 固定模板 mock (真实逐项数据待后端 `xk_env_check_template` 落地)。
 
-飞牛 canary 已上线验证 (线上 index → `index-DzyV4PjR`, Safety → `Safety-OtOYVIWq`)。home 主站待 canary 验证后同步。
+**(5) 双站部署记录 (2026-10-20)**
+
+| 站 | 容器 | URL | 线上 index | 线上 Safety chunk |
+|---|---|---|---|---|
+| 飞牛 canary | `erp-pc-web-failover` | `http://192.168.0.32:18080` | `index-DzyV4PjR` | `Safety-OtOYVIWq` (hotfix-2/3/4) |
+| home 主站 | `erp-pc-web` | `http://home.93gushi.com:8088` | `index-B7OPR-tZ` | `Safety-BKs2XQNY` (hotfix-2/3/4) |
+
+- **飞牛 canary**：tar 全量替换 `/vol2/erp-system/pc-web/dist-new` + `docker restart erp-pc-web-failover`。
+- **home 主站**：踩了 5 个坑才稳定部署 — gpssong 无任何可写目录 + sudo -S tee 写 0 字节 + scp 拒 + sudo bash heredoc 嵌套崩 + base64 超 ARG_MAX。
+  最终路径 = Mac 临时 `python3 -m http.server 8765` + home `sudo wget -O /tmp/x.tgz http://192.168.0.5:8765/x.tgz` (71 MB/s 内网) + sudo 解 tar + cp -r 替换 + docker restart。
+  还有一个坑: `tar -xzf -C /tmp/dist` 把 `dist/` 顶层目录当成 `dist/dist/` 嵌一层, cp 要 `cp -r /tmp/dist/dist/. /dest/` 而不是 `/tmp/dist/. /dest/`。
+  这些都沉淀到 memory: `home-pcweb-dist-deploy-pitfalls.md` (下次 home 部署直接复用 Mac http + home wget 路径)。
+
+**v1.1.108 5 个 commit 全部推 GitHub main**:
+- `d19cfee` (1) 开关化 + (2) 全合格归档
+- `969b1f4` (2) 整改分支共用 plannedAt / 北京时间
+- `8b76028` hotfix-2: plannedAt 改 ISO `YYYY-MM-DDTHH:mm:ss`
+- `491c751` hotfix-3: plannedAt 改北京时区空格分隔匹配 `@JsonFormat`
+- `6349a6b` hotfix-4: MySQL JSON 列空字符串 → `'[]'`
+
+教训: **日期/时间字段在 entity 上加了 `@JsonFormat` 就同时管控序列化与反序列化**; 前端 helper 必须严格匹配 (格式 + 时区); **MySQL JSON 列不接受空字符串** — 统一发 `'[]'` 或真数组串。
 
 ### v1.1.107 (2026-10-20 — App APK 隐私/卫生第三批)
 
