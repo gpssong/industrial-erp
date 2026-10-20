@@ -1,8 +1,7 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.107 (2026-10-20 — App APK 隐私/卫生第三批: (1) 关 uni-stat 遥测 — `src/manifest.json` 加 `h5.uniStatistics.enable=false`, H5/APK 产物不再向 DCloud 公网 `tongji.dcloud.io`/`tongji-collector.dcloud.net.cn` 上报设备/页面数据; (2) `index.html` SW 注册加 `!window.Capacitor` 守卫, 消掉 APK WebView 里常驻的 `Failed to register /static/sw.js` 报错 (PWA 离线缓存只给浏览器 H5); (3) `api/index.js` 抽 `logDebug()` 走 `import.meta.env.DEV`, 生产 H5/APK 静默 DEBUG 级日志, 保留网络层/非JSON 的 warn (R13 诊断价值). 纯 App 端, 不动后端/PC/SQL.
-
-**v1.1.106** (2026-10-20 — App APK 端检查 + 4 批修复: (1) 硬件 back 键改用 @capacitor/app (原 plus.key 在 Capacitor 下从不触发, v1.1.60 规则表成死代码); (2) APK OS 级 versionName/versionCode 接入 src/manifest.json (原 gradle 硬编码 1.0, build-app.sh 加 [1.7]+[6.5] 校验); (3) XK 三页照片真选图+真上传走 /system/upload/file, 清掉全部 unsplash mock 图; (4) 清理 .bak + package.json 版本对齐 + .card 基础样式收口 common.css).
+**当前版本**: v1.1.108 (2026-10-20 — PC XK 生产环境检查 tab: 检查清单 5 项右侧由只读「符合/发现问题」标签改为 `el-switch` 开关, 开=符合/关=发现问题, 任意项关自动展开「卫生问题整改记录」表单, 全符合则隐藏; `envAlertCount` 改为统计 ISSUE 项数; 纯 PC 前端 (Safety.vue), 不动后端/App/SQL. 飞牛 canary 已上线, home 主站待同步.
+**前版本 v1.1.107**: App APK 隐私/卫生第三批: (1) 关 uni-stat 遥测 — `src/manifest.json` 加 `h5.uniStatistics.enable=false`, H5/APK 产物不再向 DCloud 公网 `tongji.dcloud.io`/`tongji-collector.dcloud.net.cn` 上报设备/页面数据; (2) `index.html` SW 注册加 `!window.Capacitor` 守卫, 消掉 APK WebView 里常驻的 `Failed to register /static/sw.js` 报错 (PWA 离线缓存只给浏览器 H5); (3) `api/index.js` 抽 `logDebug()` 走 `import.meta.env.DEV`, 生产 H5/APK 静默 DEBUG 级日志, 保留网络层/非JSON 的 warn (R13 诊断价值). 纯 App 端, 不动后端/PC/SQL.
 
 ## 速查
 

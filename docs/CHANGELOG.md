@@ -3,6 +3,20 @@
 
 ## changelog (倒序)
 
+### v1.1.108 (2026-10-20 — XK 生产环境检查: 检查项右侧改开关)
+
+PC 端 `/xk/safety` 生产环境检查 tab, 检查清单 5 项右侧原本固定显示「符合/发现问题」标签, 改为 `el-switch` 开关, 可手动切换每项状态。
+
+- **`pc-web/src/views/xk/Safety.vue` (Tab 3 生产环境检查)**:
+  - 每项右侧 `env-verdict` 区由「图标 + 静态文字」改为「状态色文字标签 (符合=绿/发现问题=红) + `el-switch`」。
+    开关 `v-model="it.status"` 直接改 `PASS`/`ISSUE`, 开=符合, 关=发现问题。
+  - 新增 `onEnvItemToggle(it)`: 切到「发现问题」时弹 warning toast 提示去下方填整改记录。
+  - `envAlertCount` 从写死 `hasIssue ? 1 : 0` 改为「统计有多少项处于 ISSUE」(多项发现问题时 banner 数字累加)。
+  - 交互联动不变: 任意项 = ISSUE → `hasIssue` 为 true → 展开下方「卫生问题整改记录」表单; 全部 = PASS → 表单隐藏, 显示「当前检查表全部符合」绿条。
+  - 样式: `env-v-label` 状态着色, `env-row :deep(.el-switch)` 开态染绿 (与「符合」语义一致)。
+- 纯 PC 前端改动, 不动后端 / App / SQL。`envItems` 仍是 V1.2 固定模板 mock (真实逐项数据待后端 `xk_env_check_template` 落地, 本次只把判定交互从只读标签改成可切换开关)。
+- 构建 `npx vite build` 通过, Safety chunk 重打。部署: 飞牛 canary (`/vol2/erp-system/pc-web/dist-new` 全量替换 + `docker restart erp-pc-web-failover`) 已上线验证 (线上 index → `index-RnI_wV2Z`, Safety → `Safety-BXaqlxx5` 在线)。home 主站待 canary 验证后同步。
+
 ### v1.1.107 (2026-10-20 — App APK 隐私/卫生第三批)
 
 纯 App 端三项收尾, 不动后端 jar / PC 前端 / SQL。版本四处同步到 1.1.107 (profile / manifest.json / package.json / CLAUDE.md), build-app.sh 一致性校验通过。
