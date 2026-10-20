@@ -1,5 +1,6 @@
 package com.industrial.erp.modules.base.controller;
 
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.industrial.erp.common.CreateByNameInjector;
@@ -77,7 +78,10 @@ public class BaseProductController {
         return R.ok(service.convertToMain(productId, unitId, qty));
     }
 
-    /** App 端专用商品搜索 (登录即可, 不需要 base:product:list) */
+    /** App 端专用商品搜索 (登录即可, 不需要 base:product:list).
+     *  v1.1.104: 补 @SaCheckLogin 兜底 (历史裸奔, check-perm.py 报告).
+     *  业务上"App 端登录用户看商品选单"是典型低敏感场景, 不需要 perm 限制. */
+    @SaCheckLogin
     @GetMapping("/app-search")
     public R<PageResult<BaseProduct>> appSearch(@RequestParam(defaultValue = "1") Integer pageNum,
                                                 @RequestParam(defaultValue = "20") Integer pageSize,

@@ -63,6 +63,7 @@ public class FeiePrintController {
     // ==================== 通用单据打印 ====================
 
     @Operation(summary = "单据打印预览 (返回渲染后的 HTML, 用于 iframe)")
+    @SaCheckPermission(value = {"production:order:feie-print"}, orRole = "admin")
     @GetMapping("/print/{bizType}/{id}/preview")
     @OperLog(module = "飞鹅云打印", businessType = "PRINT_PREVIEW")
     public R<String> previewBill(@PathVariable String bizType, @PathVariable Long id) {

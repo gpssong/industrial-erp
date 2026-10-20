@@ -114,7 +114,9 @@ public class PurReceiptController {
 
     /**
      * v1.1.101 订单为源 — 从采购订单 + 已合格 IQC 自动建 DRAFT 入库单 (完全对齐 PC).
+     * v1.1.104: 补 perm 拦截 (历史漏写, check-perm.py 报告 — 业务上"创建入库单"必须有 add 权限).
      */
+    @SaCheckPermission(value = {"purchase:receipt:add"}, orRole = "admin")
     @PostMapping("/create-from-order")
     public R<java.util.Map<String, Object>> createFromOrder(@RequestBody java.util.Map<String, Long> body) {
         Long orderId = body == null ? null : body.get("orderId");
