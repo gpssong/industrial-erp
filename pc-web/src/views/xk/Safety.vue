@@ -467,10 +467,16 @@
               </div>
             </div>
 
-            <!-- 无问题时的提示 -->
+            <!-- 无问题时的提示 + 保存合格记录 (v1.1.108: 全合格也要能生成并归档一条检查记录) -->
             <div v-else class="env-clean-tip">
               <el-icon color="var(--success)"><Check /></el-icon>
               <span>当前检查表全部符合, 无需整改</span>
+              <div class="env-clean-actions" style="margin-left:auto">
+                <el-button @click="onGenReport"><el-icon><Document /></el-icon>生成检查报告</el-button>
+                <el-button type="primary" :loading="envSaving" @click="onSaveEnvPass">
+                  <el-icon><Check /></el-icon>保存合格检查记录
+                </el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -1152,6 +1158,49 @@ function onGenReport() {
   ElMessage.success('检查报告已生成 (占位)')
 }
 
+// v1.1.108: 全合格场景保存检查记录.
+// 5 项全 PASS (hasIssue=false) 时也要能生成并归档一条 xk_env_check 记录,
+// 而不是只有"发现问题"才落库. 走 save(建 DRAFT) → check(level=null, rectifyStatus=DONE):
+//   level 留空 = 全合格, 后端 X6 门禁只对 MEDIUM/HIGH 强制照片, 全合格 0 照片合法.
+// 检查项快照 (5 项文本 + 全部"符合") 写进 checkContent, 台账里那条记录能看到本次查了什么.
+async function onSaveEnvPass() {
+  const passItems = envItems.value.filter(i => i.status === 'PASS')
+  const snapshot = (passItems.length
+    ? passItems.map((i, n) => (n + 1) + '. ' + i.text + ' — 符合').join('\n')
+    : '生产环境检查 (V1.2)')
+  envSaving.value = true
+  try {
+    const payload = {
+      level: null,                          // 全合格, 无问题等级
+      rectifyOwner: '', deadline: '', rectifyDesc: '',
+      rectifyStatus: 'DONE',
+      beforePhotos: '', afterPhotos: '',
+      workshop: '一车间',
+      envType: 'CLEANLINESS',
+      checkTitle: '生产环境检查 · V1.2 (全部合格)',
+      checkContent: '5 项检查全部符合, 无需整改. 检查项:\n' + snapshot,
+      plannedAt: new Date().toISOString().slice(0, 16).replace('T', ' ')
+    }
+    let r
+    if (envSel.value && envSel.value.id) {
+      // 已有 DRAFT, 直接 /check 归档为全合格
+      r = await envCheckApi.check(envSel.value.id, payload)
+      if (r.code === 200) { ElMessage.success('合格检查记录已归档'); await loadEnv() }
+      else ElMessage.error(r.msg || '保存失败')
+    } else {
+      // 无 DRAFT: save 建单再 check 归档 (两步)
+      r = await envCheckApi.save(payload)
+      if (r.code === 200 && r.data) {
+        const cr = await envCheckApi.check(r.data.id, payload)
+        if (cr.code === 200) { ElMessage.success('已新建并归档合格检查记录 (' + (r.data.checkNo || '')); await loadEnv() }
+        else ElMessage.error(cr.msg || '归档失败')
+      } else ElMessage.error(r.msg || '新建失败')
+    }
+  } catch (e) {
+    ElMessage.error((e && (e.msg || e.message)) || '保存失败')
+  } finally { envSaving.value = false }
+}
+
 async function loadEnv() {
   envLoading.value = true
   try {
@@ -1729,7 +1778,7 @@ watch(tab, async (t) => {
 .env-binding-note { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #607189; margin-top: 12px; }
 .env-binding-note .el-icon { color: var(--primary-color); }
 
-/* ===== image #6: 全符合时的提示条 ===== */
+/* ===== image #6: 全符合时的提示条 (v1.1.108 加保存合格记录按钮, 撑满一行 + 右侧动作区) ===== */
 .env-clean-tip {
   display: flex; align-items: center; gap: 8px;
   margin-top: 18px; padding: 14px 18px;
