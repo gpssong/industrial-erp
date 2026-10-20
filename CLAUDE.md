@@ -27,7 +27,7 @@ Spring Boot 3.2.5 + JDK 17 + MyBatis-Plus 3.5.9 后端 (19 module, 346 Java 类)
 | AI / MCP 对接 | `ai` `mcp` | sql/48_v176_ai_perm / sql/51_hermes_mcp_bot | pc-web/src/views/report/Ai.vue + system/Integration.vue | app/src/pages/ai/ |
 | 系统管理 | `system` | (基础 + 增量 perm seed) | pc-web/src/views/system/ (Role / Menu / AppModules / Backup / OperationLog / Integration) | app/src/pages/system/ |
 
-## 设计原则 (R9~R18 — 完整版见 memory)
+## 设计原则 (R9~R19 — 完整版见 memory)
 
 - **R9 后端按端分流 perm**: `perms_by_user_client(uid, X-Client-Type)` → 不能给 PC/APP 混合 perm 数组 (App storage 残留会导致按钮误显, 见 v1.1.55 hotfix-3)
 - **R10 sys_menu.perms 必须 UNIQUE 索引**: 否则 `INSERT IGNORE` 漏检导致 B+F 行并存弹窗双勾 (v1.1.56 hotfix-1 教训)
@@ -39,6 +39,7 @@ Spring Boot 3.2.5 + JDK 17 + MyBatis-Plus 3.5.9 后端 (19 module, 346 Java 类)
 - **R16 showLoading/hideLoading 配对**: try/catch/finally 三处至少一处 hideLoading; 不 showLoading 的函数 catch 里也不 hideLoading (完整模板见下方)
 - **R17 后端 jar 镜像内置 → 三连部署**: home `backend` 是 baked-in jar (`COPY industrial-erp-*.jar app.jar`), `docker restart` 不拉新 jar, 必须 `build --no-cache` + `docker rm -f` + `docker run`; 飞牛 baked-in 同样坑; **`docker cp` 只对挂载的 host jar 生效**
 - **R18 sql seed perm 行必须同时给 PC + APP 双授权**: 凡 seed perm 节点都给 6 内置角色 × 双 client_type, 漏一个客户端就 dashboard 少图标 (v1.1.103 #3 教训), 巡检: `SELECT client_type, COUNT(*) FROM sys_role_menu GROUP BY client_type` 期望 5-10 倍 PC>APP 差距
+- **R19 App 运行时探测只认 `window.Capacitor`, 不认 `plus`**: 本项目 APK 是 **Capacitor 6** 不是 HBuilder, WebView 里**没有 `plus`** → `typeof plus === 'undefined'` 会把 APK 误判成 H5, `getBase()` 变 `/api` → 请求打回 WebView 自己的 localhost 拿到打包进去的 `index.html` (v1.1.105 APK 完全无法登录)。**判定一律 import `app/src/utils/runtime.js`** (`isNativeApp()` / `isH5Runtime()`), 全仓禁止再写内联 `typeof plus`; 配套 **CORS 必须放行无端口 `http://localhost`** (`androidScheme=http` 的 Capacitor origin 不带端口, 只配 `localhost:*` → 实测 403), 见 ADR-0007。排查 APK 问题先看 logcat `[api] DEBUG base:` 一行
 
 ## R16 完整模板
 

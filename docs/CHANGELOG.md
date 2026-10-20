@@ -3,6 +3,67 @@
 
 ## changelog (倒序)
 
+### v1.1.105 (2026-10-20 — App APK 完全无法登录 hotfix: runtime 误判 + CORS 漏无端口 origin)
+
+真机 (小米 M2007J1SC) 装 APK 后**完全无法登录**。用 `adb logcat` + CORS 实测矩阵定位到**两个串联的坑**, 均已修复并双站部署 + 真机验证通过。决策沉淀 [ADR-0007](architecture/decisions/0007-app-runtime-probe-and-cors-origin.md), 原则见 CLAUDE.md **R19**。
+
+#### 坑 1 (首要): `isH5Runtime()` 只认 `plus`, Capacitor APK 被误判成 H5
+
+v1.1.80~v1.1.104 期间"是不是 H5"的判断被**复制到 5 个文件**, 每处同一句内联:
+
+```js
+typeof window !== 'undefined' && typeof document !== 'undefined' && typeof plus === 'undefined'
+```
+
+`plus` 是 **HBuilder** 原生运行时的全局对象, 但本项目 APK 走 **Capacitor 6** (`@capacitor/android` 6.2.1) —— Capacitor WebView 里**没有 `plus`**, 于是 5 处全部误判。后果链 (logcat 直接证据):
+
+```
+[api] DEBUG base: /api                                          ← getBase() 走了 H5 分支
+Handling local request: http://localhost/api/system/config/...    ← 打回 WebView 自己的服务器
+[api] 非 JSON 响应: status=200 ct=text/html data=<!DOCTYPE html>
+```
+
+Capacitor 内置本地 HTTP server 找不到该文件 → SPA fallback 返回**打包进 APK 的 `index.html`** → 登录接口同样拿不到 JSON。
+
+`utils/nav.js` 的 `isNative()` 用 `typeof plus !== 'undefined'`, 同样误判 → 原生 App 里所有跳转退化成 `window.location.hash`, `uni.switchTab` / `uni.reLaunch` 全失效。
+
+#### 坑 2: 后端 CORS 只配带端口通配, 漏了 APK 的真实 origin
+
+`capacitor.config.json` 设 `androidScheme: "http"` 且无端口 → APK 的真实 origin 是**无端口的 `http://localhost`**。而 `SecurityConfig.corsConfigurationSource` 与 `SaTokenConfig.corsFilter` (注册在 `/api/**`) 两道闸门都只写了 `http://localhost:*`, 匹配不到。修完坑 1 立刻会撞上这个, 故一并修。
+
+实测矩阵 (修前直连后端):
+
+| Origin | GET | OPTIONS |
+|---|---|---|
+| `http://localhost` (APK 实际) | **403** | **403** |
+| `http://localhost:5173` | 401 ✅ | 200 ✅ |
+
+> 排查方法固化: CORS 类 403 一律 `curl -H "Origin: <各候选>"` 实测矩阵, **同时看 GET 和 OPTIONS** —— 预检 200 但实际 403 说明被另一道闸门拦了, 不要靠推理哪个 pattern 匹配得到。
+
+#### 改动
+
+- **新增 `app/src/utils/runtime.js`** — 运行时探测单一权威源。判定顺序: `window.Capacitor.isNativePlatform()` → HBuilder 的 `plus` → 才是浏览器; 有 `Capacitor` 全局但方法不可用时保守当原生。
+- **6 处内联副本收敛为 import**: `api/index.js` / `utils/nav.js` / `utils/upload.js` / `pages/login/index.vue` / `pages/profile/settings.vue`
+- 原生 base 新增 `getNativeBase()` 也读 storage 显式覆盖 (此前只有 H5 分支读, 「服务器设置」在原生侧不生效)
+- 后端 `SecurityConfig` + `SaTokenConfig` 各补 `http://localhost` / `http://127.0.0.1` 无端口 pattern
+- 登录页 template 引用了**未定义变量** `isNativePlatform` (恒 falsy → placeholder 永远显示 H5 默认值), 改 `isNativeApp()`
+- 版本 1.1.103 → 1.1.105 (profile `APP_VERSION` + `manifest.json` + CLAUDE.md 三处同步, 过 R14)
+
+#### 部署与验证
+
+| 项 | 飞牛 canary (先行) | home 主站 |
+|---|---|---|
+| 方式 | `docker cp` + `restart` (ADR-0006 双轨) | `build --no-cache` + `rm -f` + compose (baked-in 三连) |
+| CORS GET | 403 → **401** ✅ | 403 → **401** ✅ |
+| OPTIONS | 403 → **200** ✅ | 403 → **200** ✅ |
+| 端到端登录 | 200 + Set-Cookie + perms ✅ | 200 + Set-Cookie + perms ✅ |
+
+- jar md5 `2246eb5333f6c70aad3b46f0e05bcb33` 在**本地 / 飞牛容器 / home 镜像内**三方一致 (home 用 `docker run --entrypoint md5sum` 探镜像层, 见 ADR-0006)
+- **home 完整保留原环境变量含 `SA_TOKEN_JWT_SECRET_KEY`** → 未换密钥, 已登录用户未被强制登出
+- 全栈健康: PC 18080 / App H5 18090 / backend 8080 均 200
+- APK 过 R14 双层校验 (内嵌 `1.1.105` = `manifest.versionName`), 产物 `erp-app-20261020.apk` (4474212 B, md5 `2d0027a01aed82f7aaecd178fa4e6172`)
+- **真机实测**: 安装 → 登录 → 工作台加载真实业务数据, `logcat` 错误 **0 条**; `/auth/login` 2 / `/auth/me` 3 / `/report/dashboard` 1 / `/inventory/warning/list` 1 / `/qms/inspection/page` 2 / `/production/semi-in/page` 1 / `/production/finished-in/page` 1 全部成功
+
 ### v1.1.104 P2 (2026-10-19 — home 系统检查报告 P2 三项收尾: F 扫描 / G 决策库 / H 扫描)
 
 **P2 三项** (home 检查报告的第三阶段改善, 前序 P0/P1 已全落地):
