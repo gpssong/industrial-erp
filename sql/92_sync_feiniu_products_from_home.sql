@@ -1,0 +1,45 @@
+-- =============================================================================
+-- 92_sync_feiniu_products_from_home.sql  (v1.1.104 — 飞牛商品主数据对齐 home)
+--
+-- 背景: 双站数据非严格同步 — home (192.168.0.150) 是主数据源, 飞牛 (192.168.0.32)
+--       是 canary。2026-10-20 对比发现飞牛 base_product 少 7 条商品
+--       (hs70053 / jb7084001 / mjy1050007 / mjy1255007 / qyhlsyz21060A /
+--        qyhlsyz7060B / tm9045), 且这 7 条商品在 base_product_unit 缺 9 行单位映射。
+--
+--       本脚本为**当时那次对齐的执行记录** (home 只读 SELECT 生成 → 飞牛 INSERT)。
+--       今后 home 新增商品时, 按同样流程单向补灌飞牛:
+--         1) home 只读:  SELECT 出飞牛缺的 product_code (不写 home)
+--         2) 生成 INSERT (保留原雪花 id, 避免飞牛新建 id 破坏 bom_id 关联)
+--         3) 飞牛灌入:   base_product 用 INSERT IGNORE (product_code 唯一键天然幂等)
+--                       base_product_unit 用 WHERE NOT EXISTS (该表只有主键无业务唯一键)
+--
+-- ⚠️ 本脚本**仅作归档参考**, 请勿在 home 执行 (home 主数据只读)。
+--    数据已灌入飞牛 (2026-10-20), 重跑因 NOT EXISTS / INSERT IGNORE 守门亦无副作用。
+--
+-- 灌入结果 (2026-10-20 实测):
+--   飞牛 base_product      127 → 134 (与 home 一致, 0 缺失 0 多余)
+--   飞牛 base_product_unit 165 → 174 (9 个 product_id 单位行数与 home 全部一致)
+-- =============================================================================
+
+-- ===== 以下 7 条 base_product 已灌入飞牛 (2026-10-20), 归档留档 =====
+-- hs70053       红色大胶带        is_food_grade=0  bom_id=NULL
+-- jb7084001     金博70*84*0.02    is_food_grade=1  bom_id=2079383647073927169 (飞牛已存在)
+-- mjy1050007    马鲛鱼10*50*0.07  is_food_grade=0  bom_id=2077612281593135105 (飞牛已存在)
+-- mjy1255007    马鲛鱼12*55*0.07  is_food_grade=0  bom_id=2077612281593135105 (飞牛已存在)
+-- qyhlsyz21060A 透明印字胶带      is_food_grade=0  bom_id=NULL  product_type=FG
+-- qyhlsyz7060B  透明印字胶带      is_food_grade=0  bom_id=NULL  product_type=FG
+-- tm9045        透明胶带          is_food_grade=0  bom_id=NULL
+
+-- ===== 9 条 base_product_unit 已灌入飞牛 (unit_id=0 = 首页单位, 靠 unit_name 文本) =====
+-- product_id=2108414787827871745 (dyd1185009)  unit=公斤 is_main=1
+-- product_id=2108415195992371201 (dyd8700075)  unit=只   is_main=1
+-- product_id=2108428618528534530 (hs70053)      unit=卷   is_main=1
+-- product_id=2110288401078497282 (tm9045)       unit=只   is_main=0
+-- product_id=2110889685766713346 (jb7084001)    unit=只   is_main=1
+-- product_id=2111269441628614658 (mjy1050007)   unit=只   is_main=1
+-- product_id=2111269834949472257 (mjy1255007)   unit=只   is_main=1
+-- product_id=2112079196458659841 (qyhlsyz21060A) unit=卷  is_main=1
+-- product_id=2112079501514584065 (qyhlsyz7060B)  unit=卷  is_main=1
+
+-- 归档: 复检语句 (飞牛执行, 应 134 / 对应单位行齐全)
+SELECT COUNT(*) AS feiniu_product_total FROM base_product WHERE deleted=0;
