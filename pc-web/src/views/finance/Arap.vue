@@ -147,7 +147,7 @@
         :total="Number(data.total)"
         :current-page="query.pageNum"
         :page-size="query.pageSize"
-        @current-change="loadData"
+        @current-change="onAllPageChange"
       />
       <el-pagination
         v-else
@@ -156,7 +156,7 @@
         :total="Number(issuedData.total)"
         :current-page="issuedQuery.pageNum"
         :page-size="issuedQuery.pageSize"
-        @current-change="loadIssuedData"
+        @current-change="onIssuedPageChange"
       />
     </div>
 
@@ -312,6 +312,18 @@ function onTabChange(tab) {
     query.pageNum = 1
     loadData()
   }
+}
+
+function onAllPageChange(p) {
+  if (p === query.pageNum) return
+  query.pageNum = p
+  loadData()
+}
+
+function onIssuedPageChange(p) {
+  if (p === issuedQuery.pageNum) return
+  issuedQuery.pageNum = p
+  loadIssuedData()
 }
 
 async function loadData() {
