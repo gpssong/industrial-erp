@@ -3,7 +3,43 @@
 
 ## changelog (倒序)
 
-### v1.1.108 (2026-10-20 — XK 生产环境检查: 检查项右侧改开关 + 全合格也能归档)
+### v1.1.109 (2026-10-21 — PC finance Arap 应收应付全部往来列表翻页修复)
+
+home 主站 `http://home.93gushi.com:8088/#/finance/arap` 进入「全部往来」tab, Total 显示 125 (6+ 页), 但点第 2/3 页无反应 (table 不刷数据, pageNum 看上去卡在 1)。
+
+**根因**：`Arap.vue` el-pagination `@current-change="loadData"` 没接参 — `loadData` 函数签名 `async function loadData()` 不取 pageNum, 而 el-pagination 触发时把新页码 p 作为第一个参数传进去, 函数体内对 `p` 完全没用, `query.pageNum` 永远 =1, 所以下一页请求永远是 `pageNum=1`, table 显示同一份数据。`已开发票` tab 的 `@current-change="loadIssuedData"` 同样问题。
+
+**修法**：把 `@current-change` 的 handler 拆成 `onAllPageChange(p)` / `onIssuedPageChange(p)` 两个具名函数, 内部:
+```js
+function onAllPageChange(p) {
+  if (p === query.pageNum) return     // 同值短路 (避免 v-if 切换 tab 重建 pager 时无端重拉)
+  query.pageNum = p                    // 同步页码到 query
+  loadData()                           // 重拉
+}
+```
+
+模板侧 `@current-change="onAllPageChange"` / `@current-change="onIssuedPageChange"` 替换 `@current-change="loadData"` / `@current-change="loadIssuedData"`。
+
+**纯 PC 前端 1 文件改动** (`pc-web/src/views/finance/Arap.vue`), 不动后端 / App / SQL / 不打 jar。
+
+**R20** el-pagination `@current-change` / `@size-change` 必须显式接参 — 这是 Element Plus 官方要求, handler 函数形参为空会导致页码/页大小不更新; 同时 `v-if="activeTab === 'all'"` 切换 `el-pagination` 重建时同值守卫避免无意义重拉。
+
+**双站部署记录 (2026-10-21)**:
+
+| 站 | 容器 | URL | Arap chunk hash |
+|---|---|---|---|
+| 飞牛 canary (192.168.0.32) | `erp-pc-web-failover` | http://192.168.0.32:18080/#/finance/arap | `Arap-BGHHviCM.js` |
+| **home 主站 (192.168.0.150)** | `erp-pc-web` | http://home.93gushi.com:8088/#/finance/arap | `Arap-BGHHviCM.js` (同源) |
+
+- 飞牛: `pcweb-fresh.tgz` 经 `/vol2/erp-system/pc-web/fresh-staging/dist → mv dist-new → docker restart erp-pc-web-failover` (bind-mount 即时生效)
+- home: sudo wget 从 Mac 临时 `:8765` HTTP server 取 `pcweb-fresh.tgz` → 解 `/tmp/pcweb-staging` → `cp -r staging/dist/. /volume3/docker/erp-system/pc-web-new/dist/` → `docker restart erp-pc-web` (cp `-r staging/dist/. dist/` 解决 tar 解开后嵌套 dist 目录坑)
+- 双站入口 chunk `index-WxHX1_L7.js` (main entry, hash 未变) + Arap chunk `Arap-BGHHviCM.js` (业务入口, hash 已变)
+- 飞牛部署踩坑: `dist-new.bak-20261021-131500` 因 staging2 swap 中 mv 时机错被清空 → 已 mv `dist-new.bak-20261021-130930` (v1.1.108 backup) 顶替, 然后 fresh-staging 替换
+- home 部署踩坑: PAM autoblock 触发等 120s; sudo -S 密码管子走 `echo $PASS | sudo -S -p '' bash -lc "wget / cp / mv / docker restart"` 6 步串行
+
+**v1.1.108 完整变更**:
+
+
 
 PC 端 `/xk/safety` 生产环境检查 tab, 两项补强 + 两次 hotfix:
 
