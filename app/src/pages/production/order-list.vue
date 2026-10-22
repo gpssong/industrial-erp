@@ -84,7 +84,10 @@ async function loadData() {
   loading.value = true
   try {
     const params = { pageNum: 1, pageSize: 50 }
-    if (keyword.value) params.billNo = keyword.value
+    // v1.1.113: 搜索框 placeholder 是「单号/成品名」, 但之前只传 billNo, 品名搜不到。
+    // 后端 page(billNo, billStatus, productName) 三参数独立可选, 同时传 = AND 语义 (单号和品名都含该词),
+    // 符合"一个框两个关键词"的直觉; productName 命中 productName OR productCode LIKE。
+    if (keyword.value) { params.billNo = keyword.value; params.productName = keyword.value }
     if (billStatus.value) params.billStatus = billStatus.value
     const r = await api.prdOrderPage(params)
     list.value = (r && r.records) || []
