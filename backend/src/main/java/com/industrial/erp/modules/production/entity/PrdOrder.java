@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -15,28 +16,44 @@ import java.util.List;
 @TableName("prd_order")
 public class PrdOrder {
     // ===== 商品规格属性 (transient, JOIN 注入) =====
+    // v1.1.116 必须显式 @JsonProperty("pXxx"), 不能靠 getPThickness() 的推导。
+    // Jackson legacy 命名规则: getPThickness() 去 get 得 "PThickness", 因为首字母 P 后跟大写 T,
+    // 被当成 "P + Thickness" 驼峰切分 → 序列化成 "pthickness" (小写 p), 而前端读的是 "pThickness" → undefined。
+    // 无前缀的 getThickness() 正常输出 "thickness", 所以同一份 JSON 里两套 key 都在, 前端读的 pXxx 恒为空。
+    // 影响: 成品规格属性 7 字段 + 食品合规 5 字段全部显示 "—" (数据在库里, 只是 key 对不上)。
     @TableField(exist = false)
+    @JsonProperty("pThickness")
     private transient BigDecimal pThickness;
     @TableField(exist = false)
+    @JsonProperty("pWidth")
     private transient BigDecimal pWidth;
     @TableField(exist = false)
+    @JsonProperty("pDensity")
     private transient BigDecimal pDensity;
     @TableField(exist = false)
+    @JsonProperty("pGramWeight")
     private transient BigDecimal pGramWeight;
     @TableField(exist = false)
+    @JsonProperty("pMaterial")
     private transient String pMaterial;
     @TableField(exist = false)
+    @JsonProperty("pColorNo")
     private transient String pColorNo;
     // ===== v1.1.100 食品合规 (transient, 从 base_product JOIN 注入, 食品级成品回显) =====
     @TableField(exist = false)
+    @JsonProperty("pFoodExecStd")
     private transient String pFoodExecStd;
     @TableField(exist = false)
+    @JsonProperty("pFoodFilingNo")
     private transient String pFoodFilingNo;
     @TableField(exist = false)
+    @JsonProperty("pFoodUseDesc")
     private transient String pFoodUseDesc;
     @TableField(exist = false)
+    @JsonProperty("pFoodMigrationLimit")
     private transient java.math.BigDecimal pFoodMigrationLimit;
     @TableField(exist = false)
+    @JsonProperty("pIsFoodGrade")
     private transient Integer pIsFoodGrade;
     @TableField(exist = false)
     private transient String bomRemark;

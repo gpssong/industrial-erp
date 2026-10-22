@@ -9,16 +9,19 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @TableName("sal_order_detail")
 public class SalOrderDetail {
     // ===== 商品规格属性 (transient, JOIN 注入) =====
     // v1.1.12+: 打印模板"型号"列需要 pModel 字段, 加 transient getter/setter
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    @JsonProperty("pModel")
     private transient String pModel;
 
     // v1.1.38: 打印模板"色号"列需要 pColorNo 字段
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    @JsonProperty("pColorNo")
     private transient String pColorNo;
 
     // v1.1.38: 打印模板"库位"列 (出库单对齐), transient
