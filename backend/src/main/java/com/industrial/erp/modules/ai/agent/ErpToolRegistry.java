@@ -104,6 +104,62 @@ public class ErpToolRegistry {
         return arr;
     }
 
+    // ===== v1.1.117 — 按能力组裁剪工具 (系统设置「模型接口配置」3 能力开关真控制) =====
+    /** 能力组常量 (对应 AiProperties.Caps). */
+    public static final String GROUP_BUSINESS = "business";
+    public static final String GROUP_QUALITY = "quality";
+
+    /**
+     * 按启用能力组裁剪工具集 (v1.1.117).
+     * <ul>
+     *   <li>{@code business} (经营数据问答) 开 → 放开 7 个经营只读工具 (库存/客户/产品/供应商/出库单/订单/补货)。</li>
+     *   <li>{@code quality} (质量与XK辅助) 开 → 放开 {@code searchDocs} (RAG 文档检索)。</li>
+     * </ul>
+     * 全关 → 返回空数组 (agent 退化为纯 LLM 文本问答, 不喂工具)。
+     *
+     * @param groups 启用的组名集合 (可空; null/空 = 全关)
+     */
+    public JSONArray toolsEnabled(java.util.Collection<String> groups) {
+        JSONArray arr = new JSONArray();
+        boolean biz = groups != null && groups.contains(GROUP_BUSINESS);
+        boolean quality = groups != null && groups.contains(GROUP_QUALITY);
+        if (biz) {
+            arr.add(fn("queryStock",
+                    "查询商品当前库存数量 (可按关键字/仓库过滤)。keyword=商品名/编码模糊, warehouseId=仓库 id (可选, 不传查全部)。返回库存行列表。",
+                    map("keyword", "string", "商品名或编码关键字", true,
+                        "warehouseId", "number", "仓库 id, 不传查全部仓库", false)));
+            arr.add(fn("listCustomers",
+                    "查询客户列表。keyword=客户名模糊 (可选), limit=最多条数 (默认 20)。",
+                    map("keyword", "string", "客户名关键字", false,
+                        "limit", "number", "最多返回条数", false)));
+            arr.add(fn("listProducts",
+                    "查询产品/商品列表。keyword=产品名/编码模糊 (可选), limit=最多条数 (默认 20)。",
+                    map("keyword", "string", "产品名或编码关键字", false,
+                        "limit", "number", "最多返回条数", false)));
+            arr.add(fn("listSuppliers",
+                    "查询供应商列表 (补货/采购入库需要供应商 id)。keyword=供应商名模糊 (可选), limit=最多条数 (默认 20)。返回含 id/supplierName/taxRate 等。",
+                    map("keyword", "string", "供应商名关键字", false,
+                        "limit", "number", "最多返回条数", false)));
+            arr.add(fn("getDeliveryBill",
+                    "按单号查一张销售出库单 (状态/客户/金额/明细行)。billNo=出库单号 (必填)。",
+                    map("billNo", "string", "销售出库单号", true)));
+            arr.add(fn("getOrderByBillNo",
+                    "按单号查一张销售订单 (状态/客户/金额/明细行, 含每行 productId/qty/price)。billNo=订单号 (必填)。用于补货/采购入库前先确认订单明细。",
+                    map("billNo", "string", "销售订单号", true)));
+            arr.add(fn("replenishSuggest",
+                    "补货预测: 基于近30天出库流水 + 当前库存 + 安全库存, 给出每个商品的日均消耗/预计可售天数/是否建议补货/建议补货量。keyword=商品名或编码过滤 (可选, 不传则给全部), limit=返回条数 (默认 10)。",
+                    map("keyword", "string", "商品名或编码过滤, 可选", false,
+                        "limit", "number", "返回条数", false)));
+        }
+        if (quality) {
+            arr.add(fn("searchDocs",
+                    "在 ERP 使用手册/部署文档/业务说明里检索关键词, 回答 这个功能怎么用/流程怎么走 类问题。keyword=问题或关键词 (必填), limit=最多片段数 (默认 5)。",
+                    map("keyword", "string", "检索关键词或问题", true,
+                        "limit", "number", "最多返回片段数", false)));
+        }
+        return arr;
+    }
+
     /** 执行一次工具调用, 返回 JSON 文本 (喂回模型). 只读; 失败返回结构化错误. */
     public String execute(LlmClient.ToolCall call) {
         JSONObject args = call.arguments();

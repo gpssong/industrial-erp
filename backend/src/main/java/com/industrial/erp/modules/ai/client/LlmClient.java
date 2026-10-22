@@ -264,6 +264,93 @@ public class LlmClient {
         return names;
     }
 
+    // ===== v1.1.117 — 模型接口配置卡「测试连接」: 单 provider 探活, 独立于生效链 (不写 cooldown) =====
+
+    /** 测试连接结果 (脱敏, 不返回 key). */
+    public static class TestResult {
+        public boolean ok;
+        public String provider = "";
+        public long latencyMs;
+        public String errMsg = "";
+        public Map<String, Object> toMap() {
+            Map<String, Object> m = new HashMap<>();
+            m.put("ok", ok);
+            m.put("provider", provider);
+            m.put("latencyMs", latencyMs);
+            m.put("errMsg", errMsg);
+            return m;
+        }
+    }
+
+    /**
+     * 用给定 provider 配置发一次最小 chat (max_tokens=1) 探活, 验证 key/baseUrl/model 是否可用.
+     * <p>纯探活, 独立于 failover 链: 不动 cooldown, 不影响生效配置. 成功 2xx → ok; 401/403 → 鉴权失败; 其它 → 失败.
+     *
+     * @param providerName 供应商名 (回显用, 如 "agnes"/"OpenAI-compatible")
+     * @param key          API key (明文, 仅本次探活用, 不落库不进日志)
+     * @param model        模型名
+     * @param baseUrl      OpenAI 兼容 base url (可带 /v1 也可不带, 内部拼 /chat/completions)
+     * @param timeoutMs    超时毫秒 (<=0 用默认 60s)
+     */
+    public TestResult testConnection(String providerName, String key, String model,
+                                     String baseUrl, int timeoutMs) {
+        TestResult r = new TestResult();
+        r.provider = providerName == null ? "" : providerName;
+        // 空字段快速失败, 不发请求
+        if (blank(key) || blank(model) || blank(baseUrl)) {
+            r.errMsg = "缺少 API Key / 模型名称 / API 地址, 无法测试";
+            return r;
+        }
+        int t = timeoutMs > 0 ? timeoutMs : 60_000;
+
+        JSONObject body = new JSONObject();
+        body.put("model", model.trim());
+        JSONArray msgs = new JSONArray();
+        JSONObject u = new JSONObject();
+        u.set("role", "user");
+        u.set("content", "ping");
+        msgs.add(u);
+        body.put("messages", msgs);
+        body.put("max_tokens", 1);
+
+        String url = baseUrl.trim().endsWith("/")
+                ? baseUrl.trim().substring(0, baseUrl.trim().length() - 1) + "/chat/completions"
+                : baseUrl.trim() + "/chat/completions";
+
+        long start = System.currentTimeMillis();
+        try (HttpResponse resp = HttpRequest.post(url)
+                .header("Authorization", "Bearer " + key.trim())
+                .header("Content-Type", "application/json")
+                .body(body.toString())
+                .timeout(t)
+                .execute()) {
+            r.latencyMs = System.currentTimeMillis() - start;
+            int status = resp.getStatus();
+            String raw = resp.body() == null ? "" : resp.body();
+            if (status >= 200 && status < 300) {
+                r.ok = true;
+                log.info("[LLM] test-connection ok provider={} latency={}ms", r.provider, r.latencyMs);
+                return r;
+            }
+            String summary = abbreviate(raw, 200);
+            if (status == 401 || status == 403) {
+                r.errMsg = "鉴权失败 (HTTP " + status + "), 请检查 API Key: " + summary;
+            } else {
+                r.errMsg = "连接失败 (HTTP " + status + "): " + summary;
+            }
+            log.warn("[LLM] test-connection fail provider={} status={}", r.provider, status);
+        } catch (Exception e) {
+            r.latencyMs = System.currentTimeMillis() - start;
+            r.errMsg = "网络/超时错误: " + e.getClass().getSimpleName() + " " + e.getMessage();
+            log.warn("[LLM] test-connection exception provider={}: {}", r.provider, e.getMessage());
+        }
+        return r;
+    }
+
+    private static boolean blank(String s) {
+        return s == null || s.trim().isEmpty();
+    }
+
     /**
      * 调 chat/completions, 返回 assistant 的 text.
      *

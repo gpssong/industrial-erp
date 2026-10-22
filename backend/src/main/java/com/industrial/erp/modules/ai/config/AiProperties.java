@@ -177,6 +177,14 @@ public class AiProperties {
     private volatile String ovAsrBaseUrl;
     private volatile String ovAsrTimeoutMs;
 
+    // ===== v1.1.117 — 模型接口配置卡: 能力开关 + 每日上限 (UI 默认 business/quality=true, allowWrite=false) =====
+    /** DB 覆盖: 能力开关. null = 未设 (回落 UI 默认). */
+    private volatile Boolean ovBusiness;
+    private volatile Boolean ovQuality;
+    private volatile Boolean ovAllowWrite;
+    /** DB 覆盖: 每日调用上限 (v1.1.117 仅存 + 展示, 限流计数留 v1.1.118). */
+    private volatile String ovDailyLimit;
+
     /** 上次成功解析的 DB JSON (供日志/对账; 空 JSON 视为无覆盖). */
     private volatile String lastIntegrationJson;
 
@@ -235,8 +243,20 @@ public class AiProperties {
                     ovProvider1Key = ovProvider1Model = ovProvider1BaseUrl = null;
                     ovProvider1TimeoutMs = ovProvider1StripThinking = null;
                 }
+                // v1.1.117 — 能力开关 + 每日上限 (缺省 = 回落 UI 默认: business/quality=true, allowWrite=false)
+                JSONObject caps = llm.getJSONObject("capabilities");
+                if (caps != null) {
+                    ovBusiness   = caps.containsKey("business")   ? caps.getBool("business")   : Boolean.TRUE;
+                    ovQuality    = caps.containsKey("quality")    ? caps.getBool("quality")    : Boolean.TRUE;
+                    ovAllowWrite = caps.containsKey("allowWrite") ? caps.getBool("allowWrite") : Boolean.FALSE;
+                } else {
+                    ovBusiness = ovQuality = ovAllowWrite = null;
+                }
+                ovDailyLimit = llm.getStr("dailyLimit");
             } else {
                 ovProviders = null;
+                ovBusiness = ovQuality = ovAllowWrite = null;
+                ovDailyLimit = null;
             }
 
             // --- legacy ---
@@ -272,15 +292,47 @@ public class AiProperties {
         ovProvider1Key = ovProvider1Model = ovProvider1BaseUrl = ovProvider1TimeoutMs = ovProvider1StripThinking = null;
         ovLegacyApiKey = ovLegacyModel = ovLegacyBaseUrl = null;
         ovAsrKey = ovAsrModel = ovAsrBaseUrl = ovAsrTimeoutMs = null;
+        // v1.1.117
+        ovBusiness = ovQuality = ovAllowWrite = null;
+        ovDailyLimit = null;
     }
 
     /** 当前覆盖是否非空 (供 LlmClient 决定是否重建链). */
     public boolean hasOverrides() {
         return ovProviders != null || ovProvider0Key != null || ovProvider1Key != null
-                || ovLegacyApiKey != null || ovAsrKey != null;
+                || ovLegacyApiKey != null || ovAsrKey != null
+                || ovBusiness != null || ovQuality != null || ovAllowWrite != null || ovDailyLimit != null;
     }
 
     public String getLastIntegrationJson() { return lastIntegrationJson; }
+
+    // ===== v1.1.117 — 能力开关 + 每日上限 (effective: DB 覆盖优先, null 回落 UI 默认) =====
+
+    /**
+     * 能力开关快照. 每个布尔: DB 覆盖 (ov) 非空用覆盖值, 否则回落 UI 默认
+     * (business=true / quality=true / allowWrite=false). dailyLimit 未设 → 0 = 不限.
+     */
+    public Caps effectiveCapabilities() {
+        Caps c = new Caps();
+        c.business   = ovBusiness   != null ? ovBusiness   : true;
+        c.quality    = ovQuality    != null ? ovQuality    : true;
+        c.allowWrite = ovAllowWrite != null ? ovAllowWrite : false;
+        c.dailyLimit = ovDailyLimit == null ? 0 : parseIntSafe(ovDailyLimit, 0);
+        return c;
+    }
+
+    private static int parseIntSafe(String s, int dflt) {
+        if (s == null || s.trim().isEmpty()) return dflt;
+        try { return Integer.parseInt(s.trim()); } catch (Exception e) { return dflt; }
+    }
+
+    /** 能力开关 (经营/质量/写操作 + 每日上限). */
+    public static class Caps {
+        public boolean business = true;
+        public boolean quality = true;
+        public boolean allowWrite = false;
+        public int dailyLimit = 0;   // 0 = 不限 (v1.1.117 仅存展示, 计数留 v1.1.118)
+    }
 
     // ===== effective getters (DB 覆盖优先, 空回落 env) =====
 

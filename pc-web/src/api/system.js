@@ -71,6 +71,12 @@ export const integrationApi = {
    * 空串 = 清除覆盖 (回落纯 env). 走 /system/integration/apply (非通用 /config/value, 顺带 rebuild LlmClient).
    */
   applyIntegration: (json) => request.post('/system/integration/apply', { json }),
+  /**
+   * v1.1.117 — 「模型接口配置」卡「测试连接」: 用表单里的 provider 配置发一次最小 chat 探活.
+   * payload: {name, key, model, baseUrl, timeoutMs}. 纯探活, 不落库.
+   * 返回 {ok, provider, latencyMs, errMsg}.
+   */
+  testLlm: (payload) => request.post('/system/integration/llm-test', payload),
   /** v1.1.80 前遗留的 provider 顺序意图记录 key (DB 覆盖上线后主路径改走 AI_INTEGRATION). */
   setProviderOrder: (order) => configApi.updateValue('AI_PROVIDER_ORDER', order),
   getProviderOrder: () => configApi.getByKey('AI_PROVIDER_ORDER'),

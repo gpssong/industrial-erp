@@ -4,12 +4,15 @@ import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.ai.client.LlmClient;
+import com.industrial.erp.modules.ai.config.AiProperties;
 import com.industrial.erp.modules.system.annotation.OperLog;
 import com.industrial.erp.security.PermissionService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * v1.1.75 任务2 — 只读 agent (function-calling 循环) + 写类动作拦截.
@@ -31,14 +34,18 @@ public class AgentService {
     private final LlmClient llmClient;
     private final ErpToolRegistry tools;
     private final PermissionService permService;
+    /** v1.1.117: 能力开关 (系统设置「模型接口配置」3 勾选, 按组裁剪工具 + 写动作门控). */
+    private final AiProperties aiProps;
 
     /** 最大工具调用轮数 (防死循环). */
     private static final int MAX_STEPS = 6;
 
-    public AgentService(LlmClient llmClient, ErpToolRegistry tools, PermissionService permService) {
+    public AgentService(LlmClient llmClient, ErpToolRegistry tools,
+                        PermissionService permService, AiProperties aiProps) {
         this.llmClient = llmClient;
         this.tools = tools;
         this.permService = permService;
+        this.aiProps = aiProps;
     }
 
     /** agent 结果: 最终文本 + 提议的写动作 (不执行) + 实际调用过的只读工具轨迹. */
@@ -58,11 +65,17 @@ public class AgentService {
         }
         permService.requirePerm("report:ai");
 
+        // v1.1.117: 读能力开关, 按组裁剪可用工具 + 写动作门控
+        AiProperties.Caps caps = aiProps.effectiveCapabilities();
+        Set<String> enabledGroups = new HashSet<>();
+        if (caps.business) enabledGroups.add(ErpToolRegistry.GROUP_BUSINESS);
+        if (caps.quality) enabledGroups.add(ErpToolRegistry.GROUP_QUALITY);
+
         List<JSONObject> messages = new ArrayList<>();
-        messages.add(sys());
+        messages.add(sys(caps));
         messages.add(role("user", userQuestion));
 
-        JSONArray toolSchemas = tools.tools();
+        JSONArray toolSchemas = tools.toolsEnabled(enabledGroups);
         Result result = new Result();
         result.model = llmClient.model();
         LlmClient.ChatResult lastCr = null;
@@ -72,11 +85,14 @@ public class AgentService {
             lastCr = cr;
 
             // 收集本轮可能产生的"写动作提议" (模型在 content 里按约定输出 PROPOSE: 行)
-            collectProposals(cr.content, result.proposedActions);
+            // v1.1.117: 仅当开启写操作才保留; 关闭时即便模型误输出也丢弃 (前端不弹确认框)
+            if (caps.allowWrite) {
+                collectProposals(cr.content, result.proposedActions);
+            }
 
             if (!cr.wantsToolCall()) {
                 // 模型给了最终答案 (content 里可能含 PROPOSE: 写动作, 已收集; 文本本身作为 answer)
-                result.answer = cleanAnswer(cr.content, result.proposedActions);
+                result.answer = cleanAnswer(cr.content, caps.allowWrite ? result.proposedActions : java.util.Collections.emptyList());
                 result.stepsUsed = step + 1;
                 result.llmProvider = cr.usedProvider;
                 return result;
@@ -102,24 +118,37 @@ public class AgentService {
         return result;
     }
 
-    private static JSONObject sys() {
+    /**
+     * system 提示. v1.1.117 按能力开关裁剪:
+     * <ul>
+     *   <li>{@code allowWrite=true} → 注入 PROPOSE 写动作提议段 (现有行为)。</li>
+     *   <li>{@code allowWrite=false} → 明确「未开启写操作, 涉及写需求引导用户手工操作」, 不教 PROPOSE。</li>
+     * </ul>
+     */
+    private static JSONObject sys(AiProperties.Caps caps) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是 ERP 系统里的智能助手, 可以调用工具查询库存/客户/产品/单据。\n");
         sb.append("规则:\n");
-        sb.append("1. 需要数据时调用工具 (只读), 基于工具返回的真实数据回答, 不臆测。\n");
-        sb.append("2. 若用户要求执行【写操作】(新增/修改/删除/审核/反审核/下单等), 你【不要】直接执行, ");
-        sb.append("也不要调用写工具; 而是在回复正文里输出一行形如: ");
-        sb.append("PROPOSE: {\"action\":\"<写操作类型>\", \"params\":{...}, \"summary\":\"<一句话说明要做什么>\"}\n");
-        sb.append("   【重要】action 字段只能从下面这套固定枚举里选, 一字不差, 不要自创别名:\n");
-        sb.append("   - checkSalDelivery  审核销售出库单     params: {\"id\": 出库单ID}\n");
-        sb.append("   - addPurIn          生成采购入库单(草稿) params: {\"supplierId\":供应商ID, \"warehouseId\":仓库ID, \"details\":[{\"productId\":商品ID,\"qty\":数量,\"price\":成本价}], \"remark\":可选}\n");
-        sb.append("     【硬性规则 - addPurIn】:\n");
-        sb.append("     (a) 提议 addPurIn 前【必须】先调 listSuppliers 工具拿到至少一个供应商 (status=1), 取其 id 填入 supplierId;\n");
-        sb.append("     (b) 如果 listSuppliers 返回空数组 (库里没有任何启用中的供应商), 才允许提议时不带 supplierId, 此时在答案正文里说明\"无可用供应商, 请到基础资料-供应商先建档\";\n");
-        sb.append("     (c) 严禁基于臆想 (如「自产」「默认」或任何数字) 瞎编一个 supplierId — 后端会 selectById 校验失败报\"供应商不存在\";\n");
-        sb.append("     (d) 严禁省略 supplierId 字段 — 后端校验 @NotNull 必填, 缺了直接 500。\n");
-        sb.append("   其它写操作 (新增出库/改单/删单等) 暂无白名单, 不要提议, 直接说明 \"该操作暂不支持自动执行, 请到对应模块手工操作\"。\n");
-        sb.append("系统会把该提议交给用户在前端确认后才真正执行。你只做提议, 不做执行。\n");
+        sb.append("1. 需要数据时调用工具 (只读), 基于工具返回的真实数据回答, 不臆测。若当前没有任何工具可用, 就说明无法查询实时数据, 不要臆测。\n");
+        if (caps.allowWrite) {
+            sb.append("2. 若用户要求执行【写操作】(新增/修改/删除/审核/反审核/下单等), 你【不要】直接执行, ");
+            sb.append("也不要调用写工具; 而是在回复正文里输出一行形如: ");
+            sb.append("PROPOSE: {\"action\":\"<写操作类型>\", \"params\":{...}, \"summary\":\"<一句话说明要做什么>\"}\n");
+            sb.append("   【重要】action 字段只能从下面这套固定枚举里选, 一字不差, 不要自创别名:\n");
+            sb.append("   - checkSalDelivery  审核销售出库单     params: {\"id\": 出库单ID}\n");
+            sb.append("   - addPurIn          生成采购入库单(草稿) params: {\"supplierId\":供应商ID, \"warehouseId\":仓库ID, \"details\":[{\"productId\":商品ID,\"qty\":数量,\"price\":成本价}], \"remark\":可选}\n");
+            sb.append("     【硬性规则 - addPurIn】:\n");
+            sb.append("     (a) 提议 addPurIn 前【必须】先调 listSuppliers 工具拿到至少一个供应商 (status=1), 取其 id 填入 supplierId;\n");
+            sb.append("     (b) 如果 listSuppliers 返回空数组 (库里没有任何启用中的供应商), 才允许提议时不带 supplierId, 此时在答案正文里说明\"无可用供应商, 请到基础资料-供应商先建档\";\n");
+            sb.append("     (c) 严禁基于臆想 (如「自产」「默认」或任何数字) 瞎编一个 supplierId — 后端会 selectById 校验失败报\"供应商不存在\";\n");
+            sb.append("     (d) 严禁省略 supplierId 字段 — 后端校验 @NotNull 必填, 缺了直接 500。\n");
+            sb.append("   其它写操作 (新增出库/改单/删单等) 暂无白名单, 不要提议, 直接说明 \"该操作暂不支持自动执行, 请到对应模块手工操作\"。\n");
+            sb.append("系统会把该提议交给用户在前端确认后才真正执行。你只做提议, 不做执行。\n");
+        } else {
+            sb.append("2. 本系统当前【未开启写操作】(管理员在系统设置关闭了「允许执行写操作」)。若用户要求执行");
+            sb.append("【写操作】(新增/修改/删除/审核/反审核/下单等), 你【一律不要】执行或提议任何写操作, ");
+            sb.append("也【不要】输出 PROPOSE: 行; 直接告知用户「当前 AI 未开启写操作, 请前往对应模块手工操作」。\n");
+        }
         sb.append("3. 用中文, 简洁、结构化。\n");
         return role("system", sb.toString());
     }

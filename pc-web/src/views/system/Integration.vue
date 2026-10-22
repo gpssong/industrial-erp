@@ -10,58 +10,105 @@
       </p>
     </div>
 
-    <!-- 卡片 1: LLM 大模型网关 -->
+    <!-- 卡片 1: 模型接口配置 (v1.1.117 — 主备 2 模型 + 测试连接 + 3 能力开关) -->
     <div class="page-card" style="margin-bottom:16px" v-loading="loading.ai">
       <div class="card-head">
-        <div class="section-title">🤖 LLM 大模型网关 <el-tag :type="llm.enabled ? 'success' : 'info'" size="small" style="margin-left:8px">{{ llm.enabled ? '已启用' : '未启用' }}</el-tag></div>
-        <el-button size="small" @click="loadAi" :loading="loading.ai">刷新</el-button>
-      </div>
-      <el-alert type="info" :closable="false" show-icon style="margin-bottom:12px">
-        实际 provider 顺序由 <b>DB <code>sys_config.AI_INTEGRATION</code></b> 或 env <code>ERP_AI_PROVIDERS</code> 决定 (DB 优先)。
-        下方开关 + 填 key 后点「保存并即时生效」即写入 DB 并立即切换 provider 链, <b>无需重建 jar</b>。
-      </el-alert>
-
-      <!-- provider 槽位 -->
-      <div class="providers">
-        <div v-for="p in llm.providers" :key="p.slot" class="provider-row">
-          <div class="p-left">
-            <div class="p-name">
-              <el-tag size="small" :type="p.configured ? 'success' : 'info'" effect="plain">{{ p.name }}</el-tag>
-              <span class="p-model">{{ p.model }}</span>
-              <el-tag v-if="p.slot === 0" size="small" type="warning" effect="plain">主</el-tag>
-              <el-tag v-else size="small" type="info" effect="plain">备</el-tag>
-              <el-tag v-if="p.source === 'DB'" size="small" type="success" effect="plain">DB 覆盖</el-tag>
-            </div>
-            <div class="p-meta">
-              <span class="muted-tip">key: {{ p.keyMasked }}</span>
-              <span class="muted-tip" style="margin-left:12px">base_url: {{ p.baseUrl }}</span>
-            </div>
-            <div class="p-key-row">
-              <el-input v-model="integration.llm.slotKeys[p.name]" placeholder="API key (留空 = 回落 env)"
-                type="password" show-password size="small" style="width:260px" />
-            </div>
-          </div>
-          <div class="p-switch">
-            <el-switch v-model="providerOrder[p.name]" :active-value="true" :inactive-value="false"
-              @change="onProviderToggle" />
-            <span class="muted-tip" style="margin-left:8px">{{ p.configured ? '' : '未配置 key' }}</span>
-          </div>
+        <div>
+          <div class="section-title">模型接口配置</div>
+          <div class="muted-tip">API 密钥加密保存，AI 只能访问授权业务数据</div>
+        </div>
+        <div>
+          <el-button size="small" :loading="testing.primary" @click="onTest('primary')">测试主模型</el-button>
+          <el-button size="small" :loading="testing.backup" @click="onTest('backup')" style="margin-left:8px">测试备用模型</el-button>
         </div>
       </div>
 
+      <!-- 主模型 + 备用模型 两栏 -->
+      <el-form label-width="86px" label-position="left">
+        <div v-for="slot in SLOT_LIST" :key="slot.key" class="slot-block">
+          <div class="slot-head">
+            <el-tag size="small" :type="slot.key === 'primary' ? 'warning' : 'info'" effect="plain">
+              {{ slot.key === 'primary' ? '主模型' : '备用模型' }}
+            </el-tag>
+            <span class="muted-tip">{{ slot.hint }}</span>
+            <el-switch v-model="llmForm.slots[slot.key].enabled" active-text="启用" style="margin-left:auto" />
+          </div>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="服务供应商">
+                <el-select v-model="llmForm.slots[slot.key].provider" style="width:100%" @change="(v) => onProviderChange(slot.key, v)">
+                  <el-option label="OpenAI兼容接口" value="openai-compatible" />
+                  <el-option label="Agnes (阿奇斯)" value="agnes" />
+                  <el-option label="MiniMax" value="minimax" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="模型名称">
+                <el-input v-model="llmForm.slots[slot.key].model" placeholder="如 enterprise-assistant-v1" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="API地址">
+                <el-input v-model="llmForm.slots[slot.key].baseUrl" placeholder="https://api.example.com/v1" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="API Key">
+                <el-input v-model="llmForm.slots[slot.key].key" type="password" show-password placeholder="留空 = 沿用后端 env" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="请求超时">
+                <el-select v-model="llmForm.slots[slot.key].timeoutMs" style="width:100%">
+                  <el-option :value="30000" label="30秒" />
+                  <el-option :value="60000" label="60秒" />
+                  <el-option :value="120000" label="120秒" />
+                  <el-option :value="300000" label="300秒" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="每日调用上限">
+                <el-input v-model.number="llmForm.dailyLimit" type="number" min="0" placeholder="1000" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+      </el-form>
+
+      <!-- 3 能力开关 (整行卡片 + 右侧勾选, 写操作默认关) -->
+      <div class="caps">
+        <label v-for="cap in CAP_LIST" :key="cap.key" class="cap-row" :class="{ danger: cap.key === 'allowWrite' }">
+          <div class="cap-text">
+            <b>{{ cap.title }}</b>
+            <small>{{ cap.desc }}</small>
+          </div>
+          <el-checkbox v-model="llmForm.capabilities[cap.key]" />
+        </label>
+      </div>
+
+      <el-alert v-if="testMsg" :type="testOk ? 'success' : 'error'" :closable="false" show-icon style="margin-top:12px">
+        {{ testMsg }}
+      </el-alert>
+
       <div class="card-foot">
-        <el-button type="primary" size="small" :loading="savingOrder" @click="saveIntegration">保存并即时生效</el-button>
-        <el-button size="small" @click="resetToEnv">还原 (纯 env)</el-button>
+        <el-button type="primary" size="small" :loading="saving" @click="onSave">保存并即时生效</el-button>
+        <el-button size="small" @click="onResetEnv">还原 (纯 env)</el-button>
         <span class="muted-tip" style="margin-left:12px">
           生效顺序: <code>{{ liveOrderStr }}</code> · 当前命中: <code>{{ llm.activeProvider || '—' }}</code>
         </span>
       </div>
       <el-alert v-if="!llm.dbOverrideActive" type="info" :closable="false" show-icon style="margin-top:10px">
-        当前走 backend env (<code>ERP_AI_*</code>)。在上方填 API key 或切换顺序后点「保存并即时生效」, 即写入 <code>sys_config.AI_INTEGRATION</code>
-        并立即切换 provider 链 (无需重建 jar); 未填字段自动回落 env。
+        当前走 backend env (<code>ERP_AI_*</code>)。填 API key 并点「保存并即时生效」即写入
+        <code>sys_config.AI_INTEGRATION</code> 并立即切换 (无需重建 jar); 留空的 key 自动回落 env。
       </el-alert>
-      <el-alert v-else type="success" :closable="false" show-icon style="margin-top:10px">
-        当前生效配置来自 <code>sys_config.AI_INTEGRATION</code> (DB 覆盖, 即时生效)。点「还原 (纯 env)」可清除覆盖。
+      <el-alert type="info" :closable="false" show-icon style="margin-top:10px">
+        主模型失败 (5xx / 超时 / 429) 时自动切换到备用模型; 主模型 key 留空则只走备用。
       </el-alert>
     </div>
 
@@ -158,20 +205,44 @@ import { QuestionFilled } from '@element-plus/icons-vue'
 import { integrationApi } from '@/api/system'
 
 const loading = reactive({ ai: false, asr: false, mcp: false, dify: false })
-const savingOrder = ref(false)
+const saving = ref(false)
+const testing = reactive({ primary: false, backup: false })
+const testMsg = ref('')
+const testOk = ref(false)
 const mcpTesting = ref(false)
 const mcpTestMsg = ref('')
 const mcpTestOk = ref(false)
 
 /** LLM 网关状态 (脱敏) */
 const llm = ref({ enabled: false, providers: [], providerOrder: '', activeProvider: '—', liveProviderOrder: [], dbOverrideActive: false })
-/** provider 顺序开关: name → 是否在链中 */
-const providerOrder = reactive({})
-/** v1.1.80: 可编辑的 AI_INTEGRATION 覆盖 (填 key 即时生效). 空字段 = 回落 env. */
-const integration = reactive({
-  llm: { slotKeys: {} },
-  asr: { key: '' }
+/** v1.1.117: 模型接口配置表单 (主备 2 模型). key 留空 = 保存时不覆盖, 回落 env. */
+const llmForm = reactive({
+  slots: {
+    primary: { enabled: true, provider: 'openai-compatible', model: '', baseUrl: '', key: '', timeoutMs: 60000 },
+    backup:  { enabled: false, provider: 'openai-compatible', model: '', baseUrl: '', key: '', timeoutMs: 60000 }
+  },
+  dailyLimit: 1000,
+  capabilities: { business: true, quality: true, allowWrite: false }
 })
+/** 主/备两槽展示定义. */
+const SLOT_LIST = [
+  { key: 'primary', hint: '优先调用, 失败自动切备用' },
+  { key: 'backup', hint: '主模型 5xx / 超时 / 429 时接管' }
+]
+/** 3 能力开关定义 (label + 说明, 顺序即展示顺序). */
+const CAP_LIST = [
+  { key: 'business', title: '经营数据问答', desc: '销售、采购、库存和应收应付分析' },
+  { key: 'quality', title: '质量与XK辅助', desc: '检验记录总结和到期风险提醒' },
+  { key: 'allowWrite', title: '允许执行写操作', desc: '默认关闭, 防止 AI 直接修改业务数据' }
+]
+/** provider 预设 (下拉切换时回填默认 model/baseUrl). */
+const PROVIDER_PRESETS = {
+  'openai-compatible': { model: '', baseUrl: '' },
+  agnes: { model: 'agnes-2.5-flash', baseUrl: 'https://apihub.agnes-ai.com/v1' },
+  minimax: { model: 'MiniMax-M3', baseUrl: 'https://api.minimaxi.com/v1' }
+}
+/** v1.1.80: ASR key (卡片 2 独立填, 随保存一起写 AI_INTEGRATION). */
+const integration = reactive({ asr: { key: '' } })
 /** ASR 状态 */
 const asr = ref({ enabled: false, model: '—', baseUrl: '', keyMasked: '(未配置)', timeoutMs: 0 })
 /** MCP 状态 */
@@ -192,15 +263,26 @@ async function loadAi() {
     const d = r?.data || {}
     llm.value = d.llm || { enabled: false, providers: [], providerOrder: '' }
     asr.value = d.asr || { enabled: false, model: '—' }
-    // 初始化 provider 顺序开关 (按后端 liveProviderOrder 即时顺序)
-    const live = llm.value.liveProviderOrder || []
-    for (const p of d.llm?.providers || []) {
-      providerOrder[p.name] = live.includes(p.name)
+    // 回填主/备两槽: 后端 slot0 = 主, slot1 = 备 (key 一律不打回, 留空 = 回落 env)
+    const provs = llm.value.providers || []
+    const fill = (slotKey, idx) => {
+      const p = provs.find((x) => x.slot === idx) || {}
+      const slot = llmForm.slots[slotKey]
+      slot.provider = PROVIDER_PRESETS[p.name] ? p.name : 'openai-compatible'
+      slot.model = p.model || ''
+      slot.baseUrl = p.baseUrl || ''
+      slot.timeoutMs = p.timeoutMs || 60000
+      slot.key = ''
+      slot.enabled = !!p.configured
     }
-    // 预填可编辑 key (后端返回的是脱敏值, 留空则保存时不覆盖, 回落 env)
-    for (const p of d.llm?.providers || []) {
-      integration.llm.slotKeys[p.name] = ''
-    }
+    fill('primary', 0)
+    fill('backup', 1)
+    // v1.1.117: 能力开关 + 每日上限回显 (缺省 business/quality=true, allowWrite=false)
+    const caps = d.llm?.capabilities || {}
+    llmForm.capabilities.business = caps.business !== false
+    llmForm.capabilities.quality = caps.quality !== false
+    llmForm.capabilities.allowWrite = caps.allowWrite === true
+    llmForm.dailyLimit = caps.dailyLimit || 1000
     integration.asr.key = ''
   } catch (e) {
     console.warn('[Integration] 加载 AI 状态失败:', e)
@@ -209,67 +291,111 @@ async function loadAi() {
   }
 }
 
-/** v1.1.80: 保存 AI_INTEGRATION 覆盖 → 即时生效 (写 DB + 强刷 LLM 链, 无需重建 jar). */
-async function saveIntegration() {
-  await ElMessageBox.confirm(
-    '保存后, LLM/ASR 的 provider 顺序与 key 立即按新配置生效 (写入 sys_config.AI_INTEGRATION, 无需重建 jar)。'
-    + '留空的字段自动回落 backend env。确定?',
-    '即时生效', { type: 'warning', confirmButtonText: '保存并生效' }
-  ).catch(() => { throw new Error('cancel') })
+/** 切换供应商预设 → 回填默认 model/baseUrl. */
+function onProviderChange(slotKey, v) {
+  const p = PROVIDER_PRESETS[v]
+  if (!p) return
+  llmForm.slots[slotKey].model = p.model
+  llmForm.slots[slotKey].baseUrl = p.baseUrl
+}
 
-  savingOrder.value = true
+/** 槽位 key → 后端 slot 名 (后端只认 agnes/minimax 两个 slot). */
+function slotProviderName(slot) {
+  if (slot.provider === 'minimax') return 'minimax'
+  if (slot.provider === 'agnes') return 'agnes'
+  // openai-compatible: 落到 agnes 槽 (槽位只决定 failover 顺序, baseUrl/model/key 全可覆盖)
+  return 'agnes'
+}
+
+/** v1.1.117: 测试连接 — 用指定槽当前值探活, 不落库. */
+async function onTest(which) {
+  const slot = llmForm.slots[which]
+  if (!slot.key.trim() && !slot.baseUrl.trim()) {
+    testOk.value = false
+    testMsg.value = `请先填写${which === 'primary' ? '主' : '备用'}模型的 API 地址与 API Key`
+    return
+  }
+  testing[which] = true
+  testMsg.value = ''
   try {
-    // 组装 AI_INTEGRATION JSON
-    const llmOrder = Object.keys(providerOrder).filter((k) => providerOrder[k])
-    const slot0 = findSlotByName(llm.value.providers, 0)
-    const slot1 = findSlotByName(llm.value.providers, 1)
-    const payload = {
-      llm: {
-        providerOrder: llmOrder.join(','),
-        slot0: {},
-        slot1: {}
-      },
-      asr: {}
-    }
-    // 只在用户填了 key 时才覆盖 (空 = 回落 env)
-    for (const [slotIdx, slotName, src] of [[0, 'slot0', slot0], [1, 'slot1', slot1]]) {
-      const key = integration.llm.slotKeys[src?.name]
-      if (key && key.trim()) payload.llm[slotName] = { key: key.trim() }
-    }
-    if (integration.asr.key && integration.asr.key.trim()) {
-      payload.asr.key = integration.asr.key.trim()
-    }
-    // 全空 (纯 env) → 存空串清除覆盖
-    const isEmpty =
-      !payload.llm.providerOrder && !payload.llm.slot0.key && !payload.llm.slot1.key
-      && !payload.asr.key
-    const json = isEmpty ? '' : JSON.stringify(payload)
-
-    const resp = await integrationApi.applyIntegration(json)
-    const rdata = resp?.data || {}
-    await loadAi()   // 重新拉状态 (DB 已生效)
-    ElMessage.success(
-      json
-        ? `已即时生效。生效顺序: ${(rdata.providerOrder || []).join(', ') || '(空)'} · 当前命中: ${rdata.activeProvider || '—'}`
-        : '已清除 DB 覆盖, 回落纯 env (即时生效)'
-    )
+    const resp = await integrationApi.testLlm({
+      name: `${slotProviderName(slot)}:${which}`,
+      key: slot.key.trim(),
+      model: slot.model.trim(),
+      baseUrl: slot.baseUrl.trim(),
+      timeoutMs: slot.timeoutMs
+    })
+    const d = resp?.data || {}
+    testOk.value = !!d.ok
+    testMsg.value = d.ok
+      ? `${which === 'primary' ? '主' : '备用'}模型连接成功 · 延迟 ${d.latencyMs} ms`
+      : `${which === 'primary' ? '主' : '备用'}模型连接失败: ${d.errMsg || '未知错误'}`
   } catch (e) {
-    if (e && e.message === 'cancel') return
-    ElMessage.error((e && (e.msg || e.message)) || '保存失败')
+    testOk.value = false
+    testMsg.value = `测试请求失败: ${(e && (e.msg || e.message)) || '网络错误'}`
   } finally {
-    savingOrder.value = false
+    testing[which] = false
   }
 }
 
-function findSlotByName(providers, slot) {
-  return (providers || []).find((p) => p.slot === slot)
+/** v1.1.117: 保存 — 组装 AI_INTEGRATION JSON (主 slot0 + 备 slot1 + 能力开关 + 上限), 即时生效. */
+async function onSave() {
+  saving.value = true
+  try {
+    const buildSlot = (slotKey) => {
+      const s = llmForm.slots[slotKey]
+      const o = {}
+      // key 留空 = 不覆盖 (回落 env); 其余字段总是写
+      if (s.key.trim()) o.key = s.key.trim()
+      o.model = s.model.trim()
+      o.baseUrl = s.baseUrl.trim()
+      o.timeoutMs = String(s.timeoutMs || 60000)
+      return o
+    }
+    const p = llmForm.slots.primary
+    const b = llmForm.slots.backup
+    const order = []
+    if (p.enabled) order.push(slotProviderName(p))
+    if (b.enabled) order.push(slotProviderName(b))
+    if (!order.length) {
+      ElMessage.warning('主模型与备用模型不能同时停用')
+      return
+    }
+
+    const payload = {
+      llm: {
+        providerOrder: [...new Set(order)].join(','),
+        slot0: buildSlot('primary'),
+        slot1: buildSlot('backup'),
+        capabilities: {
+          business: !!llmForm.capabilities.business,
+          quality: !!llmForm.capabilities.quality,
+          allowWrite: !!llmForm.capabilities.allowWrite
+        },
+        dailyLimit: String(llmForm.dailyLimit || 0)
+      },
+      asr: {}
+    }
+    // ASR key (卡片 2) 若填了, 一起写
+    if (integration.asr.key && integration.asr.key.trim()) {
+      payload.asr.key = integration.asr.key.trim()
+    }
+    const json = JSON.stringify(payload)
+    await integrationApi.applyIntegration(json)
+    await loadAi()   // 重新拉状态 (DB 已生效)
+    ElMessage.success(`已即时生效 · 顺序 ${liveOrderStr.value} · 当前命中: ${llm.value.activeProvider || '—'}`)
+  } catch (e) {
+    ElMessage.error((e && (e.msg || e.message)) || '保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 
 /** 还原 = 清除 DB 覆盖 (回落纯 env). */
-async function resetToEnv() {
+async function onResetEnv() {
   await ElMessageBox.confirm('清除 sys_config.AI_INTEGRATION 覆盖, 回落纯 env 配置? 即时生效。', '还原', { type: 'warning' })
     .catch(() => { throw new Error('cancel') })
-  savingOrder.value = true
+  saving.value = true
   try {
     await integrationApi.applyIntegration('')
     await loadAi()
@@ -278,7 +404,7 @@ async function resetToEnv() {
     if (e && e.message === 'cancel') return
     ElMessage.error((e && (e.msg || e.message)) || '还原失败')
   } finally {
-    savingOrder.value = false
+    saving.value = false
   }
 }
 
@@ -304,11 +430,6 @@ async function loadDify() {
   } finally {
     loading.dify = false
   }
-}
-
-function onProviderToggle() {
-  // 开关只改本地 reactive, 点「保存并即时生效」才写 DB + 强刷 LLM 链
-  mcpTestMsg.value = ''
 }
 
 async function testMcp() {
@@ -362,18 +483,32 @@ onMounted(() => { loadAi(); loadMcp(); loadDify() })
 .muted-tip { color: #909399; font-size: 12px; }
 .page-card { background: #fff; padding: 16px; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,21,41,0.04); }
 code { background: #f0f2f5; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px; color: #409eff; }
+/* v1.1.117 — 主/备 2 模型槽位 */
+.slot-block {
+  padding: 14px 16px 2px; margin-bottom: 12px;
+  background: #fbfcfe; border: 1px solid #eef2f7; border-radius: 10px;
+}
+.slot-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+
 .card-foot { margin-top: 12px; }
 
-.providers { display: flex; flex-direction: column; gap: 10px; }
-.provider-row {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 16px; background: #fafbfc; border: 1px solid #ebeef5; border-radius: 4px;
+/* v1.1.117 — 3 能力开关 (整行卡片 + 右侧勾选) */
+.caps {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 4px; padding-top: 14px; border-top: 1px solid #ebeef5;
 }
-.p-name { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.p-model { font-family: monospace; color: #606266; }
-.p-meta { margin-top: 4px; }
-.p-switch { display: flex; align-items: center; }
-.p-key-row { margin-top: 6px; }
+.cap-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 16px; background: #fafbfc; border: 1px solid #ebeef5; border-radius: 8px;
+  cursor: pointer; transition: all .18s;
+  &:hover { border-color: #cfe0f2; }
+  &.danger { background: #fdf6f6; border-color: #f5d9d9; }
+  &.danger:hover { border-color: #eab8b8; }
+}
+.cap-text { min-width: 0; }
+.cap-text b { display: block; font-size: 13px; font-weight: 600; color: #303133; }
+.cap-text small { display: block; font-size: 12px; color: #909399; margin-top: 3px; }
+
 .asr-key-row { margin-top: 8px; }
 
 .tool-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
