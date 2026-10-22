@@ -105,7 +105,7 @@ export default {
         const head = {
           inspectionType: 'PAT',
           sourceBillType: 'PRD_ORDER',
-          sourceBillId: Number(this.orderId),
+          sourceBillId: this.orderId,
           productId: this.pickedOrder ? this.pickedOrder.productId : null,
           productCode: this.pickedOrder ? this.pickedOrder.productCode : null,
           productName: this.pickedOrder ? this.pickedOrder.productName : null,
