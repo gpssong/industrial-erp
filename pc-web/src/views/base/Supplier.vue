@@ -68,7 +68,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize" @current-change="loadData" />
+        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize" @current-change="queryOnPageChange" />
     </div>
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑' : '新增'" width="700px" destroy-on-close>
@@ -143,6 +143,9 @@ function typeLabel(t) { return typeMap[t] || '通用原料' }
 const foodCertTypeMap = { FOOD_GRADE_RAW: '食品级原料', FOOD_PRODUCT_LICENSE: '食品相关产品生产许可', FOOD_CONTACT: '食品接触级' }
 function foodCertTypeLabel(t) { return foodCertTypeMap[t] || '食品资质' }
 async function loadData() { loading.value = true; try { data.value = (await supplierApi.page(query)).data } finally { loading.value = false } }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
+function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
 function onAdd() { Object.assign(form, { id: null, supplierCode: '', supplierName: '', supplierType: 'NORMAL', status: 1, taxRate: 13.00, isOutsource: 0, remark: '', foodCertNo: '', foodCertExp: null, foodCertType: null }); dialogVisible.value = true }
 function onEdit(row) { Object.assign(form, row); dialogVisible.value = true }
 async function onDelete(row) {

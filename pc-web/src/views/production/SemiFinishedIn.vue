@@ -105,8 +105,8 @@
         :page-sizes="[10, 20, 50, 100]"
         background
         layout="total, sizes, prev, pager, next, jumper"
-        @size-change="loadList"
-        @current-change="loadList"
+        @size-change="pageNumOnSizeChange"
+        @current-change="pageNumOnPageChange"
       />
     </div>
 
@@ -218,6 +218,9 @@ async function loadList() {
     loading.value = false
   }
 }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function pageNumOnPageChange(p) { if (p === pageNum.value) return; pageNum.value = p; loadList() }
+function pageNumOnSizeChange(s) { if (s === pageSize.value) return; pageSize.value = s; pageNum.value = 1; loadList() }
 
 function resetQuery() {
   query.value = ''

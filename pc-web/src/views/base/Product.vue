@@ -101,7 +101,7 @@
       </el-table>
       <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
         :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize"
-        :page-sizes="[10,20,50,100]" @current-change="loadData" @size-change="loadData" />
+        :page-sizes="[10,20,50,100]" @current-change="queryOnPageChange" @size-change="queryOnSizeChange" />
     </div>
 
     <!-- 新增/编辑 -->
@@ -369,6 +369,9 @@ async function loadData() {
     data.value = r.data
   } finally { loading.value = false }
 }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
+function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
 
 function reset() { query.keyword = ''; query.productType = ''; loadData() }
 

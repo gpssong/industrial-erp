@@ -1,6 +1,7 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.109 (2026-10-21 — PC finance Arap 应收应付页面翻页修复: el-pagination `@current-change="loadData"` 没接参, 导致 `query.pageNum` 不更新, 点第 2/3 页无响应 (Total 125 显示但 EL-table 不刷). 拆 `onAllPageChange` / `onIssuedPageChange` 两个 handler, 内部判断同值短路后写 `pageNum` 再调 load. 纯 PC 前端一行级改动 (`pc-web/src/views/finance/Arap.vue`), 不动后端/App/SQL. **飞牛 canary + home 主站双站均已上线** (飞牛 Arap-BGHHviCM, home 同 chunk hash @ 8088).)
+**当前版本**: v1.1.112 (2026-10-22 — R20 翻页 bug 全仓根治 + App H5 成品入库扫码关联工单。(1) **翻页 26 处**: 用户报「库存查询页无法翻页」, 全仓扫描发现同一 R20 bug (`@current-change="loadData"` handler 不接参 → `query.pageNum` 永不更新) 遍布 25 个文件 26 处, 含客户/商品/供应商/采购订单/采购入库/采购退货/销售订单/销售出库/销售退货/生产 BOM/半成品入库/财务发票/质量检验/设备维保计划/系统用户/角色/菜单/参数/打印模板/飞鹅日志/操作日志(双表)/工作流 4 页/XK 原料 — 全改显式接参 handler (同值短路 + 切页大小重置 pageNum=1); `SemiFinishedIn.vue` 是 ref 型需 `.value`, 脚本批量改时误写成 pageSize 已手工修正。(2) **App H5 成品入库扫码关联**: `app/src/pages/scan/finished-in.vue` 加「📷 扫码关联工单」按钮, 扫工单条码/单号二维码 → 先本地列表精确匹配 billNo, 未命中再调 `prdOrderPage({billNo})` LIKE 查后端 → 自动带入工单并带出成品/规格/计划量。(3) **v1.1.110**: `order-detail.vue` `onRelease()` 调 `loadOrder()` 漏传 id → 开工成功后清空 order 显示「生产单不存在」, 改 `loadOrder(orderId.value)`。**飞牛 canary + home 主站均已上线**。)
+**前版本 v1.1.109**: PC finance Arap 应收应付页面翻页修复 (Arap.vue 首现 R20, 本次扩到全仓 26 处)。
 **前版本 v1.1.108**: App APK 隐私/卫生第三批: (1) 关 uni-stat 遥测 — `src/manifest.json` 加 `h5.uniStatistics.enable=false`, H5/APK 产物不再向 DCloud 公网 `tongji.dcloud.io`/`tongji-collector.dcloud.net.cn` 上报设备/页面数据; (2) `index.html` SW 注册加 `!window.Capacitor` 守卫, 消掉 APK WebView 里常驻的 `Failed to register /static/sw.js` 报错 (PWA 离线缓存只给浏览器 H5); (3) `api/index.js` 抽 `logDebug()` 走 `import.meta.env.DEV`, 生产 H5/APK 静默 DEBUG 级日志, 保留网络层/非JSON 的 warn (R13 诊断价值). 纯 App 端, 不动后端/PC/SQL.
 
 ## 速查

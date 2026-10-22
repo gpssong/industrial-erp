@@ -190,7 +190,7 @@
         :total="Number(total)"
         :current-page="query.pageNum"
         :page-size="query.pageSize"
-        @current-change="loadData"
+        @current-change="queryOnPageChange"
       />
     </div>
 
@@ -407,6 +407,9 @@ async function loadData() {
     total.value = 0
   } finally { loading.value = false }
 }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
+function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
 function onSearch() { keyword.value = keyword.value; query.pageNum = 1; loadData() }
 function onExport() {
   // 简单 TSV 导出 (后端无导出 API 时, 走前端下载, 含 XK 字段)

@@ -66,7 +66,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize" @current-change="loadData" />
+        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize" @current-change="queryOnPageChange" />
     </div>
 
     <!-- 元数据编辑弹窗 (不含设计器, 设计器是独立路由) -->
@@ -194,6 +194,9 @@ async function loadData() {
     data.value = (await printTemplateApi.page(params)).data || { records: [], total: 0 }
   } finally { loading.value = false }
 }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
+function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
 // v1.1.39: 加载客户列表 (用于弹窗选择)
 async function loadCustomers() {
   if (customers.value.length > 0) return  // 幂等缓存

@@ -57,7 +57,7 @@
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
         :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize"
-        @current-change="loadData" @size-change="loadData" :page-sizes="[10, 20, 50, 100]" />
+        @current-change="queryOnPageChange" @size-change="queryOnSizeChange" :page-sizes="[10, 20, 50, 100]" />
     </div>
 
     <el-dialog v-model="dialogVisible" :title="form.id ? '编辑安全检查记录' : '新增安全检查记录'" width="960px" destroy-on-close>
@@ -214,6 +214,9 @@ async function loadData() {
     data.value = (await safetyApi.page(params)).data
   } finally { loading.value = false }
 }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
+function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
 
 function onReset() {
   query.site = ''; query.billStatus = ''; query.overdue = null; query.pageNum = 1
