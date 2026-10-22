@@ -9,12 +9,14 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @TableName("inv_check_detail")
 public class InvCheckDetail {
     // ===== 商品规格属性 (transient, JOIN 注入) =====
     // v1.1.12+: 打印模板"型号"列需要 pModel 字段, 加 transient getter/setter
     @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    @JsonProperty("pModel")
     private transient String pModel;
 
     @TableId(type = IdType.ASSIGN_ID)

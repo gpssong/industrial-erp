@@ -9,20 +9,27 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @TableName("sal_return_detail")
 public class SalReturnDetail {
     @TableField(exist = false)
+    @JsonProperty("pThickness")
     private transient BigDecimal pThickness;
     @TableField(exist = false)
+    @JsonProperty("pWidth")
     private transient BigDecimal pWidth;
     @TableField(exist = false)
+    @JsonProperty("pDensity")
     private transient BigDecimal pDensity;
     @TableField(exist = false)
+    @JsonProperty("pGramWeight")
     private transient BigDecimal pGramWeight;
     @TableField(exist = false)
+    @JsonProperty("pMaterial")
     private transient String pMaterial;
     @TableField(exist = false)
+    @JsonProperty("pModel")
     private transient String pModel;
 
     @TableId(type = IdType.ASSIGN_ID)
