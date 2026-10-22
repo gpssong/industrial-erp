@@ -226,8 +226,8 @@ export default {
       if (uni.showLoading) uni.showLoading({ title: '提交中...', mask: true })
       try {
         const payload = {
-          customerId: Number(this.form.customerId),
-          warehouseId: Number(this.form.warehouseId),
+          customerId: this.form.customerId,
+          warehouseId: this.form.warehouseId,
           billDate: this.form.billDate || undefined,
           remark: this.form.remark || 'App 新建销售出库',
           details: this.details.map((d) => ({

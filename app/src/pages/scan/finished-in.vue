@@ -275,12 +275,12 @@ export default {
       this.submitting = true
       try {
         await api.prdFinishedInAdd({
-          prdOrderId: Number(this.orderId),
+          prdOrderId: this.orderId,
           prdOrderNo: o.billNo,
           productId: o.productId, productCode: o.productCode, productName: o.productName,
           spec: o.spec, unitId: o.unitId, unitName: o.unitName,
           qty: this.form.qty || 0, batchNo: this.form.batchNo || undefined,
-          warehouseId: Number(this.warehouseId), remark: 'App 成品入库'
+          warehouseId: this.warehouseId, remark: 'App 成品入库'
         })
         const r = await api.prdFinishedInPage({ pageNum: 1, pageSize: 5, billNo: o.billNo })
         const recs = (r && r.records) || (r && r.data && r.data.records) || []
