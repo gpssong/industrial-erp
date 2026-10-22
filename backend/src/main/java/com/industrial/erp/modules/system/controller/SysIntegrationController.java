@@ -118,6 +118,14 @@ public class SysIntegrationController {
         llmOut.put("dbOverrideActive", dbOverride);
         llmOut.put("cooldownMs", ai.getCooldownMs());
         llmOut.put("cooldownLongMs", ai.getCooldownLongMs());
+        // v1.1.117: 模型接口配置卡回显 — 能力开关 + 每日上限 (脱敏, 供前端回填勾选框)
+        com.industrial.erp.modules.ai.config.AiProperties.Caps caps = ai.effectiveCapabilities();
+        Map<String, Object> capsOut = new LinkedHashMap<>();
+        capsOut.put("business", caps.business);
+        capsOut.put("quality", caps.quality);
+        capsOut.put("allowWrite", caps.allowWrite);
+        capsOut.put("dailyLimit", caps.dailyLimit);
+        llmOut.put("capabilities", capsOut);
         out.put("llm", llmOut);
 
         // === ASR (effective) ===
@@ -209,6 +217,66 @@ public class SysIntegrationController {
         out.put("providerOrder", llm.providerOrder());
         out.put("activeProvider", llm.activeProvider());
         return R.ok(out);
+    }
+
+    /**
+     * v1.1.117 — 「模型接口配置」卡的「测试连接」: 用表单里的 provider 配置发一次最小 chat 探活.
+     *
+     * <p>纯探活: 不落库、不改生效配置、不写 cooldown. 审计同步直写 (key 打码).
+     * 请求体: {@code {"name":"agnes","key":"sk-...","model":"...","baseUrl":"https://.../v1","timeoutMs":60000}}.
+     */
+    @SaCheckPermission(value = {"system:config:edit"}, orRole = "admin")
+    @PostMapping("/llm-test")
+    public R<Map<String, Object>> testLlm(@RequestBody Map<String, Object> body) {
+        String name = str(body, "name");
+        String key = str(body, "key");
+        String model = str(body, "model");
+        String baseUrl = str(body, "baseUrl");
+        int timeoutMs = 0;
+        Object tv = body == null ? null : body.get("timeoutMs");
+        if (tv != null) {
+            try { timeoutMs = Integer.parseInt(String.valueOf(tv).trim()); } catch (Exception ignore) {}
+        }
+        LlmClient.TestResult r = llm.testConnection(name, key, model, baseUrl, timeoutMs);
+        writeAuditTest(r.provider, baseUrl, model, r);
+        return R.ok(r.toMap());
+    }
+
+    private static String str(Map<String, Object> m, String k) {
+        if (m == null) return "";
+        Object v = m.get(k);
+        return v == null ? "" : String.valueOf(v);
+    }
+
+    /** 测试连接审计 (同步直写 sys_oper_log, 脱敏 key; McpAuditService 教训: 同步直写才 100% 落库). */
+    private void writeAuditTest(String provider, String baseUrl, String model, LlmClient.TestResult r) {
+        try {
+            SysOperLog l = new SysOperLog();
+            l.setModule("AI对接管理");
+            l.setBusinessType("TEST");
+            l.setMethod("[SYSTEM] test_llm_connection");
+            l.setRequestMethod("POST");
+            Map<String, Object> prm = new LinkedHashMap<>();
+            prm.put("provider", provider);
+            prm.put("baseUrl", baseUrl);
+            prm.put("model", model);
+            prm.put("ok", r.ok);
+            prm.put("latencyMs", r.latencyMs);
+            prm.put("errMsg", r.errMsg);
+            l.setRequestParam(truncate(prm.toString(), 1000));
+            l.setUserId(SecurityContext.getUserId());
+            l.setUsername(SecurityContext.getUsername());
+            l.setStatus(r.ok ? 0 : 1);
+            l.setOperTime(LocalDateTime.now());
+            operLogMapper.insert(l);
+        } catch (Exception e) {
+            log.warn("[Integration] 测试连接审计写入失败: {}", e.getMessage());
+        }
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() > max ? s.substring(0, max) + "…" : s;
     }
 
     private SysUser findUser(String username) {
