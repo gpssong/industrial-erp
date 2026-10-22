@@ -3,6 +3,76 @@
 
 ## changelog (倒序)
 
+### v1.1.112 (2026-10-22 — R20 翻页 bug 全仓根治 26 处 + App H5 成品入库扫码关联工单 + v1.1.110 详情页开工修复)
+
+用户报「库存查询页的列表无法翻页」。排查发现是 v1.1.109 立过的 **R20** bug, 但当时只修了 `finance/Arap.vue` 一个页面 — 本次全仓扫描发现**同一 bug 遍布 25 个文件 26 处**, 覆盖几乎所有日常高频列表页。
+
+#### (1) 翻页 26 处根治 (纯 PC 前端)
+
+**根因** (同 R20)：`el-pagination` 的 `@current-change` 会把新页码作为第一参数传给 handler, 而 `@current-change="loadData"` 里 `loadData()` 签名不接参 → `query.pageNum` 永不更新 → 每次都请求 `pageNum=1`, 表格永远显示同一份数据。
+
+**受影响清单** (25 文件 / 26 handler)：
+
+| 模块 | 文件 |
+|---|---|
+| 基础 | `base/Customer.vue` `base/Product.vue` `base/Supplier.vue` |
+| 库存 | `inventory/Stock.vue`(库存查询, 用户报的这页) `inventory/Ledger.vue` `inventory/Check.vue` |
+| 采购 | `purchase/Order.vue` `purchase/Receipt.vue` `purchase/Return.vue` |
+| 销售 | `sales/Order.vue` `sales/Delivery.vue` `sales/Return.vue` |
+| 生产 | `production/Bom.vue` `production/SemiFinishedIn.vue` |
+| 质量/设备 | `quality/Inspection.vue` `equipment/MaintainPlan.vue` |
+| 财务 | `finance/Invoice.vue` |
+| 系统 | `system/User.vue` `system/Role.vue` `system/Settings.vue` `system/PrintTemplate.vue` `system/FeiePrintLog.vue` `system/OperationLog.vue` (操作日志 + 登录日志 **两个 pager**) |
+| 工作流 | `workflow/Maintain.vue` `workflow/Safety.vue` `workflow/Emergency.vue` `workflow/Tenant.vue` |
+| XK | `xk/Material.vue` |
+
+**统一修法** (同 v1.1.109 范式)：
+```js
+function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
+function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+```
+handler 名带 query 前缀 (`operQueryOnPageChange` / `loginQueryOnPageChange`) 避免同文件两个 pager 撞名。
+
+**踩坑**: `production/SemiFinishedIn.vue` 用的是 `ref(pageNum)` 不是 `reactive({pageNum})`, 批量脚本按 reactive 模板生成, 误写成 `if (p === pageSize.value) return; pageSize.value = p` / `pageSize.value = 1` — 已手工改成 `pageNum.value`。**教训: ref 型和 reactive 型不能共用模板, 批量改完必须逐条 grep 复核变量引用。**
+
+**已验证**: 全仓扫描脚本复查 0 残留 (`<el-pagination>` 非 `v-model:current-page` + handler 零参 = 全部修完); 51 条新 handler 逐条核对变量引用无误。
+
+#### (2) App H5 成品入库扫码关联工单 (v1.1.111)
+
+`app/src/pages/scan/finished-in.vue` 的「关联生产工单」原来只有 `<picker>` 下拉选择, 工单多时翻找不便。新增「📷 扫码关联工单」按钮:
+
+```js
+async onScanOrder() {
+  doScan({
+    onResult: async (code) => {
+      const billNo = String(code || '').trim()
+      // 1) 先在本地列表精确匹配 (picker 已加载的前 100 条), 命中最快
+      // 2) 未命中 → api.prdOrderPage({ billNo }) 后端 LIKE 查 → push 进列表并选中
+    },
+    onCancel: () => {}
+  })
+}
+```
+扫码后自动带出成品/规格/计划量 (复用既有 `onOrderPicked()`), toast「已关联 xxx」; 查无此单弹「未找到工单」。复用 `utils/scan.js` 现有通道 (APK 走 NativeScanner ZXing, H5 浏览器降级 prompt 手输单号)。后端 `prdOrderPage` 本就支持 `billNo` LIKE (`PrdOrderService.page` 的 `w.like(PrdOrder::getBillNo, billNo)`), **无需后端改动**。
+
+#### (3) v1.1.110 生产单详情「点开工后显示生产单不存在」
+
+`app/src/pages/production/order-detail.vue` 的 `onRelease()` 在 `api.prdOrderRelease()` 成功后调 `loadOrder()` **漏传参数**, 而 `loadOrder(id)` 第一行 `if (!id) { order.value = null; return }` 直接命中 → 清空 order → 显示「生产单不存在」。**开工本身是成功的** (状态已变 PRODUCING), 所以重新进页面 (onLoad 正常传 id) 一切正常 — 与用户描述的「刷新后再点还是不存在, 但重新进去已是开工状态」完全吻合。改 `loadOrder(orderId.value)`。
+
+#### 部署记录 (2026-10-22)
+
+| 站 | 组件 | 路径 | 产物 |
+|---|---|---|---|
+| 飞牛 canary | pc-web | `/vol2/erp-system/pc-web/dist-new` | `Stock-ChC8ezhW.js` / `System-DLRya9Gk.js` (含 1.1.112) |
+| 飞牛 canary | app-h5 | `/vol2/erp-system/app-h5/dist/build/h5` | `pages-scan-finished-in.D-kGV93b.js` |
+| home 主站 | app-h5 | `/volume3/docker/erp-system/app-h5/dist/build/h5` | 同上 |
+
+**踩坑**:
+1. `cat dist | ssh 'sudo bash -c "tar -xzf - ..."'` — **sudo 嵌套会把 stdin 流吃掉**, `.staging` 解出空目录, 线上文件纹丝不动。正确做法: 先 `cat | ssh 'cat > /tmp/x.tar.gz'` 落地, 再单独一条 sudo 命令解包。
+2. home pc-web / app-h5 的 bind-mount 目录名不同 (`app` vs `app-h5`, `pc-web-new` vs `dist-new`), 部署前必须 `docker inspect --format '{{range .Mounts}}...'` 确认, 别照抄上一站的路径。
+3. macOS `tar` 打包会把 `._` 开头的 AppleDouble xattr 文件一起塞进去, 飞牛解包刷一屏 `Ignoring unknown extended header keyword 'LIBARCHIVE.xattr.com.apple.provenance'` — 无害, 加 `2>/dev/null` 即可。
+4. **home PAM autoblock**: 反复输错密码会把源 IP 拉黑 130s~数分钟, 越试越锁。必须一次成功; 失败就静默等 5-7 分钟再试 (本机 sleep 超 2m 工具上限, 用后台任务挂起)。治本仍是 DSM 控制台加内网白名单。
+
 ### v1.1.109 (2026-10-21 — PC finance Arap 应收应付全部往来列表翻页修复)
 
 home 主站 `http://home.93gushi.com:8088/#/finance/arap` 进入「全部往来」tab, Total 显示 125 (6+ 页), 但点第 2/3 页无反应 (table 不刷数据, pageNum 看上去卡在 1)。

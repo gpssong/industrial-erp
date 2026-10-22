@@ -42,6 +42,8 @@
       <!-- 选生产工单 → 带出 成品/规格/数量/仓库 -->
       <view class="card">
         <view class="section-title">关联生产工单</view>
+        <!-- v1.1.111: 扫码关联 (扫工单条码/单号二维码 → 自动带入) -->
+        <button class="scan-btn" @click="onScanOrder">📷 扫码关联工单</button>
         <picker :range="orderOptions" @change="onPickOrder">
           <view class="picker-box" :class="{ active: orderId }">
             <text v-if="pickedOrder">{{ pickedOrder.billNo }} · {{ pickedOrder.productName || '成品' }}</text>
@@ -89,6 +91,7 @@
 
 <script>
 import api from '../../api/index.js'
+import { doScan } from '../../utils/scan.js'
 
 export default {
   data() {
@@ -226,6 +229,38 @@ export default {
       const item = this.orderList[Number(e.detail.value)]
       if (item) { this.orderId = String(item.id); this.onOrderPicked() }
     },
+    // v1.1.111: 扫码关联工单 — 扫工单条码/单号二维码, 后端按 billNo LIKE 查到即带入
+    async onScanOrder() {
+      doScan({
+        onResult: async (code) => {
+          const billNo = String(code || '').trim()
+          if (!billNo) return
+          // 1) 先在本地列表里找 (picker 已加载的前 100 条), 命中最快
+          const local = this.orderList.find((o) => o.billNo === billNo)
+          if (local) {
+            this.orderId = String(local.id); this.onOrderPicked()
+            uni.showToast({ title: '已关联 ' + billNo, icon: 'success' })
+            return
+          }
+          // 2) 本地没命中 → 按 billNo 精确查后端
+          try {
+            const r = await api.prdOrderPage({ pageNum: 1, pageSize: 1, billNo })
+            const recs = (r && r.records) || (r && r.data && r.data.records) || []
+            if (recs.length) {
+              this.orderList.push(recs[0])
+              this.orderId = String(recs[0].id); this.onOrderPicked()
+              uni.showToast({ title: '已关联 ' + (recs[0].billNo || billNo), icon: 'success' })
+            } else {
+              uni.showModal({ title: '未找到工单', content: '没有单号为 ' + billNo + ' 的生产工单', showCancel: false })
+            }
+          } catch (e) {
+            if (e && e.code === 401) return
+            uni.showModal({ title: '查询失败', content: (e && e.msg) || '按单号查工单失败', showCancel: false })
+          }
+        },
+        onCancel: () => {}
+      })
+    },
     onOrderPicked() {
       const o = this.pickedOrder
       if (!o) return
@@ -284,6 +319,7 @@ export default {
 .section-title { font-size: 14px; font-weight: 600; color: #303133; margin-bottom: 10px; }
 .muted { color: #909399; font-size: 12px; }
 .picker-box { height: 40px; line-height: 40px; border: 1px solid #dcdfe6; border-radius: 6px; padding: 0 10px; font-size: 14px; color: #303133; }
+.scan-btn { width: 100%; height: 40px; line-height: 40px; background: #ecf5fb; color: #1e6091; border: 1px solid #cfe3f3; border-radius: 6px; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
 .picker-box.active { border-color: #1e6091; background: #ecf5fb; }
 .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
 .info-item { display: flex; flex-direction: column; }

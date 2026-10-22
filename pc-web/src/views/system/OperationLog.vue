@@ -60,7 +60,7 @@
           </el-table>
           <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
             :total="Number(operData.total)" :current-page="operQuery.pageNum"
-            :page-size="operQuery.pageSize" @current-change="loadOperLog" @size-change="loadOperLog" />
+            :page-size="operQuery.pageSize" @current-change="operQueryOnPageChange" @size-change="operQueryOnSizeChange" />
         </div>
       </el-tab-pane>
 
@@ -107,7 +107,7 @@
           </el-table>
           <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
             :total="Number(loginData.total)" :current-page="loginQuery.pageNum"
-            :page-size="loginQuery.pageSize" @current-change="loadLoginLog" @size-change="loadLoginLog" />
+            :page-size="loginQuery.pageSize" @current-change="loginQueryOnPageChange" @size-change="loginQueryOnSizeChange" />
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -152,6 +152,9 @@ async function loadOperLog() {
     operLoading.value = false
   }
 }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function operQueryOnPageChange(p) { if (p === operQuery.pageNum) return; operQuery.pageNum = p; loadOperLog() }
+function operQueryOnSizeChange(s) { if (s === operQuery.pageSize) return; operQuery.pageSize = s; operQuery.pageNum = 1; loadOperLog() }
 
 function resetOperQuery() {
   operQuery.module = ''
@@ -207,6 +210,9 @@ async function loadLoginLog() {
     loginLoading.value = false
   }
 }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function loginQueryOnPageChange(p) { if (p === loginQuery.pageNum) return; loginQuery.pageNum = p; loadLoginLog() }
+function loginQueryOnSizeChange(s) { if (s === loginQuery.pageSize) return; loginQuery.pageSize = s; loginQuery.pageNum = 1; loadLoginLog() }
 
 function resetLoginQuery() {
   loginQuery.username = ''

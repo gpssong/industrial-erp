@@ -322,7 +322,8 @@ async function onRelease() {
     await api.prdOrderRelease(orderId.value)
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
     if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: '开工成功', icon: 'success' })
-    loadOrder()
+    // v1.1.110: 必须传 orderId.value, 否则 loadOrder(id) 内 `if (!id)` 命中 → 清空 order → 显示「生产单不存在」
+    loadOrder(orderId.value)
   } catch (e) {
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
     if (typeof uni !== 'undefined' && uni.showModal) {

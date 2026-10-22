@@ -62,7 +62,7 @@
         <el-table-column prop="after_avg_cost" label="平均成本" width="100" align="right" />
       </el-table>
       <el-pagination class="pager" background layout="total, sizes, prev, pager, next, jumper"
-        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize" @current-change="loadData" @size-change="loadData" :page-sizes="[10,20,50,100]" />
+        :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize" @current-change="onPageChange" @size-change="onSizeChange" :page-sizes="[10,20,50,100]" />
     </div>
   </div>
 </template>
@@ -78,6 +78,9 @@ const query = reactive({ pageNum: 1, pageSize: 20, billType: '', billNo: '', pro
 const data = ref({ records: [], total: 0 })
 const loading = ref(false)
 async function loadData() { loading.value = true; try { data.value = (await ledgerApi.page(query)).data } finally { loading.value = false } }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 query.pageNum 不更新, 点第 2 页无响应
+function onPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
+function onSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
 onMounted(loadData)
 </script>
 <style scoped>.pager { margin-top: 12px; text-align: right; }</style>

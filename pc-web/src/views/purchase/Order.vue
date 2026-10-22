@@ -45,7 +45,7 @@
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
         :total="Number(data.total)" :current-page="query.pageNum" :page-size="query.pageSize"
-        @current-change="loadData" @size-change="loadData" />
+        @current-change="queryOnPageChange" @size-change="queryOnSizeChange" />
     </div>
 
     <!-- 新增/编辑弹窗 -->
@@ -128,6 +128,9 @@ async function loadData() {
   loading.value = true
   try { data.value = (await purOrderApi.page(query)).data } finally { loading.value = false }
 }
+// v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
+function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
+function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
 
 async function loadOptions() {
   if (suppliers.value.length === 0) suppliers.value = (await supplierApi.list()).data || []
