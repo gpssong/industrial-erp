@@ -26,6 +26,7 @@
     { "path": "pages/process/sop", "style": { "navigationBarTitleText": "工艺 SOP" } },
     { "path": "pages/equipment/my", "style": { "navigationBarTitleText": "设备台账" } },
     { "path": "pages/sales/delivery-list", "style": { "navigationBarTitleText": "销售出库单" } },
+    { "path": "pages/sales/delivery-add", "style": { "navigationBarTitleText": "新建销售出库单" } },
     { "path": "pages/sales/delivery-detail", "style": { "navigationBarTitleText": "出库单详情" } },
     { "path": "pages/purchase/receipt-list", "style": { "navigationBarTitleText": "采购入库单" } },
     { "path": "pages/purchase/receipt-detail", "style": { "navigationBarTitleText": "入库单详情" } },
