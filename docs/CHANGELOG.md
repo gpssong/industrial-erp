@@ -3,6 +3,75 @@
 
 ## changelog (倒序)
 
+### v1.1.115 (2026-10-22 — R21 雪花 id 精度丢失根治 + 幽灵仓库库存修复)
+
+用户报「库存查询部分产品没进仓库」, 截图里同一产品**裂成两行**、其中一行仓库列空白。查下来不是数据没录全, 是**前端的雪花 id 精度丢失** —— 一类不报错、只写错数据的静默故障。
+
+#### (1) 根因 (R21)
+
+```js
+// app/src/pages/scan/finished-in.vue (修复前)
+warehouseId: Number(this.warehouseId)
+```
+
+后端 `WebMvcConfig.java:38` 早就用 `ToStringSerializer` 把 `Long` 序列化成**字符串**防了这个坑, 但**输入方向没人管** —— 前端随手一个 `Number()` 就绕过去了。双精度在 2^60 量级的最小间隔 ulp = **256**:
+
+```js
+Number("2073701024629047297") === 2073701024629047300   // 真实仓 ...297 → ...300
+```
+
+真实成品仓 id 被低位抹成 `...300`, 这个 id 在 `base_warehouse` 里**根本不存在** (连软删的都没有) → 库存查询 `LEFT JOIN base_warehouse` 关联不到, 仓库列空白; 同时 `InvStockPageQueryMapper.xml` 的 `GROUP BY s.warehouse_id` 把 7297 / 7300 当成两个分组, 同一产品**裂成两行**。后端全程不报错, 前端无异常。
+
+#### (2) 同一 bug 的第二处伤害: 工单关联全挂空
+
+`prdOrderId: Number(this.orderId)` 同源问题, 让 **10 张 App 成品入库单的 `prd_order_id` 全部挂空** (存 `2111262449375719400`, 真实 `2111262449375719426`), JOIN `prd_order` 全部 `matched_id = NULL` → MES 报工 ↔ 成品入库 ↔ 批次溯源整条链断掉。
+
+**救回依据**: `prd_order_no` 是**文本列**, 没被精度影响, 且已验证 4 个工单号在 `prd_order` 全库唯一 (每号 `COUNT(*)=1`) → 无歧义精确挂回。
+
+#### (3) 数据修复 `sql/126_v1115_fix_ghost_warehouse_stock.sql` (home 已执行)
+
+| 表 | 处理 | 条数 |
+|---|---|---|
+| `inv_stock` | 4 行幽灵 qty 累加进成品仓同产品行, 幽灵行软删 (`deleted=1` 保留可追溯) | 4 |
+| `prd_finished_in` | `warehouse_id` 7300 → 7297 | 10 |
+| `inv_ledger` | `warehouse_id` 7300 → 7297 (只改仓库维度不改数量) | 18 |
+| `prd_finished_in` | `prd_order_id` 靠 `prd_order_no` 救回 | 10 |
+
+**为什么是「累加合并」而不是「改 id」**: `inv_stock` 有唯一键 `uniq_inv_stock_key(warehouse_id, location_id, product_id, batch_no, deleted)`, 4 个产品在成品仓**都已有同 key 行**, 直接 `UPDATE` id 会 4 条全撞。合并让「一个产品在成品仓只有一行」这个不变式恢复成立。
+
+**幂等**: 全程 `deleted=0` / `NOT EXISTS` 守门, 实测重复灌数量不变。
+
+#### (4) 灌 SQL 的两个坑 (都写在 SQL 注释里)
+
+- **`inv_ledger` 只有 `create_time`, 没有 `update_time`** —— 同名表列名不一致, 写 `update_time` 直接 Unknown column, **整个事务回滚**。动手前先查 `information_schema.COLUMNS`。
+- **home 的 `gpssong` 无任何可写目录 (连 `/tmp` 都不行)** —— 输出重定向静默失败。备份只能 `docker exec` 落容器内, 再 `docker cp` 到 `/volume1/erp-backup/` 长期留存。
+
+#### (5) 代码修复: App 端 7 行 `Number(id)` → 直传字符串
+
+零后端改动 (后端 `Long` 字段接 JSON 字符串本来就合法):
+
+| 文件 | 字段 |
+|---|---|
+| `app/src/pages/scan/finished-in.vue` | `warehouseId` + `prdOrderId` |
+| `app/src/pages/scan/semi-in.vue` | `warehouseId` + `prdOrderId` |
+| `app/src/pages/scan/pat.vue` | `sourceBillId` |
+| `app/src/pages/sales/delivery-add.vue` | `customerId` + `warehouseId` |
+
+**不修代码光修数据没用** —— 下次 App 扫码入库会立刻再产生幽灵行。
+
+#### (6) 验证 (home 实测)
+
+- 库存合并后: `0018` 108500 / `0012` 32500 / `0013` 5600 / `dyd7570` 86300, **总量守恒 232900**
+- 幽灵引用清零: `prd_finished_in` 0 / `inv_ledger` 0
+- 复现库存查询 SQL → **一产品一行**, 仓库名正常显示「成品仓库」
+- 工单关联 **10/10 挂回**, `orphan_order_ref = 0`
+- 重复灌 SQL 数量不变 (幂等成立)
+- 备份 `/volume1/erp-backup/ghost_wh_20261022_122454.sql` (md5 `8d9c47e9…`)
+
+#### (7) 未动
+
+`sal_delivery` 2 行 `customer_id` 挂空 = 7 月历史测试数据 (`create_by=NULL`, 单号 `CKP` 开头), 与本 bug 无关, 未改。
+
 ### v1.1.114 (2026-10-22 — App H5 销售出库单「新建」功能 + R18 APP 授权补灌 + home 主站全量同步)
 
 App H5 销售出库此前**只能看不能建**, 出库单得回 PC 端建, 车间现场极不方便。本次补齐 App 端建单闭环。
