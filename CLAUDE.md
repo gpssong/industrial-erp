@@ -1,6 +1,7 @@
 # 工业 ERP 系统 (industrial-erp)
 
-**当前版本**: v1.1.112 (2026-10-22 — R20 翻页 bug 全仓根治 + App H5 成品入库扫码关联工单。(1) **翻页 26 处**: 用户报「库存查询页无法翻页」, 全仓扫描发现同一 R20 bug (`@current-change="loadData"` handler 不接参 → `query.pageNum` 永不更新) 遍布 25 个文件 26 处, 含客户/商品/供应商/采购订单/采购入库/采购退货/销售订单/销售出库/销售退货/生产 BOM/半成品入库/财务发票/质量检验/设备维保计划/系统用户/角色/菜单/参数/打印模板/飞鹅日志/操作日志(双表)/工作流 4 页/XK 原料 — 全改显式接参 handler (同值短路 + 切页大小重置 pageNum=1); `SemiFinishedIn.vue` 是 ref 型需 `.value`, 脚本批量改时误写成 pageSize 已手工修正。(2) **App H5 成品入库扫码关联**: `app/src/pages/scan/finished-in.vue` 加「📷 扫码关联工单」按钮, 扫工单条码/单号二维码 → 先本地列表精确匹配 billNo, 未命中再调 `prdOrderPage({billNo})` LIKE 查后端 → 自动带入工单并带出成品/规格/计划量。(3) **v1.1.110**: `order-detail.vue` `onRelease()` 调 `loadOrder()` 漏传 id → 开工成功后清空 order 显示「生产单不存在」, 改 `loadOrder(orderId.value)`。**飞牛 canary + home 主站均已上线**。)
+**当前版本**: v1.1.114 (2026-10-22 — App H5 销售出库单「新建」功能 + R18 APP 授权补灌 + home 主站全量同步。(1) **App H5 销售出库建单**: 新增 `app/src/pages/sales/delivery-add.vue` (客户/仓库/日期/备注 + 品名编码搜索与扫码加商品 + 数量单价实时算金额 + 「存草稿」/「保存并审核」双动作), `delivery-list.vue` 加 perm 门禁的「+ 新建销售出库单」入口。**踩坑: `add` 端点只返回 `R<Void>` 不带 id**, 无法直接审核, 解法是回查 `salesDeliveryPage` 取最新一单 id 再 check (并发建单有串单风险, 待后端 add 返回 id 优化)。(2) **R18 再撞**: `sales:delivery:add` 只有 PC 授权 0 条 APP → App 保存必 403, 补 `sql/125` 给 6 角色 × 5 perm 灌 APP 授权。**灌 SQL 踩坑: `docker exec -i` + `<` 重定向静默 0 行** (只接本地 ssh stdin, 不处理容器内重定向; sudo 嵌套再吃一层), 必须 `docker cp` 落地 + `docker exec sh -c "mysql < file"`, 且**灌完 SELECT 验证行数** (mysql 匹配 0 行不报错)。(3) **v1.1.113**: App H5 生产加工单 placeholder 写「单号/成品名」但只传 `billNo`, 补传 `productName` (后端 page 本就三参数独立可选, AND 语义, 零后端改动)。(4) **R15 版本字面量对齐**: App 三处 (manifest.json / profile/index.vue / package.json) 停在 1.1.107, 统一升 1.1.114。(5) **home 主站全量同步完成** — pc-web + app-h5 dist + sql/125 全上线, index chunk md5 与本地逐字节一致。**home PAM autoblock 根治办法: DSM 控制台「安全性 → 防护 → 自动封锁 → 允许名单」加 `192.168.0.1~192.168.0.255`** (是 DSM/fnOS 自带 PAM autoblock, 不是 fail2ban)。**飞牛 canary + home 主站均已上线**。)
+**前版本 v1.1.112**: R20 翻页 bug 全仓根治 26 处 (25 文件) + App H5 成品入库扫码关联工单 + v1.1.110 详情页开工修复。
 **前版本 v1.1.109**: PC finance Arap 应收应付页面翻页修复 (Arap.vue 首现 R20, 本次扩到全仓 26 处)。
 **前版本 v1.1.108**: App APK 隐私/卫生第三批: (1) 关 uni-stat 遥测 — `src/manifest.json` 加 `h5.uniStatistics.enable=false`, H5/APK 产物不再向 DCloud 公网 `tongji.dcloud.io`/`tongji-collector.dcloud.net.cn` 上报设备/页面数据; (2) `index.html` SW 注册加 `!window.Capacitor` 守卫, 消掉 APK WebView 里常驻的 `Failed to register /static/sw.js` 报错 (PWA 离线缓存只给浏览器 H5); (3) `api/index.js` 抽 `logDebug()` 走 `import.meta.env.DEV`, 生产 H5/APK 静默 DEBUG 级日志, 保留网络层/非JSON 的 warn (R13 诊断价值). 纯 App 端, 不动后端/PC/SQL.
 
@@ -69,7 +70,7 @@ erp-mysql       Up (healthy)  3306:3306 (内部)
 erp-redis       Up            6379:6379 (内部)
 erp-backend     Up (healthy)  8080:8080  (后端 baked-in jar)
 erp-pc-web      Up (healthy)  18080:80   (PC dist bind-mount: /volume3/docker/erp-system/pc-web-new/dist)
-erp-app-h5      Up (healthy)  18090:80   (H5 dist bind-mount: /volume3/docker/erp-system/app/dist/build/h5)
+erp-app-h5      Up (healthy)  18090:80   (H5 dist bind-mount: /volume3/docker/erp-system/app-h5/dist/build/h5)
 ```
 
 外部域名: `http://home.93gushi.com:8088` (PC) / `http://home.93gushi.com:18090` (App H5).
