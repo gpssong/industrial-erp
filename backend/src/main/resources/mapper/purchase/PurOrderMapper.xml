@@ -18,30 +18,39 @@
         )
     </insert>
 
+    <!--
+      v1.1.123 修复「采购订单审核 500: Column 'bill_no' cannot be null」:
+      check()/uncheck() 只传稀疏对象 (id + bill_status), 原手写全字段无条件 SET 会把
+      其余字段写成 NULL → 撞 NOT NULL 约束。加 <if> 非空判断, 等价于 MP 的
+      update-strategy=not_null (本 XML 覆盖了 MP 默认 updateById, 绕过了该策略)。
+      正常 edit 传全字段对象不受影响 (非 null 才 SET)。
+    -->
     <update id="updateById" parameterType="com.industrial.erp.modules.purchase.entity.PurOrder">
-        UPDATE pur_order SET
-            bill_no = #{et.billNo},
-            bill_date = #{et.billDate},
-            supplier_id = #{et.supplierId},
-            supplier_name = #{et.supplierName},
-            warehouse_id = #{et.warehouseId},
-            buyer_id = #{et.buyerId},
-            buyer_name = #{et.buyerName},
-            order_type = #{et.orderType},
-            pay_type = #{et.payType},
-            currency = #{et.currency},
-            exchange_rate = #{et.exchangeRate},
-            total_qty = #{et.totalQty},
-            total_amount = #{et.totalAmount},
-            tax_amount = #{et.taxAmount},
-            total_amount_tax = #{et.totalAmountTax},
-            paid_amount = #{et.paidAmount},
-            bill_status = #{et.billStatus},
-            delivery_date = #{et.deliveryDate},
-            source_bill_id = #{et.sourceBillId},
-            remark = #{et.remark},
-            update_by = #{et.updateBy},
-            update_time = #{et.updateTime}
+        UPDATE pur_order
+        <set>
+            <if test="et.billNo != null">bill_no = #{et.billNo},</if>
+            <if test="et.billDate != null">bill_date = #{et.billDate},</if>
+            <if test="et.supplierId != null">supplier_id = #{et.supplierId},</if>
+            <if test="et.supplierName != null">supplier_name = #{et.supplierName},</if>
+            <if test="et.warehouseId != null">warehouse_id = #{et.warehouseId},</if>
+            <if test="et.buyerId != null">buyer_id = #{et.buyerId},</if>
+            <if test="et.buyerName != null">buyer_name = #{et.buyerName},</if>
+            <if test="et.orderType != null">order_type = #{et.orderType},</if>
+            <if test="et.payType != null">pay_type = #{et.payType},</if>
+            <if test="et.currency != null">currency = #{et.currency},</if>
+            <if test="et.exchangeRate != null">exchange_rate = #{et.exchangeRate},</if>
+            <if test="et.totalQty != null">total_qty = #{et.totalQty},</if>
+            <if test="et.totalAmount != null">total_amount = #{et.totalAmount},</if>
+            <if test="et.taxAmount != null">tax_amount = #{et.taxAmount},</if>
+            <if test="et.totalAmountTax != null">total_amount_tax = #{et.totalAmountTax},</if>
+            <if test="et.paidAmount != null">paid_amount = #{et.paidAmount},</if>
+            <if test="et.billStatus != null">bill_status = #{et.billStatus},</if>
+            <if test="et.deliveryDate != null">delivery_date = #{et.deliveryDate},</if>
+            <if test="et.sourceBillId != null">source_bill_id = #{et.sourceBillId},</if>
+            <if test="et.remark != null">remark = #{et.remark},</if>
+            <if test="et.updateBy != null">update_by = #{et.updateBy},</if>
+            <if test="et.updateTime != null">update_time = #{et.updateTime},</if>
+        </set>
         WHERE id = #{et.id}
     </update>
 
