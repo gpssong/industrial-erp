@@ -3,6 +3,84 @@
 
 ## changelog (倒序)
 
+### v1.1.119 (2026-10-23 — BOM「基础用量」语义正名 + 领料量按成品克重归一化 (重量配比))
+
+用户指出:「BOM 中基础用量为按重量折算的对应比例, 不是生产一个产品需要的量」。DB 实测(飞牛 canary)完全印证。
+
+#### 根因
+
+| BOM202607160001「普通B机料」 | base_qty | 原料主单位 |
+|---|---|---|
+| ldpe2426h | 25 | **包** |
+| lldpe7042 | 175 | **卷** |
+| kkj 开口剂 | 0.6 | kg |
+| nmtc 纳米填充 | 6 | kg |
+
+Σ = **206.6 份**, 添加剂合计 6.6 份 = 3.2%(吹膜合理), 膜料 200 份占 96.8% —— 这是**重量配比份数**, 不是用量。该配方被 **29 个成品共用**(带鱼袋/马鲛鱼袋/氧气袋/48×38 垃圾袋…), 成品克重跨度 3.3g~64.7g(20 倍) —— 同一张配方不可能有固定的「每成品用量」。
+
+**旧算法是错的**(`PrdOrderService.java:256-283`):
+```
+ratio = planQty / bom.baseQty        ← bom.base_qty 对本配方是 NULL → 回落 1
+need  = detail.baseQty × ratio        ← 退化成 baseQty × planQty
+```
+实测工单 `RQ202610210001` plan_qty=750 → 领 `lldpe7042` **131250 卷** / `ldpe2426h` **18750 包**。
+
+**16 张领料单 100% 是 DRAFT, 一张都没审核, 库存未被污染** → 修完重开即可, 零数据回滚。
+
+#### 新算法 (用户拍板: 数量×克重=原料总重量)
+
+```
+成品总重(kg) = planQty × base_product.gram_weight / 1000        (g/件 → kg)
+原料用量(kg) = 成品总重 × (本项配比 / Σ全部配比) × (1 + 本项损耗率/100)
+```
+
+独立复核 4 场景, **合计精确等于成品总重**(无损耗时) —— 配比守恒:
+
+| plan_qty=750 | 旧 (错) | 新 (对) |
+|---|---|---|
+| lldpe7042 | 131250 卷 | **2.67 kg** |
+| ldpe2426h | 18750 包 | **0.38 kg** |
+
+#### 连带修的 3 个同源 bug
+
+| bug | 现象 | 修法 |
+|---|---|---|
+| 原料主单位非 kg | 配比是重量配比, 算法产出天然是 kg; 原料主单位是包/卷时领料量算得出却存不进 | ldpe2426h/lldpe7050/lldpe7042 三个膜料 包\|卷→kg, **保留原单位行作副单位**(只切 is_main 位, 靠 conversion_rate 支持将来按卷入库自动折算)。改前核实这三原料 inv_stock/inv_ledger/pur_receipt_detail/sal_delivery_detail/inv_check_detail **全 0 行**, 零历史风险。全库另 49 个用「卷」的胶带/碳带非 BOM 原料, 不动 |
+| BOM 明细单位 11/11 行全 NULL | `Bom.vue` 的 addDetail()/onSubmit() 只同步 code/name/spec 从不写单位 → 领料明细 unitId 全 NULL(51/51 行) → `StockService.convertToMain()` 的 `if (unitId == null) return qty` 静默跳过折算 | 后端 `PrdBomService.saveDetails()` 用 `BaseProductUnitMapper.selectMainUnit()` 回填 + 前端 onSubmit() 带出 |
+| Requisition.vue:38 假标签 | `label="数量 (kg)"` 硬编码, 实际是包/卷 | 去掉 `(kg)` |
+
+#### UI (Bom.vue)
+
+「基础用量」→「配比份数」; 新增「配比%」只读列(单项占 Σ 的百分比)+「单位」列(缺单位标橙); 弹窗顶部加语义说明条 + 实时 Σ 配比 —— 白纸黑字钉死「不是用量」, 防下一个维护者重蹈 `baseQty × planQty` 的错算法。
+
+#### 降级 (不卡死开工, 与既有 BOM 缺失降级同一风格)
+
+`gram_weight` 空/≤0 或 `Σ配比` ≤0 → `log.warn` 跳过领料展开, 状态照样 RELEASED。
+
+#### sql/128 幂等测试抓到的真坑 (R24)
+
+建 scratch 库从生产灌子集, **连跑 3 次比对**, 第 2 轮实测抓到一个会带到生产的 bug:
+
+> 「把所有非 kg 行 is_main 归零」若**不带 `unit_name <> 'kg'`**, 第 2 次执行会把第 1 轮插入的 kg 行也归零, 而「插 kg 行」的 NOT EXISTS 又因「kg 已存在」不补插 → **三个产品一条主单位都不剩** → 前端显示「该商品未配置单位」(恰好是 R23 的 symptom)。
+
+修法: 降级 UPDATE 排除 kg 行 + 加一条「无条件把 kg 行 is_main 提回 1」形成幂等闭环。这是**连跑 3 次对比**才发现的 —— 只跑 1 次就会带到生产。同批还踩 `COUNT(*) AS lines` 撞 MySQL 8 保留字(1064 语法错)→ 改 `line_cnt`。
+
+#### 部署 (飞牛 canary 先行 → home)
+
+| 站 | 产物 | md5 / 入口 |
+|---|---|---|
+| jar | `industrial-erp-1.0.4.jar` | 双站容器内均 `7f9fb3a8b16d4905fc5fa416af229784` |
+| pc-web | `Bom-F0fJJNrt.js` / 入口 `index-CWBoX0X5.js` | 双站一致, 新文案「配比份数/配比%/未录」均在 |
+| sql | `sql/128` | 双站 BOM 明细空单位 0 行, 三膜料主单位全 kg |
+
+**home 数据差异(非故障)**: `lldpe7042` 原单位两站不同 —— 飞牛是「卷」, home 是「包」。脚本按 product_code 匹配、不写死单位名, 两站都正确切成 kg + 原单位降副单位。
+
+**范围外(已识别, 未做)**: `prd_order_share.ftl:102/114` 领料明细表恒不渲染(变量名 `requisitionDetails` vs `details`); `Requisition.vue` 列表读 `row.materialName`/`row.qty` 后端无此 transient 字段恒 blank; `prd_order_feie.ftl:20` 克重单位写 `g/㎡` 应为 `g/件`。
+
+**已知遗留**: `10265006`/`11725006` 两个成品没录克重, 开工时只 warn 跳过、不生成领料单, 需人工补克重。`sql/128` 编号与另一人的 `sql/128_v1119_mes_weight_device.sql` 撞了, 建议后者改 129。
+
+---
+
 ### v1.1.118 (2026-10-23 — R23 App H5「信封误读」: 拦截器已拆封, 页面再读 `.data` 恒空)
 
 用户报 App H5 成品入库页选工单 `PD202610200001` (带鱼袋 `dyd975007`), 单位字段恒显示「该商品未配置单位」—— 而该商品在 PC 编辑商品里主单位明明配的是「只」。
