@@ -253,52 +253,81 @@ public class PrdOrderService {
         boolean canExpand = !bomNoDetails && reqWarehouseId != null;
 
         if (!bomNoDetails) {
-            // 计算每种原料的实际用量 = baseQty * (planQty / bom.baseQty) * (1 + lossRate/100)
-            BigDecimal ratio = order.getPlanQty().divide(bom.getBaseQty() == null ? BigDecimal.ONE : bom.getBaseQty(), 6, RoundingMode.HALF_UP);
+            // v1.1.119 — BOM 明细 base_qty 的真义是**重量配比份数**, 不是「生产 1 个成品用多少料」.
+            //
+            //   旧算法 (错的): ratio = planQty / bom.baseQty ; need = baseQty × ratio
+            //     配比无量纲 (Σ=206.6 份), bom.baseQty 通常是 NULL 回落 1 → need 退化成
+            //     baseQty × planQty. 实测 plan_qty=750 → 领 lldpe7042 131250 卷, 荒谬.
+            //
+            //   新算法 (用户拍板, 与车间口径一致):
+            //     成品总重(kg) = planQty × gram_weight / 1000          (base_product.gram_weight, g/件)
+            //     原料用量(kg) = 成品总重 × (本项配比 / Σ全部配比) × (1 + 本项损耗率/100)
+            //     (原料主单位已在 sql/128 统一为 kg, 所以算出的 kg 直接就是领料量)
+            BigDecimal sumRatio = BigDecimal.ZERO;
+            for (PrdBomDetail bd : bom.getDetails()) {
+                sumRatio = sumRatio.add(bd.getBaseQty() == null ? BigDecimal.ZERO : bd.getBaseQty());
+            }
 
-            if (canExpand) {
-                PrdRequisition req = new PrdRequisition();
-                req.setBillNo(billNoGenerator.generate(Constants.BILL_RQ));
-                req.setBillDate(LocalDate.now());
-                req.setPrdOrderId(order.getId());
-                req.setPrdOrderNo(order.getBillNo());
-                req.setWarehouseId(reqWarehouseId);
-                req.setWorkshop(order.getWorkshop());
-                req.setWorkshopId(order.getWorkshopId());
-                req.setBillType("ISSUE");
-                req.setBillStatus(Constants.STATUS_DRAFT);
-                req.setDetails(new java.util.ArrayList<>());
-                int line = 0;
-                for (PrdBomDetail bd : bom.getDetails()) {
-                    PrdRequisitionDetail rd = new PrdRequisitionDetail();
-                    rd.setLineNo(++line);
-                    rd.setProductId(bd.getProductId());
-                    rd.setProductCode(bd.getProductCode());
-                    rd.setProductName(bd.getProductName());
-                    rd.setUnitId(bd.getUnitId());
-                    rd.setUnitName(bd.getUnitName());
-                    BigDecimal base = bd.getBaseQty() == null ? BigDecimal.ZERO : bd.getBaseQty();
-                    BigDecimal loss = bd.getLossRate() == null ? BigDecimal.ZERO : bd.getLossRate();
-                    BigDecimal need = base.multiply(ratio).multiply(BigDecimal.ONE.add(loss.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP)));
-                    rd.setQty(need.setScale(4, RoundingMode.HALF_UP));
-                    req.getDetails().add(rd);
-                }
-                reqMapper.insert(req);
-                for (PrdRequisitionDetail rd : req.getDetails()) {
-                    rd.setId(null);
-                    rd.setRequisitionId(req.getId());
-                    reqDetailMapper.insert(rd);
-                }
-            } else if (bomNoDetails) {
-                // 无 BOM 降级: 打日志提醒, 不阻塞开工.
+            // 成品克重 (g/件) — 算不出总重就没法按配比分摊, 降级不卡死开工
+            BaseProduct prod = order.getProductId() == null ? null
+                    : productMapper.selectById(order.getProductId());
+            BigDecimal gram = prod == null ? null : prod.getGramWeight();
+
+            if (gram == null || gram.compareTo(BigDecimal.ZERO) <= 0 || sumRatio.compareTo(BigDecimal.ZERO) <= 0) {
+                // 降级: 打日志提醒, 不阻塞开工 (与上方 BOM 缺失/仓库缺失降级同一风格)
                 org.slf4j.LoggerFactory.getLogger(PrdOrderService.class)
-                        .warn("[PrdOrder.release] 工单 {} 未配置 BOM 或 BOM 无明细, 跳过自动领料单展开, 状态直接置 RELEASED. 用户可后续手动建领料单.",
-                                order.getBillNo());
+                        .warn("[PrdOrder.release] 工单 {} 跳过自动领料展开 — 成品克重缺失(gramWeight={}, 产品={}) 或 BOM 配比合计为 0(Σ={}). "
+                                      + "配比版用量 = 成品总重 × 本项/Σ配比, 缺任一项都算不出用量. 请到「基础数据 → 商品」补成品克重, 或到「生产管理 → BOM」核对配比份数. 状态仍置 RELEASED, 用户可后续手动建领料单.",
+                                order.getBillNo(), gram, order.getProductName(), sumRatio);
             } else {
-                // BOM 有明细但仓库缺失 (生产单没填 + 无默认仓库): 降级跳过领料展开, 不阻塞开工.
-                org.slf4j.LoggerFactory.getLogger(PrdOrderService.class)
-                        .warn("[PrdOrder.release] 工单 {} BOM 有明细但未填仓库且仓库表无默认仓库, 跳过自动领料单展开 (仓库为领料环节所需, 不阻塞开工). 用户可后续手动到「领料管理」建领料单并填写仓库.",
-                                order.getBillNo());
+                // 成品总重: planQty(件) × 克重(g/件) ÷ 1000 → kg
+                BigDecimal totalKg = order.getPlanQty()
+                        .multiply(gram)
+                        .divide(new BigDecimal("1000"), 6, RoundingMode.HALF_UP);
+
+                if (canExpand) {
+                    PrdRequisition req = new PrdRequisition();
+                    req.setBillNo(billNoGenerator.generate(Constants.BILL_RQ));
+                    req.setBillDate(LocalDate.now());
+                    req.setPrdOrderId(order.getId());
+                    req.setPrdOrderNo(order.getBillNo());
+                    req.setWarehouseId(reqWarehouseId);
+                    req.setWorkshop(order.getWorkshop());
+                    req.setWorkshopId(order.getWorkshopId());
+                    req.setBillType("ISSUE");
+                    req.setBillStatus(Constants.STATUS_DRAFT);
+                    req.setDetails(new java.util.ArrayList<>());
+                    int line = 0;
+                    for (PrdBomDetail bd : bom.getDetails()) {
+                        PrdRequisitionDetail rd = new PrdRequisitionDetail();
+                        rd.setLineNo(++line);
+                        rd.setProductId(bd.getProductId());
+                        rd.setProductCode(bd.getProductCode());
+                        rd.setProductName(bd.getProductName());
+                        rd.setUnitId(bd.getUnitId());
+                        rd.setUnitName(bd.getUnitName());
+                        BigDecimal base = bd.getBaseQty() == null ? BigDecimal.ZERO : bd.getBaseQty();
+                        BigDecimal loss = bd.getLossRate() == null ? BigDecimal.ZERO : bd.getLossRate();
+                        // 配比份额 = 本项 / Σ全部 ; 再乘成品总重和 (1+损耗率)
+                        BigDecimal share = base.divide(sumRatio, 10, RoundingMode.HALF_UP);
+                        BigDecimal need = totalKg
+                                .multiply(share)
+                                .multiply(BigDecimal.ONE.add(loss.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP)));
+                        rd.setQty(need.setScale(4, RoundingMode.HALF_UP));
+                        req.getDetails().add(rd);
+                    }
+                    reqMapper.insert(req);
+                    for (PrdRequisitionDetail rd : req.getDetails()) {
+                        rd.setId(null);
+                        rd.setRequisitionId(req.getId());
+                        reqDetailMapper.insert(rd);
+                    }
+                } else {
+                    // BOM 有明细但仓库缺失 (生产单没填 + 无默认仓库): 降级跳过领料展开, 不阻塞开工.
+                    org.slf4j.LoggerFactory.getLogger(PrdOrderService.class)
+                            .warn("[PrdOrder.release] 工单 {} BOM 有明细但未填仓库且仓库表无默认仓库, 跳过自动领料单展开 (仓库为领料环节所需, 不阻塞开工). 用户可后续手动到「领料管理」建领料单并填写仓库.",
+                                    order.getBillNo());
+                }
             }
         }
 

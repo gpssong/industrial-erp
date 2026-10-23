@@ -58,6 +58,11 @@
         </el-row>
         <!-- 原料明细 -->
         <el-form-item label="原料明细">
+          <div class="ratio-hint">
+            <b>配比份数</b> = 按重量折算的比例, 不是「生产 1 个成品要用多少料」。
+            领料量 = 成品总重(计划数 × 成品克重) × 本项配比 / Σ全部配比, 单位 kg。
+            <span class="ratio-sum">当前 Σ 配比 = <b>{{ sumRatio() }}</b> 份</span>
+          </div>
           <el-button size="small" type="primary" plain @click="addDetail">添加原料</el-button>
           <el-table :data="form.details" size="small" border style="margin-top:8px">
             <el-table-column label="类型" width="100">
@@ -77,8 +82,18 @@
             </el-table-column>
             <el-table-column prop="productCode" label="编码" width="100" />
             <el-table-column prop="productName" label="名称" />
-            <el-table-column label="基础用量" width="120">
-              <template #default="{ row }"><el-input-number v-model="row.baseQty" :min="0" :precision="4" :step-strictly="false" size="small" style="width:100%" /></template>
+            <el-table-column label="配比份数" width="120">
+              <template #default="{ row }">
+                <el-input-number v-model="row.baseQty" :min="0" :precision="4" :step-strictly="false" size="small" style="width:100%" />
+              </template>
+            </el-table-column>
+            <el-table-column label="配比%" width="80" align="right">
+              <template #default="{ row }">{{ ratioPct(row) }}</template>
+            </el-table-column>
+            <el-table-column label="单位" width="70" align="center">
+              <template #default="{ row }">
+                <span :class="['muted', { 'unit-warn': !row.unitName }]">{{ row.unitName || '未录' }}</span>
+              </template>
             </el-table-column>
             <el-table-column label="损耗率%" width="100">
               <template #default="{ row }"><el-input-number v-model="row.lossRate" :min="0" :max="100" :precision="2" :step-strictly="false" size="small" style="width:100%" /></template>
@@ -102,7 +117,8 @@
         <el-table-column prop="productCode" label="原料编码" width="120" />
         <el-table-column prop="productName" label="原料名称" />
         <el-table-column prop="spec" label="规格" />
-        <el-table-column prop="baseQty" label="基础用量" width="100" align="right" />
+        <el-table-column prop="baseQty" label="配比份数" width="100" align="right" />
+        <el-table-column prop="unitName" label="单位" width="80" align="center" />
         <el-table-column prop="lossRate" label="损耗率%" width="100" align="right" />
       </el-table>
     </el-dialog>
@@ -163,7 +179,22 @@ async function onDelete(row) {
 }
 
 function addDetail() {
-  form.value.details.push({ materialType: 'MATERIAL', productId: null, productCode: '', productName: '', spec: '', baseQty: 1, lossRate: 0 })
+  form.value.details.push({ materialType: 'MATERIAL', productId: null, productCode: '', productName: '', spec: '', unitId: null, unitName: '', baseQty: 1, lossRate: 0 })
+}
+
+// v1.1.119: Σ 全部配比份数 — 领料量按它归一化, 弹窗顶部实时显示
+function sumRatio() {
+  return (form.value.details || [])
+    .reduce((s, d) => s + (Number(d.baseQty) || 0), 0)
+    .toFixed(4)
+    .replace(/0+$/, '').replace(/\.$/, '')
+}
+
+// v1.1.119: 单项配比占比 (只读展示, 让用户看清 25 份在 206.6 份里占多少)
+function ratioPct(row) {
+  const sum = (form.value.details || []).reduce((s, d) => s + (Number(d.baseQty) || 0), 0)
+  if (!sum) return '—'
+  return ((Number(row.baseQty) || 0) / sum * 100).toFixed(2) + '%'
 }
 
 async function onSubmit() {
@@ -171,14 +202,27 @@ async function onSubmit() {
   submitting.value = true
   try {
     // 同步原料信息
+    // v1.1.119: 单位也要带出来 — 原先只同步 code/name/spec, 导致 BOM 明细
+    // unit_id/unit_name 全 NULL (实测 11/11 行), 领料单也跟着没单位,
+    // StockService.convertToMain() 的 `if (unitId == null) return qty`
+    // 静默跳过折算扣错库存. productApi.page 不返回 units, 所以前端尽力而为,
+    // 拿不到就交给后端 saveDetails() 的主单位回填兜底.
     let line = 0
     for (const d of form.value.details) {
       d.lineNo = ++line
-      const mp = products.value.find(x => x.id === d.productId)
+      const mp = products.value.find(x => String(x.id) === String(d.productId))
       if (mp) {
         d.productCode = mp.productCode
         d.productName = mp.productName
         d.spec = mp.spec
+        // productApi.page 若带 units 就优先用它 (取主单位或第一条)
+        if (mp.units && mp.units.length) {
+          const mu = mp.units.find(u => u.isMain === 1) || mp.units[0]
+          if (mu && mu.unitName) {
+            d.unitId = mu.unitId
+            d.unitName = mu.unitName
+          }
+        }
       }
     }
     if (form.value.id) {
@@ -200,4 +244,20 @@ onMounted(loadData)
 <style scoped>
 .toolbar { margin-bottom: 12px; }
 .pager { margin-top: 12px; text-align: right; }
+/* v1.1.119: 配比语义说明条 — 「基础用量」被误读成用量, 加白纸黑字钉死语义 */
+.ratio-hint {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #606266;
+  background: #f4f4f5;
+  border-left: 3px solid #409eff;
+  border-radius: 3px;
+}
+.ratio-sum { display: block; margin-top: 2px; color: #909399; }
+.ratio-sum b { color: #409eff; }
+.muted { color: #909399; font-size: 12px; }
+.unit-warn { color: #e6a23c; font-weight: 600; }
 </style>
