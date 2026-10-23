@@ -64,10 +64,10 @@
         <view class="form-row"><text class="form-label">入库仓库</text>
           <picker :range="whNames" @change="onPickWh" class="form-pick">
             <view class="pick-val">{{ whName || '请选择仓库' }}</view></picker></view>
-        <!-- v1.1.117: 单位选择器, 默认带出工单成品的主单位, 可切该商品其它单位 -->
+        <!-- v1.1.117: 单位选择器, 默认带出该成品的主单位 (真实单位名), 可切该商品其它单位 -->
         <view class="form-row"><text class="form-label">单位</text>
           <picker :range="unitNames" @change="onPickUnit" class="form-pick">
-            <view class="pick-val">{{ unitName || '请选择单位' }}</view></picker></view>
+            <view class="pick-val">{{ unitTip }}</view></picker></view>
         <view class="form-row"><text class="form-label">数量</text>
           <input class="form-input" v-model="form.qty" type="digit" placeholder="0" /></view>
         <view class="form-row"><text class="form-label">批号</text>
@@ -123,9 +123,10 @@ export default {
     pickedOrder() { return this.orderList.find((x) => String(x.id) === String(this.orderId)) },
     whNames() { return this.warehouses.map((w) => w.warehouseName || ('仓#' + w.id)) },
     whName() { const w = this.warehouses.find((x) => String(x.id) === String(this.warehouseId)); return w ? (w.warehouseName || ('仓#' + w.id)) : '' },
-    // v1.1.117: 单位下拉 — 默认工单主单位; 该商品无其它单位时只有一项
+    // v1.1.117: 单位下拉 — 默认商品主单位 (真实单位名, 如「只」/「卷」); 该商品没配单位时显示「未配置」
     unitNames() { return this.units.map((u) => u.unitName) },
     unitName() { return this.units[this.unitIdx] ? this.units[this.unitIdx].unitName : '' },
+    unitTip() { return this.unitName || (this.pickedOrder ? '该商品未配置单位' : '请选择单位') },
     // v1.1.102 hotfix-3: 列表行内审核/反审核 perm
     canCheck() {
       const perms = this.getMyAppPerms()
@@ -278,27 +279,41 @@ export default {
       // v1.1.117: 批号默认 = 工单号 (可改)
       this.form.batchNo = o.billNo || ''
       this.draftId = null; this.checked = false
-      // v1.1.117: 加载该成品可用单位, 默认选工单主单位
       this.loadUnits(o)
     },
-    // v1.1.117: 拉成品商品的全部单位, 默认定位到工单主单位
+    // v1.1.117: 加载该成品可用单位, 默认选主单位.
+    // ⚠️ prd_order.unit_id/unit_name 很多老工单是 NULL (开单时没写单位),
+    //    prdOrderPage 接口也不带单位 → 工单上的单位经常拿不到, 不能拿它当默认,
+    //    否则界面会显示兜底的「主单位」三个字而不是真实单位名 (如「只」/「卷」).
+    //    以 base_product_unit 的真实主单位为准, 工单单位仅在商品无单位表时才兜底.
     async loadUnits(o) {
-      // 先用工单自带的主单位占位, 保证立即可见
-      this.units = [{ unitId: o.unitId, unitName: o.unitName || '主单位' }]
+      this.units = []
       this.unitIdx = 0
-      if (!o.productId) return
-      try {
-        const r = await api.productDetail(o.productId)
-        const pd = (r && r.data) || {}
-        const list = (pd.units || []).filter((u) => u.unitId)
-        if (!list.length) return
-        // 主单位排最前 (后端已按 is_main 标注)
-        const main = list.find((u) => u.isMain) || list.find((u) => String(u.unitId) === String(o.unitId)) || list[0]
-        const others = list.filter((u) => String(u.unitId) !== String(main.unitId))
-        this.units = [main].concat(others)
+      let loaded = false
+      if (o.productId) {
+        try {
+          const r = await api.productDetail(o.productId)
+          const pd = (r && r.data) || {}
+          const list = (pd.units || []).filter((u) => u.unitId && u.unitName)
+          if (list.length) {
+            // 主单位排最前 (后端 isMain 标注); 工单指定的单位若也在列表里, 优先选中它
+            const main = list.find((u) => u.isMain)
+              || list.find((u) => String(u.unitId) === String(o.unitId))
+              || list[0]
+            const others = list.filter((u) => String(u.unitId) !== String(main.unitId))
+            this.units = [main].concat(others)
+            const idx = this.units.findIndex((u) => String(u.unitId) === String(o.unitId))
+            this.unitIdx = idx >= 0 ? idx : 0
+            loaded = true
+          }
+        } catch (e) {
+          console.warn('[finished-in.loadUnits] 失败:', e)
+        }
+      }
+      // 兜底: 商品没配单位表时用工单上的单位 (仍无则留空, 界面显示「请选择单位」)
+      if (!loaded && (o.unitId || o.unitName)) {
+        this.units = [{ unitId: o.unitId, unitName: o.unitName || '' }]
         this.unitIdx = 0
-      } catch (e) {
-        console.warn('[finished-in.loadUnits] 失败:', e)
       }
     },
     onPickUnit(e) { this.unitIdx = Number(e.detail.value) },
