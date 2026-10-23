@@ -70,9 +70,15 @@
           <div class="d-subtitle">
             <span class="d-title-line">生产记录 · {{ detail.no || '未选择' }}</span>
           </div>
-          <el-tag :type="detail.status === '已作废' ? 'danger' : 'success'" size="small" effect="light">
-            {{ detail.status || '—' }}
-          </el-tag>
+          <div class="wo-detail-head-right">
+            <div v-if="qrDataUrl" class="wo-qr" title="生产记录号二维码 · 扫码可快速定位/追溯本工单">
+              <img :src="qrDataUrl" alt="生产记录号二维码" />
+              <small>{{ detail.no }}</small>
+            </div>
+            <el-tag :type="detail.status === '已作废' ? 'danger' : 'success'" size="small" effect="light">
+              {{ detail.status || '—' }}
+            </el-tag>
+          </div>
         </div>
 
         <h3 class="wo-detail-name">{{ detail.productName || '请选择工单' }}</h3>
@@ -293,6 +299,7 @@ import {
 import { prdOrderApi, bomApi } from '@/api/production'
 import { productApi, warehouseApi, unitApi } from '@/api/base'
 import { useUserStore } from '@/store/user'
+import QRCode from 'qrcode'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -652,6 +659,26 @@ const detail = computed(() => {
   }
 })
 
+// v1.1.120: 生产记录号二维码 (扫该码 = 快速定位/追溯这张工单). 浏览器版 qrcode 库生成 dataURL
+// 直接 <img> 渲染, 不引 myprint (那是打印链路专用). detail.no 变化即重算 (放在 detail 定义后避免 TDZ).
+const qrDataUrl = ref('')
+watch(
+  () => detail.value && detail.value.no,
+  async (no) => {
+    if (!no) { qrDataUrl.value = ''; return }
+    try {
+      qrDataUrl.value = await QRCode.toDataURL(no, {
+        width: 132,
+        margin: 1,
+        color: { dark: '#0f2846', light: '#ffffff' }
+      })
+    } catch (e) {
+      qrDataUrl.value = ''  // 生成失败就隐藏, 不报错
+    }
+  },
+  { immediate: true }
+)
+
 function onExport() { ElMessage.info('导出生产记录接入中') }
 function onNewWo() {
   // v1.1.99 hotfix: 原 v1.1.80 placeholder router.push('/production/order') 是同路径, 被 Vue Router 静默忽略 (NavigationDuplicated)
@@ -762,6 +789,17 @@ onMounted(loadPlans)
   margin-bottom: 12px;
 }
 .d-subtitle .d-title-line { font-size: 13px; color: var(--primary-color); font-weight: 650; }
+/* v1.1.120: 右侧 = 生产记录号二维码 + 状态 tag */
+.wo-detail-head-right { display: flex; align-items: center; gap: 12px; }
+.wo-qr {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+.wo-qr img { width: 92px; height: 92px; display: block; image-rendering: pixelated; }
+.wo-qr small { font-size: 11px; color: var(--text); font-weight: 600; letter-spacing: .2px; }
 
 .wo-detail-name {
   font-size: 18px; font-weight: 760; color: var(--text);

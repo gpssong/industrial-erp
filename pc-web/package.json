@@ -1,6 +1,6 @@
 {
   "name": "industrial-erp-pc",
-  "version": "1.1.112",
+  "version": "1.1.121",
   "private": true,
   "type": "module",
   "scripts": {
@@ -37,6 +37,7 @@
     "myprint-design": "1.0.12",
     "nprogress": "^0.2.0",
     "pinia": "^2.1.7",
+    "qrcode": "^1.5.4",
     "vue": "^3.4.0",
     "vue-echarts": "^6.6.9",
     "vue-router": "^4.2.5"
