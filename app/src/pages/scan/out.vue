@@ -57,6 +57,18 @@
         <text class="label">数量</text>
         <input class="input" type="number" v-model.number="qty" @confirm="onAdd" />
       </view>
+      <!-- v1.1.117: 批次复选 (该仓该品 qty>0 的批次, 可多选; 审核时按勾选顺序自动按库存分配) -->
+      <view class="form-item">
+        <text class="label">批次 (可多选, 留空=无批次)</text>
+        <view v-if="batchLoading" class="muted">加载批次中...</view>
+        <checkbox-group v-else-if="batchOptions.length" @change="onBatchChange">
+          <label v-for="b in batchOptions" :key="(b.batchNo || '<NULL>')" class="batch-item">
+            <checkbox :value="b.batchNo || ''" :checked="batchSel.indexOf(b.batchNo || '') >= 0" />
+            <text class="muted" style="margin-left:6px">{{ b.batchNo || '<无批次>' }} (库存 {{ b.qty }})</text>
+          </label>
+        </checkbox-group>
+        <view v-else class="muted">该商品在此仓库无可用批次</view>
+      </view>
       <view class="form-item">
         <text class="label">备注</text>
         <input class="input" v-model="remark" />
@@ -72,7 +84,7 @@
         <view style="flex:1">
           <text style="font-weight:bold">{{ item.productName }}</text>
           <text class="muted" style="display:block">{{ item.productCode }}</text>
-          <text v-if="item.batchNo" class="muted" style="display:block">批次: {{ item.batchNo }}</text>
+          <text v-if="item.batchNo" class="muted" style="display:block">批次: {{ item.batchNo.replace(/\|/g, ', ') }}</text>
         </view>
         <text style="color:var(--primary)">× {{ item.qty }}</text>
       </view>
@@ -131,6 +143,10 @@ const historyLoading = ref(false)
 const submitted = ref(false)
 const submittedBillNo = ref('')
 const loading = ref(false)
+// v1.1.117: 批次复选 — 当前命中商品在该仓的可选批次 + 已勾选
+const batchOptions = ref([])
+const batchSel = ref([])
+const batchLoading = ref(false)
 
 // 表单 (主要存 customerId/customerName/warehouseId/warehouseName)
 const form = ref({ customerId: null, customerName: '', warehouseId: null, warehouseName: '', billDate: new Date().toISOString().substring(0, 10), details: [] })
@@ -225,8 +241,11 @@ async function onSearch() {
       const found = exact || r.records[0]
       product.value = found
       price.value = found.salesPrice || 0
+      // v1.1.117: 命中商品后拉该仓该品可用批次供复选
+      loadBatches(found)
     } else {
       product.value = null
+      batchOptions.value = []; batchSel.value = []
       toast('商品未找到: ' + code.value)
     }
   } catch (e) {
@@ -234,6 +253,29 @@ async function onSearch() {
     console.warn('[scan-out.onSearch] 失败:', e)
     if (e && e.code === 401) return
   } finally { loading.value = false }
+}
+
+// v1.1.117: 拉某仓+某商品 qty>0 的批次, 供批次复选
+async function loadBatches(p) {
+  batchOptions.value = []; batchSel.value = []
+  if (!p || !p.id || !form.value.warehouseId) return
+  batchLoading.value = true
+  try {
+    const r = await api.stockBatches(form.value.warehouseId, p.id)
+    const list = (r && (r.data || r)) || []
+    batchOptions.value = list.filter(b => Number(b.qty || 0) > 0)
+    // 候选只有一条时默认勾上, 省一次点击
+    if (batchOptions.value.length === 1) batchSel.value = [batchOptions.value[0].batchNo || '']
+  } catch (e) {
+    // v1.1.61 R13: 拦截器已弹后端 msg, catch 不重复弹; 批次下拉失败不阻塞扫码出库
+    console.warn('[scan-out.loadBatches] 失败:', e)
+    if (e && e.code === 401) return
+  } finally { batchLoading.value = false }
+}
+
+function onBatchChange(e) {
+  // e.detail.value = checkbox-group 选中项数组 (保持勾选顺序)
+  batchSel.value = (e && e.detail && e.detail.value) ? e.detail.value : []
 }
 
 function onScan() {
@@ -257,11 +299,13 @@ function onAdd() {
     unitName: product.value.mainUnitName || '',
     qty: Number(qty.value),
     price: Number(price.value || 0),
-    batchNo: '',
+    // v1.1.117: 复选批号拼 "|" 串; 审核时后端按顺序自动按库存拆分扣库
+    batchNo: batchSel.value.join('|'),
     locationName: '',
     remark: remark.value
   })
   product.value = null; qty.value = 1; remark.value = ''; code.value = ''; price.value = 0
+  batchOptions.value = []; batchSel.value = []
   toast('已添加')
 }
 
@@ -332,6 +376,8 @@ onUnmounted(() => { stopScan() })
 .empty { text-align: center; color: #999; padding: 30px; }
 .history-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #eee; }
 .history-row:last-child { border-bottom: none; }
+/* v1.1.117: 批次复选项 */
+.batch-item { display: flex; align-items: center; padding: 5px 0; }
 .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
 .loading-mask { background: rgba(0,0,0,0.4); border-radius: 8px; padding: 20px 30px; }
 .loading-text { color: #fff; font-size: 14px; }
