@@ -3,6 +3,31 @@
 
 ## changelog (倒序)
 
+### v1.1.122 (2026-10-23 — 采购入库 XK 门禁「非食品包装产品」按行豁免)
+
+**需求**: 采购入库分「原料采购」(食品接触膜料/添加剂, 走 XK) 和「成品/包装采购」(非食品接触件)。原 XK 三步门禁 (供应商合格名录 + IQC 来料检验合格才放行) 对**所有**采购单一视同仁, 非食品包装产品也被 IQC 卡死、被合格名录卡死。需: 非食品包装采购**跳过 XK 规范**直接入库。
+
+**拍板 3 点** (用户已定):
+1. 判定维度 = 商品级 `base_product.is_food_grade` (隐式, **零 DDL**, 与生产侧 v1.1.102 半成品/成品入库豁免口径一致, 直接复用现成 `QmsInspectionService.isFoodGradeProduct()`)
+2. **按行分别豁免** — 逐明细行判, 非整单一票否决
+3. **供应商门禁也免** — 非食品采购连供应商 status 都不拦
+
+**关键结构事实**: IQC 与入库单是 1:1 单头级 (`findIqcByReceiptId` 只返一条, `createOnReceipt` 只取首个商品建一张 IQC), 供应商也是单头字段。所以「按行豁免」落地为「**全行都非食品级 → 整单免检 + 免供应商门禁**; 只要含一行食品级 → 整单走 XK」——这是单头结构决定的物理边界 (IQC/供应商无法真正按行拆)。
+
+**改动** (纯后端 1 文件 `PurReceiptService.java`, 零 DDL / 零 SQL / 零前端):
+- 加 2 helper: `isFoodGradeLine(d)` (行级, 复用 `isFoodGradeProduct`) + `hasFoodGradeLine(details)` (单头级, 任一行为真即真)
+- `check()`: 先取 `details` + 算 `anyFood`; 仅 `anyFood` 才走 XK IQC 三步门禁 (`hasPassedIqc` + `snapshotXkGate`), 否则 `log` 豁免直接入库; 兜底自动建 DRAFT IQC 也条件化 (仅 `anyFood` 才补)
+- `add()`/`update()`: 供应商 status=1 硬门禁条件化 — 仅 `anyFood` 才拦暂停供货供应商, 全非食品采购跳过并 log
+- `createFromIqc/createFromOrder`: **不动** (食品级专用入口, 本身从已 PASS IQC 建单)
+- 库存入库 + 应付台账主流程**完全不动** (豁免只放行「IQC 前置」+「供应商名录」两个 XK 关口)
+- 回归保护: 全食品级原料单 (LDPE is_food_grade=1) 行为**完全不变** (仍需合格 IQC + 合格供应商)
+
+**部署**: 纯后端改动 → 重打 jar, R15 版本三处同步 `1.1.122` (`application.yml` + `SystemVersionInitializer` 默认 + 容器 `ERP_VERSION` env)。飞牛 canary 先行: 传 jar 到 `/volume3` 中转 → 因飞牛 backend 是 compose baked-in jar (非 host bind-mount), 改走 `docker cp` 进容器 + 补 compose `ERP_VERSION` env + `docker compose up`; **SA_TOKEN key 走原 `env_file` 未轮换** (已登录 token 不受影响)。home: baked-in 三连 (Mac 临时 http server `sudo wget` 传 jar + `build --no-cache` + `rm -f` + `run`, 网络名 `erp-system_erp-net` 非 `_default`, 补 `-e ERP_VERSION=1.1.122` + 显式 SA_TOKEN 双保险)。
+
+**验证**: 双站 jar md5 均 `8c59adb15886b4cdad88e153ddad6001` (与本地 build 一致), `sys_config.SYSTEM_VERSION_INFO` 双站均 `version=1.1.122`, 容器均 healthy。功能侧: 飞牛 3 张全非食品 DRAFT 采购单 (`RKP202610210001` 等) 均**无关联 IQC** (旧 jar 下 `check()` 会抛「未关联 IQC 不能入库」, 新 jar 走豁免分支直接放行)。
+
+**踩坑**: (1) 飞牛 backend 走 compose `env_file` 注入 SA_TOKEN key (不进 `docker inspect` 的 `.Config.Env`), 我一度误判「key 没设上」——实为查错位置, 从 `/proc/<pid>/environ` 确认 key 在运行 env 里; (2) 手动 `docker run` 复刻 compose 时漏了 `env_file` 一整段必填 env → 容器 restart 循环, 改回 `docker compose --profile failover up` 才稳; (3) home DSM sshd 禁 stdin 重定向/`tee` 写文件, 传 jar 只能走 Mac 临时 http server + home `sudo wget`。
+
 ### v1.1.121 (2026-10-23 — PC 生产工单详情「生产记录号」二维码)
 
 **需求**: PC 生产工单页 (`/production/order`) 右侧详情卡, 把「生产记录号」(工单单号 `PD2026…`) 做成**二维码**显示, 方便现场扫码快速定位/追溯该生产记录。
