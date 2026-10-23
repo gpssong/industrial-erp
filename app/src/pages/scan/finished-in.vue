@@ -281,11 +281,18 @@ export default {
       this.draftId = null; this.checked = false
       this.loadUnits(o)
     },
-    // v1.1.117: 加载该成品可用单位, 默认选主单位.
+    // v1.1.117 hotfix-2: 加载该成品可用单位, 默认选主单位.
     // ⚠️ prd_order.unit_id/unit_name 很多老工单是 NULL (开单时没写单位),
     //    prdOrderPage 接口也不带单位 → 工单上的单位经常拿不到, 不能拿它当默认,
     //    否则界面会显示兜底的「主单位」三个字而不是真实单位名 (如「只」/「卷」).
     //    以 base_product_unit 的真实主单位为准, 工单单位仅在商品无单位表时才兜底.
+    //
+    // ⚠️⚠️ 绝不能用 `u.unitId && u.unitName` 过滤 (v1.1.117 hotfix-2 实测踩坑):
+    //    base_product_unit 里有 16/174 行 unit_id = **0** (不是 NULL) — 是历史脏数据,
+    //    这些行 unitName 是真实的 (如「公斤」), 只是 unit_id 指向一条不存在的 base_unit.
+    //    `u.unitId &&` 把 0 当假值 → 整行被丢 → 明明配了单位却显示「该商品未配置单位」.
+    //    PC 端 FinishedIn.vue 的 `x.unitId > 0` 同病, 会悄悄退化成"随便取第一个单位".
+    //    判定只认 **unitName 非空**; unitId 只用于去重/定位, 0 与 null 同等对待.
     async loadUnits(o) {
       this.units = []
       this.unitIdx = 0
@@ -294,15 +301,17 @@ export default {
         try {
           const r = await api.productDetail(o.productId)
           const pd = (r && r.data) || {}
-          const list = (pd.units || []).filter((u) => u.unitId && u.unitName)
+          const list = (pd.units || []).filter((u) => u.unitName && String(u.unitName).trim())
           if (list.length) {
-            // 主单位排最前 (后端 isMain 标注); 工单指定的单位若也在列表里, 优先选中它
-            const main = list.find((u) => u.isMain)
-              || list.find((u) => String(u.unitId) === String(o.unitId))
+            // 主单位排最前 (后端 isMain 标注); 工单指定的单位若也在列表里, 优先选中它.
+            // 排序 key 用 base_product_unit.id (行主键), 不用 unitId —— 多行可能共用同一个
+            // unitId(=0) 或同一个单位名, 用 unitId 去重会把并存的其它单位误吞掉.
+            const main = list.find((u) => u.isMain === 1 || u.is_main === 1)
+              || list.find((u) => o.unitId != null && String(u.unitId) === String(o.unitId))
               || list[0]
-            const others = list.filter((u) => String(u.unitId) !== String(main.unitId))
+            const others = list.filter((u) => String(u.id) !== String(main.id))
             this.units = [main].concat(others)
-            const idx = this.units.findIndex((u) => String(u.unitId) === String(o.unitId))
+            const idx = this.units.findIndex((u) => o.unitId != null && String(u.unitId) === String(o.unitId))
             this.unitIdx = idx >= 0 ? idx : 0
             loaded = true
           }
@@ -312,7 +321,7 @@ export default {
       }
       // 兜底: 商品没配单位表时用工单上的单位 (仍无则留空, 界面显示「请选择单位」)
       if (!loaded && (o.unitId || o.unitName)) {
-        this.units = [{ unitId: o.unitId, unitName: o.unitName || '' }]
+        this.units = [{ id: 'order-' + o.unitId, unitId: o.unitId, unitName: o.unitName || '' }]
         this.unitIdx = 0
       }
     },
