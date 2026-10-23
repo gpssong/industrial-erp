@@ -3,6 +3,23 @@
 
 ## changelog (倒序)
 
+### v1.1.122b (2026-10-23 — 采购入库「食品级/免检直通」可视化 tag, v1.1.122 前端补强)
+
+**需求**: v1.1.122 后端按行豁免已上线, 但前端看不出「这单会不会被 IQC 卡」—— 操作人员看到的是恒「XK 受控」的固定徽标 + 列表恒「未检验」。补一个行级可视化, 让食品级/非食品一眼可辨。
+
+**改动** (后端 2 文件 + 前端 1 文件, 零 DDL):
+- `PurReceiptMapper.java` `selectPageWithProduct`: 加子查询列 `xk_exempt` (`SUM(CASE WHEN is_food_grade=1...)>0 → 0 ELSE 1`), 口径与 `PurReceiptService.check()` 的 `anyFood` **完全一致**
+- `PurReceipt.java`: +1 transient 字段 `xkExempt` + getter/setter
+- `pc-web/src/views/purchase/Receipt.vue`:
+  - 列表加「XK 判定」列: `xkExempt===1` → 绿 tag「免检直通」, `===0` → 黄 tag「需 IQC」, 带 tooltip 说明
+  - 新增 computed `allLinesNonFood` (读已加载 `products` 的 `isFoodGrade`, 逐明细行判)
+  - 表单 tab「XK 受控」徽标条件化: 全非食品 → 绿「免检直通」+ 文案改为「审核免 IQC 来料检验、免供应商合格名录门禁, 直接入库」
+  - `onCheck()` 审核确认框按 `row.xkExempt` 分文案 (免检直通 vs 需 IQC), 免得操作员以为漏了检验
+
+**踩坑**: mapper 是 `@Select("<script>"...)` 字符串拼接, 在 `first_product_model` 后加 `xk_exempt, ` 时保留了原 `first_product_model ` 结尾的空格 + 我又加了逗号 → 拼出 `... AS xk_exempt,  FROM pur_receipt` **悬空逗号** → `SQLSyntaxErrorException` 整个列表接口 500。教训: **Java 字符串拼 SQL 加列时, 被替换那行的尾部连接符 (逗号/空格) 要一并检查**, 别只加新片段。飞牛先炸出来, 修完 home 才没炸 (canary-first 救了一次)。
+
+**部署**: 双站 jar md5 均 `37e2c15cdb340a487503c678bc1d9e94`; home dist chunk `Receipt-BLj_CLQ3.js` 含 `xkExempt`+`免检直通` 标记; 飞牛 API 实测 `xkExempt:1` 正常返回。
+
 ### v1.1.122 (2026-10-23 — 采购入库 XK 门禁「非食品包装产品」按行豁免)
 
 **需求**: 采购入库分「原料采购」(食品接触膜料/添加剂, 走 XK) 和「成品/包装采购」(非食品接触件)。原 XK 三步门禁 (供应商合格名录 + IQC 来料检验合格才放行) 对**所有**采购单一视同仁, 非食品包装产品也被 IQC 卡死、被合格名录卡死。需: 非食品包装采购**跳过 XK 规范**直接入库。
