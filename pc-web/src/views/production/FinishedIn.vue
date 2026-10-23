@@ -419,14 +419,24 @@ async function onProductChange(productId) {
     form.value.foodFilingNo = prod.foodFilingNo || ''
     form.value.foodUseDesc = prod.foodUseDesc || ''
     form.value.foodMigrationLimit = prod.foodMigrationLimit != null ? prod.foodMigrationLimit : null
-    // 取主单位的 base_unit.id (下拉 option 的 :value), 不是 base_product_unit.id
+    // 取主单位 (下拉 option 的 :value = base_unit.id), 不是 base_product_unit.id
     // 优先级: 1) 关联记录 isMain=1 的 unitId; 2) prod.mainUnitId; 3) prod.unitId
+    //
+    // ⚠️⚠️ 别用 `x.unitId > 0` 过滤 (v1.1.117 hotfix-2 实测踩坑):
+    //    base_product_unit 有 16/174 行 unit_id = **0** (不是 NULL) — 历史脏数据,
+    //    unitName 是真实的 (如「公斤」), 只是 unit_id 指向一条不存在的 base_unit.
+    //    `x.unitId > 0` 把这些行排掉 → find 落空 → 静默 fallback 到 `units.value[0].id`,
+    //    那是 base_unit 全表第一条 (kg), 于是「带鱼袋」被默默选成 kg 而不是「公斤」——
+    //    **不报错, 只是单位错了**, 比报错更难发现.
+    //    判定只认 unitName 非空; unitId=0 与 null 同等对待 (都有值就用).
     let mainUnitId = null
-    const mainUnit = (data.units || []).find(x => (x.isMain === 1 || x.is_main === 1) && x.unitId > 0)
+    const usable = (data.units || []).filter(x => x.unitName && String(x.unitName).trim())
+    const mainUnit = usable.find(x => x.isMain === 1 || x.is_main === 1)
     if (mainUnit) mainUnitId = mainUnit.unitId
+    else if (usable.length) mainUnitId = usable[0].unitId
     else if (prod.mainUnitId && Number(prod.mainUnitId) > 0) mainUnitId = prod.mainUnitId
     else if (prod.unitId && Number(prod.unitId) > 0) mainUnitId = prod.unitId
-    // 兜底: 全表 units 里第一条 (避免 0/undefined)
+    // 兜底: 全表 units 里第一条 (避免 0/undefined) — 商品彻底没配单位时才走到
     if (!mainUnitId && units.value.length) mainUnitId = units.value[0].id
     form.value.unitId = mainUnitId || null
     if (import.meta.env.DEV) {

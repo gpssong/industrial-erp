@@ -355,9 +355,15 @@ async function onProductChange(productId) {
     const data = r.data || {}
     const prod = data.product || {}
     if (prod.spec) form.value.spec = prod.spec
+    // ⚠️ 别用 `x.unitId > 0` 过滤 (v1.1.117 hotfix-2 实测踩坑): base_product_unit 有
+    //   16/174 行 unit_id = 0 (不是 NULL) — 历史脏数据, unitName 真实 (如「公斤」),
+    //   只是 unit_id 指向一条不存在的 base_unit. 过滤掉 → find 落空 → 静默 fallback
+    //   到 base_unit 全表第一条 (kg), 单位被默默选错且不报错. 只认 unitName 非空.
     let mainUnitId = null
-    const mainUnit = (data.units || []).find(x => (x.isMain === 1 || x.is_main === 1) && x.unitId > 0)
+    const usable = (data.units || []).filter(x => x.unitName && String(x.unitName).trim())
+    const mainUnit = usable.find(x => x.isMain === 1 || x.is_main === 1)
     if (mainUnit) mainUnitId = mainUnit.unitId
+    else if (usable.length) mainUnitId = usable[0].unitId
     else if (prod.mainUnitId && Number(prod.mainUnitId) > 0) mainUnitId = prod.mainUnitId
     else if (prod.unitId && Number(prod.unitId) > 0) mainUnitId = prod.unitId
     if (!mainUnitId && units.value.length) mainUnitId = units.value[0].id
