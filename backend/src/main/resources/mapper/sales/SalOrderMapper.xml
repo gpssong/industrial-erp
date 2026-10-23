@@ -20,19 +20,45 @@
         )
     </insert>
 
+    <!--
+      v1.1.123 与 PurOrderMapper 同源修复: check()/uncheck() 只传稀疏对象
+      (id + bill_status), 原手写全字段无条件 SET 会把其余字段写成 NULL → 撞 NOT NULL
+      约束 (销售订单审核同样会 500)。加 <if> 非空判断, 等价于 MP update-strategy=not_null。
+    -->
     <update id="updateById" parameterType="com.industrial.erp.modules.sales.entity.SalOrder">
-        UPDATE sal_order SET
-            bill_no = #{et.billNo}, bill_date = #{et.billDate}, customer_id = #{et.customerId},
-            customer_name = #{et.customerName}, price_level = #{et.priceLevel}, warehouse_id = #{et.warehouseId},
-            salesman_id = #{et.salesmanId}, salesman_name = #{et.salesmanName}, order_type = #{et.orderType},
-            pay_type = #{et.payType}, currency = #{et.currency}, exchange_rate = #{et.exchangeRate},
-            total_qty = #{et.totalQty}, total_amount = #{et.totalAmount}, discount_rate = #{et.discountRate},
-            discount_amount = #{et.discountAmount}, tail_amount = #{et.tailAmount}, tax_amount = #{et.taxAmount},
-            total_amount_tax = #{et.totalAmountTax}, received_amount = #{et.receivedAmount},
-            delivery_date = #{et.deliveryDate}, address = #{et.address}, phone = #{et.phone},
-            po_no = #{et.poNo}, delivery_method = #{et.deliveryMethod},
-            bill_status = #{et.billStatus}, source_bill_id = #{et.sourceBillId}, remark = #{et.remark},
-            update_by = #{et.updateBy}, update_time = #{et.updateTime}
+        UPDATE sal_order
+        <set>
+            <if test="et.billNo != null">bill_no = #{et.billNo},</if>
+            <if test="et.billDate != null">bill_date = #{et.billDate},</if>
+            <if test="et.customerId != null">customer_id = #{et.customerId},</if>
+            <if test="et.customerName != null">customer_name = #{et.customerName},</if>
+            <if test="et.priceLevel != null">price_level = #{et.priceLevel},</if>
+            <if test="et.warehouseId != null">warehouse_id = #{et.warehouseId},</if>
+            <if test="et.salesmanId != null">salesman_id = #{et.salesmanId},</if>
+            <if test="et.salesmanName != null">salesman_name = #{et.salesmanName},</if>
+            <if test="et.orderType != null">order_type = #{et.orderType},</if>
+            <if test="et.payType != null">pay_type = #{et.payType},</if>
+            <if test="et.currency != null">currency = #{et.currency},</if>
+            <if test="et.exchangeRate != null">exchange_rate = #{et.exchangeRate},</if>
+            <if test="et.totalQty != null">total_qty = #{et.totalQty},</if>
+            <if test="et.totalAmount != null">total_amount = #{et.totalAmount},</if>
+            <if test="et.discountRate != null">discount_rate = #{et.discountRate},</if>
+            <if test="et.discountAmount != null">discount_amount = #{et.discountAmount},</if>
+            <if test="et.tailAmount != null">tail_amount = #{et.tailAmount},</if>
+            <if test="et.taxAmount != null">tax_amount = #{et.taxAmount},</if>
+            <if test="et.totalAmountTax != null">total_amount_tax = #{et.totalAmountTax},</if>
+            <if test="et.receivedAmount != null">received_amount = #{et.receivedAmount},</if>
+            <if test="et.deliveryDate != null">delivery_date = #{et.deliveryDate},</if>
+            <if test="et.address != null">address = #{et.address},</if>
+            <if test="et.phone != null">phone = #{et.phone},</if>
+            <if test="et.poNo != null">po_no = #{et.poNo},</if>
+            <if test="et.deliveryMethod != null">delivery_method = #{et.deliveryMethod},</if>
+            <if test="et.billStatus != null">bill_status = #{et.billStatus},</if>
+            <if test="et.sourceBillId != null">source_bill_id = #{et.sourceBillId},</if>
+            <if test="et.remark != null">remark = #{et.remark},</if>
+            <if test="et.updateBy != null">update_by = #{et.updateBy},</if>
+            <if test="et.updateTime != null">update_time = #{et.updateTime},</if>
+        </set>
         WHERE id = #{et.id}
     </update>
 
