@@ -35,7 +35,7 @@
       <el-table-column prop="workshop" label="领料车间" width="120" />
       <el-table-column prop="warehouseName" label="领料仓库" width="140" />
       <el-table-column prop="materialName" label="主要原料" min-width="160" />
-      <el-table-column prop="qty" label="数量 (kg)" width="120" align="right" />
+      <el-table-column prop="qty" label="数量" width="120" align="right" />
       <el-table-column prop="creatorName" label="领料人" width="100" />
       <el-table-column label="状态" width="100" align="center">
         <template #default="{ row }">

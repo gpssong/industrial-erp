@@ -7,7 +7,9 @@ import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.production.entity.PrdBom;
 import com.industrial.erp.modules.production.entity.PrdBomDetail;
 import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.entity.BaseProductUnit;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
+import com.industrial.erp.modules.base.mapper.BaseProductUnitMapper;
 import com.industrial.erp.modules.production.mapper.PrdBomDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdBomMapper;
 import com.industrial.erp.modules.system.annotation.OperLog;
@@ -23,10 +25,11 @@ import java.util.List;
 @Service
 public class PrdBomService {
 
-    public PrdBomService(PrdBomMapper bomMapper, PrdBomDetailMapper detailMapper, BaseProductMapper productMapper, PermissionService permService, BillNoGenerator billNoGenerator, OperLogPublisher operLogPublisher) {
+    public PrdBomService(PrdBomMapper bomMapper, PrdBomDetailMapper detailMapper, BaseProductMapper productMapper, BaseProductUnitMapper unitMapper, PermissionService permService, BillNoGenerator billNoGenerator, OperLogPublisher operLogPublisher) {
         this.bomMapper = bomMapper;
         this.detailMapper = detailMapper;
         this.productMapper = productMapper;
+        this.unitMapper = unitMapper;
         this.permService = permService;
         this.billNoGenerator = billNoGenerator;
         this.operLogPublisher = operLogPublisher;
@@ -35,6 +38,8 @@ public class PrdBomService {
     private final PrdBomMapper bomMapper;
     private final PrdBomDetailMapper detailMapper;
     private final BaseProductMapper productMapper;
+    /** v1.1.119: BOM 明细保存时回填原料主单位 (治 unit_id/unit_name 全 NULL) */
+    private final BaseProductUnitMapper unitMapper;
     private final PermissionService permService;
     private final BillNoGenerator billNoGenerator;
     private final OperLogPublisher operLogPublisher;
@@ -135,6 +140,24 @@ public class PrdBomService {
             d.setId(null);
             d.setBomId(bomId);
             d.setLineNo(++line);
+            // v1.1.119 单位兜底: BOM 明细 11/11 行 unit_id/unit_name 是 NULL ——
+            //   Bom.vue 的 addDetail()/onSubmit() 只同步 productCode/productName/spec, 从不写单位.
+            //   后果: 领料明细 unitId 也全 NULL → StockService.convertToMain() 的
+            //   `if (unitId == null) return qty` 静默跳过单位折算, 扣错库存.
+            //   这里从原料主单位回填 (复用现成的 BaseProductUnitMapper.selectMainUnit).
+            if ((d.getUnitId() == null || d.getUnitName() == null) && d.getProductId() != null) {
+                try {
+                    BaseProductUnit main = unitMapper.selectMainUnit(d.getProductId());
+                    if (main != null) {
+                        d.setUnitId(main.getUnitId());
+                        d.setUnitName(main.getUnitName());
+                    }
+                } catch (Exception e) {
+                    // 主单位查不到不该让整单保存失败 — 留空由 save 后的人工核对兜底
+                    org.slf4j.LoggerFactory.getLogger(PrdBomService.class)
+                            .warn("[PrdBom.saveDetails] 原料 {} 主单位回填失败 (留空): {}", d.getProductId(), e.getMessage());
+                }
+            }
             detailMapper.insert(d);
         }
     }
