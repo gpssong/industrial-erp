@@ -3,6 +3,25 @@
 
 ## changelog (倒序)
 
+### v1.1.121 (2026-10-23 — PC 生产工单详情「生产记录号」二维码)
+
+**需求**: PC 生产工单页 (`/production/order`) 右侧详情卡, 把「生产记录号」(工单单号 `PD2026…`) 做成**二维码**显示, 方便现场扫码快速定位/追溯该生产记录。
+
+**改动** (纯前端, 仅 1 个文件 `pc-web/src/views/production/Order.vue` + `package.json` 加 1 依赖):
+- 引入 `qrcode` npm 包 (浏览器版, 零原生依赖, vite 自动 resolve `browser` 入口; 之前是被 myprint 等间接带进 node_modules, 本次补进 `dependencies` 防 `npm ci` 缺失)。`QRCode.toDataURL(no, {width:132, margin:1, color:{dark:'#0f2846',light:'#fff'}})` 生成 dataURL
+- `qrDataUrl` ref + `watch(() => detail.no, ...)` 异步重画: 选中工单/换工单单号一变二维码即变, 无单号(`未选择`)隐藏
+- 详情卡头部 (「生产记录 · 单号」标题右侧、状态 tag 旁) 加二维码框: `<img>` + 单号文本; `image-rendering:pixelated` 放大不糊
+- **放在 `detail` computed 定义之后** watch (若放 script 顶部 `immediate` 会踩 TDZ 抛 ReferenceError)
+
+**零后端改动**: 不新增端点/表/字段, 后端 jar 不动 (不重打 → 不触发 SecurityPreflightValidator 换密钥重登)。
+
+**部署**: 双站 PC dist bind-mount, 各 `docker restart`, 旧 dist 备份。双站线上 `Order-wXjRf2Aa.js` md5 均 `852418d4bceb54efc6f8adf8a39afd32` (与本地构建逐字节一致), 含新标记 `wo-qr` / `toDataURL`。
+
+**部署踩坑**:
+1. **飞牛 pc-web 容器实际 bind-mount 源是 `/vol2/erp-system/pc-web/dist-new`** (不是 compose 里写的 `/volume2/.../dist`) — 先误 cp 到 `/volume2/.../dist` 不生效, `docker inspect` 才定位到 `dist-new`; dist 对容器只读 → 只能改 host `dist-new` 再 `docker restart`, 不能 `docker cp` 进容器 (read-only fs)
+2. home pc-web 源 `/volume3/docker/erp-system/pc-web-new/dist`; home `/tmp` 对 gpssong 不可写 → tgz 中转 `/volume3/docker/erp-system/` 再 sudo 解包
+3. 飞牛 docker 在 `/usr/bin/docker`, home 在 `/usr/local/bin/docker`
+
 ### v1.1.120 (2026-10-23 — App H5 成品入库: 扫**商品编码**弹出该商品全部工单供选择)
 
 **现象/需求**: App H5 成品入库页 (扫 `scan/finished-in`) 原来扫码只认**工单单号** — 扫工单条码/单号二维码按 `billNo` 精确匹配, 命中就带入。现场实际常扫的是**商品编码**(成品条码), 那种码在工单表里根本匹配不到 → 直接「未找到工单」。用户需要: 扫商品编码时, 把**该商品名下所有生产工单列出来供挑选**。
