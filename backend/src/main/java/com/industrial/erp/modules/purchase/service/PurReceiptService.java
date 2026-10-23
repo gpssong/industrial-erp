@@ -158,9 +158,13 @@ public class PurReceiptService {
         // 校验供应商
         BaseSupplier s = supplierMapper.selectById(receipt.getSupplierId());
         if (s == null) throw BizException.of("供应商不存在");
-        // v1.1.95 XK 门禁: 食品接触塑料 XK 合规 — 只能向「合格」供应商采购, 暂停供货的不能建单
+        // v1.1.122 XK 门禁按行豁免: 食品级采购 (含食品级行) 才走合格名录硬门禁; 全非食品采购跳过
+        boolean anyFood = hasFoodGradeLine(receipt.getDetails());
         if (s.getStatus() != null && s.getStatus() != 1) {
-            throw BizException.of("XK 合规: 供应商 " + s.getSupplierName() + " 当前为「暂停供货」, 不能创建采购入库单; 请先在合格供应商名录中恢复供货");
+            if (anyFood) {
+                throw BizException.of("XK 合规: 该采购含食品级原料, 供应商 " + s.getSupplierName() + " 当前为「暂停供货」, 不能创建采购入库单; 请先在合格供应商名录中恢复供货");
+            }
+            log.info("采购建单 XK 豁免: 全非食品采购, 跳过供应商合格名录门禁 supplier={}", s.getSupplierName());
         }
         receipt.setSupplierName(s.getSupplierName());
         // 校验仓库
@@ -211,9 +215,13 @@ public class PurReceiptService {
         // 校验供应商
         BaseSupplier s = supplierMapper.selectById(receipt.getSupplierId());
         if (s == null) throw BizException.of("供应商不存在");
-        // v1.1.95 XK 门禁: 暂停供货供应商不能修改/建单
+        // v1.1.122 XK 门禁按行豁免: 食品级采购 (含食品级行) 才走合格名录硬门禁; 全非食品采购跳过
+        boolean anyFood = hasFoodGradeLine(receipt.getDetails());
         if (s.getStatus() != null && s.getStatus() != 1) {
-            throw BizException.of("XK 合规: 供应商 " + s.getSupplierName() + " 当前为「暂停供货」, 不能修改采购入库单");
+            if (anyFood) {
+                throw BizException.of("XK 合规: 该采购含食品级原料, 供应商 " + s.getSupplierName() + " 当前为「暂停供货」, 不能修改采购入库单");
+            }
+            log.info("采购改单 XK 豁免: 全非食品采购, 跳过供应商合格名录门禁 supplier={}", s.getSupplierName());
         }
         receipt.setSupplierName(s.getSupplierName());
         // 校验仓库
@@ -293,22 +301,29 @@ public class PurReceiptService {
         if (!Constants.STATUS_DRAFT.equals(r.getBillStatus())) {
             throw BizException.of("只有草稿状态可审核");
         }
+        // v1.1.122 XK 门禁按行豁免: 逐明细行判 is_food_grade, 含任一行食品级才走 XK IQC 三步门禁;
+        // 全非食品采购 (成品/包装/非食品接触件) 跳过 IQC 门禁直接入库. 供应商门禁在 add/update 已按同口径分流.
+        List<PurReceiptDetail> details = receiptDetailMapper.selectByReceiptId(id);
+        boolean anyFood = hasFoodGradeLine(details);
         // v1.1.95 XK 三步门禁: 食品接触塑料 XK 合规 — 检验合格才入库 (先检验后入库).
         // 须存在该入库单关联的 IQC 检验单且 result=PASS(或 PASS_DISPOSITION, status=CHECKED);
-        // 未检验 / 不合格 / 未审核的 IQC 一律拒绝入库.
-        if (!qmsInspectionService.hasPassedIqc(id)) {
-            com.industrial.erp.modules.qms.entity.MesQualityInspection iqc = qmsInspectionService.findIqcByReceiptId(id);
-            if (iqc == null) {
-                throw BizException.of("XK 合规: 该入库单未关联 IQC 来料检验, 不能入库; 请先完成「到货与原料检验」并判定合格 (PASS)");
+        // 未检验 / 不合格 / 未审核的 IQC 一律拒绝入库. 仅对含食品级行的单生效.
+        if (anyFood) {
+            if (!qmsInspectionService.hasPassedIqc(id)) {
+                com.industrial.erp.modules.qms.entity.MesQualityInspection iqc = qmsInspectionService.findIqcByReceiptId(id);
+                if (iqc == null) {
+                    throw BizException.of("XK 合规: 该单含食品级原料, 未关联 IQC 来料检验, 不能入库; 请先完成「到货与原料检验」并判定合格 (PASS)");
+                }
+                throw BizException.of("XK 合规: 该单含食品级原料, 关联 IQC 检验单 " + iqc.getBillNo() + " 判定为 " + iqc.getResult()
+                        + (Constants.RESULT_PASS.equals(iqc.getResult()) && !Constants.STATUS_CHECKED.equals(iqc.getStatus()) ? " (尚未审核放行)" : "")
+                        + ", 不合格/未放行不能入库; 请拒收或放行后重试");
             }
-            throw BizException.of("XK 合规: 关联 IQC 检验单 " + iqc.getBillNo() + " 判定为 " + iqc.getResult()
-                    + (Constants.RESULT_PASS.equals(iqc.getResult()) && !Constants.STATUS_CHECKED.equals(iqc.getStatus()) ? " (尚未审核放行)" : "")
-                    + ", 不合格/未放行不能入库; 请拒收或放行后重试");
+            // 冗余快照: 把关联 IQC 的判定结果/报告号/抽样数/检验人 写回入库单 (供 XK 前端展示 + 审计留痕)
+            qmsInspectionService.snapshotXkGate(r);
+        } else {
+            log.info("采购入库 XK 豁免: billNo={} 全部行非食品级, 跳过 IQC 门禁直接入库", r.getBillNo());
         }
-        // 冗余快照: 把关联 IQC 的判定结果/报告号/抽样数/检验人 写回入库单 (供 XK 前端展示 + 审计留痕)
-        qmsInspectionService.snapshotXkGate(r);
 
-        List<PurReceiptDetail> details = receiptDetailMapper.selectByReceiptId(id);
         BaseWarehouse wh = warehouseMapper.selectById(r.getWarehouseId());
 
         for (PurReceiptDetail d : details) {
@@ -345,9 +360,10 @@ public class PurReceiptService {
         arapService.createApForPurchase(r, details);
 
         // v1.1.95: XK 三步流程 — 检验已在入库前完成 (上面门禁校验过合格 IQC), 不再审核后自动建草稿.
-        // 兜底: 仅当该入库单完全没有关联 IQC 时 (老数据/异常), 自动补一张 DRAFT IQC 供后续检验; 不阻塞入库.
+        // 兜底: 仅当「含食品级行的单」完全没有关联 IQC 时 (老数据/异常), 自动补一张 DRAFT IQC 供后续检验; 不阻塞入库.
+        // v1.1.122: 全非食品采购不建 IQC (无意义, 本就豁免检验).
         try {
-            if (qmsInspectionService.findIqcByReceiptId(id) == null) {
+            if (anyFood && qmsInspectionService.findIqcByReceiptId(id) == null) {
                 qmsInspectionService.createOnReceipt(r);
             }
         } catch (Exception ex) {
@@ -594,6 +610,28 @@ public class PurReceiptService {
         log.info("[PurReceipt] createFromOrder: orderId={} iqcId={} → receiptId={} billNo={} lines={}",
                 orderId, iqcId, receipt.getId(), receipt.getBillNo(), dtls.size());
         return receipt.getId();
+    }
+
+    /**
+     * v1.1.122: 该明细行商品是否食品级 (base_product.is_food_grade=1).
+     * 复用 QmsInspectionService.isFoodGradeProduct (与生产侧 v1.1.102 豁免口径一致, 零新发明).
+     */
+    private boolean isFoodGradeLine(PurReceiptDetail d) {
+        return d != null && d.getProductId() != null
+                && qmsInspectionService.isFoodGradeProduct(d.getProductId());
+    }
+
+    /**
+     * v1.1.122: 该入库单是否含任一行食品级. 驱动 XK 门禁分流:
+     * 含食品级行 → 走 XK IQC 三步门禁 + 供应商合格名录硬门禁; 全非食品 → 整单豁免.
+     * 供应商是单头字段 (无法按行拆), 故判定落在「该单是否含食品级行」单头级.
+     */
+    private boolean hasFoodGradeLine(java.util.List<PurReceiptDetail> details) {
+        if (details == null) return false;
+        for (PurReceiptDetail d : details) {
+            if (isFoodGradeLine(d)) return true;
+        }
+        return false;
     }
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PurReceiptService.class);
