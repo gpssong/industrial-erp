@@ -26,7 +26,12 @@ public interface PurReceiptMapper extends BaseMapper<PurReceipt> {
             "(SELECT p.spec FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
             " WHERE dtl.receipt_id = r.id AND dtl.deleted = 0 ORDER BY dtl.line_no LIMIT 1) AS first_product_spec, " +
             "(SELECT p.model FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
-            " WHERE dtl.receipt_id = r.id AND dtl.deleted = 0 ORDER BY dtl.line_no LIMIT 1) AS first_product_model " +
+            " WHERE dtl.receipt_id = r.id AND dtl.deleted = 0 ORDER BY dtl.line_no LIMIT 1) AS first_product_model, " +
+            // v1.1.122: 本单是否全非食品级 (=1 表示全行 is_food_grade≠1, 采购入库审核走 XK 豁免免检直通).
+            // 口径与 PurReceiptService.check() 的 anyFood 判定一致: 只要含一行食品级 (is_food_grade=1) 即为 0.
+            "(SELECT CASE WHEN SUM(CASE WHEN p.is_food_grade = 1 THEN 1 ELSE 0 END) > 0 " +
+            " THEN 0 ELSE 1 END FROM pur_receipt_detail dtl LEFT JOIN base_product p ON p.id = dtl.product_id " +
+            " WHERE dtl.receipt_id = r.id AND dtl.deleted = 0) AS xk_exempt " +
             " FROM pur_receipt r " +
             // v1.1.15+: LEFT JOIN 仓库表注入 warehouseName
             "LEFT JOIN base_warehouse w ON w.id = r.warehouse_id AND w.deleted = 0 " +

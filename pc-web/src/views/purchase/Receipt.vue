@@ -24,10 +24,11 @@
             <div class="xk-compliance-strip">
               <el-icon class="xk-cs-icon"><Promotion /></el-icon>
               <div class="xk-cs-body">
-                <strong>XK 生产许可受控记录</strong>
-                <small>采购必须来源于审批计划；原料到货后先检验并上传供应商报告，检验合格方可生成入库单 · 标签照片随批归档 ≥ 2 年</small>
+                <strong>{{ allLinesNonFood ? '非食品采购 (免检直通)' : 'XK 生产许可受控记录' }}</strong>
+                <small v-if="allLinesNonFood">本单全部行非食品级 — 审核免 IQC 来料检验、免供应商合格名录门禁, 直接入库 (库存/应付照记)</small>
+                <small v-else>采购必须来源于审批计划；原料到货后先检验并上传供应商报告，检验合格方可生成入库单 · 标签照片随批归档 ≥ 2 年</small>
               </div>
-              <span class="xk-cs-badge">XK 受控</span>
+              <span class="xk-cs-badge" :class="{ 'xk-cs-badge-off': allLinesNonFood }">{{ allLinesNonFood ? '免检直通' : 'XK 受控' }}</span>
             </div>
 
             <!-- 顶部三步进度条 (视觉) -->
@@ -210,6 +211,15 @@
             <el-table-column prop="billDate" label="日期" width="120" />
             <el-table-column prop="supplierName" label="供应商" />
             <el-table-column prop="firstProductName" label="商品名称" show-overflow-tooltip />
+            <el-table-column label="XK 判定" width="110" align="center">
+              <template #default="{ row }">
+                <el-tooltip :content="row.xkExempt === 1 ? '全部行非食品级 (is_food_grade≠1), 审核免 IQC 直接入库' : '含食品级行, 审核需合格 IQC 来料检验'" placement="top">
+                  <el-tag v-if="row.xkExempt === 1" type="success" effect="plain" size="small">免检直通</el-tag>
+                  <el-tag v-else-if="row.xkExempt === 0" type="warning" effect="plain" size="small">需 IQC</el-tag>
+                  <el-tag v-else type="info" effect="plain" size="small">—</el-tag>
+                </el-tooltip>
+              </template>
+            </el-table-column>
             <el-table-column label="IQC 判定" width="110" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.inspectionResult === 'PASS' || row.inspectionResult === 'PASS_DISPOSITION'" type="success" size="small">合格</el-tag>
@@ -324,6 +334,17 @@ const supplierObj = computed(() => suppliers.value.find(s => s.id === form.suppl
 const supplierQualified = computed(() => (supplierObj.value.status ?? 1) === 1)
 const warehouseName = computed(() => warehouses.value.find(w => w.id === form.warehouseId)?.warehouseName || '')
 const batchNo = computed(() => `CB-${(form.billDate || '').slice(0, 7)}-00${form.details.length || 1}`)
+
+// v1.1.122: 当前草稿明细是否全非食品级 (is_food_grade≠1). 口径与后端 check() 的 anyFood 一致.
+// true → 审核免 IQC / 免供应商门禁, 走「免检直通」; false (含食品级或无明细) → 走 XK 三步.
+const allLinesNonFood = computed(() => {
+  const ids = (form.details || []).map(d => d.productId).filter(Boolean)
+  if (!ids.length) return false
+  return ids.every(pid => {
+    const p = products.value.find(x => String(x.id) === String(pid))
+    return !p || p.isFoodGrade !== 1
+  })
+})
 
 // ===== 检验项目判定表 (XK 受控展示, 判定可点击 合格↔不合格) =====
 const qaChecks = reactive([
@@ -528,11 +549,12 @@ async function onDelete(row) {
   catch (e) { ElMessage.error(e.message || '删除失败') }
 }
 async function onCheck(row) {
+  // v1.1.122: 全非食品单审核免 IQC, 确认框明说免检直通, 免得操作员以为漏了检验
+  const msg = row.xkExempt === 1
+    ? `确认审核采购入库单 ${row.billNo}?\n\n本单全部行非食品级 — 免 IQC 来料检验、免供应商合格名录门禁。\n审核后将:\n• 增加库存\n• 更新商品成本\n• 生成应付 (AP → 供应商)\n`
+    : `确认审核采购入库单 ${row.billNo}?\n\n本单含食品级行 — 需已合格 IQC 来料检验方可放行 (XK 门禁)。\n审核后将:\n• 增加库存\n• 更新商品成本\n• 生成应付 (AP → 供应商)\n`
   try {
-    await ElMessageBox.confirm(
-      `确认审核采购入库单 ${row.billNo}?\n\n审核后将:\n• 增加库存\n• 更新商品成本\n• 生成应付 (AP → 供应商)\n`,
-      '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' }
-    )
+    await ElMessageBox.confirm(msg, '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' })
   } catch { return }
   try { await purReceiptApi.check(row.id); ElMessage.success('审核成功, 库存+成本已更新'); loadData() }
   catch (e) { ElMessage.error(e.message || '审核失败') }
@@ -662,6 +684,8 @@ onMounted(async () => {
 .xk-cs-body small { font-size: 12px; color: var(--muted); line-height: 1.5; }
 .xk-cs-badge { font-size: 12px; font-weight: 600; color: var(--primary-color);
   border: 1px solid var(--primary-color); border-radius: 20px; padding: 2px 12px; }
+/* v1.1.122: 全非食品采购 — 免检直通态 (绿色, 与「XK 受控」蓝区分) */
+.xk-cs-badge-off { color: #67c23a; border-color: #67c23a; }
 
 /* 流程条 */
 .xk-flow { display: flex; align-items: center; padding: 14px 20px; background: #fff;

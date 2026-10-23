@@ -88,6 +88,13 @@ public class PurReceipt {
     @TableField(exist = false)
     private transient String createByName;
 
+    /**
+     * v1.1.122: 本单是否全非食品级 (1=全非食品, 采购入库审核走 XK 豁免免检直通; 0=含食品级, 需 IQC).
+     * 由 list page SQL 子查询计算, 口径与 {@code PurReceiptService.check()} 的 anyFood 判定一致. 不入库.
+     */
+    @TableField(exist = false)
+    private Integer xkExempt;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getBillNo() { return billNo; }
@@ -169,4 +176,8 @@ public class PurReceipt {
     /** 操作员姓名 (list page 注入) */
     public String getCreateByName() { return createByName; }
     public void setCreateByName(String createByName) { this.createByName = createByName; }
+
+    /** v1.1.122: 本单是否全非食品级 (list page 注入, 1=免检直通, 0=需 IQC) */
+    public Integer getXkExempt() { return xkExempt; }
+    public void setXkExempt(Integer xkExempt) { this.xkExempt = xkExempt; }
 }
