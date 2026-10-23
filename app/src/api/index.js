@@ -195,6 +195,8 @@ export const api = {
   // - stockSnapshot: 列出仓库所有有库存商品的账面快照 (App 扫码前预加载, 避免盲盘)
   // - invCheckSubmit: 提交盘点, 生成 DRAFT 盘点单 (PC 端审核后调库存)
   stockSnapshot: (warehouseId) => request({ url: '/inventory/check/stock-snapshot/' + warehouseId }),
+  // v1.1.117: 某仓+某商品的可选批次 (扫码出库批次复选用; 权限 inventory:stock:list 或 sales:delivery:list)
+  stockBatches: (warehouseId, productId) => request({ url: '/inventory/stock/batches', data: { warehouseId, productId } }),
   invCheckSubmit: (data) => request({ url: '/inventory/check/submit-from-app', method: 'POST', data, contentType: 'json' }),
   // 客户
   customerList: () => request({ url: '/base/customer/list' }),

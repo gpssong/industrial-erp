@@ -64,10 +64,14 @@
         <view class="form-row"><text class="form-label">入库仓库</text>
           <picker :range="whNames" @change="onPickWh" class="form-pick">
             <view class="pick-val">{{ whName || '请选择仓库' }}</view></picker></view>
+        <!-- v1.1.117: 单位选择器, 默认带出工单成品的主单位, 可切该商品其它单位 -->
+        <view class="form-row"><text class="form-label">单位</text>
+          <picker :range="unitNames" @change="onPickUnit" class="form-pick">
+            <view class="pick-val">{{ unitName || '请选择单位' }}</view></picker></view>
         <view class="form-row"><text class="form-label">数量</text>
           <input class="form-input" v-model="form.qty" type="digit" placeholder="0" /></view>
         <view class="form-row"><text class="form-label">批号</text>
-          <input class="form-input" v-model="form.batchNo" placeholder="留空自动生成" /></view>
+          <input class="form-input" v-model="form.batchNo" placeholder="默认=工单号, 可改" /></view>
       </view>
 
       <!-- XK 门禁提示 -->
@@ -101,6 +105,9 @@ export default {
       warehouses: [],
       orderId: null,
       warehouseId: null,
+      // v1.1.117: 单位选择器 (默认工单主单位, 可切该商品其它单位)
+      units: [],
+      unitIdx: 0,
       form: { qty: '', batchNo: '' },
       submitting: false,
       draftId: null,
@@ -116,6 +123,9 @@ export default {
     pickedOrder() { return this.orderList.find((x) => String(x.id) === String(this.orderId)) },
     whNames() { return this.warehouses.map((w) => w.warehouseName || ('仓#' + w.id)) },
     whName() { const w = this.warehouses.find((x) => String(x.id) === String(this.warehouseId)); return w ? (w.warehouseName || ('仓#' + w.id)) : '' },
+    // v1.1.117: 单位下拉 — 默认工单主单位; 该商品无其它单位时只有一项
+    unitNames() { return this.units.map((u) => u.unitName) },
+    unitName() { return this.units[this.unitIdx] ? this.units[this.unitIdx].unitName : '' },
     // v1.1.102 hotfix-3: 列表行内审核/反审核 perm
     canCheck() {
       const perms = this.getMyAppPerms()
@@ -265,8 +275,33 @@ export default {
       const o = this.pickedOrder
       if (!o) return
       this.form.qty = String(o.actualQty || o.planQty || 0)
+      // v1.1.117: 批号默认 = 工单号 (可改)
+      this.form.batchNo = o.billNo || ''
       this.draftId = null; this.checked = false
+      // v1.1.117: 加载该成品可用单位, 默认选工单主单位
+      this.loadUnits(o)
     },
+    // v1.1.117: 拉成品商品的全部单位, 默认定位到工单主单位
+    async loadUnits(o) {
+      // 先用工单自带的主单位占位, 保证立即可见
+      this.units = [{ unitId: o.unitId, unitName: o.unitName || '主单位' }]
+      this.unitIdx = 0
+      if (!o.productId) return
+      try {
+        const r = await api.productDetail(o.productId)
+        const pd = (r && r.data) || {}
+        const list = (pd.units || []).filter((u) => u.unitId)
+        if (!list.length) return
+        // 主单位排最前 (后端已按 is_main 标注)
+        const main = list.find((u) => u.isMain) || list.find((u) => String(u.unitId) === String(o.unitId)) || list[0]
+        const others = list.filter((u) => String(u.unitId) !== String(main.unitId))
+        this.units = [main].concat(others)
+        this.unitIdx = 0
+      } catch (e) {
+        console.warn('[finished-in.loadUnits] 失败:', e)
+      }
+    },
+    onPickUnit(e) { this.unitIdx = Number(e.detail.value) },
     onPickWh(e) { this.warehouseId = String(this.warehouses[Number(e.detail.value)].id) },
     async onSaveDraft() {
       const o = this.pickedOrder
@@ -274,11 +309,15 @@ export default {
       if (!this.warehouseId) { uni.showToast({ title: '请选择仓库', icon: 'none' }); return }
       this.submitting = true
       try {
+        // v1.1.117: 带上选中的单位 (默认成品主单位) + 批号 (默认=工单号)
+        const u = this.units[this.unitIdx] || {}
         await api.prdFinishedInAdd({
           prdOrderId: this.orderId,
           prdOrderNo: o.billNo,
           productId: o.productId, productCode: o.productCode, productName: o.productName,
-          spec: o.spec, unitId: o.unitId, unitName: o.unitName,
+          spec: o.spec,
+          unitId: u.unitId != null ? u.unitId : o.unitId,
+          unitName: u.unitName || o.unitName,
           qty: this.form.qty || 0, batchNo: this.form.batchNo || undefined,
           warehouseId: this.warehouseId, remark: 'App 成品入库'
         })

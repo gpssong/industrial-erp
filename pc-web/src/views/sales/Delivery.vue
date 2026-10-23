@@ -163,10 +163,11 @@
               </template>
             </el-table-column>
             <el-table-column label="金额" width="120" align="right"><template #default="{ row }"><span>{{ stripTrailingZero4((+row.qty || 0) * (+row.price || 0)) }}</span></template></el-table-column>
-            <el-table-column label="批次" width="160">
+            <el-table-column label="批次" width="220">
               <template #default="{ row }">
-                <el-select v-model="row.batchNo" size="small" filterable allow-create
-                  default-first-option clearable placeholder="选批次"
+                <el-select v-model="row._batchSel" size="small" filterable multiple allow-create
+                  collapse-tags collapse-tags-tooltip default-first-option clearable
+                  placeholder="选批次 (可多选)"
                   style="width:100%">
                   <el-option v-for="b in (row._batchOptions || [])" :key="(b.batchNo || '<NULL>')"
                     :label="`${b.batchNo || '<无批次>'} (${b.qty})`" :value="b.batchNo || ''" />
@@ -465,7 +466,8 @@ async function onProductChange(row, v) {
   row.unitId = mainUnit ? mainUnit.unitId : p.mainUnitId
   row.unitName = mainUnit ? mainUnit.unitName : '主单位'
   row._priceFromUnit = true  // 标记单价由单位带出, onUnitChange 可覆盖
-  // 加载该商品在该仓库下所有可用批次 (供销售出库选 batchNo, 避免审核时"库存不存在")
+  // 加载该商品在该仓库下所有可用批次 (供销售出库多选 batchNo, 避免审核时"库存不存在")
+  row._batchSel = []
   await loadBatchOptionsForRow(row)
   // 优先取该客户对此商品的上次订单单价 (覆盖默认带出价)
   if (form.customerId && row.productId) {
@@ -494,14 +496,15 @@ async function onProductChange(row, v) {
  */
 async function loadBatchOptionsForRow(row) {
   row._batchOptions = []
+  if (!row._batchSel) row._batchSel = []
   if (!form.warehouseId || !row.productId) return
   try {
     const r = await stockApi.batches(form.warehouseId, row.productId)
     // 仅展示 qty > 0 的; stockApi.batches 已经按 qty DESC 排好
     row._batchOptions = (r.data || []).filter(b => Number(b.qty) > 0)
-    // 若还没有 batchNo 且候选只有一条, 自动填上
-    if (!row.batchNo && row._batchOptions.length === 1) {
-      row.batchNo = row._batchOptions[0].batchNo || ''
+    // 若还没有选择且候选只有一条, 自动选上
+    if (row._batchSel.length === 0 && row._batchOptions.length === 1) {
+      row._batchSel = [row._batchOptions[0].batchNo || '']
     }
   } catch (e) {
     /* 后端接口失败也不阻塞开单 */
@@ -527,7 +530,7 @@ function onUnitChange(row, unitId) {
 function onWarehouseChange() {
   form.details.forEach(r => {
     if (r.productId) {
-      r.batchNo = ''
+      r._batchSel = []
       loadBatchOptionsForRow(r)
     }
   })
@@ -562,16 +565,18 @@ async function loadCustomerHistory() {
  */
 async function onHistoryRowClick(row) {
   // 1. 关键属性复制
+  const selArr = row.batchNo ? String(row.batchNo).split('|').filter(Boolean) : []
   const newLine = {
     productId: row.productId, productCode: row.productCode, productName: row.productName,
     spec: row.spec, unitId: row.unitId, unitName: row.unitName,
     qty: row.qty != null ? Number(row.qty) : 0,
     price: row.price != null ? Number(row.price) : 0,
     taxRate: row.taxRate != null ? Number(row.taxRate) : 13,
-    batchNo: row.batchNo, locationName: '', remark: row.remark
+    _batchSel: selArr, _batchOptions: [],
+    locationName: '', remark: row.remark
   }
-  // 2. 合并到 form.details (按 productId+batchNo 累加数量)
-  const exist = form.details.find(d => d.productId === newLine.productId && (d.batchNo || '') === (newLine.batchNo || ''))
+  // 2. 合并到 form.details (按 productId 累加数量; 批次复选集合不合并, 新行独立)
+  const exist = form.details.find(d => d.productId === newLine.productId)
   if (exist) {
     exist.qty = (+exist.qty || 0) + (+newLine.qty || 0)
     ElMessage.success(`已合并到明细行 (累计数量 ${exist.qty})`)
@@ -604,6 +609,11 @@ async function onSave() {
     // 后端按新公式重算, 前端预填以便乐观 UI 立即反映.
     const payload = { ...form }
     let totalAmount = 0
+    // v1.1.117: 批次复选 → "|" 分隔串存 batch_no (后端按顺序自动按库存拆分扣库)
+    payload.details = form.details.map(d => ({
+      ...d,
+      batchNo: (d._batchSel && d._batchSel.length) ? d._batchSel.filter(Boolean).join('|') : ''
+    }))
     payload.details.forEach(d => { totalAmount += (+d.qty || 0) * (+d.price || 0) })
     const discount = +form.discountAmount || 0
     const tail = +form.tailAmount || 0
@@ -640,6 +650,8 @@ async function injectProductIntoDetail(det) {
       isMain: u.isMain, salesPrice: u.salesPrice
     }))
     det._priceFromUnit = false  // 旧单: 单价已存档, 不让单位切换覆盖
+    // v1.1.117: 回显已存 "|" 复选批号 → 数组 (若尚未拆分)
+    if (!det._batchSel) det._batchSel = det.batchNo ? String(det.batchNo).split('|').filter(Boolean) : []
     // 1. 按 unitId 优先匹配
     let u = det._units.find(x => x.unitId == det.unitId)
     // 2. 旧脏数据 unitId=0 → 按 unitName 字符串匹配, 顺手把 unitId 修正到真实值
@@ -687,7 +699,7 @@ async function onEdit(row) {
   form.phone = d.phone || ''
   form.discountAmount = d.discountAmount || 0
   form.tailAmount = d.tailAmount || 0
-  form.remark = d.remark || ''
+  form.remark = d.remark
   form.details.splice(0, form.details.length, ...(d.details || []).map(x => ({
     id: x.id, deliveryId: x.deliveryId, lineNo: x.lineNo,
     productId: x.productId,
@@ -696,6 +708,9 @@ async function onEdit(row) {
     qty: x.qty, price: x.price, taxRate: x.taxRate,
     amount: x.amount, taxAmount: x.taxAmount, amountTax: x.amountTax,
     batchNo: x.batchNo, locationName: x.locationName,
+    // v1.1.117: 已存 "|" 分隔的复选批号回显成数组供 el-select multiple
+    _batchSel: x.batchNo ? String(x.batchNo).split('|').filter(Boolean) : [],
+    _batchOptions: [],
     poNo: x.poNo || '',  // v1.1.40
     remark: x.remark, _units: []
   })))
@@ -703,6 +718,10 @@ async function onEdit(row) {
   productList.value = []
   for (const det of form.details) {
     await injectProductIntoDetail(det)
+  }
+  // v1.1.117: 编辑回显 — 为每个有商品的行拉取该仓该品可用批次
+  for (const det of form.details) {
+    if (det.productId) loadBatchOptionsForRow(det)
   }
   dialogVisible.value = true
 }

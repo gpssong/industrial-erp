@@ -15,6 +15,8 @@ import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.base.service.ProductAttrInjector;
 import com.industrial.erp.modules.finance.service.FinArapService;
+import com.industrial.erp.modules.inventory.mapper.InvStockMapper;
+import com.industrial.erp.modules.inventory.mapper.InvLedgerMapper;
 import com.industrial.erp.modules.inventory.service.StockService;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
@@ -51,7 +53,7 @@ import java.util.stream.Collectors;
 @Service
 public class SalDeliveryService {
 
-    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher, BaseProductMapper productMapper, SalOrderMapper orderMapper, com.industrial.erp.modules.mes.service.MesReportService mesReportService) {
+    public SalDeliveryService(SalDeliveryMapper deliveryMapper, SalDeliveryDetailMapper detailMapper, BaseCustomerMapper customerMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, SalOrderDetailMapper orderDetailMapper, OperLogPublisher operLogPublisher, BaseProductMapper productMapper, SalOrderMapper orderMapper, com.industrial.erp.modules.mes.service.MesReportService mesReportService, InvStockMapper inventoryStockMapper, InvLedgerMapper ledgerMapper) {
         this.deliveryMapper = deliveryMapper;
         this.detailMapper = detailMapper;
         this.customerMapper = customerMapper;
@@ -65,6 +67,8 @@ public class SalDeliveryService {
         this.productMapper = productMapper;
         this.orderMapper = orderMapper;
         this.mesReportService = mesReportService;
+        this.inventoryStockMapper = inventoryStockMapper;
+        this.ledgerMapper = ledgerMapper;
     }
 
     private static final Logger log = LoggerFactory.getLogger(SalDeliveryService.class);
@@ -81,6 +85,10 @@ public class SalDeliveryService {
     private final FinArapService arapService;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    /** v1.1.117: 多批次复选拆分时读各批号当前库存. */
+    private final InvStockMapper inventoryStockMapper;
+    /** v1.1.117: 反审核按台账实际出库分布逐批回补. */
+    private final InvLedgerMapper ledgerMapper;
     /** v1.1.99 C2: 销售出库登记 FG 批次→客户 流向 (打通追溯出口). */
     private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
 
@@ -393,22 +401,22 @@ public class SalDeliveryService {
             customerMapper.incrCreditUsed(d.getCustomerId(), d.getTotalAmountTax());
         }
 
-        // 2. 库存出库 (每行, 严格防止负库存)
+        // 2. 库存出库 (每行, 严格防止负库存).
+        // v1.1.117: batchNo 支持 "|" 分隔的多批次复选 — 按勾选顺序把整行 qty 自动按库存
+        // 拆分到各批号 (先扣满第一个, 不够再落到下一个), 逐批 outStock 累加成本.
+        // 单批次/空批次走原逻辑 (det.getBatchNo() 原样), 存量单零回归.
         List<SalDeliveryDetail> details = detailMapper.selectByDeliveryId(id);
         BaseWarehouse wh = warehouseMapper.selectById(d.getWarehouseId());
         BigDecimal totalCost = BigDecimal.ZERO;
         for (SalDeliveryDetail det : details) {
-            BigDecimal outCost = stockService.outStock(
-                    Constants.LEDGER_SAL_DELIVERY, d.getId(), d.getBillNo(), det.getId(),
-                    d.getWarehouseId(), wh.getWarehouseName(), det.getLocationId(), det.getLocationName(),
-                    det.getProductId(), det.getUnitId(), det.getUnitName(), det.getBatchNo(),
-                    det.getQty(), det.getPrice(), d.getBillNo(),
-                    null, d.getCustomerId(), "销售出库 " + d.getBillNo()
+            BigDecimal lineCost = outStockSplitBatch(
+                    d, wh, det,
+                    Constants.LEDGER_SAL_DELIVERY, d.getBillNo(), d.getCustomerId()
             );
-            det.setCostPrice(outCost.divide(det.getQty(), 4, RoundingMode.HALF_UP));
-            det.setCostAmount(outCost);
+            det.setCostPrice(lineCost.divide(det.getQty(), 4, RoundingMode.HALF_UP));
+            det.setCostAmount(lineCost);
             detailMapper.updateById(det);
-            totalCost = totalCost.add(outCost);
+            totalCost = totalCost.add(lineCost);
         }
 
         // 3. 更新主表 (成本/毛利)
@@ -439,21 +447,134 @@ public class SalDeliveryService {
         // 6. v1.1.99 C2: 销售出库 = FG 成品批次流向客户的追溯出口时机.
         // 每个有 batchNo 的明细行登记 FG 批次 + mes_batch_link(FG_OUT, customer_id).
         // MES 是副作用登记, 失败只记日志不阻塞出库主流程 (库存/成本/AR 已落库).
+        // v1.1.117: 多批次复选 (batchNo 含 "|") 逐批登记, 单批原样.
         if (details != null) {
             for (SalDeliveryDetail det : details) {
                 if (det.getBatchNo() == null || det.getBatchNo().isEmpty()) continue;
-                try {
-                    mesReportService.registerFgOutToCustomer(det.getBatchNo(), d.getCustomerId(),
-                            det.getQty(), null, d.getBillNo());
-                } catch (Exception e) {
-                    log.warn("[MES] 销售出库登记 FG 批次→客户失败 (不阻塞出库) billNo={} batchNo={} err={}",
-                            d.getBillNo(), det.getBatchNo(), e.getMessage());
+                List<String> batches = splitBatchNo(det.getBatchNo());
+                boolean qtyAssigned = false;
+                for (int i = 0; i < batches.size(); i++) {
+                    String bn = batches.get(i);
+                    // 空串 = 无批次, mes_batch 无此主数据, 不登记流向 (与存量单 batch_no 空一致)
+                    if (bn.isEmpty()) continue;
+                    try {
+                        // 多批次时逐批库存 qty 拆分属后续版本; 追溯够用: 整行 qty 记到首个非空批次
+                        BigDecimal q = qtyAssigned ? BigDecimal.ZERO : det.getQty();
+                        mesReportService.registerFgOutToCustomer(bn, d.getCustomerId(), q, null, d.getBillNo());
+                        qtyAssigned = true;
+                    } catch (Exception e) {
+                        log.warn("[MES] 销售出库登记 FG 批次→客户失败 (不阻塞出库) billNo={} batchNo={} err={}",
+                                d.getBillNo(), bn, e.getMessage());
+                    }
                 }
             }
         }
 
         log.info("销售出库审核: billNo={}, amount={}, cost={}, profit={}",
                 d.getBillNo(), d.getTotalAmount(), totalCost, profit);
+    }
+
+    /**
+     * v1.1.117: 按 "|" 分隔的多批次, 把整行 qty 自动按库存拆分到各批号后逐批出库.
+     * <p>分配规则 (按勾选顺序): 第 i 个批号先扣到它自身库存上限, 剩余落到下一个批号;
+     * 所有批号都扣不完才报错. 单批次/空批次 走原有整行单次 outStock (零回归).
+     * @return 整行累计出库成本 (供毛利计算)
+     */
+    private BigDecimal outStockSplitBatch(SalDelivery d, BaseWarehouse wh, SalDeliveryDetail det,
+                                          String billType, String billNo, Long customerId) {
+        List<String> batches = splitBatchNo(det.getBatchNo());
+        // 单批次 / 无批次: 原逻辑整行一次出库 (行为完全不变)
+        if (batches.size() <= 1) {
+            String bn = batches.isEmpty() ? null : batches.get(0);
+            return stockService.outStock(
+                    billType, d.getId(), billNo, det.getId(),
+                    d.getWarehouseId(), wh == null ? null : wh.getWarehouseName(), det.getLocationId(), det.getLocationName(),
+                    det.getProductId(), det.getUnitId(), det.getUnitName(), bn,
+                    det.getQty(), det.getPrice(), billNo,
+                    null, customerId, "销售出库 " + billNo
+            );
+        }
+
+        // 多批次: 依次取各批号当前库存 (库存行), 按勾选顺序分配 qty.
+        List<com.industrial.erp.modules.inventory.entity.InvStock> stocks =
+                inventoryStockMapper.listByWarehouseAndProduct(d.getWarehouseId(), det.getProductId());
+        Map<String, com.industrial.erp.modules.inventory.entity.InvStock> stockByBatch = new java.util.HashMap<>();
+        if (stocks != null) {
+            for (com.industrial.erp.modules.inventory.entity.InvStock s : stocks) {
+                String k = s.getBatchNo() == null ? "" : s.getBatchNo();
+                stockByBatch.put(k, s);
+            }
+        }
+
+        BigDecimal remaining = det.getQty();
+        BigDecimal totalCost = BigDecimal.ZERO;
+        List<String> missing = new java.util.ArrayList<>();
+        for (int i = 0; i < batches.size() && remaining.compareTo(java.math.BigDecimal.ZERO) > 0; i++) {
+            String bn = batches.get(i);
+            com.industrial.erp.modules.inventory.entity.InvStock s = stockByBatch.get(bn.isEmpty() ? "" : bn);
+            BigDecimal avail = (s == null || s.getQty() == null) ? java.math.BigDecimal.ZERO : s.getQty();
+            BigDecimal take = remaining.min(avail);
+            if (take.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                // outStock 内部按 unitId 折算到主单位再扣, 这里 qty 用行原始单位, 与单批路径一致
+                BigDecimal c = stockService.outStock(
+                        billType, d.getId(), billNo, det.getId(),
+                        d.getWarehouseId(), wh == null ? null : wh.getWarehouseName(), det.getLocationId(), det.getLocationName(),
+                        det.getProductId(), det.getUnitId(), det.getUnitName(), bn,
+                        take, det.getPrice(), billNo,
+                        null, customerId, "销售出库 " + billNo + " (批次" + bn + ")"
+                );
+                totalCost = totalCost.add(c);
+                remaining = remaining.subtract(take);
+            } else {
+                missing.add(bn.isEmpty() ? "<无批次>" : bn);
+            }
+        }
+        if (remaining.compareTo(java.math.BigDecimal.ZERO) > 0) {
+            // 库存够但分布到多批后仍扣不完 — 提示哪些批号库存不足
+            throw BizException.of("批次库存不足, 商品=" + (det.getProductName() == null ? det.getProductId() : det.getProductName())
+                    + ", 未扣完数量=" + remaining + " (批次 " + String.join(",", missing) + " 库存不足)");
+        }
+        return totalCost;
+    }
+
+    /**
+     * v1.1.117: 读该出库单明细在台账里<b>每个批号实际出库了多少</b> (bizDirection=OUT).
+     * <p>check() 多批次复选时按库存顺序把 qty 分摊到各批次, uncheck 必须按<b>同一分布</b>回补,
+     * 否则库存会凭空多出一行幽灵批次. 返回 key=batchNo (空串=无批次), value=该批出库量.
+     * 查不到 (历史单台账被清) 返回空 Map, 由调用方退回旧的整行回补路径.
+     */
+    private Map<String, BigDecimal> ledgerOutQtyByBatch(String billNo, SalDeliveryDetail det) {
+        Map<String, BigDecimal> out = new java.util.LinkedHashMap<>();
+        List<com.industrial.erp.modules.inventory.entity.InvLedger> rows = ledgerMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.industrial.erp.modules.inventory.entity.InvLedger>()
+                        .eq(com.industrial.erp.modules.inventory.entity.InvLedger::getBillNo, billNo)
+                        .eq(com.industrial.erp.modules.inventory.entity.InvLedger::getBillDetailId, det.getId())
+                        .eq(com.industrial.erp.modules.inventory.entity.InvLedger::getBizDirection, Constants.DIRECTION_OUT)
+        );
+        if (rows == null || rows.isEmpty()) return out;
+        for (com.industrial.erp.modules.inventory.entity.InvLedger l : rows) {
+            String k = l.getBatchNo() == null ? "" : l.getBatchNo();
+            out.merge(k, l.getQty() == null ? BigDecimal.ZERO : l.getQty(), BigDecimal::add);
+        }
+        return out;
+    }
+
+    /**
+     * v1.1.117: 按 "|" 拆 batchNo, 保留勾选顺序. 空串 = 合法批号「无批次」.
+     * <p>⚠️ 空串是<b>合法</b>批号 — 它代表「无批次」(inv_stock.batch_no IS NULL 那行).
+     * 批次下拉里 "无批次 (库存N)" 选中后 value 就是 "". 所以这里<b>不能</b>过滤空串,
+     * 否则「批号A + 无批次」复选会被退化成只剩批号A, 整行数量全扣到批号A → 报库存不足.
+     * 用 split("\\|", -1) 保留尾部空元素; 整串为空时返回单元素 {@code [""]},
+     * 与存量单「batch_no 为空 = 走无批次」行为一致.
+     */
+    private static List<String> splitBatchNo(String batchNo) {
+        if (batchNo == null || batchNo.trim().isEmpty()) return java.util.Collections.singletonList("");
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String p : batchNo.split("\\|", -1)) {
+            out.add(p.trim());
+        }
+        if (out.isEmpty()) out.add("");
+        return out;
     }
 
     /** v1.1.18+: 反审核销售出库 (CHECKED→DRAFT).
@@ -472,17 +593,38 @@ public class SalDeliveryService {
         }
 
         // 1. 库存入库 (每行调 stockService.inStock, qty 自动折算到主单位)
+        // v1.1.117: 多批次复选 (batchNo 含 "|") 必须按 check() 的拆分<b>镜像</b>回补:
+        // check() 是按库存顺序把 qty 分摊到各批次的, uncheck 若把整串当单批入库,
+        // 会凭空造出一行 batch_no='A|B' 的幽灵库存 (实测踩过), 账面数量对不上.
+        // 正确做法: 读台账里该出库单每个批号的<b>实际出库量</b>, 逐批等量回补.
         List<SalDeliveryDetail> details = detailMapper.selectByDeliveryId(id);
         BaseWarehouse wh = d.getWarehouseId() == null ? null : warehouseMapper.selectById(d.getWarehouseId());
         for (SalDeliveryDetail det : details) {
-            stockService.inStock(
-                    Constants.LEDGER_SAL_DELIVERY, d.getId(), d.getBillNo(), det.getId(),
-                    d.getWarehouseId(), wh == null ? null : wh.getWarehouseName(),
-                    det.getLocationId(), det.getLocationName(),
-                    det.getProductId(), det.getUnitId(), det.getUnitName(), det.getBatchNo(),
-                    det.getQty(), det.getCostPrice(), d.getBillNo(),
-                    null, d.getCustomerId(), "反审核销售出库 " + d.getBillNo()
-            );
+            Map<String, BigDecimal> outPerBatch = ledgerOutQtyByBatch(d.getBillNo(), det);
+            if (outPerBatch == null || outPerBatch.isEmpty()) {
+                // 台账查不到 (历史单/台账被清) → 退回旧行为: 整行按单批回补
+                stockService.inStock(
+                        Constants.LEDGER_SAL_DELIVERY, d.getId(), d.getBillNo(), det.getId(),
+                        d.getWarehouseId(), wh == null ? null : wh.getWarehouseName(),
+                        det.getLocationId(), det.getLocationName(),
+                        det.getProductId(), det.getUnitId(), det.getUnitName(), det.getBatchNo(),
+                        det.getQty(), det.getCostPrice(), d.getBillNo(),
+                        null, d.getCustomerId(), "反审核销售出库 " + d.getBillNo()
+                );
+                continue;
+            }
+            for (Map.Entry<String, BigDecimal> e : outPerBatch.entrySet()) {
+                BigDecimal q = e.getValue();
+                if (q == null || q.compareTo(BigDecimal.ZERO) <= 0) continue;
+                stockService.inStock(
+                        Constants.LEDGER_SAL_DELIVERY, d.getId(), d.getBillNo(), det.getId(),
+                        d.getWarehouseId(), wh == null ? null : wh.getWarehouseName(),
+                        det.getLocationId(), det.getLocationName(),
+                        det.getProductId(), det.getUnitId(), det.getUnitName(), e.getKey(),
+                        q, det.getCostPrice(), d.getBillNo(),
+                        null, d.getCustomerId(), "反审核销售出库 " + d.getBillNo()
+                );
+            }
         }
 
         // 2. 客户信用额度回退
