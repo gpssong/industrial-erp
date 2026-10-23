@@ -3,6 +3,32 @@
 
 ## changelog (倒序)
 
+### v1.1.120 (2026-10-23 — App H5 成品入库: 扫**商品编码**弹出该商品全部工单供选择)
+
+**现象/需求**: App H5 成品入库页 (扫 `scan/finished-in`) 原来扫码只认**工单单号** — 扫工单条码/单号二维码按 `billNo` 精确匹配, 命中就带入。现场实际常扫的是**商品编码**(成品条码), 那种码在工单表里根本匹配不到 → 直接「未找到工单」。用户需要: 扫商品编码时, 把**该商品名下所有生产工单列出来供挑选**。
+
+**改动** (仅 1 个文件 `app/src/pages/scan/finished-in.vue`):
+
+`onScanOrder` 扫码回调改三层:
+1. 本地已加载的 100 张工单里按 `billNo` 精确匹配 → 命中直接带入(最快)
+2. 本地没中 → 后端 `prdOrderPage({billNo})` 精确查工单 → 命中带入
+3. **工单单号都对不上 → 把扫的码当成商品编码**, `prdOrderPage({productName: 码})` 查该商品全部生产工单 (后端 `PrdOrderService.page` 里 `productName` 参数会同时 `LIKE` 匹配产品名 + 产品码, 见 `PrdOrderService.java:87-89`, 故商品编码也能命中)。命中 **≥2 张** 时, 模板里新加的选择器列 `单号 · 成品 [状态]` 供挑; **1 张**直接带入; **0 张** 提示「没有单号/商品编码为 X 的生产工单」
+
+配套:
+- 新 data `productMatched[]` + `productMatchedCode`; 新 computed `productMatchedOpts`(选择器文案) / `pickedProductOrder`(回显); 新 method `onPickProductOrder(e)`(从命中列表挑一张 → 复用既有 `onOrderPicked()` 带出成品/规格/数量/单位/仓库)
+- 命中的每张工单也 push 进 `orderList`, 让下方主 picker 一并可选
+- 用主 picker 手选工单时 `onPickOrder` 清空 `productMatched`, 不残留「命中多张」列表
+
+**零后端改动**: 完全复用既有 `prdOrderPage` + `productDetail`, 没加端点/表/字段。
+
+**部署**: 双站 App H5 bind-mount (飞牛 `/vol2/.../app-h5/dist/build/h5` + home `/volume3/.../app-h5/dist/build/h5`), 各 `docker restart erp-app-h5`, 旧 dist 备份。双站线上 finished-in chunk md5 均 `989df9587bf89d3c459690085269c813` (与本地构建逐字节一致), 含新文案「该商品有 N 张工单」。
+
+**部署踩坑**:
+1. macOS tar 混 `._*` AppleDouble → `COPYFILE_DISABLE=1 tar --no-xattrs --exclude='._*'`
+2. 飞牛 App H5 容器名是 `erp-app-h5` (不带 `-failover`, 跟 pc-web 不一样)
+3. 飞牛 docker 在 `/usr/bin/docker`, home 在 `/usr/local/bin/docker`
+4. **home `/tmp` 对 gpssong 不可写** — 中转 tgz 走 `/volume3/docker/erp-system/` (gpssong 可写), 再 sudo 解包; 中途误清空 H5 目录一次, 从备份 + 重解恢复, 线上 chunk 已确认正常
+
 ### v1.1.119 (2026-10-23 — BOM「基础用量」语义正名 + 领料量按成品克重归一化 (重量配比))
 
 用户指出:「BOM 中基础用量为按重量折算的对应比例, 不是生产一个产品需要的量」。DB 实测(飞牛 canary)完全印证。

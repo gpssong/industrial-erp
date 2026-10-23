@@ -44,6 +44,12 @@
         <view class="section-title">关联生产工单</view>
         <!-- v1.1.111: 扫码关联 (扫工单条码/单号二维码 → 自动带入) -->
         <button class="scan-btn" @click="onScanOrder">📷 扫码关联工单</button>
+        <!-- v1.1.120: 扫商品编码 → 后端查到该商品的全部工单, 在此选择 (多张才显示) -->
+        <picker v-if="productMatched.length > 1" :range="productMatchedOpts" @change="onPickProductOrder">
+          <view class="picker-box" :class="{ active: pickedProductOrder }">
+            {{ pickedProductOrder ? (pickedProductOrder.billNo + ' · ' + (pickedProductOrder.productName || '成品')) : ('扫码命中 ' + productMatched.length + ' 张工单, 请选择') }}
+          </view>
+        </picker>
         <picker :range="orderOptions" @change="onPickOrder">
           <view class="picker-box" :class="{ active: orderId }">
             <text v-if="pickedOrder">{{ pickedOrder.billNo }} · {{ pickedOrder.productName || '成品' }}</text>
@@ -108,6 +114,9 @@ export default {
       // v1.1.117: 单位选择器 (默认工单主单位, 可切该商品其它单位)
       units: [],
       unitIdx: 0,
+      // v1.1.120: 扫商品编码 → 命中该商品的多张工单, 供用户选择
+      productMatched: [],
+      productMatchedCode: '',
       form: { qty: '', batchNo: '' },
       submitting: false,
       draftId: null,
@@ -121,6 +130,16 @@ export default {
   computed: {
     orderOptions() { return this.orderList.map((x) => x.billNo || ('#' + x.id)) },
     pickedOrder() { return this.orderList.find((x) => String(x.id) === String(this.orderId)) },
+    // v1.1.120: 扫商品编码命中多张工单时的选择器文案 (单号 · 成品 · 状态)
+    productMatchedOpts() {
+      return this.productMatched.map((x) => {
+        const st = x.billStatus === 'CHECKED' ? '已完工' : (x.billStatus || '')
+        return (x.billNo || ('#' + x.id)) + ' · ' + (x.productName || x.productCode || '成品') + (st ? ' [' + st + ']' : '')
+      })
+    },
+    pickedProductOrder() {
+      return this.productMatched.find((x) => String(x.id) === String(this.orderId))
+    },
     whNames() { return this.warehouses.map((w) => w.warehouseName || ('仓#' + w.id)) },
     whName() { const w = this.warehouses.find((x) => String(x.id) === String(this.warehouseId)); return w ? (w.warehouseName || ('仓#' + w.id)) : '' },
     // v1.1.117: 单位下拉 — 默认商品主单位 (真实单位名, 如「只」/「卷」); 该商品没配单位时显示「未配置」
@@ -238,39 +257,64 @@ export default {
     },
     onPickOrder(e) {
       const item = this.orderList[Number(e.detail.value)]
-      if (item) { this.orderId = String(item.id); this.onOrderPicked() }
+      if (item) { this.orderId = String(item.id); this.productMatched = []; this.onOrderPicked() }
     },
     // v1.1.111: 扫码关联工单 — 扫工单条码/单号二维码, 后端按 billNo LIKE 查到即带入
+    // v1.1.120: 扫的若是**商品编码** (不是工单单号), 查该商品的全部工单, 命中多张则弹出选择器供挑;
+    //           命中唯一一张则直接带入。这样「扫商品码」也能顺势关联到它的生产工单。
     async onScanOrder() {
       doScan({
         onResult: async (code) => {
-          const billNo = String(code || '').trim()
-          if (!billNo) return
+          const codeNorm = String(code || '').trim()
+          if (!codeNorm) return
           // 1) 先在本地列表里找 (picker 已加载的前 100 条), 命中最快
-          const local = this.orderList.find((o) => o.billNo === billNo)
+          const local = this.orderList.find((o) => o.billNo === codeNorm)
           if (local) {
             this.orderId = String(local.id); this.onOrderPicked()
-            uni.showToast({ title: '已关联 ' + billNo, icon: 'success' })
+            uni.showToast({ title: '已关联 ' + codeNorm, icon: 'success' })
             return
           }
           // 2) 本地没命中 → 按 billNo 精确查后端
           try {
-            const r = await api.prdOrderPage({ pageNum: 1, pageSize: 1, billNo })
+            const r = await api.prdOrderPage({ pageNum: 1, pageSize: 1, billNo: codeNorm })
             const recs = (r && r.records) || (r && r.data && r.data.records) || []
             if (recs.length) {
               this.orderList.push(recs[0])
               this.orderId = String(recs[0].id); this.onOrderPicked()
-              uni.showToast({ title: '已关联 ' + (recs[0].billNo || billNo), icon: 'success' })
+              uni.showToast({ title: '已关联 ' + (recs[0].billNo || codeNorm), icon: 'success' })
+              return
+            }
+            // 3) 工单单号没匹配上 → 当成**商品编码**, 查该商品的全部生产工单
+            this.productMatchedCode = codeNorm
+            const pr = await api.prdOrderPage({ pageNum: 1, pageSize: 100, productName: codeNorm })
+            const prods = (pr && pr.records) || (pr && pr.data && pr.data.records) || []
+            if (!prods.length) {
+              uni.showModal({ title: '未找到工单', content: '没有单号/商品编码为 ' + codeNorm + ' 的生产工单', showCancel: false })
+              return
+            }
+            // 该商品多张工单 → 供选择; 把每张也塞进 orderList, 让下方 picker 一并可选
+            this.productMatched = prods.slice()
+            for (const o of prods) {
+              if (!this.orderList.some((x) => String(x.id) === String(o.id))) this.orderList.push(o)
+            }
+            if (prods.length === 1) {
+              this.orderId = String(prods[0].id); this.onOrderPicked()
+              uni.showToast({ title: '已关联 ' + (prods[0].billNo || codeNorm), icon: 'success' })
             } else {
-              uni.showModal({ title: '未找到工单', content: '没有单号为 ' + billNo + ' 的生产工单', showCancel: false })
+              uni.showToast({ title: '该商品有 ' + prods.length + ' 张工单, 请选择', icon: 'none' })
             }
           } catch (e) {
             if (e && e.code === 401) return
-            uni.showModal({ title: '查询失败', content: (e && e.msg) || '按单号查工单失败', showCancel: false })
+            uni.showModal({ title: '查询失败', content: (e && e.msg) || '按条码查工单失败', showCancel: false })
           }
         },
         onCancel: () => {}
       })
+    },
+    // v1.1.120: 从「扫码命中多张工单」选择器里挑一张
+    onPickProductOrder(e) {
+      const item = this.productMatched[Number(e.detail.value)]
+      if (item) { this.orderId = String(item.id); this.onOrderPicked() }
     },
     onOrderPicked() {
       const o = this.pickedOrder
