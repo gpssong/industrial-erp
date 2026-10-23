@@ -110,7 +110,8 @@ async function loadParams(p) {
   if (!p.fromDefId) { params[p.id] = []; return }
   try {
     const r = await api.pdmParamList(p.fromDefId)
-    const list = (r && r.data) || []
+    // v1.1.118: 同 finished-in loadUnits 的信封误读 — 拦截器已 resolve(d.data), r 就是数组
+    const list = (r && (r.data || r)) || []
     // 只保留配了上下限的参数 (可判越限的); 关键参数优先
     params[p.id] = list.filter(x => x.upperLimit != null || x.lowerLimit != null || x.isCritical === 1)
   } catch (e) { params[p.id] = [] }

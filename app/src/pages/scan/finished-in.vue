@@ -300,7 +300,12 @@ export default {
       if (o.productId) {
         try {
           const r = await api.productDetail(o.productId)
-          const pd = (r && r.data) || {}
+          // ⚠️⚠️ 别写 `(r && r.data) || {}` (v1.1.118 实测踩坑): api/index.js 的两处拦截器
+          //    (uni.request 路径 + fetch 路径) 都是 `resolve(d.data)` —— **已经拆封**,
+          //    r 就是商品对象本身, 再读 r.data 恒为 undefined → 恒得到 {} → units 恒空 →
+          //    单位字段打出「该商品未配置单位」, 而服务端其实好好地返回了 units.
+          //    同文件其它 4 处都写的是双形态防御 `(x && x.records) || (x && x.data && ...)`, 这里漏了.
+          const pd = (r && (r.data || r)) || {}
           const list = (pd.units || []).filter((u) => u.unitName && String(u.unitName).trim())
           if (list.length) {
             // 主单位排最前 (后端 isMain 标注); 工单指定的单位若也在列表里, 优先选中它.
