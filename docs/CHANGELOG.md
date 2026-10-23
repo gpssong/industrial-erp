@@ -3,6 +3,129 @@
 
 ## changelog (倒序)
 
+### v1.1.118 (2026-10-23 — R23 App H5「信封误读」: 拦截器已拆封, 页面再读 `.data` 恒空)
+
+用户报 App H5 成品入库页选工单 `PD202610200001` (带鱼袋 `dyd975007`), 单位字段恒显示「该商品未配置单位」—— 而该商品在 PC 编辑商品里主单位明明配的是「只」。
+
+#### (1) 排查: 5 条线索全部为真, 却仍复现
+
+这个 bug 绕了 4 轮弯路, 因为**每一条常规怀疑都被证伪了**:
+
+| 怀疑 | 验证 | 结论 |
+|---|---|---|
+| 401 / 越权 | Network 里 `base/product/2104473647277748226` **200** | ❌ 排除 |
+| 后端没返回单位 | curl 同接口 (PC + App 两种 client token) 都返回 `units:[{unitName:'只',isMain:1}]` | ❌ 排除 |
+| 飞牛部署的是旧 chunk | 本地最新源码重新构建, 产物与线上 **字节级一致** (同 hash `DI2IKAwg`、同 size 12928) | ❌ 排除 |
+| Service Worker 缓存 | DevTools → Application → Service workers **空的** | ❌ 排除 |
+| 页面状态残留 | 硬刷新 + 切到别的工单再切回 | ❌ 排除 |
+
+**中途还自己推翻过一个错误结论**: 曾判定「飞牛部署的 chunk 里 3 处 `unitId&&` 是旧版真值过滤陷阱残留」, 但本地最新源码构建出的产物**同样有这 3 处** —— 它们是编译器把 `o.unitId != null && ...` 空值守卫翻出来的正常产物 (`null!=t.unitId&&...`), **不是** trap。「读编译产物里的字面量」极易误判, 必须与源码 + 构建 hash 双向对照。
+
+#### (2) 根因: `r.data` 读到的是不存在的东西
+
+`app/src/api/index.js` **两处**拦截器 (uni.request 路径 + fetch/H5 路径, 浏览器 H5 走后者) 都是:
+
+```js
+const d = res.data
+if (d.code === 200) resolve(d.data)   // ← 已经拆封, r 就是业务数据本身
+```
+
+所以 `api.productDetail()` 返回的 `r` **就是商品对象**, 没有 `{code,msg,data}` 外壳。而页面写的是:
+
+```js
+const pd  = (r && r.data) || {}          // ❌ r.data 恒 undefined → pd 恒 {}
+const list = (pd.units || []).filter(...) // → [] → 打兜底文案
+```
+
+**服务端返回的单位被前端自己扔了。** 「请求成功」和「响应被正确读取」是两件事 —— 这是本 bug 的核心教训。
+
+同文件其它 4 处都写了双形态防御, 唯独 `loadUnits` 漏写, 是**单点漏**不是全仓约定错:
+```js
+this.inRecords = (r && r.records) || (r && r.data && r.data.records) || []  // ✅ 正确范式
+```
+
+#### (3) 修复 2 处 (顺带扫出同形 bug)
+
+| 文件 | 行 | 原 | 改 |
+|---|---|---|---|
+| `app/src/pages/scan/finished-in.vue` `loadUnits` | 303 | `(r && r.data) \|\| {}` | `(r && (r.data \|\| r)) \|\| {}` |
+| `app/src/pages/production/report.vue` `loadParams` | 113 | `(r && r.data) \|\| []` | `(r && (r.data \|\| r)) \|\| []` |
+
+第二处 (`PdmProcessParamController` 返回 `R<List>`, 工艺参数恒空) 是同批次扫出来的, **用户尚未发现**。
+
+**PC 端无此病** —— `pc-web` 用另一套 request 层, `FinishedIn.vue:433` 直接读 `data.units`, 排查时不用去 PC 找。
+
+#### (4) 部署 (飞牛 canary 先行 → home 主站)
+
+`npm run build:h5`, 成品入库 chunk `DI2IKAwg` → `And-i2pS`。两站 App H5 均为 bind-mount, 覆盖目录 + `docker restart erp-app-h5`:
+
+| 站 | bind-mount 源 | 入口 chunk |
+|---|---|---|
+| 飞牛 canary | `/vol2/erp-system/app-h5/dist/build/h5` | `index-D1G8Vfgv.js` |
+| **home 主站** | `/volume3/docker/erp-system/app-h5/dist/build/h5` | `index-D1G8Vfgv.js` |
+
+旧 dist 备份为 `h5.bak-20261023`, 旧 chunk 已清。**双站线上 chunk md5 均 `d3cf4f1bc4187619fdf863643afd52dc`**, 与本地构建产物一致, 修复代码 `((e&&(e.data||e)||{}).units||[])` 确认在线。零 schema 变更 / 无 SQL。
+
+#### (5) 本批部署踩坑 4 条
+
+1. **macOS tar 会混进 AppleDouble 垃圾** —— 必须 `COPYFILE_DISABLE=1 tar --no-xattrs --exclude='._*' -czf`, 否则双站解出一堆 `._xxx` 并报 `Cannot open: Permission denied`。
+2. **home `/tmp` 对 gpssong 不可写** (uid 1026) —— 传到 `/volume3/docker/erp-system/` (该目录 gpssong **可写**), 省掉 `python3 -m http.server` 中转。
+3. **home 旧 dist 是 root 所有** —— `gpssong` 直接 tar 覆盖报 `File exists` / `Cannot utime`, 必须 `sudo -S bash -c "tar xzf ..."`。
+4. **home sudo 密码别连输错** —— 连错 2 次触发 PAM autoblock, 实测 ~20-40s 自动解锁; 探一次等即可, **别重试**。
+
+### v1.1.117 (2026-10-23 — 成品入库单位真实名 + 销售出库批次复选 + `unit_id=0` 数据回填)
+
+#### (1) App 成品入库单位显示真实单位名
+
+原来界面恒显示兜底字面量「主单位」—— 因为 `prd_order.unit_id/unit_name` 很多老工单开单时没写, `prdOrderPage` 也不带单位。改为以 `base_product_unit` 的真实主单位为准 (`u.unitName && String(u.unitName).trim()` 判定), 工单单位仅在商品无单位表时兜底。PC 端 `FinishedIn.vue` 同步。
+
+#### (2) hotfix-2: `unit_id=0` 被真值过滤误删单位行 (3 处)
+
+`base_product_unit` 有 18/174 行 `unit_id = 0` (不是 NULL) —— 历史脏数据, `unitName` 是真实的 (公斤/卷/只/片/箱), 只是 `unit_id` 指向一条不存在的 `base_unit`。JS `u.unitId &&` / `x.unitId > 0` 把 0 当假值 → **整行被丢** → 明明配了单位却显示「未配置」; PC 端更糟, find 落空后**静默 fallback 到 `base_unit` 全表第一条 (kg)**, 单位被默默选错且不报错。
+
+**判定只认 `unitName` 非空**, `unitId` 只用于去重/定位, `0` 与 `null` 同等对待。**去重必须用行主键 `id`, 不能用 `unitId`** —— 多行可能共用同一个 `unit_id`, 用 `unitId` 去重会把并存的其它单位误吞。
+
+#### (3) hotfix-3: `sql/127` `unit_id=0` 数据回填 (治数据层根)
+
+- 新建字典行「片」 (`unit_code='PIAN'`, NOT EXISTS 守门幂等)
+- 「公斤」**不建新行, 并入已有 kg** (飞牛先例: `base_product_unit` id `2099763778742202370` 就是「公斤 → kg, conversion_rate=10」) —— 不建第二个同义单位, 否则同一物理量两个 `unit_id`, 折算口径会分裂
+- 回填 `base_product_unit.unit_id` (按存活字典行名匹配, `MIN(id)` 保证确定性) + `base_product.main_unit_id` (`ROW_NUMBER()` 排序 `is_main DESC, id`, **无主单位行时取 `MIN(id)` 兜底** —— 有 1 个商品单位行没标 `is_main=1`, 只认 `is_main` 会落空)
+
+⚠️ 中文查询必须 `--default-character-set=utf8mb4` (MySQL 容器默认 latin1)。
+
+#### (4) 销售出库批次复选 (`|` 分隔复用 `batch_no`, 零 DDL)
+
+- **空串是合法批号「无批次」, 不能过滤** —— 过滤会让「A + 无批次」这单全扣 A, 报库存不足
+- **uncheck 必须读台账镜像回补**, 不能重算分配 —— 重算会造出 `batch_no='A|B'` 的幽灵库存行
+
+### v1.1.116 (2026-10-22 — R22 Jackson 大写 P 前缀 transient 字段 key 漂移根治)
+
+#### (1) 根因 (R22)
+
+实体 `pThickness` 等 transient 字段的 getter 是 `getPThickness()`。Jackson legacy 命名规则: 去 `get` 后剩 `PThickness`, 因首段 `P` 后紧跟大写 `T`, 被判定为「P + Thickness」驼峰切分 → **首段整体小写** → 序列化输出 **`pthickness`** (非 `pThickness`)。
+
+同一份 JSON 里, 无前缀的 `getThickness()` 正常输出 `thickness` (打印模板在用, 保留)。前端按 `pThickness` 读**恒为 `undefined`, 且不报错** → 工单详情「成品规格属性」7 字段 + 食品合规 5 字段全显示 `—`。
+
+#### (2) 影响面: 全仓 8 实体 29 字段
+
+`PrdOrder` 11 / `SalDeliveryDetail` 7 / `SalReturnDetail` 6 / `PurReceiptDetail` 7 / `PurReturnDetail` 6 / `SalOrderDetail` 2 / `PurOrderDetail` 1 / `InvCheckDetail` 1。工业品工单没露出来, 只因食品合规字段对它们没意义。
+
+#### (3) 修复
+
+字段加 `@JsonProperty("pXxx")` 钉死 key, 不依赖 getter 推导。**零 schema 变更。** 打印模板 (ftl / `<#if p.productName>`) 用无前缀 key, 与 `@JsonProperty` 不冲突。
+
+#### (4) 另一处: 生产工单详情默认不拉
+
+`loadPlans()` 默认选第一个未完工工单时**直接给 `activeWo` 赋值绕过 `onPickPlan`** → `woDetail` 一直 null → 右栏详情卡 7 字段 + 生产时间 + 当班人员 + BOM 领料全 `—`, 还拼出「领料单 PD…0002-01 已生成」这条**假陈述**。拉详情收敛成 `watch(activeWo)`, 删掉 `w.no.replace('WO-','LL-')+'-01'` 兜底。
+
+#### (5) 磁盘: home `/volume1` 是 2.3G 系统卷
+
+放 jar 会撑爆, 且 `gunzip` **静默产出截断 jar**。备份迁 `/volume3/erp-backup`, 删 9 月 9 日旧部署残留 122M (无容器挂载, `.env` 已留档)。
+
+#### (6) 验证
+
+拉**线上** jar 解 `PrdOrder.class`, 用线上同款 jackson 2.15.4 跑一次 `writeValueAsString`: 修复前 JSON 只有小写 p 系列, 修复后同时输出 11 个大写 P key。
+
 ### v1.1.115 (2026-10-22 — R21 雪花 id 精度丢失根治 + 幽灵仓库库存修复)
 
 用户报「库存查询部分产品没进仓库」, 截图里同一产品**裂成两行**、其中一行仓库列空白。查下来不是数据没录全, 是**前端的雪花 id 精度丢失** —— 一类不报错、只写错数据的静默故障。
