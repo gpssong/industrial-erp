@@ -200,7 +200,9 @@ need  = detail.baseQty × ratio        ← 退化成 baseQty × planQty
 
 **范围外(已识别, 未做)**: `prd_order_share.ftl:102/114` 领料明细表恒不渲染(变量名 `requisitionDetails` vs `details`); `Requisition.vue` 列表读 `row.materialName`/`row.qty` 后端无此 transient 字段恒 blank; `prd_order_feie.ftl:20` 克重单位写 `g/㎡` 应为 `g/件`。
 
-**已知遗留**: `10265006`/`11725006` 两个成品没录克重, 开工时只 warn 跳过、不生成领料单, 需人工补克重。`sql/128` 编号与另一人的 `sql/128_v1119_mes_weight_device.sql` 撞了, 建议后者改 129。
+**已知遗留**: `10265006`/`11725006` 两个成品没录克重, 开工时只 warn 跳过、不生成领料单, 需人工补克重。
+
+**编号撞车已解决 (v1.1.124)**: `sql/128` 曾与 `sql/128_v1119_mes_weight_device.sql` 重号, 后者已改名为 `sql/129_v1119_mes_weight_device.sql`。**执行顺序: 先 128 (BOM), 后 129 (称重设备)**。⚠️ sql/128 是幂等脚本但含状态位 UPDATE (`is_main` 位切换), 按 R24 必须连跑 3 次验证 —— 编号唯一是跑对脚本的前提, 别再重号。
 
 ---
 
