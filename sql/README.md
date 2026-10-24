@@ -159,3 +159,45 @@ mysql -h192.168.0.32 -uroot -perp_root_pwd industrial_erp --default-character-se
 mysql -h192.168.0.150 -uroot -perp_root_pwd industrial_erp --default-character-set=utf8mb4 < sql/90_drift_fill_columns.sql  # home
 # 灌后各站 sql-drift-check.sh 复检 → 应报 "无漂移"
 ```
+
+---
+
+## SQL 编号约定 (v1.1.124 起)
+
+**编号 = 执行顺序, 必须全仓唯一。** 命名: `sql/<NNN>_<用途>.sql` 或 `sql/<NNN>_v<版本号>_<用途>.sql`。
+
+### ⚠️ 为什么要唯一
+
+编号重号会**让人跑错脚本** —— 尤其是含状态位 UPDATE 的幂等脚本:
+- `sql/128_v1119_bom_ratio_semantics.sql` 把 3 个膜料主单位切到 kg, 含 `SET is_main = 0`
+  这种**状态位 UPDATE**。按 R24, 这类脚本**必须连跑 3 次验证** —— 但若同编号还挂着另一个
+  待执行脚本, 「跑 128」到底是哪个? 编号唯一是跑对脚本的前提。
+- 实例: `sql/128_v1119_mes_weight_device.sql` (称重设备) 曾与 `sql/128_v1119_bom_ratio_semantics.sql`
+  重号, **已于 v1.1.124 改名为 `sql/129_v1119_mes_weight_device.sql`**。
+
+### 新增脚本前必做
+
+```bash
+# 1. 查编号是否被占
+ls sql/<NNN>_*.sql
+# 2. 改完后再全仓扫一遍重号
+ls sql/*.sql | sed -E 's|.*/([0-9]+)_.*|\1|' | sort -n | uniq -d
+#    (输出为空 = 无重号)
+```
+
+### 已知历史重号 (均已落地执行, **勿改名** —— 改名会破坏已记录的部署路径/文档引用)
+
+| 编号 | 文件 A | 文件 B |
+|---|---|---|
+| 21 | `21_add_inv_check_menu.sql` | `21_add_sys_feie_print_log.sql` |
+| 22 | `22_add_client_type_and_fix_pk.sql` | `22_add_sys_feie_print_template.sql` |
+| 24 | `24_add_invoice_tables.sql` | `24_migrate_tax_inclusive.sql` |
+| 30 | `30_add_sales_order_po_delivery.sql` | `30_v153_dashboard_subperms.sql` |
+| 46 | `46_v168hotfix_cost_backfill.sql` | `46_v169_recycle_report_view_grant.sql` |
+| 53 | `53_v180_feie_template_grant.sql` | `53_v180_mes_workorder.sql` |
+| 117 | `117_v1101_qms_iqc_attachment.sql` | `117_v1103_home_fix_base_product_columns.sql` |
+| 124 | `124_v1103_home_production_app_perm.sql` | `124_v1103_home_production_perm_full.sql` |
+| 125 | `125_v1104_prd_order_perm_backfill.sql` | `125_v1114_sales_delivery_app_perm.sql` |
+
+> 这 9 组**都已执行落地** (最晚 2026-10-22), 线上表/列/perm 均已生效。保留原编号是为了
+> 不破坏 CHANGELOG / memory / 部署记录里的路径引用。**新增脚本一律不得再重号。**
