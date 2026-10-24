@@ -7,16 +7,23 @@
         <h1 class="xk-title">采购入库</h1>
       </div>
       <div class="xk-heading-actions">
-        <el-button v-if="tab === 'form'" type="primary" plain @click="saveRecordOnly"><el-icon><Document /></el-icon>保存检验记录</el-button>
-        <el-button v-if="tab === 'form'" type="primary" @click="onSignAndInbound" :loading="submitting"><el-icon><Check /></el-icon>生成验放单并入库</el-button>
+        <!-- v1.1.124: 顶部按钮按子 tab 分流 — 原料 tab 是 XK 检验动作, 非食品 tab 用自己的「保存入库单」 -->
+        <el-button v-if="tab === 'form' && subTab === 'raw'" type="primary" plain @click="saveRecordOnly"><el-icon><Document /></el-icon>保存检验记录</el-button>
+        <el-button v-if="tab === 'form' && subTab === 'raw'" type="primary" @click="onSignAndInbound" :loading="submitting"><el-icon><Check /></el-icon>生成验放单并入库</el-button>
         <el-button v-if="tab === 'list'" type="primary" @click="openForm"><el-icon><Plus /></el-icon>新增入库</el-button>
         <el-button @click="loadData">查询</el-button>
       </div>
     </div>
 
     <el-tabs v-model="tab" class="xk-tabs">
-      <!-- ============ Tab 1: XK 检验入库表单 (整页, 对齐 Figma) ============ -->
+      <!-- ============ Tab 1: 采购入库表单 (内含 原料/非食品 两个子 tab) ============ -->
       <el-tab-pane label="新增采购入库" name="form" lazy>
+        <!-- v1.1.124: 采购分「原料采购 (XK 受控)」与「非食品采购 (免检直通)」两条路.
+             原料 tab = 现有 XK 三步检验表单 (不动); 非食品 tab = 标准入库表单 (商品明细自由选择).
+             路由由明细行商品的 base_product.is_food_grade 决定, 不给操作员手选开关 (避免前后端口径打架). -->
+        <el-tabs v-model="subTab" class="xk-subtabs">
+          <!-- ---------- 子 Tab A: 原料入库 (XK 受控, 现有实现) ---------- -->
+          <el-tab-pane label="原料入库 · XK受控" name="raw">
         <div class="xk-layout">
           <!-- 左侧主列 -->
           <div class="xk-main">
@@ -185,6 +192,140 @@
             <div class="xk-note">综合外观、密度、熔融指数等指标，均可依据批次判定为合格。</div>
           </aside>
         </div>
+          </el-tab-pane>
+
+          <!-- ---------- 子 Tab B: 非食品采购 (免检直通, 标准入库表单) ---------- -->
+          <el-tab-pane label="非食品采购 · 免检直通" name="nonfood" lazy>
+            <div class="nf-wrap">
+              <!-- 免检直通说明条 -->
+              <div class="nf-strip" :class="{ 'nf-strip-block': nfHasFoodLine }">
+                <el-icon class="nf-strip-icon"><Promotion /></el-icon>
+                <div class="nf-strip-body">
+                  <strong>{{ nfHasFoodLine ? '本单含食品级原料 — 需走原料入库流程' : '非食品采购 · 免检直通' }}</strong>
+                  <small v-if="nfHasFoodLine">
+                    明细含食品级原料 (is_food_grade=1), 需完成 IQC 来料检验并通过供应商合格名录才能入库。
+                    请切到「原料入库 · XK受控」标签页建单。
+                  </small>
+                  <small v-else>
+                    非食品级商品采购免 IQC 来料检验、免供应商合格名录门禁 — 保存后到「单据列表」审核即可入库 (库存 / 应付照记)。
+                  </small>
+                </div>
+                <span class="nf-strip-badge" :class="{ 'nf-strip-badge-warn': nfHasFoodLine }">
+                  {{ nfHasFoodLine ? '需 XK 流程' : '免检直通' }}
+                </span>
+              </div>
+
+              <el-form :model="nfForm" label-width="100px" class="nf-form">
+                <el-row :gutter="12">
+                  <el-col :span="8">
+                    <el-form-item label="入库日期">
+                      <el-date-picker v-model="nfForm.billDate" type="date" value-format="YYYY-MM-DD" style="width:100%" />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="8">
+                    <el-form-item label="供应商">
+                      <el-select v-model="nfForm.supplierId" filterable style="width:100%" @change="onNfSupplierChange">
+                        <el-option v-for="s in suppliers" :key="s.id" :label="s.supplierName" :value="s.id" />
+                      </el-select>
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="8">
+                    <el-form-item label="仓库">
+                      <el-select v-model="nfForm.warehouseId" style="width:100%">
+                        <el-option v-for="w in warehouses" :key="w.id" :label="w.warehouseName" :value="w.id" />
+                      </el-select>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+
+                <el-form-item label="入库明细">
+                  <el-button type="primary" plain size="small" @click="nfAddLine">
+                    <el-icon><Plus /></el-icon>添加行
+                  </el-button>
+                  <el-table :data="nfForm.details" size="small" border style="margin-top:8px">
+                    <el-table-column label="商品" width="260">
+                      <template #default="{ row }">
+                        <el-select v-model="row.productId" filterable :loading="productLoading" placeholder="选非食品级商品" style="width:100%" @change="v => onNfProduct(row, v)">
+                          <el-option v-for="p in nfProductOptions" :key="p.id" :label="`${p.productCode} ${p.productName}`" :value="p.id" />
+                        </el-select>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="食品级" width="80" align="center">
+                      <template #default="{ row }">
+                        <el-tag v-if="nfLineIsFood(row)" type="warning" effect="plain" size="small">食品级</el-tag>
+                        <el-tag v-else-if="row.productId" type="success" effect="plain" size="small">非食品</el-tag>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="规格" width="120">
+                      <template #default="{ row }"><span>{{ row.spec }}</span></template>
+                    </el-table-column>
+                    <el-table-column label="数量" width="120">
+                      <template #default="{ row }">
+                        <el-input-number v-model="row.qty" :precision="4" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" />
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="单价(含税)" width="120">
+                      <template #default="{ row }">
+                        <el-input-number v-model="row.price" :precision="4" :min="0" :step-strictly="false" size="small" :formatter="stripZeroFormat" :parser="stripZeroParse" />
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="金额" width="120" align="right">
+                      <template #default="{ row }"><span>{{ stripTrailingZero2((row.qty || 0) * (row.price || 0)) }}</span></template>
+                    </el-table-column>
+                    <el-table-column label="批次" width="120">
+                      <template #default="{ row }"><el-input v-model="row.batchNo" size="small" /></template>
+                    </el-table-column>
+                    <el-table-column label="库位" width="110">
+                      <template #default="{ row }"><el-input v-model="row.locationName" size="small" /></template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="60">
+                      <template #default="{ $index }">
+                        <el-button link type="danger" size="small" @click="nfForm.details.splice($index, 1)">删</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                  <div class="nf-hint" v-if="!nfForm.details.length">请添加至少一行入库明细 (仅非食品级商品可选)</div>
+                </el-form-item>
+
+                <el-form-item label="备注">
+                  <el-input v-model="nfForm.remark" type="textarea" :rows="2" />
+                </el-form-item>
+              </el-form>
+
+              <!-- 该供应商历史采购产品 (点击行复制到上方明细) -->
+              <div class="nf-section" v-if="nfForm.supplierId">
+                <div class="nf-section-head">
+                  <b>该供应商历史采购</b>
+                  <span>最近 50 条入库记录, 单击行把该明细复制到上方</span>
+                  <el-button size="small" link type="primary" @click="loadNfSupplierHistory" :loading="nfHistoryLoading">刷新</el-button>
+                </div>
+                <el-table :data="nfSupplierHistory" size="small" border max-height="220" @row-click="onNfHistoryRowClick" class="nf-history-table">
+                  <el-table-column prop="billDate" label="日期" width="100" />
+                  <el-table-column prop="productCode" label="产品编码" width="140" />
+                  <el-table-column prop="productName" label="产品名称" />
+                  <el-table-column prop="spec" label="规格" width="120" />
+                  <el-table-column prop="unitName" label="单位" width="60" />
+                  <el-table-column prop="qty" label="数量" width="80" align="right">
+                    <template #default="{ row }">{{ stripTrailingZero4(row.qty) }}</template>
+                  </el-table-column>
+                  <el-table-column prop="price" label="单价(含税)" width="100" align="right">
+                    <template #default="{ row }">{{ stripTrailingZero2(row.price) }}</template>
+                  </el-table-column>
+                </el-table>
+                <div v-if="!nfSupplierHistory.length && !nfHistoryLoading" class="nf-hint">暂无历史采购记录</div>
+              </div>
+
+              <div class="nf-actions">
+                <el-button type="primary" :loading="nfSubmitting" @click="onNfSave">
+                  <el-icon><Check /></el-icon>保存入库单 (草稿)
+                </el-button>
+                <el-button @click="nfReset">清空重填</el-button>
+                <span class="nf-tip">保存后到「单据列表」点「审核」完成入库 (库存 + 应付)</span>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </el-tab-pane>
 
       <!-- ============ Tab 2: 单据列表 ============ -->
@@ -285,6 +426,7 @@ import { supplierApi, warehouseApi, productApi } from '@/api/base'
 import { inspectionApi } from '@/api/quality'
 import { uploadFile } from '@/api/workflow'
 import { useTaxSeparation } from '@/composables/useSystemConfig'
+import { useStripZero } from '@/composables/useStripZero'
 import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { feiePrintApi } from '@/api/feie'
 import { useUserStore } from '@/store/user'
@@ -295,6 +437,8 @@ const userStore = useUserStore()
 
 // ===== 视图状态 =====
 const tab = ref('form')
+// v1.1.124: 采购入库表单内部分「原料入库 (XK 受控)」/「非食品采购 (免检直通)」两个子 tab
+const subTab = ref('raw')
 const suppliers = ref([])
 const warehouses = ref([])
 const orders = ref([])
@@ -345,6 +489,137 @@ const allLinesNonFood = computed(() => {
     return !p || p.isFoodGrade !== 1
   })
 })
+
+// ==========================================================================
+// v1.1.124: 非食品采购 (免检直通) — 标准入库表单
+// --------------------------------------------------------------------------
+// 背景: v1.1.95 把整个采购入库页重构成「XK 三步检验表单」, form.details 只能由
+// 「关联采购订单」带入, 没有任何商品明细选择器 → 非食品级商品 (线上 130 个
+// is_food_grade=0) 根本没有入口能建单. 后端 v1.1.122 已按行豁免 (免 IQC +
+// 免供应商合格名录门禁), 本子 Tab 把「选商品」这条路补回来.
+// 口径: 路由由明细行商品的 base_product.is_food_grade 决定, 与后端
+// PurReceiptService.hasFoodGradeLine() 完全一致 — 前端按开关判、后端按明细判
+// 会打架, 所以不给操作员手选开关.
+// ==========================================================================
+const nfForm = reactive({
+  id: null, billDate: new Date().toISOString().slice(0, 10),
+  supplierId: null, warehouseId: null, remark: '', details: []
+})
+const nfSubmitting = ref(false)
+const nfHistoryLoading = ref(false)
+const nfSupplierHistory = ref([])
+const productLoading = ref(false)
+
+const { stripZeroFormat, stripZeroParse, stripTrailingZero2, stripTrailingZero4 } = useStripZero()
+
+/** 该明细行商品是否食品级 (is_food_grade=1). 与后端 isFoodGradeLine 同口径. */
+function nfLineIsFood(row) {
+  if (!row || !row.productId) return false
+  const p = products.value.find(x => String(x.id) === String(row.productId))
+  return !!p && p.isFoodGrade === 1
+}
+/** 当前非食品 tab 明细里是否含食品级行. 含 → 必须走原料入库 (XK) 流程. */
+const nfHasFoodLine = computed(() => (nfForm.details || []).some(d => nfLineIsFood(d)))
+/** 商品下拉选项: 全部商品 (含食品级, 但选了就提示走原料流程 — 不隐藏, 避免操作员困惑为何选不到) */
+const nfProductOptions = computed(() => products.value || [])
+
+function nfAddLine() {
+  nfForm.details.push({ productId: null, productCode: '', productName: '', spec: '', qty: null, price: 0, batchNo: '', locationName: '' })
+}
+/** 选商品 → 带出编码/名称/规格 + 上次采购单价 (与旧版 Receipt.vue 一致) */
+async function onNfProduct(row, v) {
+  const p = products.value.find(x => String(x.id) === String(v))
+  if (!p) { row.productId = null; return }
+  row.productId = p.id
+  row.productCode = p.productCode
+  row.productName = p.productName
+  row.spec = p.spec
+  row.unitId = p.unitId
+  row.unitName = p.unitName
+  // 优先取该供应商对此商品的上次入库单价
+  if (nfForm.supplierId && row.productId) {
+    try {
+      const res = await purReceiptApi.getLastPrice(nfForm.supplierId, row.productId)
+      if (res && res.data > 0) { row.price = res.data; return }
+    } catch (e) { /* ignore */ }
+  }
+  row.price = +p.purchasePrice || 0
+}
+async function onNfSupplierChange() {
+  await loadNfSupplierHistory()
+}
+async function loadNfSupplierHistory() {
+  if (!nfForm.supplierId) { nfSupplierHistory.value = []; return }
+  nfHistoryLoading.value = true
+  try {
+    const r = await purReceiptApi.getSupplierHistoryProducts(nfForm.supplierId)
+    nfSupplierHistory.value = r.data || []
+  } catch (e) {
+    nfSupplierHistory.value = []
+    ElMessage.error('加载供应商历史采购失败: ' + (e.message || e))
+  } finally { nfHistoryLoading.value = false }
+}
+/** 点历史采购行 → 复制到明细 (同 productId+batchNo 累加数量) */
+async function onNfHistoryRowClick(row) {
+  const newLine = {
+    productId: row.productId, productCode: row.productCode, productName: row.productName,
+    spec: row.spec, unitId: row.unitId, unitName: row.unitName,
+    qty: row.qty != null ? Number(row.qty) : 0,
+    price: row.price != null ? Number(row.price) : 0,
+    batchNo: row.batchNo, locationName: '', remark: row.remark
+  }
+  const exist = nfForm.details.find(d => String(d.productId) === String(newLine.productId) && (d.batchNo || '') === (newLine.batchNo || ''))
+  if (exist) {
+    exist.qty = (+exist.qty || 0) + (+newLine.qty || 0)
+    ElMessage.success(`已合并到明细行 (累计数量 ${exist.qty})`)
+    return
+  }
+  nfForm.details.push(newLine)
+  ElMessage.success('已加入明细行')
+}
+function nfReset() {
+  nfForm.id = null
+  nfForm.billDate = new Date().toISOString().slice(0, 10)
+  nfForm.supplierId = null
+  nfForm.warehouseId = null
+  nfForm.remark = ''
+  nfForm.details.splice(0, nfForm.details.length)
+  nfSupplierHistory.value = []
+}
+/**
+ * 保存非食品采购入库单 (草稿) → 跳「单据列表」审核入库.
+ * 校验: 供应商 / 仓库 / 明细非空 / 全行非食品级.
+ */
+async function onNfSave() {
+  if (!nfForm.supplierId) return ElMessage.warning('请选择供应商')
+  if (!nfForm.warehouseId) return ElMessage.warning('请选择仓库')
+  if (!nfForm.details.length) return ElMessage.warning('请添加入库明细')
+  // 明细行没选商品 / 数量无效
+  const bad = nfForm.details.find(d => !d.productId || !(d.qty > 0))
+  if (bad) return ElMessage.warning('明细行必须选商品且数量 > 0')
+  // 含食品级行 → 不能在此提交, 引导走原料入库 (XK) 流程
+  if (nfHasFoodLine.value) {
+    return ElMessage.warning('本单含食品级原料, 不能走免检直通 — 请切到「原料入库 · XK受控」标签页建单')
+  }
+  nfSubmitting.value = true
+  try {
+    const payload = { ...nfForm, details: nfForm.details }
+    let totalAmount = 0
+    payload.details.forEach(d => { totalAmount += (+d.qty || 0) * (+d.price || 0) })
+    payload.totalAmount = totalAmount
+    payload.taxAmount = 0
+    payload.totalAmountTax = totalAmount
+    payload.totalQty = nfForm.details.reduce((s, d) => s + (+d.qty || 0), 0)
+    if (nfForm.id) await purReceiptApi.update(payload)
+    else await purReceiptApi.add(payload)
+    ElMessage.success('入库单已保存 (草稿)。请到「单据列表」点「审核」完成入库')
+    nfReset()
+    tab.value = 'list'
+    loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '保存失败')
+  } finally { nfSubmitting.value = false }
+}
 
 // ===== 检验项目判定表 (XK 受控展示, 判定可点击 合格↔不合格) =====
 const qaChecks = reactive([
@@ -778,6 +1053,35 @@ onMounted(async () => {
 .ai-body { min-height: 120px; max-height: 520px; overflow: auto; }
 .ai-content { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 14px;
   line-height: 1.7; color: #303133; background: #fafafa; padding: 12px 14px; border-radius: 4px; }
+
+/* ============================================================
+   v1.1.124: 非食品采购 (免检直通) 子 Tab
+   ============================================================ */
+.xk-subtabs { margin-bottom: 4px; }
+.nf-wrap { display: flex; flex-direction: column; gap: 14px; }
+.nf-strip { display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: linear-gradient(90deg, #f0f9eb, #f7fdf5);
+  border: 1px solid #e1f3d8; border-radius: var(--radius, 10px); }
+.nf-strip-icon { color: #67c23a; font-size: 22px; }
+.nf-strip-body { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.nf-strip-body strong { font-size: 14px; color: var(--text); }
+.nf-strip-body small { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.nf-strip-badge { font-size: 12px; font-weight: 600; color: #67c23a;
+  border: 1px solid #67c23a; border-radius: 20px; padding: 2px 12px; white-space: nowrap; }
+/* 含食品级行 → 橙色警示态, 引导切到原料入库流程 */
+.nf-strip-block { background: linear-gradient(90deg, #fdf6ec, #fefaf3); border-color: #f5dab1; }
+.nf-strip-block .nf-strip-icon { color: #e6a23c; }
+.nf-strip-badge-warn { color: #e6a23c; border-color: #e6a23c; }
+.nf-form { background: #fff; border: 1px solid var(--line,#eef2f7); border-radius: 12px; padding: 16px 18px; }
+.nf-form .el-form-item { margin-bottom: 12px; }
+.nf-hint { font-size: 12px; color: var(--muted); padding: 8px 0; }
+.nf-section { background: #fff; border: 1px solid var(--line,#eef2f7); border-radius: 12px; padding: 14px 18px; }
+.nf-section-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: 13px; }
+.nf-section-head b { font-size: 14px; color: var(--text); }
+.nf-section-head span { flex: 1; color: var(--muted); font-size: 12px; }
+.nf-history-table :deep(.el-table__row) { cursor: pointer; }
+.nf-actions { display: flex; align-items: center; gap: 12px; }
+.nf-tip { font-size: 12px; color: var(--muted); }
 </style>
 
 <!-- v1.1.95 XK 采购入库: 整页 XK 表单 (对齐 Figma) + 单据列表 Tab -->

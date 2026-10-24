@@ -3,6 +3,42 @@
 
 ## changelog (倒序)
 
+### v1.1.124 (2026-10-24 — 采购入库「非食品采购」入口补齐 + R26 mapper XML 坑)
+
+**需求 (用户反馈)**: 「采购入库页只有 XK 的原料入库, 非食品包装的商品采购入库没有对应的采购入库入口」。
+
+**根因 (不是后端门禁, 是前端没地方选商品)**:
+- 后端 `PurReceiptService.add()/check()` 在 v1.1.122 已按行豁免 (免 IQC + 免供应商合格名录门禁), `POST /purchase/receipt` 完全接受 `is_food_grade=0` 的商品
+- 但 **v1.1.95 把整个采购入库页重构成「XK 三步检验表单」**, `form.details` **只能由「关联采购订单」带入** (`onOrderChange`), **没有任何商品明细选择器**
+- → 线上 130 个 `is_food_grade=0` 商品**根本进不来** (不是被门禁拦住, 是没有地方能选商品)
+- v1.1.95 之前 (`git show 613fc04^`) 的 Receipt.vue 有完整标准入库表单弹窗, 被重构时删掉了
+
+**改动** (前端 1 文件 + 后端 1 mapper XML, **零 DDL**):
+- `pc-web/src/views/purchase/Receipt.vue`:
+  - 「新增采购入库」Tab 内嵌两个子 Tab: `[原料入库 · XK受控]` (现有 XK 三步表单, **完全不动**) + `[非食品采购 · 免检直通]` (新增标准入库表单)
+  - 非食品 tab 内容 = 复用 v1.1.95 前那版: 入库日期/供应商/仓库 + **入库明细表** (商品 el-select / 食品级 tag / 规格 / 数量 / 单价(含税) / 金额 / 批次 / 库位) + 备注 + **该供应商历史采购**参考区 (点击行复制到明细, 同 productId+batchNo 累加)
+  - **路由判定不给手选开关**: 按明细行商品 `is_food_grade` 实时算 `nfHasFoodLine` —— 含食品级行则顶部转橙色警示态 + **拒绝提交**并提示切到原料 tab (前端按开关判、后端 `hasFoodGradeLine()` 按明细判, 两者会打架)
+  - 保存路径 = **存草稿 → 跳「单据列表」审核** (不提供「保存并直接入库」; 与原料入库流程一致, 职责分离)
+  - 顶部按钮按子 tab 分流 (XK 的「保存检验记录 / 生成验放单并入库」只在原料 tab 显示)
+- `backend/.../mapper/production/PrdBomMapper.xml`: 手写 `<insert>` 补齐 8 个漏列 (见下)
+
+**R26 mapper XML 坑 (附带修)**:
+- `PrdBomMapper.xml` 的 `<insert>` 只写 13 列, **漏了 8 列** (`product_id`/`product_code`/`product_name`/`spec`/`unit_id`/`unit_name`/`base_qty`/`output_qty`) → 建单后这些字段全 NULL
+  - `product_id` 原为 NOT NULL, 被 `sql/19` 放宽成 nullable → **不报错, 静默丢数据** (线上 8 行 `prd_bom` 有 3 行 `product_id` NULL)
+  - `base_qty`/`output_qty` 有 DB DEFAULT 1.0 → 漏列被默认值**掩盖**, 看不出来
+- 修法: 补齐到实体全字段 (21 列), 已验证 `product_id`/`base_qty`/`output_qty`/`loss_rate` 全部正确写入
+
+**⚠️ 实测纠正了一个常见误解** (排查中先踩了坑, 记录下来):
+- 手写 XML 覆盖 MP 内置 `updateById` **会**绕过全局 `update-strategy: not_null` → 稀疏对象 (只 id+status) 其余字段被写成 NULL → 撞 NOT NULL 约束 → 500 (v1.1.123 已修 `PurOrderMapper.xml` + `SalOrderMapper.xml`)
+- 但手写 XML **不会**绕过 `@TableField(fill=)` 自动填充 —— MP 的 `MybatisParameterHandler` 按 `SqlCommandType.INSERT` 触发 `insertFill`, **与语句是否手写无关**。实测飞牛走手写 XML insert 建 BOM, `create_by=2`/`create_time` **全部正常写入**; home `prd_requisition` 的 NULL/非NULL 分界线**恰好在 v1.1.52 补 `@TableField(fill=)` 那天**, 不是在引入 XML 那天
+
+**实测** (飞牛 canary 先行 → home 主站):
+- 非食品采购入库全链路: 建单 200 → 审核 200 → 库存 +100, 列表 `xkExempt=1`, `inspectionResult=None` (无 IQC 关联), IQC 总数不变
+- BOM 建单: `product_id`/`product_code`/`spec`/`base_qty=10`/`output_qty=5`/`loss_rate=2.5` 全部正确写入
+- 测试数据已全部清理 (双站 `pur_receipt`/`inv_stock`/`inv_ledger` 残留均为 0)
+
+**部署**: 双站 jar md5 均 `18ab6532621eee892302ebc452314b91`, 版本均 1.1.124; 飞牛 chunk `Receipt-DRjKmGWh.js`; home pc-web bind-mount 真源 `/volume3/docker/erp-system/pc-web-new/dist` (原地覆盖不 rm 挂载点)。
+
 ### v1.1.122b (2026-10-23 — 采购入库「食品级/免检直通」可视化 tag, v1.1.122 前端补强)
 
 **需求**: v1.1.122 后端按行豁免已上线, 但前端看不出「这单会不会被 IQC 卡」—— 操作人员看到的是恒「XK 受控」的固定徽标 + 列表恒「未检验」。补一个行级可视化, 让食品级/非食品一眼可辨。

@@ -2,9 +2,27 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.industrial.erp.modules.production.mapper.PrdBomMapper">
 
+    <!--
+      v1.1.124 修复「新建 BOM 丢 product_id / base_qty / output_qty 等 8 列」:
+      本 XML 手写 <insert> 覆盖了 MP 的 insert, 只写了 13 列, 漏了
+      product_id / product_code / product_name / spec / unit_id / unit_name /
+      base_qty / output_qty —— 建单后这些字段全 NULL (线上 8 行 prd_bom 中 3 行
+      product_id NULL 即此坑; base_qty 走 DB DEFAULT 1.0 掩盖了另外一半).
+      注: 手写 insert **不会**绕过 @TableField(fill=) 自动填充 (实测 create_by/
+      create_time 正常写入), 所以补齐列即可, 不必删 XML 改用 MP 自动生成.
+      product_id 原为 NOT NULL, 已由 sql/19 放宽为 nullable (成品改走
+      base_product.bom_id 反向关联), 故漏列不报错而是静默丢数据.
+    -->
     <insert id="insert" parameterType="com.industrial.erp.modules.production.entity.PrdBom">
-        INSERT INTO prd_bom (id, bom_code, bom_name, version, loss_rate, is_default, status, remark, create_by, create_time, update_by, update_time, deleted)
-        VALUES (#{id}, #{bomCode}, #{bomName}, #{version}, #{lossRate}, #{isDefault}, #{status}, #{remark}, #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{deleted})
+        INSERT INTO prd_bom (
+            id, bom_code, bom_name, product_id, product_code, product_name,
+            spec, unit_id, unit_name, version, base_qty, output_qty, loss_rate,
+            is_default, status, remark, create_by, create_time, update_by, update_time, deleted
+        ) VALUES (
+            #{id}, #{bomCode}, #{bomName}, #{productId}, #{productCode}, #{productName},
+            #{spec}, #{unitId}, #{unitName}, #{version}, #{baseQty}, #{outputQty}, #{lossRate},
+            #{isDefault}, #{status}, #{remark}, #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{deleted}
+        )
     </insert>
 
 </mapper>
