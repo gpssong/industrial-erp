@@ -77,3 +77,20 @@ export const mesApi = {
   oee:            (equipmentId) => request.get(`/mes/oee/${equipmentId}`),
   processTime:    (data) => request.post('/mes/process-time', data)
 }
+
+// ===== v1.1.119: 吹膜米克重采集 (ESP32 → /mes/weight/**) =====
+// 门禁: mes:weight:list / mes:weight:edit. PC 端读 r.data.records / r.data.total (信封未拆封)
+export const weightApi = {
+  /** 采集器分页列表 */
+  devicePage:   (params) => request.get('/mes/weight/device/page', { params }),
+  /** 某采集器通道配置 */
+  channelList:  (deviceId) => request.get('/mes/weight/channel/list', { params: { deviceId } }),
+  /** 保存通道配置 (寄存器表+设定值+公差) */
+  channelSave:  (data) => request.post('/mes/weight/channel', data),
+  /** 米重曲线 (按时间正序) */
+  curve:        (params) => request.get('/mes/weight/curve', { params }),
+  /** 统计 (每通道均值/极值/超标率) */
+  stats:        (params) => request.get('/mes/weight/stats', { params }),
+  /** 采样明细分页 */
+  samplePage:   (params) => request.get('/mes/weight/sample/page', { params })
+}
