@@ -42,7 +42,9 @@
     { "path": "pages/xk/audit",        "style": { "navigationBarTitleText": "审计归档" } },
     // v1.1.99 C4 App 端联动 — 排程 + 设备 OEE
     { "path": "pages/production/schedule", "style": { "navigationBarTitleText": "生产排程" } },
-    { "path": "pages/production/oee",      "style": { "navigationBarTitleText": "设备 OEE" } }
+    { "path": "pages/production/oee",      "style": { "navigationBarTitleText": "设备 OEE" } },
+    // v1.1.126: 吹膜米克重采集 (ESP32 上云) — 实时 KPI + 采样明细 + 通道统计
+    { "path": "pages/production/weight",   "style": { "navigationBarTitleText": "吹膜米重采集" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",

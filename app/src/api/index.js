@@ -368,7 +368,17 @@ export const api = {
   rolePage: (params) => request({ url: '/system/role/page', data: params }),
   // v1.1.80+: App 模块开关 (admin 全局一刀切, App 端只读)
   // 后端走 sys_config 表, key=APP_MODULE_ENABLED, value=JSON 字符串
-  appModuleGetConfig: () => request({ url: '/system/config/key/APP_MODULE_ENABLED' })
+  appModuleGetConfig: () => request({ url: '/system/config/key/APP_MODULE_ENABLED' }),
+  // ===== v1.1.126: 吹膜米克重采集 (ESP32 → /mes/weight/**) =====
+  // ⚠️ App 端拦截器已 resolve(d.data) — 返回值 r 就是业务数据, **不可再读 r.data**
+  //    (v1.1.118 教训: 页面写 (r && r.data) || {} → 恒 {} → 字段静默空)
+  // 门禁: mes:weight:list (读) / mes:weight:edit (维护通道)
+  weightDevicePage:   (params) => request({ url: '/mes/weight/device/page', data: params }),
+  weightChannelList:  (deviceId) => request({ url: '/mes/weight/channel/list', data: { deviceId } }),
+  weightChannelSave:  (data) => request({ url: '/mes/weight/channel', method: 'POST', data, contentType: 'json' }),
+  weightCurve:        (params) => request({ url: '/mes/weight/curve', data: params }),
+  weightStats:        (params) => request({ url: '/mes/weight/stats', data: params }),
+  weightSamplePage:   (params) => request({ url: '/mes/weight/sample/page', data: params })
 }
 // v1.1.91 XK 合规中心: 导出 request 供 api/xk.js 复用 (uni.request 已解包 R.data)
 export { request }

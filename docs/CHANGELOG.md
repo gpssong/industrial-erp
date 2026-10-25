@@ -3,6 +3,39 @@
 
 ## changelog (倒序)
 
+### v1.1.126 (2026-10-25 — 吹膜米克重采集全字段上云 + PC 入口 + App/H5 端页面 + 重新出 APK)
+
+**背景**: v1.1.119 把 ESP32 吹膜米克重采集接收侧闭环 (3 表 + 设备免登录态上报 + PC 实时曲线), 但 `mes_weight_sample` 只存了 6 列 (设定/实测/偏差/偏差% / 线速/产量/长度)。冠尚达高精度米重控制系统 MCGS 屏上实际有 12 个量 —— 其余 6 个量 (设定长度/当前重量/上牵引Hz/下牵引Hz/机器产量/克重修正) 上不到云, 办公室/远程看不到, 无法质量追溯。
+
+**(1) 全字段上云 (sql/130 + 后端 2 处)**:
+- `sql/130_v1119b_mes_weight_full_fields.sql` — 幂等 ADD COLUMN × 6 (`information_schema.columns` 探测 + PREPARE/EXECUTE), 全部可空; 顺带 `UPDATE mes_weight_channel SET unit='g' WHERE unit IS NULL OR unit='g/m2'` (计量单位正名)。
+- `MesWeightSample.java` +6 字段 (`setLength`/`currentWeight`/`upperHz`/`lowerHz`/`machineYield`/`gaugeFix`, 全 BigDecimal); `MesWeightSampleMapper.xml` `selectCurve` SELECT 列表同步扩 8 个 AS 别名 (R25: 最后一个别名 `gauge_fix AS gaugeFix` 不挂尾逗号)。
+- 设备上报 `POST /device/weight/report` 带这些字段 → 后端 `reportSamples` 直写 → `mes_weight_sample` 全字段落库 (审计 `create_by=999` 设备虚拟账号, 不改全局 handler)。
+
+**(2) PC 端**:
+- `views/production/Weight.vue` 采样明细表 +6 列 (计米长度/计米重量/机器产量/当前重量/上牵引Hz/克重修正), 线速 label 改「线速 mm/s」。
+- `views/dashboard/Index.vue` 生产 Tab 加「吹膜米克重实时卡」: 8-KPI 宫格 + ECharts 迷你曲线 + 30s 轮询, `v-if` 按 `mes:weight:list` perm 门控。
+- `views/erp/Hub.vue` 「生产管理」分类卡加第 5 个方块「吹膜米重采集」`/production/weight` icon `Odometer` (用户反馈入口位置; 之前误加到 MainLayout 侧栏已回退, 正确位置是 `/erp?cat=production` 的 Hub 快进入口)。
+
+**(3) App/H5 端新增页面** (纯 App 端, 不引 echarts):
+- `app/src/pages/production/weight.vue` — 采集器 chip 选择 + 8 宫格实时 KPI + 纯 view 迷你趋势条 (高度相对归一化, 绿=正常/橙=超差) + 采样明细分页 (R20: handler 显式接参) + 通道统计 + 通道配置只读。
+- `api/index.js` +6 端点 (`weightDevicePage`/`weightChannelList`/`weightChannelSave`/`weightCurve`/`weightStats`/`weightSamplePage`)。**App 端信封坑 (R23)**: 拦截器已 `resolve(d.data)`, 页面读 `r` 不可再读 `r.data`, 统一 `(r && (r.records || r.data)) || []` 双形态防御。
+- `pages.json` 加 `pages/production/weight` 路由; `utils/permission.js` `SENSITIVE_PAGES` + `PAGE_PERMS` 登记 (perm=`mes:weight:list`, module=`production`); `dashboard/index.vue` `APP_MENU_TO_PAGE` 加双匹配条目 + perm-only 兜底 (老库没灌 M 节点时也能出, 同 `production:report:list` 模式); `classifyFunc` 归「生产管理」分组 (路径前缀 `/pages/production/` 天然命中)。
+
+**零 DDL (除 sql/130) / 后端仅实体+XML 两处 / PC 无新端点**。
+
+**版本四源同步 (R15)**: `pc-web/package.json` + `app/package.json` + `app/src/manifest.json` (versionName 1.1.126 / versionCode 1126) + `profile/index.vue` APP_VERSION + `application.yml` `erp.version` + `SystemVersionInitializer` 全部 1.1.126。
+
+**部署 (canary-first)**:
+- 飞牛 `erp-backend-failover` (jar md5 `54486ec072b5e8e74bc8cc079353caf4`) + `erp-pc-web-failover` 18080 + `erp-app-h5` 18090 全部 200; compose `ERP_VERSION` 从 1.1.125 升到 1.1.126 (R15 第 4 处, 否则 `sys_config` 版本号不刷新)。
+- home `erp-backend` (baked-in 镜像, `docker build --no-cache` 重建) + `erp-pc-web` 8088 + `erp-app-h5` 18090。
+- **踩坑**: 飞牛 compose `up -d` 重建容器会**还原 baked-in jar** (R17) → 重建后必须再 `docker cp` 一次, md5 才能对上; 飞牛登录态被 IP 锁 (试错 5 次触发 5 分钟冷却) → 改用设备上报 `POST /device/weight/report` 带 `X-Device-Key` 走全链验证 (免登录态), 上报 12 量全字段 → 查 `mes_weight_sample` 确认 6 个新列落库 `create_by=999`。
+
+**APK**: `scripts/build-app.sh` 出 v1.1.126 (versionCode 1126), [6/6] 防呆校验 APK 内嵌版本 = manifest.versionName, 输出到飞牛同步盘 + Desktop。
+
+**待现场 (全链唯一未知数, 不变)**: 485 口 + 从站地址 + 寄存器地址/功能码/缩放系数反推 (冠尚达无公开文档), 回填 `mes_weight_channel` + ESP32 固件。详见 [docs/25_ESP32吹膜米克重采集接入指南.md](25_ESP32吹膜米克重采集接入指南.md)。
+
+
 ### v1.1.125 (2026-10-25 — 销售出库明细「当前库存」列 + 合并出库单 order_no 截断修复)
 
 **两个纯前端改动, 零 DDL, 零后端改动.**

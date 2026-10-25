@@ -185,6 +185,70 @@
           <el-tag class="line-status" :type="line.status === 'RUNNING' ? 'success' : 'info'" size="small">运行中</el-tag>
         </div>
       </el-card>
+
+      <!-- v1.1.119: 吹膜米克重实时 (ESP32 采集 → 真数据, 无数据则提示) -->
+      <el-card v-if="weightDevices.length" style="margin-top:12px">
+        <template #header>
+          <div class="card-header">
+            <b><el-icon style="vertical-align:-2px"><Odometer /></el-icon> 吹膜米克重实时</b>
+            <span class="sub">ESP32 采集 · 冠尚达吹膜机</span>
+            <el-button link type="primary" style="margin-left:auto" @click="$router.push('/production/weight')">
+              查看曲线 <el-icon><ArrowRight /></el-icon>
+            </el-button>
+          </div>
+        </template>
+        <div v-for="wd in weightDevices" :key="wd.id" class="weight-cell">
+          <div class="weight-cell-head">
+            <el-tag :type="wd.onlineStatus === 'ONLINE' ? 'success' : 'info'" size="small" effect="plain">
+              {{ wd.onlineStatus === 'ONLINE' ? '在线' : '离线' }}
+            </el-tag>
+            <b>{{ wd.deviceName || wd.deviceCode }}</b>
+            <span class="weight-dev-code">{{ wd.deviceCode }}</span>
+          </div>
+          <div class="weight-body">
+            <div class="weight-kpis">
+              <div class="wk wk-gauge" :class="{ over: wd.lastOver }">
+                <div class="wk-num">{{ wd.lastWeight ?? '—' }}<small>g</small></div>
+                <div class="wk-label">实际克重</div>
+                <div class="wk-sub">设定 {{ wd.setWeight ?? '—' }} · 偏差 {{ wd.lastDeviation ?? '—' }} {{ wd.lastOver ? '· 超差' : '' }}</div>
+              </div>
+              <div class="wk">
+                <div class="wk-num">{{ wd.lastSpeed ?? '—' }}<small>mm/s</small></div>
+                <div class="wk-label">计米速度</div>
+              </div>
+              <div class="wk">
+                <div class="wk-num">{{ wd.lastRollLength ?? '—' }}<small>m</small></div>
+                <div class="wk-label">计米长度</div>
+              </div>
+              <div class="wk">
+                <div class="wk-num">{{ wd.lastOutputKg ?? '—' }}<small>kg</small></div>
+                <div class="wk-label">计米重量</div>
+              </div>
+              <div class="wk">
+                <div class="wk-num">{{ wd.lastMachineYield ?? '—' }}<small>kg/l</small></div>
+                <div class="wk-label">机器产量</div>
+              </div>
+              <div class="wk">
+                <div class="wk-num">{{ wd.lastCurrentWeight ?? '—' }}<small>kg</small></div>
+                <div class="wk-label">当前重量</div>
+              </div>
+              <div class="wk">
+                <div class="wk-num">{{ wd.lastUpperHz ?? '—' }}<small>Hz</small></div>
+                <div class="wk-label">上牵引</div>
+              </div>
+              <div class="wk">
+                <div class="wk-num">{{ wd.lastGaugeFix ?? '—' }}</div>
+                <div class="wk-label">克重修正</div>
+              </div>
+            </div>
+            <div v-if="wd.spark.length" class="weight-spark">
+              <v-chart :option="sparkOpt(wd)" :autoresize="true" style="height:96px;width:220px" />
+              <div class="weight-spark-cap">实际克重趋势 (近 {{ wd.spark.length }} 点)</div>
+            </div>
+            <div v-else class="weight-empty">暂无采样 — ESP32 上报后自动出现</div>
+          </div>
+        </div>
+      </el-card>
     </template>
 
     <!-- 模块 2: 质量 -->
@@ -329,13 +393,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { reportApi } from '@/api/report'
 import { stockApi } from '@/api/inventory'
 import { configApi } from '@/api/system'
 import { xkMock } from '@/api/xk'
+import { weightApi } from '@/api/production'
 import {
   Cpu, CircleCheckFilled, CircleCheck, Camera, SetUp, Tools, Document,
   Setting, Plus, TrendCharts, Grid, Money, Printer, Clock, Promotion, Bell,
@@ -504,6 +569,68 @@ const quickLinks = [
   { path: '/report/sales', title: '销售报表', icon: 'TrendCharts' }
 ]
 
+// =====================================================================
+// v1.1.119: 吹膜米克重实时 (ESP32 采集 → 真数据)
+// =====================================================================
+const weightDevices = ref([])   // 每个采集器: { ...device, lastWeight, lastSpeed, lastDeviation, lastOver, setWeight, spark:[] }
+const weightTimer = ref(null)
+
+/** 拉某采集器最近 N 条曲线 + 计算最新值/超差标记 */
+async function loadWeightDevice(d, limit) {
+  const r = await weightApi.curve({ deviceId: d.id, limit })
+  const rows = (r && (r.data || r)) || []
+  const first = rows[0] || {}
+  const num = v => v != null ? Number(v) : null
+  d.spark = rows.map(x => num(x.actualWeight)).filter(v => v != null && !isNaN(v))
+  d.lastWeight     = num(first.actualWeight)
+  d.lastSpeed      = num(first.lineSpeed)
+  d.lastDeviation  = num(first.deviation)
+  d.lastOver       = Number(first.isOver) === 1
+  d.setWeight      = num(first.setWeight)
+  // 全字段 (v1.1.119b MCGS 屏 12 量)
+  d.lastRollLength     = num(first.rollLength)
+  d.lastOutputKg       = num(first.outputKg)
+  d.lastMachineYield   = num(first.machineYield)
+  d.lastCurrentWeight  = num(first.currentWeight)
+  d.lastUpperHz        = num(first.upperHz)
+  d.lastGaugeFix       = num(first.gaugeFix)
+}
+
+async function loadWeightData() {
+  try {
+    const r = await weightApi.devicePage({ pageNum: 1, pageSize: 50 })
+    const devices = (r && (r.data && r.data.records) || r.data || []) || []
+    weightDevices.value = devices
+    for (const d of devices) {
+      try { await loadWeightDevice(d, 40) } catch (e) { /* 无数据静默 */ }
+    }
+  } catch (e) { /* 401/500 静默, 卡片不渲染 (v-if weightDevices.length) */ }
+}
+
+function startWeightRefresh() {
+  stopWeightRefresh()
+  weightTimer.value = setInterval(loadWeightData, 30000)   // 30s 刷新
+}
+function stopWeightRefresh() {
+  if (weightTimer.value) { clearInterval(weightTimer.value); weightTimer.value = null }
+}
+
+/** 迷你曲线 option (隐藏轴, 只留折线 + 最新点) */
+function sparkOpt(wd) {
+  const over = wd.lastOver
+  return {
+    grid: { left: 2, right: 2, top: 4, bottom: 2 },
+    xAxis: { type: 'category', show: false, data: wd.spark.map((_, i) => i) },
+    yAxis: { type: 'value', show: false, min: 'dataMin', max: 'dataMax' },
+    tooltip: { show: false },
+    series: [{
+      type: 'line', data: wd.spark, smooth: true, symbol: 'none',
+      lineStyle: { width: 2, color: over ? '#f56c6c' : '#1e6091' },
+      areaStyle: { color: over ? 'rgba(245,108,108,.12)' : 'rgba(30,96,145,.12)' }
+    }]
+  }
+}
+
 // XK 新增快捷入口
 const xkQuickLinks = [
   { path: '/xk/material', title: '扫码入库', sub: '原料批次 + 标签照片', icon: 'Camera',  bg: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)' },
@@ -631,7 +758,16 @@ onMounted(async () => {
     const r = await xkMock.dashboardKpi()
     if (r.code === 200) xkKpi.value = r.data
   } catch (e) { /* 静默 */ }
+
+  // 4. v1.1.119: 吹膜米克重实时 (生产 tab; 无采集器/无数据时卡片自动不渲染)
+  // hasPerm 对 SUPER_ADMIN 恒 true, 普通角色需有 mes:weight:list 才拉
+  if (userStore.hasPerm('mes:weight:list')) {
+    loadWeightData().then(startWeightRefresh)
+  }
 })
+
+// 离开页面清掉米克重自动刷新定时器
+onUnmounted(() => { stopWeightRefresh() })
 
 // erpVisible 变化不持久化 (用户级 localStorage 可选, 一期不写)
 </script>
@@ -759,6 +895,34 @@ onMounted(async () => {
   .line-product { flex: 1; color: var(--muted); font-size: 12px; }
   .line-progress-text { font-weight: 700; color: var(--text); }
 }
+
+/* v1.1.119 吹膜米克重实时卡 */
+.weight-cell {
+  padding: 14px 0; border-bottom: 1px solid #eef1f4;
+  &:last-child { border-bottom: none; }
+  .weight-cell-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .weight-dev-code { color: var(--muted); font-size: 11px; }
+  .weight-body { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .weight-kpis {
+    display: grid; grid-template-columns: repeat(4, minmax(96px, 1fr)); gap: 10px; flex: 1; min-width: 300px;
+    .wk {
+      background: #f6f8fa; border: 1px solid #eef1f4; border-radius: 8px; padding: 10px 12px;
+      .wk-num { font-size: 20px; font-weight: 720; color: var(--text); line-height: 1.05;
+        small { font-size: 11px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+      }
+      .wk-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+      .wk-sub { font-size: 10px; color: var(--muted); margin-top: 2px; }
+      &.over .wk-num { color: #f56c6c; }
+      &.over .wk-sub { color: #f56c6c; font-weight: 600; }
+      &.wk-gauge { background: #fff5f5; border-color: #fdd; &.over { background: #fef0f0; } }
+    }
+  }
+  .weight-spark { flex-shrink: 0; text-align: center; }
+  .weight-spark-cap { font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .weight-empty { color: var(--muted); font-size: 12px; flex: 1; text-align: center; padding: 20px 0; }
+}
+@media (max-width: 900px) { .weight-kpis { grid-template-columns: repeat(2, 1fr); } }
+
 
 /* 待办 — Figma .todo-item */
 .todo-list { max-height: 380px; overflow-y: auto; }

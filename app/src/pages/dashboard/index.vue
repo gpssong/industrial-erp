@@ -197,6 +197,8 @@ const APP_MENU_TO_PAGE = [
   { perms: 'report:view',            path: '/_report_kpi',          module: 'report',     page: { path: '/pages/report/index', title: '经营简报', icon: '📊' } },
   // v1.1.76+: AI 助手 (perms=report:ai, sys_menu.path=/report/ai, 双匹配命中)
   { perms: 'report:ai',             path: '/report/ai',            module: 'report',     page: { path: '/pages/report/ai', title: 'AI 助手', icon: '🤖' } },
+  // v1.1.126: 吹膜米克重采集 (sys_menu M 节点 path=/production/weight, perms=mes:weight:list)
+  { perms: 'mes:weight:list',       path: '/production/weight',    module: 'production', page: { path: '/pages/production/weight', title: '吹膜米重采集', icon: '⚖' } },
   // v1.1.14+: 销售出库单查询 (sys_menu id=502 path=/sales/delivery)
   { perms: 'sales:delivery:list',    path: '/sales/delivery',       module: 'sales',      page: { path: '/pages/sales/delivery-list', title: '销售出库单', icon: '📋' } },
   // v1.1.56+: 采购入库单查询 — sys_menu id=2090345792472715351 是 F 类型 perm 载体 (path=''),
@@ -430,6 +432,14 @@ const visibleMenus = computed(() => {
     // v1.1.101 App XK 吹膜生产全流程 — 4 个独立操作入口 (perm-only 兜底, 归生产管理分组)
     // 首检/巡检: 检验员 (quality:inspection:check); 半成品/成品入库: 仓管 (production:*-in:add)
     if (Array.isArray(perms) && isModuleEnabled('production')) {
+      // v1.1.126: 吹膜米克重采集 (ESP32 上云) — perm-only 兜底.
+      // 双匹配 (perms=mes:weight:list + path=/production/weight) 命中 APP_MENU_TO_PAGE 时走上面那条;
+      // 老库若没灌 M 节点 (sql/129) 则 path 匹配不上, 这里按 perm 补一个入口 (同 production:report:list 模式).
+      if (perms.includes('mes:weight:list') && isPermEnabled('production', 'mes:weight:list')
+          && !seen.has('/pages/production/weight')) {
+        seen.add('/pages/production/weight')
+        result.push({ path: '/pages/production/weight', title: '吹膜米重采集', icon: '⚖' })
+      }
       if (perms.includes('quality:inspection:check') && isPermEnabled('production', 'quality:inspection:check')) {
         if (!seen.has('/pages/scan/fai')) { seen.add('/pages/scan/fai'); result.push({ path: '/pages/scan/fai', title: '首检验', icon: '🔬' }) }
         if (!seen.has('/pages/scan/pat')) { seen.add('/pages/scan/pat'); result.push({ path: '/pages/scan/pat', title: '工序巡检', icon: '📑' }) }
