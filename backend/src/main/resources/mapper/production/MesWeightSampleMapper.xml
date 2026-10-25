@@ -21,7 +21,15 @@
             `deviation`       AS `deviation`,
             `is_over`         AS `isOver`,
             `line_speed`      AS `lineSpeed`,
-            `prd_order_no`    AS `prdOrderNo`
+            `prd_order_no`    AS `prdOrderNo`,
+            `roll_length`     AS `rollLength`,
+            `output_kg`       AS `outputKg`,
+            `set_length`      AS `setLength`,
+            `current_weight`  AS `currentWeight`,
+            `upper_hz`        AS `upperHz`,
+            `lower_hz`        AS `lowerHz`,
+            `machine_yield`   AS `machineYield`,
+            `gauge_fix`       AS `gaugeFix`
         FROM `mes_weight_sample`
         WHERE `device_id` = #{deviceId}
           AND `deleted` = 0

@@ -50,7 +50,13 @@
           </el-table-column>
           <el-table-column label="偏差" width="90" prop="deviation" />
           <el-table-column label="偏差%" width="80" prop="deviationPct" />
-          <el-table-column label="线速 m/min" width="100" prop="lineSpeed" />
+          <el-table-column label="线速 mm/s" width="90" prop="lineSpeed" />
+          <el-table-column label="计米长度 m" width="100" prop="rollLength" />
+          <el-table-column label="计米重量 kg" width="100" prop="outputKg" />
+          <el-table-column label="机器产量 kg/l" width="110" prop="machineYield" />
+          <el-table-column label="当前重量 kg" width="100" prop="currentWeight" />
+          <el-table-column label="上牵引 Hz" width="90" prop="upperHz" />
+          <el-table-column label="克重修正" width="90" prop="gaugeFix" />
           <el-table-column label="状态" width="70">
             <template #default="{ row }">
               <el-tag :type="row.isOver ? 'danger' : 'success'" size="small" round>

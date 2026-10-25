@@ -147,12 +147,13 @@ const categories = [
   },
   {
     key: 'production', title: '生产管理', icon: 'Files',
-    sub: 'BOM 清单 · 生产加工单 · 领料记录 · 成品入库',
+    sub: 'BOM 清单 · 生产加工单 · 领料记录 · 成品入库 · 吹膜米重采集',
     links: [
       { path: '/production/bom', title: 'BOM 清单' },
       { path: '/production/order', title: '生产加工单' },
       { path: '/production/requisition', title: '领料记录' },
-      { path: '/production/finished-in', title: '成品入库' }
+      { path: '/production/finished-in', title: '成品入库' },
+      { path: '/production/weight', title: '吹膜米重采集', icon: 'Odometer' }
     ]
   },
   {

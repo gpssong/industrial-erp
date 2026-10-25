@@ -73,6 +73,27 @@ public class MesWeightSample {
     /** 累计长度 m */
     private BigDecimal rollLength;
 
+    // ---- v1.1.119b: MCGS 屏全字段上云 (冠尚达高精度米重控制系统) ----
+    // 对应屏上 12 个量, 补齐原有 6 列. 全部可空 (旧数据/未反推字段为 NULL, 前端逐格兜底).
+
+    /** 设定长度 mm (屏「设定长度」, 收卷目标) */
+    private BigDecimal setLength;
+
+    /** 当前重量 kg (屏「当前重量」, 收卷辊当前累计) */
+    private BigDecimal currentWeight;
+
+    /** 上牵引 Hz (屏「上牵引」, 牵引频率, 故障排查) */
+    private BigDecimal upperHz;
+
+    /** 下牵引 Hz (屏「下牵引」) */
+    private BigDecimal lowerHz;
+
+    /** 机器产量 kg/l (屏「机器产量」, 单位产量) */
+    private BigDecimal machineYield;
+
+    /** 克重修正 倍率 (屏「克重修正」, 工艺调参, 1.0=不修正) */
+    private BigDecimal gaugeFix;
+
     /** 采样时间 (设备侧时钟) */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime collectTime;
@@ -121,6 +142,18 @@ public class MesWeightSample {
     public void setOutputKg(BigDecimal outputKg) { this.outputKg = outputKg; }
     public BigDecimal getRollLength() { return rollLength; }
     public void setRollLength(BigDecimal rollLength) { this.rollLength = rollLength; }
+    public BigDecimal getSetLength() { return setLength; }
+    public void setSetLength(BigDecimal setLength) { this.setLength = setLength; }
+    public BigDecimal getCurrentWeight() { return currentWeight; }
+    public void setCurrentWeight(BigDecimal currentWeight) { this.currentWeight = currentWeight; }
+    public BigDecimal getUpperHz() { return upperHz; }
+    public void setUpperHz(BigDecimal upperHz) { this.upperHz = upperHz; }
+    public BigDecimal getLowerHz() { return lowerHz; }
+    public void setLowerHz(BigDecimal lowerHz) { this.lowerHz = lowerHz; }
+    public BigDecimal getMachineYield() { return machineYield; }
+    public void setMachineYield(BigDecimal machineYield) { this.machineYield = machineYield; }
+    public BigDecimal getGaugeFix() { return gaugeFix; }
+    public void setGaugeFix(BigDecimal gaugeFix) { this.gaugeFix = gaugeFix; }
     public LocalDateTime getCollectTime() { return collectTime; }
     public void setCollectTime(LocalDateTime collectTime) { this.collectTime = collectTime; }
     public Long getCreateBy() { return createBy; }

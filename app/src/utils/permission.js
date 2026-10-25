@@ -55,6 +55,8 @@ const SENSITIVE_PAGES = new Set([
   // v1.1.99 C4: 生产排程 + 设备 OEE
   '/pages/production/schedule',
   '/pages/production/oee',
+  // v1.1.126: 吹膜米克重采集 (ESP32 上云)
+  '/pages/production/weight',
   // v1.1.90 Phase 2: 质量检验 / 工艺 SOP / 设备台账
   '/pages/quality/inspect',
   '/pages/process/sop',
@@ -84,6 +86,9 @@ const PAGE_PERMS = {
   // v1.1.99 C4: 生产排程 + 设备 OEE (走 production:schedule:list; 模块 production)
   '/pages/production/schedule':       { perm: 'production:schedule:list', module: 'production' },
   '/pages/production/oee':           { perm: 'production:schedule:list', module: 'production' },
+  // v1.1.126: 吹膜米克重采集 (ESP32 上云) — 读曲线/明细/统计, perm=mes:weight:list
+  //   通道维护 (mes:weight:edit) 只在 PC 端, App 端只读
+  '/pages/production/weight':         { perm: 'mes:weight:list',        module: 'production' },
   // v1.1.90 Phase 2: 质量检验 / 工艺 SOP / 设备台账
   '/pages/quality/inspect':           { perm: 'quality:inspection:list', module: 'qms' },
   '/pages/process/sop':               { perm: 'pdm:sop:list',           module: 'pdm' },
