@@ -3,6 +3,8 @@
     <div class="page-card">
       <div class="toolbar">
         <el-button type="primary" @click="onAdd(null)">新增菜单</el-button>
+        <el-switch v-model="showAll" class="show-all-switch" active-text="显示停用/隐藏项" style="margin-left:16px" />
+        <span v-if="!showAll" class="show-all-tip">v1.1.126: 默认仅显示启用菜单, 停用的死项已收进「显示停用/隐藏项」</span>
       </div>
       <el-table :data="tableData" border stripe v-loading="loading" row-key="id">
         <el-table-column prop="menuName" label="菜单名称" width="160" />
@@ -168,6 +170,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 const rawList = ref([])
 const loading = ref(false)
+const showAll = ref(false)  // v1.1.126: 默认隐藏停用/隐藏的死项 (如 /workflow 设备安全), 勾选后看全量
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const form = reactive({
@@ -176,7 +179,12 @@ const form = reactive({
 })
 
 const menuTree = computed(() => buildTree(rawList.value))
-const tableData = computed(() => menuTree.value)
+// v1.1.126: 默认视图只保留"启用"的节点, 停用/隐藏死项 (status=0) 收进 "显示全部" 开关
+const tableData = computed(() => {
+  const roots = menuTree.value
+  if (showAll.value) return roots
+  return roots.filter(n => n.status === 1 && n.isVisible === 1)
+})
 
 function buildTree(list) {
   const map = {}, roots = []
@@ -219,6 +227,8 @@ onMounted(loadData)
 
 <style scoped>
 .toolbar { margin-bottom: 12px; }
+.show-all-switch { vertical-align: middle; }
+.show-all-tip { font-size: 11px; color: #909399; margin-left: 10px; }
 .dialog-body { display: flex; gap: 12px; height: 65vh; }
 .form-area { flex: 1; min-width: 0; overflow-y: auto; }
 .code-ref {
