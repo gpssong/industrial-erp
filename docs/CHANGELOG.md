@@ -3,6 +3,25 @@
 
 ## changelog (倒序)
 
+### v1.1.125 (2026-10-25 — 销售出库明细「当前库存」列 + 合并出库单 order_no 截断修复)
+
+**两个纯前端改动, 零 DDL, 零后端改动.**
+
+**(1) 新增销售出库单「当前库存」列 (用户反馈)**:
+- 需求: PC 端「新增销售出库单」商品明细里, 在「数量」列前加一列显示当前仓库库存, 开单前直观判断缺货.
+- `pc-web/src/views/sales/Delivery.vue`: 明细表「数量」列前加「当前库存」列 (`:152`), 右对齐, 出库数量 > 当前库存时该数字变红色提示.
+- 库存来源**零新端点**: 复用现有 `loadBatchOptionsForRow` (本已拉该仓该品所有可用批次), 把 `row._batchOptions` 的 `qty` 求和写入 `row._stockQty` = 该仓库该商品当前库存总量; 随仓库/商品/批次刷新自动更新. 新增 `stockInsufficient(row)` helper 判红字.
+
+**(2) 合并出库单 order_no 截断 500 根治 (线上报错)**:
+- 线上报错: 销售订单「合并生成出库单」时 `MysqlDataTruncation: Data too long for column 'order_no'` → 500「系统繁忙」.
+- **根因** (不是后端门禁, 是前端拼串): `pc-web/src/views/sales/Order.vue` 合并多订单时把所有源订单 billNo 拼成长串写进主表 `sal_delivery.order_no` (`VARCHAR(32)`, sql/04) → 超 32 字符. 单订单只写一张订单号 (短) 所以不炸.
+- **修法** (`Order.vue:622`): 合并时主表 `orderNo` 置空 (`multi ? '' : base.billNo`). 合并单溯源本就靠**每行明细** `orderNo`/`orderDetailId` (`:617` 主表 `orderId` 也置 null, 注释明确"溯源走明细行"), 主表不承载多来源拼串; 单订单行为完全不变. 零 DDL / 零后端改动.
+
+**部署 (canary-first)**: 双站 pc-web bind-mount 覆盖 + 重启; 飞牛 `erp-pc-web-failover` 18080 / home `erp-pc-web` 8088 均探活 200, 新 chunk `Delivery-DdwVtGnZ.js` 在线.
+- ⚠️ 部署踩坑 (已沉淀 [[erp-pc-web-deploy-traps]] 陷阱 5): 清旧 chunk 时按前缀 `grep -v "Delivery-DdwVtGnZ.js"` 只留新 JS, 把同前缀的 `Delivery-BtIOYGnp.css` 误删 → home 点「销售出库」触发 `Unable to preload CSS ... 404`. 教训: vite 动态 preload 依赖 CSS 就位, 清 chunk 应整目录替换或逐个确认 (js+css), 别按前缀挑着删.
+
+**部署**: 版本 1.1.125 (仅 pc-web/package.json bump, 无后端 jar); 飞牛 chunk `Delivery-DdwVtGnZ.js`; home pc-web bind-mount 真源 `/volume3/docker/erp-system/pc-web-new/dist`.
+
 ### v1.1.124 (2026-10-24 — 采购入库「非食品采购」入口补齐 + R26 mapper XML 坑)
 
 **需求 (用户反馈)**: 「采购入库页只有 XK 的原料入库, 非食品包装的商品采购入库没有对应的采购入库入口」。

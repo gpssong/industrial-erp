@@ -615,8 +615,11 @@ async function openGenerateDialog(orders) {
     deliveryForm.deliveryMethod = (base.deliveryMethodLabel ? mapCodeFromLabel(base.deliveryMethodLabel) : base.deliveryMethod) || ''
     deliveryForm.poNo = multi ? '' : (base.poNo || '')   // 多订单 PO 号各异, 头字段留空 (每行明细仍带各自 poNo)
     deliveryForm.orderId = multi ? null : base.id         // 多订单主表不写单一 orderId, 溯源走明细行
-    // v1.1.66: 多订单 orderNo = 各订单号拼接 (仅作追溯文案; 每行明细仍带各自 poNo)
-    deliveryForm.orderNo = multi ? orders.map(o => o.billNo).join(', ') : base.billNo
+    // v1.1.66: 单订单 orderNo 写主表 (溯源); 合并多订单时主表 orderNo 置空 —
+    //  主表 sal_delivery.order_no 是 VARCHAR(32), 多订单单号拼串会超 32 触发
+    //  Data truncation (500). 合并单溯源本就靠每行明细 orderNo/orderDetailId
+    //  (见 :617 主表 orderId 置 null + 明细行 orderNo), 主表不承载多来源拼串.
+    deliveryForm.orderNo = multi ? '' : base.billNo
     deliveryForm.details = allDetails
 
     // 单订单快捷入口仍展示 sourceOrder (标题/提示兼容)
