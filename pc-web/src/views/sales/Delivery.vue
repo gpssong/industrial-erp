@@ -149,6 +149,9 @@
                 </el-select>
               </template>
             </el-table-column>
+            <el-table-column label="当前库存" width="100" align="right">
+              <template #default="{ row }"><span :style="stockInsufficient(row) ? 'color:#f56c6c' : 'color:#999'">{{ row._stockQty ?? '—' }}</span></template>
+            </el-table-column>
             <el-table-column label="数量" width="120">
               <template #default="{ row }">
                 <el-input v-model="row.qty" size="small" type="text" inputmode="decimal"
@@ -502,6 +505,8 @@ async function loadBatchOptionsForRow(row) {
     const r = await stockApi.batches(form.warehouseId, row.productId)
     // 仅展示 qty > 0 的; stockApi.batches 已经按 qty DESC 排好
     row._batchOptions = (r.data || []).filter(b => Number(b.qty) > 0)
+    // 当前仓库库存 = 该仓该品所有可用批次 qty 之和 (库存列展示)
+    row._stockQty = row._batchOptions.reduce((s, b) => s + Number(b.qty || 0), 0)
     // 若还没有选择且候选只有一条, 自动选上
     if (row._batchSel.length === 0 && row._batchOptions.length === 1) {
       row._batchSel = [row._batchOptions[0].batchNo || '']
@@ -509,6 +514,12 @@ async function loadBatchOptionsForRow(row) {
   } catch (e) {
     /* 后端接口失败也不阻塞开单 */
   }
+}
+
+/** 当前库存是否不足 (出库数量 > 当前库存): 数量列前库存列红色提示 */
+function stockInsufficient(row) {
+  if (row._stockQty == null) return false
+  return Number(row.qty || 0) > Number(row._stockQty || 0)
 }
 
 function onUnitChange(row, unitId) {
