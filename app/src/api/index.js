@@ -222,7 +222,17 @@ export const api = {
   salesDeliveryPage: (params) => request({ url: '/sales/delivery/page', data: params }),
   // 采购
   purchaseOrderPage: (params) => request({ url: '/purchase/order/page', data: params }),
-  purchaseReceiptAdd: (data) => request({ url: '/purchase/receipt', method: 'POST', data }),
+  // v1.1.125: 必须带 contentType:'json' — 后端 @RequestBody 只吃 application/json.
+  //   漏掉时 uni.request 走默认 urlencoded → Spring 报 "Content-Type
+  //   'application/x-www-form-urlencoded;charset=UTF-8' is not supported" → 500.
+  //   (实测: form-encoded POST → code 500; JSON POST → code 200)
+  purchaseReceiptAdd: (data) => request({ url: '/purchase/receipt', method: 'POST', data, contentType: 'json' }),
+  // v1.1.125: 上次入库单价 (供应商+商品) — 非食品建单页自动带出默认单价
+  purchaseReceiptLastPrice: (supplierId, productId) =>
+    request({ url: '/purchase/receipt/last-price', data: { supplierId, productId } }),
+  // v1.1.125: 该供应商最近 50 条历史采购明细 — 非食品建单页参考/一键带入
+  purchaseReceiptSupplierHistory: (supplierId) =>
+    request({ url: '/purchase/receipt/supplier-history-products', data: { supplierId } }),
   // v1.1.15+: App 端采购入库单查询列表
   purchaseReceiptPage: (params) => request({ url: '/purchase/receipt/page', data: params }),
   purchaseReceiptDetail: (id) => request({ url: '/purchase/receipt/' + id }),

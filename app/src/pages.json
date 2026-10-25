@@ -30,6 +30,8 @@
     { "path": "pages/sales/delivery-detail", "style": { "navigationBarTitleText": "出库单详情" } },
     { "path": "pages/purchase/receipt-list", "style": { "navigationBarTitleText": "采购入库单" } },
     { "path": "pages/purchase/receipt-detail", "style": { "navigationBarTitleText": "入库单详情" } },
+    // v1.1.125: 非食品采购 · 免检直通 建单页 (从采购入库单列表页进入)
+    { "path": "pages/purchase/receipt-add", "style": { "navigationBarTitleText": "非食品采购入库" } },
     // v1.1.91 XK 合规中心 (食品接触塑料吹膜厂 — XK16-204 审核)
     { "path": "pages/xk/dashboard",    "style": { "navigationBarTitleText": "XK 工作台" } },
     { "path": "pages/xk/material",     "style": { "navigationBarTitleText": "原料入库" } },
