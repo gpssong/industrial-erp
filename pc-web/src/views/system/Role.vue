@@ -315,7 +315,17 @@ async function openPermDialog(row) {
   // 加载所有菜单
   if (allMenus.value.length === 0) {
     const r = await menuApi.list()
-    allMenus.value = buildMenuTree(r.data || [])
+    // v1.1.126: 对齐 Menu.vue 整理 — 把 /workflow「设备安全」死子树从 PC 权限树里裁掉.
+    // 死子树 = 1 个 M 顶层 (/workflow, status=0) + 4 个 C 子节点 (/workflow/*, status=0)
+    // + 18 个 B 按钮 perm 行 (status=1, path 为空, 但 parentId 指向那 4 个 C 节点).
+    // router 里已无 /workflow 路由, 真实入口是 /xk/maintenance + /xk/safety 复用
+    // work:maintain:list / work:safety:list perms 字符串, 不走这些 menu 行 → 裁剪无副作用.
+    // ⚠️ 不用雪花 id 做锚点 (R21): 19 位雪花 id 字面量经 vite minify 会超出 Number.MAX_SAFE_INTEGER
+    // 被抹平成同一个 hex 值, 23 个不同 id 全塌成 1 个 → 过滤一行都裁不掉. 改用稳定字符串 path 前缀.
+    // 判定: 节点自身 path 以 /workflow 开头, 或沿 parentId 上溯任意祖先 path 以 /workflow 开头
+    // (覆盖 18 个 path 为空的 B 按钮). 裁掉整棵子树, 不影响其它节点.
+    const all = r.data || []
+    allMenus.value = buildMenuTree(all.filter(m => !inWorkflowDeadSubtree(m, all)))
   }
 
   // 加载该角色已分配的 PC 和 App 菜单
@@ -360,6 +370,24 @@ async function openPermDialog(row) {
   // 加载该角色的关联用户
   const ur = await roleApi.users(row.id)
   selectedUserIds.value = ur.data || []
+}
+
+// v1.1.126: /workflow「设备安全」死子树裁剪判定 (PC 权限树).
+// 锚点用稳定字符串 path (以 /workflow 开头), 不用雪花 id (R21: 字面量 minify 后塌成一个值).
+// 规则: 节点自身 path 是 /workflow*, 或沿 parentId 上溯任意祖先 path 是 /workflow* → 属于死子树.
+// 覆盖 18 个 path 为空但 parentId 指向 /workflow/* 的 B 按钮 perm 行.
+function inWorkflowDeadSubtree(node, fullList) {
+  const isDeadPath = (p) => !!p && p.startsWith('/workflow')
+  if (isDeadPath(node.path)) return true
+  const byId = {}
+  for (const m of fullList) byId[m.id] = m   // m.id 来自后端 JSON 是字符串, 作对象 key 无精度问题
+  let cur = byId[node.parentId]
+  let guard = 0
+  while (cur && guard++ < 50) {
+    if (isDeadPath(cur.path)) return true
+    cur = byId[cur.parentId]
+  }
+  return false
 }
 
 function buildMenuTree(list) {
