@@ -21,6 +21,11 @@
       </scroll-view>
     </view>
 
+    <!-- v1.1.125: 新建「非食品采购 · 免检直通」入口 (perm purchase:receipt:add 门禁) -->
+    <view v-if="canAdd" class="add-bar">
+      <button class="btn-add" @click="goAddNonFood">+ 非食品采购 · 免检直通</button>
+    </view>
+
     <!-- 列表卡片 -->
     <view class="card" v-for="item in list" :key="item.id" @click="goDetail(item)">
       <view class="row">
@@ -79,6 +84,32 @@ const loading = ref(false)
 const pageNum = ref(1)
 const pageSize = ref(50)
 const hasMore = ref(false)
+// v1.1.125: 新建入口门禁 — purchase:receipt:add 的 APP 端授权 (R18)
+const canAdd = ref(false)
+
+// 读 App 端 perm 集合 (erp_menus 派生, 兼容 erp_permissions 兜底)
+function hasAppPerm(p) {
+  try {
+    const menusRaw = uni.getStorageSync('erp_menus')
+    const menus = typeof menusRaw === 'string' ? JSON.parse(menusRaw || '[]') : (Array.isArray(menusRaw) ? menusRaw : [])
+    if (menus.length) {
+      const set = new Set()
+      for (const m of menus) {
+        if (!m.perms) continue
+        for (const t of String(m.perms).split(',')) { const x = t.trim(); if (x) set.add(x) }
+      }
+      if (set.has(p)) return true
+    }
+    const raw = uni.getStorageSync('erp_permissions')
+    const arr = typeof raw === 'string' ? JSON.parse(raw || '[]') : (Array.isArray(raw) ? raw : [])
+    return Array.isArray(arr) && arr.includes(p)
+  } catch (e) { return false }
+}
+
+// v1.1.125: 跳「非食品采购 · 免检直通」建单页
+function goAddNonFood() {
+  uni.navigateTo({ url: '/pages/purchase/receipt-add' })
+}
 
 function statusTag(s) { return STATUS_MAP[s] || s || '—' }
 function formatNum(v) { return v == null ? '—' : Number(v).toLocaleString() }
@@ -129,6 +160,8 @@ function goDetail(item) {
 onMounted(() => {
   // v1.1.80+: 模块停用守卫
   if (!guardPage('purchase')) return
+  // v1.1.125: 判定能否新建 (APP 端 purchase:receipt:add)
+  canAdd.value = hasAppPerm('purchase:receipt:add')
   loadData(); applyTabBar()
 })
 
@@ -144,6 +177,9 @@ onPullDownRefresh(async () => {
 <style scoped>
 .container { padding: 12px; padding-bottom: 40px; }
 .search-bar { padding: 10px; }
+.add-bar { padding: 0 0 10px; }
+.btn-add { width: 100%; height: 42px; line-height: 42px; background: #67c23a; color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; }
+.btn-add:active { background: #5daf4d; }
 .search-row { display: flex; gap: 6px; align-items: center; }
 .input { flex: 1; height: 36px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 10px; box-sizing: border-box; font-size: 14px; }
 .input:focus { border-color: #1e6091; outline: none; }

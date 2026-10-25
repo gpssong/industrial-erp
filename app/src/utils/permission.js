@@ -46,6 +46,8 @@ const SENSITIVE_PAGES = new Set([
   // v1.1.15+: 采购入库单查询 (列表/详情共用 purchase:receipt:list)
   '/pages/purchase/receipt-list',
   '/pages/purchase/receipt-detail',
+  // v1.1.125: 非食品采购 · 免检直通 建单页 (perm=purchase:receipt:add)
+  '/pages/purchase/receipt-add',
   // v1.1.76+: AI 助手
   '/pages/report/ai',
   // v1.1.80 MES: 扫码报工
@@ -100,6 +102,8 @@ const PAGE_PERMS = {
   //           (扫码入库 /pages/scan/in 仍用 purchase:receipt:list, 两者入口分离, 对齐销售 502/503 模型)
   '/pages/purchase/receipt-list':     { perm: 'purchase:receipt:query', module: 'purchase' },
   '/pages/purchase/receipt-detail':   { perm: 'purchase:receipt:query', module: 'purchase' },
+  // v1.1.125: 非食品采购建单页 (写操作, perm=purchase:receipt:add)
+  '/pages/purchase/receipt-add':      { perm: 'purchase:receipt:add',   module: 'purchase' },
   // v1.1.100+: XK 7 页 perm 登记 — perm 来自 XkController 端点, module 用一个能体现 XK 归属的 key.
   // 这些 perm 集合可能跨模块 (dashboard→report, material→purchase, trace→production 等),
   //   module 用 '' 让 isAppModuleEnabled 短路, 不再卡模块开关 (XK 本身没在 8 模块开关列表里).
