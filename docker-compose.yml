@@ -117,6 +117,9 @@ services:
       ERP_AI_PROVIDERS: ${ERP_AI_PROVIDERS:-}
       ERP_AI_FAILOVER_COOLDOWN_MS: ${ERP_AI_FAILOVER_COOLDOWN_MS:-300000}
       ERP_AI_FAILOVER_COOLDOWN_LONG_MS: ${ERP_AI_FAILOVER_COOLDOWN_LONG_MS:-1800000}
+      # v1.1.119 设备接入 (ESP32 米克重采集). key 为空时 /device/weight/report 直接拒收 (fail-closed).
+      # 密钥只走 .env (gitignored), 不进 git / 镜像; 表里只存后 6 位掩码.
+      ERP_DEVICE_KEY: ${ERP_DEVICE_KEY:-}
       ERP_AI_STRIP_THINKING: ${ERP_AI_STRIP_THINKING:-true}
       ERP_AI_PROVIDER0_NAME: ${ERP_AI_PROVIDER0_NAME:-agnes}
       ERP_AI_PROVIDER0_KEY: ${ERP_AI_PROVIDER0_KEY:-}

@@ -52,6 +52,10 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         // 上传文件 (上传 API 单独鉴权, 静态资源访问放行)
                         "/system/upload/**",
                         "/upload/**",
+                        // v1.1.119 设备上报 (ESP32 无登录态, Controller 内校验 X-Device-Key 头).
+                        // ⚠️ 只能写精确路径, 绝不能写 /device/** —— 这个 notMatch 是全项目唯一的
+                        //    登录态豁免口, 写通配等于把设备端所有端点裸奔到公网
+                        "/device/weight/report",
                         // 静态资源与错误页 (Knife4j 改为登录后访问, 见 knife4jAuthInterceptor)
                         "/favicon.ico",
                         "/error"

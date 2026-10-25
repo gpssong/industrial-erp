@@ -48,6 +48,8 @@ const routes = [
       { path: 'production/semi-in', name: 'PrdSemiIn', component: () => import('@/views/production/SemiFinishedIn.vue'), meta: { title: '半成品入库', icon: 'Box', perm: 'production:semi-in:list' } },
       // v1.1.99 C4: 生产排程 + 设备 OEE
       { path: 'production/schedule', name: 'PrdSchedule', component: () => import('@/views/production/Schedule.vue'), meta: { title: '生产排程', icon: 'DataLine', perm: 'production:schedule:list' } },
+      // v1.1.119: 吹膜米重采集 (ESP32 → MES 实时曲线)
+      { path: 'production/weight', name: 'PrdWeight', component: () => import('@/views/production/Weight.vue'), meta: { title: '吹膜米重采集', icon: 'Odometer', perm: 'mes:weight:list' } },
       // 财务
       { path: 'finance/arap', name: 'FinArap', component: () => import('@/views/finance/Arap.vue'), meta: { title: '应收应付', icon: 'Money', perm: 'finance:arap:list' } },
       // v1.1.10+: 发票管理 (开票 / 发票列表 / 跨单合并开票)

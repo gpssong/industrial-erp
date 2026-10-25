@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  v1.1.119 MES — 米克重采样流水 Mapper XML
+
+  ⚠️ 本文件所有手写 SQL 必须自带 AND deleted = 0
+     (@TableLogic 只对 MyBatis-Plus 自动生成的 SQL 生效, 手写 SQL 绕过)
+
+  ⚠️ 曲线查询用 (device_id, collect_time) 倒序索引, limit 走索引不回表全扫
+-->
+<mapper namespace="com.industrial.erp.modules.mes.mapper.MesWeightSampleMapper">
+
+    <!-- 曲线数据: 倒序取最近 limit 条 (Service 转正序给 ECharts) -->
+    <select id="selectCurve" resultType="java.util.LinkedHashMap">
+        SELECT
+            DATE_FORMAT(`collect_time`, '%Y-%m-%d %H:%i:%s') AS `collectTime`,
+            `channel_no`      AS `channelNo`,
+            `set_weight`      AS `setWeight`,
+            `actual_weight`   AS `actualWeight`,
+            `deviation`       AS `deviation`,
+            `is_over`         AS `isOver`,
+            `line_speed`      AS `lineSpeed`,
+            `prd_order_no`    AS `prdOrderNo`
+        FROM `mes_weight_sample`
+        WHERE `device_id` = #{deviceId}
+          AND `deleted` = 0
+        <if test="channelNo != null">
+            AND `channel_no` = #{channelNo}
+        </if>
+        <if test="from != null">
+            AND `collect_time` &gt;= #{from}
+        </if>
+        <if test="to != null">
+            AND `collect_time` &lt;= #{to}
+        </if>
+        ORDER BY `collect_time` DESC, `channel_no` ASC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 统计: 每通道均值/极值/超标次数 -->
+    <select id="selectStats" resultType="java.util.LinkedHashMap">
+        SELECT
+            `channel_no`                                            AS `channelNo`,
+            COUNT(*)                                                 AS `sampleCount`,
+            ROUND(AVG(`actual_weight`), 3)                           AS `avgWeight`,
+            ROUND(MIN(`actual_weight`), 3)                           AS `minWeight`,
+            ROUND(MAX(`actual_weight`), 3)                           AS `maxWeight`,
+            ROUND(AVG(`deviation`), 4)                               AS `avgDeviation`,
+            ROUND(AVG(`deviation_pct`), 3)                           AS `avgDeviationPct`,
+            SUM(CASE WHEN `is_over` = 1 THEN 1 ELSE 0 END)           AS `overCount`,
+            ROUND(SUM(CASE WHEN `is_over` = 1 THEN 1 ELSE 0 END)
+                  / COUNT(*) * 100, 2)                               AS `overRatePct`
+        FROM `mes_weight_sample`
+        WHERE `device_id` = #{deviceId}
+          AND `deleted` = 0
+        <if test="from != null">
+            AND `collect_time` &gt;= #{from}
+        </if>
+        <if test="to != null">
+            AND `collect_time` &lt;= #{to}
+        </if>
+        GROUP BY `channel_no`
+        ORDER BY `channel_no` ASC
+    </select>
+
+    <!-- 历史数据清理: 时序表无限增长, 建议 cron 每天跑一次保留 N 天 -->
+    <delete id="deleteOlderThan">
+        DELETE FROM `mes_weight_sample`
+        WHERE `collect_time` &lt; DATE_SUB(NOW(), INTERVAL #{keepDays} DAY)
+    </delete>
+
+</mapper>

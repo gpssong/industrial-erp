@@ -22,6 +22,31 @@
 
 **部署**: 版本 1.1.125 (仅 pc-web/package.json bump, 无后端 jar); 飞牛 chunk `Delivery-DdwVtGnZ.js`; home pc-web bind-mount 真源 `/volume3/docker/erp-system/pc-web-new/dist`.
 
+### v1.1.119 (2026-10-25 部署, 随 jar v1.1.125 上双站 — ESP32 吹膜米克重采集接收侧闭环)
+
+**需求**: 吹膜机米克重 (g/m2) 只显示在车间触摸屏, 办公室/远程看不到 → 无法质量追溯/工艺分析。ESP32 旁听冠尚达控制器 RS485(Modbus) 总线, WiFi 回传 ERP, MES 实时曲线 + 超标判定 + 历史追溯。**接收侧全链路双站在线 (canary-first, curl 造数闭环验证通过), ESP32 固件 + 寄存器反推待现场。**
+
+**3 新表** (`sql/129_v1119_mes_weight_device.sql`, 雪花 ID 低位量级 `1000000000000001`):
+- `mes_weight_device` 采集器注册 (`device_code` 唯一 / `online_status` / `baud_rate`+`slave_addr`+`protocol` 反推回填 / `device_key_masked` 只存后 6 位掩码)
+- `mes_weight_channel` 通道配置 (`reg_start`/`reg_type`/`scale` 反推回填 + `set_weight`/`upper_tol`/`lower_tol` 工艺目标+公差)
+- `mes_weight_sample` 采样流水 (时序, `actual_weight`/`line_speed`/`deviation`/`deviation_pct`/`is_over` 后端算 + `prd_order_id` 可关联工单)
+- **执行顺序: 先 128 (BOM 单位回填) 后 129** —— 两脚本曾撞号 (都叫 128), 称重已改名 129; 128 幂等但含状态位 UPDATE, 按 R24 连跑 3 次
+
+**后端** (11 个 Java 文件, `modules/mes`):
+- `MesWeight*` entity×3 + mapper×3 (含 `MesWeightSampleMapper.xml` 手写 `selectCurve`/`selectStats`)
+- `MesWeightService`: `reportSamples` (设备上报) 审计 `create_by` 显式 `setCreateBy(99L)` 设备虚拟账号 —— **不改全局 metaObjectHandler** (会波及全库 60+ 表), 靠 `strictInsertFill` 只填 null 字段语义原样落库; 曲线 `selectCurve` **倒序取 limit 再翻转** (防曲线停在开机那刻)
+- `MesWeightController` (PC 带登录态, `mes:weight:*` perm, 信封未拆封前端读 `r.data`) + `DeviceWeightReportController` (设备免登录态 `X-Device-Key`)
+
+**鉴权模型 (ADR-0008)**: 设备上报走**固定密钥 fail-closed, 不走 Sa-Token** (现场 ESP32 无人值守刷不了 30 天 token, 会静默变 11012 未登录)。密钥走 env `ERP_DEVICE_KEY` (`@Value`, 不硬编码不落库); `SaTokenConfig` 白名单**只写精确路径 `/device/weight/report`** (绝不写 `/device/**` —— 那个 notMatch 是全项目唯一登录态豁免口, 写通配=设备端全端点裸奔到公网); **双站用不同 key**, 密钥只走 gitignored `.env` 不进 git/镜像; ESP32 不发 Origin 头**不配 CORS**。
+
+**PC**: `Weight.vue` 实时曲线 (ECharts 5s 轮询) / 采样明细 / 超标率统计 / 通道配置 4 Tab; 路由 `/production/weight` icon `Odometer` perm `mes:weight:list`; `production.js` 封装 `weightApi` 6 端点。
+
+**部署 (canary-first, 本次双站在线)**: 飞牛 `erp-backend-failover` 18080/8080 + home `erp-backend` 8088/8080, 均 jar v1.1.125 baked-in; 双站 curl `POST /device/weight/report` 带 key → `HTTP=200 accepted:2` → `online_status=ONLINE` + 采样落库 + 曲线 SQL 出数 (deviation/超差判定正确) + PC 静态 `Weight-*.js/.css` 200 (index.html md5 三方一致)。
+
+**待现场 (全链唯一未知数)**: 485 口 (D-sub 白口/板载蓝头) + 从站地址 + 米克重/线速寄存器地址+功能码+缩放系数 (冠尚达无公开文档 → `pymodbus` 扫输入寄存器对屏幕找值, 或问电工) → 回填 `mes_weight_channel` + ESP32 固件对着写 (骨架已给)。详见 [docs/25_ESP32吹膜米克重采集接入指南.md](25_ESP32吹膜米克重采集接入指南.md)。
+
+**部署踩坑 (home)**: PAM autoblock 反复触发 (SSH 失败累积拉黑, sleep 90s 冷却); `sudo -S` 密码与 SQL 共用 stdin 被污染 (SQL 报 `near '19850225aB'`) → 修法 SQL 先落地 777 的 `dist` 目录再 `sudo mysql < file`; jar baked-in 三连 (build --no-cache + up -d); dist 整目录替换 (R5 别按前缀 grep -v 误删 CSS)。
+
 ### v1.1.124 (2026-10-24 — 采购入库「非食品采购」入口补齐 + R26 mapper XML 坑)
 
 **需求 (用户反馈)**: 「采购入库页只有 XK 的原料入库, 非食品包装的商品采购入库没有对应的采购入库入口」。
