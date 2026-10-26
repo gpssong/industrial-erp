@@ -4,7 +4,7 @@
   "webDir": "dist/build/h5",
   "server": {
     "androidScheme": "http",
-    "allowNavigation": ["home.93gushi.com", "192.168.0.150"]
+    "allowNavigation": ["home.93gushi.com", "192.168.0.150", "192.168.0.32", "47.96.188.129"]
   },
   "plugins": {
     "CapacitorHttp": {

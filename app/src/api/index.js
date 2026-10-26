@@ -7,6 +7,7 @@
 //           → base 变 '/api' → 请求打回 WebView 自己的 localhost 拿到 index.html → 登录失败。
 //           判定逻辑收敛到 utils/runtime.js 单一权威源, 此处只 import。
 import { isH5Runtime } from '../utils/runtime.js'
+import { getApiBaseOverride } from '../utils/apiBase.js'
 
 // v1.1.107: 生产构建静默 DEBUG 级日志。import.meta.env.DEV/PROD 由 vite 在构建期替换,
 //   生产 H5 / APK 里 DEV=false → 下面的 console.log(DEBUG) 全不执行, 只有 warn(网络层/非JSON)保留。
@@ -19,21 +20,15 @@ const DEFAULT_API = 'http://home.93gushi.com:8088/api'
 
 // 原生 / Capacitor 默认地址也读 storage 的显式覆盖 (服务器设置里填了绝对地址时生效)
 function getNativeBase() {
-  try {
-    const override = localStorage.getItem('erp_api_base')
-    if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
-  } catch (e) {}
-  return DEFAULT_API
+  return getApiBaseOverride() || DEFAULT_API
 }
 
 function getBase() {
   if (isH5Runtime()) {
     // 同源: 相对路径 '/api', fetch/uni.request 会自动拼上当前 origin.
-    // 允许用户在「服务器设置」填了绝对地址时覆盖 (读 erp_api_base, 带 scheme → 视为显式覆盖).
-    try {
-      const override = localStorage.getItem('erp_api_base')
-      if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
-    } catch (e) {}
+    // 用户填了服务器地址时优先使用 (统一由 utils/apiBase.js 补协议与 /api).
+    const override = getApiBaseOverride()
+    if (override) return override
     return '/api'
   }
   // 原生 / Capacitor: 绝对地址 (默认写死 home, 用户在服务器设置填了绝对地址则覆盖)
@@ -91,9 +86,9 @@ function request({ url, method = 'GET', data = {}, contentType }) {
           // 智能错误提示: 如果请求打到 localhost, 提示用户改服务器设置
           let msg = '服务暂不可用, 请稍后重试'
           try {
-            const cached = (typeof localStorage !== 'undefined' && localStorage.getItem('erp_api_base'))
-            if (cached && (cached.includes('localhost') || cached === '/api')) {
-              msg = '服务器地址错误, 请在"我的→服务器设置"中改回 http://home.93gushi.com:8088/api'
+            const cached = getApiBaseOverride()
+            if (cached && cached.includes('localhost')) {
+              msg = '服务器地址指向本机, 请在"我的→服务器设置"中改为实际服务器地址'
             }
           } catch (e) {}
           const err = { code: res.statusCode || 500, msg, data: null }
@@ -263,8 +258,7 @@ export const api = {
   prdFinishedInDelete:  (id) => request({ url: '/production/finished-in/' + id, method: 'DELETE' }),
   // v1.1.11+: 分享 PDF (返回完整 URL, 配合 baseURL, 给 uni.downloadFile 用)
   prdOrderPdfUrl: (id) => {
-    let base = ''
-    try { base = (localStorage.getItem('erp_api_base') || '').replace(/\/$/, '') } catch (e) {}
+    let base = getApiBaseOverride()
     if (!base) base = isH5Runtime() ? window.location.origin + '/api' : getNativeBase()
     return base + '/production/order/' + id + '/pdf'
   },

@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Cleartext (HTTP) is only allowed for the three specific hosts below.
-  Everything else is HTTPS-only (enforced by Android 9+ default).
-  Remove base-config so the global default is HTTPS-only.
+  本 App 的服务器地址由用户在「服务器设置」中填写, 支持局域网/自建 HTTP 服务,
+  因此全局允许明文 HTTP。此前仅白名单 home.93gushi.com / 192.168.0.150 / localhost,
+  用户改成其他 HTTP 地址 (含阿里云 47.96.188.129) 会被 Android 直接拦截,
+  表现为"服务器设置保存了但连不上"。
+  后续若服务器统一启用 HTTPS, 应改为 HTTPS-only 并删除此 base-config。
 -->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">home.93gushi.com</domain>
-        <domain includeSubdomains="true">192.168.0.150</domain>
-        <domain includeSubdomains="true">localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>
