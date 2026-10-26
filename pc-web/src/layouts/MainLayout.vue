@@ -32,8 +32,10 @@
             </el-sub-menu>
             <el-menu-item v-else :index="m.path">
               <el-icon><component :is="m.icon" /></el-icon>
-              <span class="nav-label">{{ m.title }}</span>
-              <el-badge v-if="m.badge" :value="m.badge" class="nav-badge" type="danger" />
+              <template #title>
+                <span class="nav-label">{{ m.title }}</span>
+                <el-badge v-if="m.badge" :value="m.badge" class="nav-badge" type="danger" />
+              </template>
             </el-menu-item>
           </template>
         </template>
@@ -128,6 +130,7 @@ import { useUserStore } from '@/store/user'
 import { useSystemName } from '@/composables/useSystemName'
 import HubSidebar from '@/components/HubSidebar.vue'
 import { userApi } from '@/api/system'
+import { xkMock } from '@/api/xk'
 
 const route = useRoute()
 const router = useRouter()
@@ -135,6 +138,9 @@ const userStore = useUserStore()
 const collapse = ref(false)
 const isMobile = ref(false)
 const mobileOpen = ref(false)
+// 设备维保 badge = 实时「待处理维保工单」数 (GET /xk/dashboard → compliance.maintainPending)
+// 0 时不显示; 非管理员无 xk 权限则不请求, 保持 0 → 不渲染
+const maintainBadge = ref(0)
 const { systemName, factoryName, loadSystemName } = useSystemName()
 
 // 顶栏移动端当前页标题 (取当前 route 命中菜单的 title)
@@ -191,7 +197,7 @@ const menuTree = computed(() => {
         { path: '/production/finished-in', title: '成品入库', icon: 'Box' },
         { path: '/production/semi-in', title: '半成品入库', icon: 'Box' },
         { path: '/production/schedule', title: '生产排程', icon: 'DataLine' },
-        { path: '/xk/maintenance', title: '设备维保', icon: 'Tools', badge: 6 },
+        { path: '/xk/maintenance', title: '设备维保', icon: 'Tools', badge: maintainBadge.value || undefined },
         { path: '/xk/safety', title: '质量与XK检查', icon: 'CircleCheck' },
         { path: '/report/inspection', title: '检验台账', icon: 'List' }
       ]
@@ -311,6 +317,18 @@ async function submitChangePassword() {
   }
 }
 
+// 设备维保 badge: 拉 XK dashboard 的「待处理维保工单」总数 (compliance.maintainPending).
+// 非管理员不请求 (无 xk 权限 → 保持 0 不渲染); 请求失败静默降级 0, 不影响布局.
+async function loadMaintainBadge() {
+  if (!isAdmin.value) { maintainBadge.value = 0; return }
+  try {
+    const r = await xkMock.dashboardKpi()
+    maintainBadge.value = Number(r?.data?.pendingMaintain?.value ?? 0)
+  } catch (e) {
+    maintainBadge.value = 0
+  }
+}
+
 onMounted(async () => {
   if (!userStore.userInfo) {
     try { await userStore.fetchMe() } catch (e) {}
@@ -318,6 +336,7 @@ onMounted(async () => {
   loadSystemName()
   checkMobile()
   window.addEventListener('resize', checkMobile)
+  loadMaintainBadge()
   // #85: 默认密码拦截 — passwordExpired=true 时强制弹改密框, 阻止进入系统
   if (userStore.userInfo?.passwordExpired) {
     ElMessage.warning('默认密码已过期, 请立即修改密码')
@@ -332,6 +351,9 @@ watch(() => userStore.userInfo?.passwordExpired, (expired) => {
     pwdDialogVisible.value = true
   }
 })
+
+// 管理员登录态就绪后拉一次维保 badge (覆盖 onMounted 时 userInfo 尚未返回的时序)
+watch(isAdmin, (adm) => { if (adm) loadMaintainBadge() })
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
@@ -402,6 +424,9 @@ onUnmounted(() => {
   // 标签 + badge + 折叠箭头
   .nav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .el-sub-menu__title { position: relative; display: flex; align-items: center; gap: 10px; }
+  // 叶子菜单项: el-menu-item 与 el-menu-item__title 均设 flex, badge 跟随 label 同行右侧
+  .el-menu-item { position: relative; display: flex; align-items: center; }
+  .el-menu-item :deep(.el-menu-item__title) { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
   .nav-arrow {
     width: 0; height: 0; border-left: 5px solid rgba(255,255,255,.45);
     border-top: 4px solid transparent; border-bottom: 4px solid transparent;
