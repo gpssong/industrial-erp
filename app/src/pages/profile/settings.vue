@@ -7,7 +7,7 @@
     <view class="card">
       <view class="form-item">
         <text class="label">API 服务器地址</text>
-        <input class="input" v-model="apiBase" placeholder="如 http://192.168.1.100:8080/api" />
+        <input class="input" v-model="apiBase" placeholder="如 http://47.96.188.129 或 http://192.168.1.100:8080/api" />
       </view>
       <view class="btn btn-block" @click="onSave" style="margin-top:12px">保存并重启</view>
     </view>
@@ -25,31 +25,26 @@ const currentBase = ref('')
 // 原生/Capacitor: 默认写死 http://home.93gushi.com:8088/api.
 // v1.1.105: 原判断只认 `plus`, 会把 Capacitor APK 误判成 H5, 页面显示「同源 /api」误导用户。
 import { isH5Runtime } from '../../utils/runtime.js'
+import { getApiBaseOverride, setApiBaseOverride } from '../../utils/apiBase.js'
 const NATIVE_DEFAULT = 'http://home.93gushi.com:8088/api'
 
 function effectiveBase() {
-  const override = uni.getStorageSync('erp_api_base') || ''
+  const override = getApiBaseOverride()
   if (isH5Runtime()) {
-    if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
-    return (typeof window !== 'undefined' ? window.location.origin : '') + '/api (同源)'
+    return override || ((typeof window !== 'undefined' ? window.location.origin : '') + '/api (同源)')
   }
-  return (override && /^https?:\/\//.test(override) ? override.replace(/\/$/, '') : NATIVE_DEFAULT)
+  return override || NATIVE_DEFAULT
 }
 
 onMounted(() => {
-  apiBase.value = uni.getStorageSync('erp_api_base') || ''
+  apiBase.value = getApiBaseOverride()
   currentBase.value = effectiveBase()
 })
 function onSave() {
-  const val = apiBase.value.trim()
-  if (val) {
-    uni.setStorageSync('erp_api_base', val)
-    uni.showToast({ title: '已保存，将重启' })
-  } else {
-    uni.removeStorageSync('erp_api_base')
-    uni.showToast({ title: '已恢复默认' })
-  }
+  const saved = setApiBaseOverride(apiBase.value.trim())
+  apiBase.value = saved
   currentBase.value = effectiveBase()
+  uni.showToast({ title: saved ? '已保存，将重启' : '已恢复默认' })
   setTimeout(() => {
     uni.removeStorageSync('erp_user')
     uni.reLaunch({ url: '/pages/login/index' })

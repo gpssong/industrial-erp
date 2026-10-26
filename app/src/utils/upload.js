@@ -7,24 +7,18 @@ import { request } from '../api/index.js'
 // v1.1.105: 原判断内联且只认 `plus`, 会把 Capacitor APK 判成 H5 → 返回 '' 让上传打到 WebView 本地。
 //           改引 utils/runtime.js 的 isH5Runtime (单一权威源)。
 import { isH5Runtime } from './runtime.js'
+import { getApiBaseOverride } from './apiBase.js'
 
 // 原生/Capacitor: 与 api/index.js 的 DEFAULT_API 保持一致
 const NATIVE_UPLOAD_BASE = 'http://home.93gushi.com:8088/api'
 
 function getUploadBase() {
-  // H5 同源
-  if (isH5Runtime()) {
-    try {
-      const override = localStorage.getItem('erp_api_base')
-      if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
-    } catch (e) {}
-    return ''  // 空字符串 → fetch/uni.uploadFile 自动拼当前 origin
-  }
-  // 原生/Capacitor: 与 api/index.js 一致 (含用户显式覆盖)
-  try {
-    const override = localStorage.getItem('erp_api_base')
-    if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
-  } catch (e) {}
+  // 用户显式覆盖优先 (与 api/index.js 共用同一份归一化逻辑)
+  const override = getApiBaseOverride()
+  if (override) return override
+  // H5 同源: 空字符串 → fetch/uni.uploadFile 自动拼当前 origin
+  if (isH5Runtime()) return ''
+  // 原生/Capacitor 默认地址
   return NATIVE_UPLOAD_BASE
 }
 
