@@ -100,6 +100,16 @@ function request({ url, method = 'GET', data = {}, contentType }) {
         }
         const d = res.data
         if (d.code === 200) resolve(d.data)
+        else if (d.code === 403 && d.msg && d.msg.indexOf('默认密码') >= 0) {
+          // 默认密码用户: 后端只放行改密接口, 前端统一跳到改密页
+          if (typeof uni !== 'undefined' && uni.showToast) {
+            uni.showToast({ title: '请先修改默认密码', icon: 'none', duration: 2500 })
+          }
+          setTimeout(() => {
+            try { uni.navigateTo({ url: '/pages/profile/change-password' }) } catch (e) {}
+          }, 100)
+          reject(d)
+        }
         else if (d.code === 401) {
           // 401: 清理用户信息/菜单/权限缓存 (token 由 cookie 管理, 不在 JS 端)
           try { uni.removeStorageSync('erp_user') } catch (e) {}
@@ -183,6 +193,7 @@ function fetchRequest(url, method, data) {
 
 export const api = {
   login: (data) => request({ url: '/auth/login', method: 'POST', data }),
+  getCaptcha: () => request({ url: '/auth/captcha' }),
   me: () => request({ url: '/auth/me' }),
   // 库存
   stockPage: (params) => request({ url: '/inventory/stock/page', data: params }),

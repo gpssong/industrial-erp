@@ -33,9 +33,21 @@ public class FinArapService {
 
     private final FinArapMapper arapMapper;
 
+    /** 同一来源单据只允许存在一条有效应收/应付，防止重复审核重复入账 */
+    private void assertNotExists(String sourceBillType, Long sourceBillId, String label) {
+        Long n = arapMapper.selectCount(new LambdaQueryWrapper<FinArap>()
+                .eq(FinArap::getSourceBillType, sourceBillType)
+                .eq(FinArap::getSourceBillId, sourceBillId)
+                .eq(FinArap::getDeleted, 0));
+        if (n != null && n > 0) {
+            throw BizException.of(label + "已生成应收/应付记录，请勿重复审核");
+        }
+    }
+
     /** 采购入库时生成 AP 应付 */
     @Transactional(rollbackFor = Exception.class)
     public void createApForPurchase(PurReceipt receipt, List<PurReceiptDetail> details) {
+        assertNotExists(Constants.LEDGER_PUR_RECEIPT, receipt.getId(), "该采购入库单");
         FinArap ap = new FinArap();
         ap.setBillType("AP");
         ap.setSourceBillType(Constants.LEDGER_PUR_RECEIPT);
@@ -59,6 +71,7 @@ public class FinArapService {
     /** 销售出库时生成 AR 应收 */
     @Transactional(rollbackFor = Exception.class)
     public void createArForSales(SalDelivery delivery, List<SalDeliveryDetail> details) {
+        assertNotExists(Constants.LEDGER_SAL_DELIVERY, delivery.getId(), "该销售出库单");
         FinArap ar = new FinArap();
         ar.setBillType("AR");
         ar.setSourceBillType(Constants.LEDGER_SAL_DELIVERY);

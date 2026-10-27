@@ -38,6 +38,15 @@
               <template #prefix><el-icon><Lock /></el-icon></template>
             </el-input>
           </el-form-item>
+          <el-form-item label="验证码" prop="captchaCode">
+            <div class="captcha-row">
+              <el-input v-model="form.captchaCode" placeholder="请输入验证码" maxlength="4"
+                        @keyup.enter="onLogin" />
+              <img v-if="captchaImage" :src="captchaImage" class="captcha-img" alt="验证码"
+                   title="点击刷新" @click="loadCaptcha" />
+              <span v-else class="captcha-img captcha-loading" @click="loadCaptcha">加载中</span>
+            </div>
+          </el-form-item>
           <div class="login-options">
             <el-checkbox v-model="form.remember">记住我</el-checkbox>
           </div>
@@ -75,10 +84,6 @@
           </el-collapse-transition>
         </div>
 
-        <div class="login-tips" v-if="isDev">
-          <el-icon><CircleCheckFilled /></el-icon>
-          <span>默认账号 <b>admin</b> / 密码 <b>admin123</b> (开发环境)</span>
-        </div>
       </div>
     </section>
   </div>
@@ -89,8 +94,9 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { ElMessage, ElCollapseTransition } from 'element-plus'
-import { User, Lock, Setting, ArrowDown, ArrowRight, CircleCheckFilled } from '@element-plus/icons-vue'
+import { User, Lock, Setting, ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 import { useSystemName } from '@/composables/useSystemName'
+import { captcha } from '@/api/auth'
 
 const router = useRouter()
 const route = useRoute()
@@ -99,18 +105,33 @@ const formRef = ref()
 const loading = ref(false)
 const { systemName, loadSystemName } = useSystemName()
 
-// 仅在开发模式下默认填入账号, 生产环境要求用户手动输入
-const isDev = import.meta.env.DEV
-
 const form = reactive({
-  username: isDev ? 'admin' : '',
-  password: isDev ? 'admin123' : '',
+  username: '',
+  password: '',
+  captchaKey: '',
+  captchaCode: '',
   remember: true
 })
 
 const rules = {
   username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  captchaCode: [{ required: true, message: '请输入验证码', trigger: 'blur' }]
+}
+
+const captchaImage = ref('')
+
+async function loadCaptcha() {
+  try {
+    const r = await captcha()
+    const d = r?.data || r
+    form.captchaKey = d?.captchaKey || ''
+    captchaImage.value = d?.captchaImage || ''
+    form.captchaCode = ''
+  } catch (e) {
+    captchaImage.value = ''
+    form.captchaKey = ''
+  }
 }
 
 // 服务器连接设置 (从原系统设置迁移至此, 登录前即可修改)
@@ -144,7 +165,12 @@ async function onLogin() {
   await formRef.value.validate()
   try {
     loading.value = true
-    await user.loginAction({ username: form.username, password: form.password })
+    await user.loginAction({
+      username: form.username,
+      password: form.password,
+      captchaKey: form.captchaKey,
+      captchaCode: form.captchaCode
+    })
     ElMessage.success('登录成功')
     // 登录成功后优先跳回原路径 (被 401 拦截时由 request.js 写入 ?redirect=)
     const redirect = route.query.redirect
@@ -161,12 +187,16 @@ async function onLogin() {
     const rawMsg = (e && (e.msg || e.message)) || ''
     const friendly = rawMsg || '账号或密码错误, 请重试'
     ElMessage.error(friendly)
+    loadCaptcha()
   } finally {
     loading.value = false
   }
 }
 
-onMounted(() => { loadSystemName() })
+onMounted(() => {
+  loadSystemName()
+  loadCaptcha()
+})
 </script>
 
 <style scoped lang="scss">
@@ -209,6 +239,12 @@ onMounted(() => { loadSystemName() })
 
 :deep(.el-form-item__label) { font-size: 12px; font-weight: 650; color: #4c5a6c; }
 :deep(.el-input__wrapper) { min-height: 44px; border-radius: 8px; }
+.captcha-row { display: flex; align-items: center; gap: 10px; width: 100%; }
+.captcha-img {
+  width: 108px; height: 40px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); object-fit: cover; flex: none;
+}
+.captcha-loading { display: grid; place-items: center; font-size: 12px; color: var(--muted); background: #f7f9fc; }
 .login-options { display: flex; justify-content: flex-start; margin: 2px 0 18px; }
 .login-btn {
   width: 100%; min-height: 48px; font-size: 14px; font-weight: 700;

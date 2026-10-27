@@ -1,14 +1,19 @@
 package com.industrial.erp.modules.system.controller;
 
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
+import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.system.entity.SysConfig;
 import com.industrial.erp.modules.system.service.SysConfigService;
 import com.industrial.erp.security.PermissionService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Set;
 
 @Tag(name = "系统配置")
 @RestController
@@ -47,9 +52,32 @@ public class SysConfigController {
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
 
-    /** 查配置: 登录即可, 业务代码高频读取 */
+    /**
+     * 客户端可读配置白名单。
+     * <p>AI_INTEGRATION 等含密钥的配置不在此列，仅管理员可读，避免登录用户按 key 遍历泄露。
+     */
+    private static final Set<String> CLIENT_READABLE_KEYS = Set.of(
+            "APP_MODULE_ENABLED",
+            "DASHBOARD_CONFIG",
+            "PRICE_TAX_SEPARATION",
+            "SYS_FACTORY",
+            "SYS_NAME",
+            "SYSTEM_VERSION_INFO",
+            "XK_AUDIT_RETENTION_YEARS",
+            "AI_PROVIDER_ORDER"
+    );
+
+    /** 查配置: 登录后仅可读客户端白名单; 其余（含密钥类）要求管理员或配置查询权限 */
+    @SaCheckLogin
     @GetMapping("/key/{key}")
-    public R<String> getByKey(@PathVariable String key) { return R.ok(service.getByKey(key)); }
+    public R<String> getByKey(@PathVariable String key) {
+        if (!CLIENT_READABLE_KEYS.contains(key)
+                && !StpUtil.hasRole("admin")
+                && !StpUtil.hasPermission("system:config:list")) {
+            throw BizException.of(403, "无权读取该配置");
+        }
+        return R.ok(service.getByKey(key));
+    }
 
     @SaCheckPermission(value = {"system:config:edit"}, orRole = "admin")
     @PutMapping("/value")

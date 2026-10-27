@@ -1,19 +1,28 @@
 package com.industrial.erp.modules.sales.service;
 
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.finance.service.FinArapService;
+import com.industrial.erp.modules.inventory.mapper.InvLedgerMapper;
+import com.industrial.erp.modules.inventory.mapper.InvStockMapper;
 import com.industrial.erp.modules.inventory.service.StockService;
+import com.industrial.erp.modules.mes.service.MesReportService;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
+import com.industrial.erp.modules.sales.mapper.SalOrderMapper;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.apache.ibatis.session.Configuration;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -61,8 +70,20 @@ class SalDeliveryServiceTest {
     @Mock private PermissionService permService;
     @Mock private SalOrderDetailMapper orderDetailMapper;
     @Mock private OperLogPublisher operLogPublisher;
+    @Mock private BaseProductMapper productMapper;
+    @Mock private SalOrderMapper orderMapper;
+    @Mock private MesReportService mesReportService;
+    @Mock private InvStockMapper inventoryStockMapper;
+    @Mock private InvLedgerMapper ledgerMapper;
 
     @InjectMocks private SalDeliveryService service;
+
+    @BeforeAll
+    static void initTableInfo() {
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new Configuration(), "test");
+        TableInfoHelper.initTableInfo(assistant, SalDelivery.class);
+        TableInfoHelper.initTableInfo(assistant, SalDeliveryDetail.class);
+    }
 
     private static final Long CUSTOMER_ID = 50L;
     private static final Long WAREHOUSE_ID = 1L;
@@ -189,6 +210,8 @@ class SalDeliveryServiceTest {
         wh.setId(WAREHOUSE_ID);
         wh.setWarehouseName("主仓");
         when(warehouseMapper.selectById(WAREHOUSE_ID)).thenReturn(wh);
+        // 并发抢占 DRAFT→CHECKED: 返回 1 表示抢单成功
+        when(deliveryMapper.update(any(), any())).thenReturn(1);
 
         service.check(100L);
 

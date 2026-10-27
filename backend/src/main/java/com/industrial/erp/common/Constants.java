@@ -106,6 +106,7 @@ public final class Constants {
     public static final String REDIS_PRINT_LOCK = "erp:print:lock:";
     public static final String REDIS_STOCK_LOCK = "erp:stock:lock:";
     public static final String REDIS_LOGIN_LIMIT = "erp:login:limit:";
+    public static final String REDIS_USER_STATUS = "erp:user:status:";
     public static final String REDIS_DICT = "erp:dict:";
     public static final String REDIS_PERM = "erp:perm:";
     public static final String REDIS_CONFIG = "erp:config:";

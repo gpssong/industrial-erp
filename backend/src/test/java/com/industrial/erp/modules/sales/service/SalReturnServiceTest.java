@@ -9,6 +9,7 @@ import com.industrial.erp.modules.inventory.service.StockService;
 import com.industrial.erp.modules.sales.entity.SalReturn;
 import com.industrial.erp.modules.sales.entity.SalReturnDetail;
 import com.industrial.erp.modules.sales.mapper.SalReturnDetailMapper;
+import com.industrial.erp.modules.qms.service.QmsInspectionService;
 import com.industrial.erp.modules.sales.mapper.SalReturnMapper;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
@@ -47,6 +48,7 @@ class SalReturnServiceTest {
     @Mock private StockService stockService;
     @Mock private FinArapService arapService;
     @Mock private PermissionService permService;
+    @Mock private QmsInspectionService qmsInspectionService;
 
     @InjectMocks private SalReturnService service;
 

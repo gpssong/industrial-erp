@@ -2,6 +2,7 @@ package com.industrial.erp.modules.purchase.service;
 
 import com.industrial.erp.modules.base.entity.BaseSupplier;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.finance.service.FinArapService;
@@ -12,6 +13,7 @@ import com.industrial.erp.modules.purchase.mapper.PurOrderDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurOrderMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptMapper;
+import com.industrial.erp.modules.qms.service.QmsInspectionService;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
@@ -51,6 +53,9 @@ class PurReceiptServiceTest {
     @Mock private FinArapService arapService;
     @Mock private PermissionService permService;
     @Mock private OperLogPublisher operLogPublisher;
+    @Mock private BaseProductMapper productMapper;
+    @Mock private QmsInspectionService qmsInspectionService;
+    @Mock private PurInboundPlanService inboundPlanService;
 
     @InjectMocks private PurReceiptService service;
 

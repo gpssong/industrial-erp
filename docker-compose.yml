@@ -48,7 +48,7 @@ services:
     container_name: erp-redis
     restart: unless-stopped
     # NAS 部署: 不暴露 6379 到主机, 仅容器网络 erp-net 内可见.
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "volatile-lru"]
     volumes:
       - redis-data:/data
     networks: [erp-net]

@@ -85,37 +85,37 @@ public class AuthService {
         String os = parseOs(ua);
 
         try {
-            // 校验图形验证码 (生产环境启用)
-            if (StrUtil.isNotBlank(dto.getCaptchaKey())) {
-                String code = redis.opsForValue().get(Constants.REDIS_LOGIN_LIMIT + "captcha:" + dto.getCaptchaKey());
-                if (code == null) throw BizException.of("验证码已过期");
-                if (!code.equalsIgnoreCase(dto.getCaptchaCode())) throw BizException.of("验证码错误");
-                redis.delete(Constants.REDIS_LOGIN_LIMIT + "captcha:" + dto.getCaptchaKey());
+            // 图形验证码强制校验: 防止脚本绕过验证码撞库
+            if (StrUtil.isBlank(dto.getCaptchaKey()) || StrUtil.isBlank(dto.getCaptchaCode())) {
+                throw BizException.of("请输入验证码");
             }
+            String captchaKey = Constants.REDIS_LOGIN_LIMIT + "captcha:" + dto.getCaptchaKey();
+            String code = redis.opsForValue().get(captchaKey);
+            if (code == null) throw BizException.of("验证码已过期");
+            if (!code.equalsIgnoreCase(dto.getCaptchaCode())) {
+                redis.delete(captchaKey);
+                throw BizException.of("验证码错误");
+            }
+            redis.delete(captchaKey);
 
-            // 登录失败次数限制
+            // 登录失败次数限制: 同时按账号 + 来源 IP 限流
             String limitKey = Constants.REDIS_LOGIN_LIMIT + dto.getUsername();
-            String failCount = redis.opsForValue().get(limitKey);
-            int failCountInt = 0;
-            try {
-                failCountInt = Integer.parseInt(failCount);
-            } catch (NumberFormatException ignore) {
-                // Redis 中存储异常值时, 视为 0
-            }
-            if (StrUtil.isNotBlank(failCount) && failCountInt >= 5) {
-                throw BizException.of("登录失败次数过多, 请5分钟后再试");
-            }
+            String ipLimitKey = Constants.REDIS_LOGIN_LIMIT + "ip:" + StrUtil.blankToDefault(ip, "unknown");
+            requireUnderLimit(limitKey, 5, "登录失败次数过多, 请5分钟后再试");
+            requireUnderLimit(ipLimitKey, 20, "当前网络登录失败次数过多, 请10分钟后再试");
 
             SysUser user = userMapper.selectByUsername(dto.getUsername());
             if (user == null) {
-                incrFail(limitKey);
+                incrFail(limitKey, 5);
+                incrFail(ipLimitKey, 10);
                 throw new BizException("用户名或密码错误");
             }
             if (user.getStatus() == 0) {
                 throw new BizException("账号已停用");
             }
             if (!ENCODER.matches(dto.getPassword(), user.getPassword())) {
-                incrFail(limitKey);
+                incrFail(limitKey, 5);
+                incrFail(ipLimitKey, 10);
                 throw new BizException("用户名或密码错误");
             }
 
@@ -140,6 +140,7 @@ public class AuthService {
 
             // 清除失败计数
             redis.delete(limitKey);
+            redis.delete(ipLimitKey);
 
             // 拼装返回
             LoginVO vo = new LoginVO();
@@ -184,7 +185,10 @@ public class AuthService {
             boolean isDefaultPwd = ENCODER.matches(DEFAULT_SEED_PASSWORD, user.getPassword());
             vo.setPasswordExpired(isDefaultPwd);
             if (isDefaultPwd) {
+                StpUtil.getSession().set("mustChangePassword", true);
                 log.warn("[Auth] 用户 {} 仍使用默认 seed 密码, 强制改密", user.getUsername());
+            } else {
+                StpUtil.getSession().delete("mustChangePassword");
             }
 
             // 记录登录成功日志
@@ -266,6 +270,13 @@ public class AuthService {
         if (user == null) throw BizException.of(401, "用户不存在");
         LoginVO vo = new LoginVO();
         BeanUtil.copyProperties(user, vo, "password");
+        boolean isDefaultPwd = ENCODER.matches(DEFAULT_SEED_PASSWORD, user.getPassword());
+        vo.setPasswordExpired(isDefaultPwd);
+        if (isDefaultPwd) {
+            StpUtil.getSession().set("mustChangePassword", true);
+        } else {
+            StpUtil.getSession().delete("mustChangePassword");
+        }
         vo.setRoles(userMapper.selectRoleCodesByUserId(uid));
         // v1.1.55 hotfix-3 R9: /me 也按 header X-Client-Type 分流 perm,
         //   避免 App 端 /me 写 storage 时把 PC uncheck 灌进去
@@ -313,10 +324,20 @@ public class AuthService {
         return userMapper.selectPermsByUserId(uid);
     }
 
-    private void incrFail(String key) {
+    private void requireUnderLimit(String key, int max, String message) {
+        String v = redis.opsForValue().get(key);
+        if (StrUtil.isBlank(v)) return;
+        try {
+            if (Integer.parseInt(v) >= max) throw BizException.of(message);
+        } catch (NumberFormatException ignore) {
+            // 异常值视为未超限
+        }
+    }
+
+    private void incrFail(String key, int minutes) {
         Long n = redis.opsForValue().increment(key);
         if (n != null && n == 1L) {
-            redis.expire(key, 5, TimeUnit.MINUTES);
+            redis.expire(key, minutes, TimeUnit.MINUTES);
         }
     }
 
