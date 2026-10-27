@@ -137,3 +137,10 @@ data/
 # backend/**/*.jar 已忽略 backend/ 下的 jar, 这里额外忽略根目录的拷贝
 /industrial-erp-*.jar
 .claude/worktrees/
+
+# ===== 仓库卫生 (P2): 构建/部署压缩包与历史备份不入库 =====
+*.tar.gz
+*.tgz
+backups/*.sql
+backups/*.sql.gz
+electron/pc-web-dist/

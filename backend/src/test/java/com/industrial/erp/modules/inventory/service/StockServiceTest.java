@@ -77,6 +77,8 @@ class StockServiceTest {
                     Supplier<?> action = inv.getArgument(3);
                     return action.get();
                 });
+        // 乐观锁守卫: updateById 返回 1 表示抢占成功, 否则按版本冲突抛错
+        lenient().when(stockMapper.updateById(any(InvStock.class))).thenReturn(1);
     }
 
     @AfterEach

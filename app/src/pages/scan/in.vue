@@ -85,6 +85,10 @@
           </picker>
         </view>
         <view class="info-item">
+          <text class="i-lbl">品名</text>
+          <view class="i-val static">{{ arrivalProductName }}</view>
+        </view>
+        <view class="info-item">
           <text class="i-lbl">供应商 / 到货来源</text>
           <view class="i-val static">{{ order.supplierName || '—' }}</view>
         </view>
@@ -186,9 +190,6 @@
         <view class="photo-tip" v-if="!photos.length">📷 至少 1 张原始到货标签照片，不可仅用供应商报告替代</view>
       </view>
 
-      <!-- 占位: 给固定底栏 -->
-      <view style="height: 130rpx"></view>
-
       <!-- 固定底栏双按钮 (移动端主操作) -->
       <view class="footer-bar">
         <view class="btn btn-outline" @click="onSaveDraft">保存检验记录</view>
@@ -222,6 +223,9 @@
         </view>
         <view class="v-note">综合外观、密度、熔融指数等指标，均可依据批次判定为合格。</view>
       </view>
+
+      <!-- 占位: 给固定底栏 + 底部 tabBar 留出滚动空间 -->
+      <view class="footer-spacer"></view>
 
     </view>
     <!-- main-col -->
@@ -275,6 +279,13 @@ export default {
       return this.orderList.length
         ? this.orderList.map((o) => (o.billNo || '') + ' · ' + (o.supplierName || '') + ' · ' + (o.totalQty || 0))
         : ['（暂无采购订单）']
+    },
+    // 到货原料品名: 取采购订单明细 (多行去重), 回退检验单头的商品快照
+    arrivalProductName() {
+      const names = ((this.order && this.order.details) || []).map((d) => d.productName).filter(Boolean)
+      const uniq = [...new Set(names)]
+      if (uniq.length) return uniq.join('、')
+      return this.iqc.productName || '—'
     },
     // 顶部三步视觉进度: 由填写程度驱动 (对齐 PC flowStep)
     flowStep() {
@@ -638,8 +649,10 @@ export default {
 .plan-go { font-size: 24rpx; color: #52c41a; font-weight: 600; }
 
 /* ===== 固定底栏 (移动端主操作) ===== */
-.footer-bar { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; padding: 16rpx 24rpx;
-  box-shadow: 0 -2rpx 12rpx rgba(0,0,0,0.08); display: flex; gap: 16rpx; z-index: 9; }
+.footer-bar { position: fixed; left: 0; right: 0; bottom: var(--window-bottom, 0px); background: #fff; padding: 16rpx 24rpx;
+  box-shadow: 0 -2rpx 12rpx rgba(0,0,0,0.08); display: flex; gap: 16rpx; z-index: 99; }
+/* 底栏本体 116rpx (84 按钮 + 上下 16 内边距), 多留 24rpx 给阴影 */
+.footer-spacer { height: 140rpx; }
 .btn { flex: 1; height: 84rpx; line-height: 84rpx; border-radius: 42rpx; text-align: center; font-size: 28rpx; font-weight: 600; }
 .btn-outline { background: #fff; color: #1677ff; border: 2rpx solid #1677ff; }
 .btn-primary { background: #1677ff; color: #fff; }

@@ -7,12 +7,16 @@ import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.finance.service.FinArapService;
+import com.industrial.erp.modules.inventory.mapper.InvLedgerMapper;
+import com.industrial.erp.modules.inventory.mapper.InvStockMapper;
 import com.industrial.erp.modules.inventory.service.StockService;
+import com.industrial.erp.modules.mes.service.MesReportService;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
+import com.industrial.erp.modules.sales.mapper.SalOrderMapper;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
@@ -71,6 +75,10 @@ class SalDeliveryUncheckTest {
     @Mock private SalOrderDetailMapper orderDetailMapper;
     @Mock private OperLogPublisher operLogPublisher;
     @Mock private BaseProductMapper productMapper;
+    @Mock private SalOrderMapper orderMapper;
+    @Mock private MesReportService mesReportService;
+    @Mock private InvStockMapper inventoryStockMapper;
+    @Mock private InvLedgerMapper ledgerMapper;
 
     @InjectMocks private SalDeliveryService service;
 

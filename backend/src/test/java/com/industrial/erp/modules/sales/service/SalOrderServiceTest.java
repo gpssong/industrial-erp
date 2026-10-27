@@ -4,6 +4,9 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
+import com.industrial.erp.modules.base.mapper.BaseProductUnitMapper;
+import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.sales.entity.SalOrder;
 import com.industrial.erp.modules.sales.entity.SalOrderDetail;
 import com.industrial.erp.modules.sales.mapper.SalOrderDetailMapper;
@@ -52,6 +55,9 @@ class SalOrderServiceTest {
     @Mock private BillNoGenerator billNoGenerator;
     @Mock private PermissionService permService;
     @Mock private OperLogPublisher operLogPublisher;
+    @Mock private BaseProductMapper productMapper;
+    @Mock private BaseProductUnitMapper unitMapper;
+    @Mock private BaseWarehouseMapper warehouseMapper;
 
     @InjectMocks private SalOrderService service;
 

@@ -3,9 +3,13 @@ package com.industrial.erp.config;
 import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
+import com.industrial.erp.common.Constants;
+import com.industrial.erp.modules.system.entity.SysUser;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.filter.CorsFilter;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.cors.CorsConfiguration;
@@ -35,6 +39,14 @@ import java.util.Set;
 @Configuration
 public class SaTokenConfig implements WebMvcConfigurer {
 
+    private final SysUserMapper sysUserMapper;
+    private final StringRedisTemplate redis;
+
+    public SaTokenConfig(SysUserMapper sysUserMapper, StringRedisTemplate redis) {
+        this.sysUserMapper = sysUserMapper;
+        this.redis = redis;
+    }
+
     /**
      * 业务拦截器: 默认拦截全部, 白名单 (登录/captcha/上传静态资源) 放行, 其余强制登录.
      *
@@ -63,6 +75,12 @@ public class SaTokenConfig implements WebMvcConfigurer {
                 .check(r -> StpUtil.checkLogin())
         )).addPathPatterns("/**");
 
+        // 默认密码用户: 登录态有效, 但除改密/登出/me 外的 API 一律拦截
+        registry.addInterceptor(mustChangePasswordInterceptor()).addPathPatterns("/**");
+
+        // 账号禁用/删除即时失效: 已签发 token 不再等 30 天自然过期 (P1-2)
+        registry.addInterceptor(userStatusInterceptor()).addPathPatterns("/**");
+
         // Knife4j / Swagger / Actuator 单独拦截: 必须登录 + 超级管理员 (roles 包含 SUPER_ADMIN)
         registry.addInterceptor(knife4jAuthInterceptor())
                 .addPathPatterns(
@@ -74,6 +92,104 @@ public class SaTokenConfig implements WebMvcConfigurer {
                         "/webjars/**",
                         "/actuator/**"
                 );
+    }
+
+    /** 默认密码用户改密期间仍可访问的接口 */
+    private static final Set<String> PWD_CHANGE_ALLOWED = Set.of(
+            "/auth/login",
+            "/auth/captcha",
+            "/auth/logout",
+            "/auth/me",
+            "/system/user/me/password",
+            "/error"
+    );
+
+    /**
+     * 默认密码拦截器: 只放行登录/登出/改密/当前用户, 其余接口返回 403.
+     * <p>仅靠前端弹窗拦截时, 拿到 token 仍可直接调 API; 这里做服务端强制。
+     */
+    @Bean
+    public HandlerInterceptor mustChangePasswordInterceptor() {
+        return new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(jakarta.servlet.http.HttpServletRequest request,
+                                     jakarta.servlet.http.HttpServletResponse response,
+                                     Object handler) throws java.io.IOException {
+                if (!StpUtil.isLogin()) return true;
+                Object must = StpUtil.getSession().get("mustChangePassword");
+                if (!Boolean.TRUE.equals(must)) return true;
+
+                String path = request.getServletPath();
+                if (PWD_CHANGE_ALLOWED.contains(path)
+                        || path.startsWith("/system/upload/")
+                        || path.startsWith("/upload/")) {
+                    return true;
+                }
+                response.setStatus(403);
+                response.setContentType("application/json;charset=UTF-8");
+                response.getWriter().write(
+                        "{\"code\":403,\"msg\":\"请先修改默认密码\",\"data\":null}");
+                return false;
+            }
+        };
+    }
+
+    /**
+     * 账号状态拦截器: 每个请求最多每 60 秒查一次库, 已禁用/已删除账号立即失效.
+     *
+     * <p>Sa-Token 会话默认 30 天, 只在登录时校验状态时, 管理员禁用账号后
+     * 旧 token 仍可继续调用接口 (P1-2). 这里在服务端每次请求兜底校验,
+     * 禁用操作同时会调用 {@code StpUtil.kickout()} 主动踢下线.
+     */
+    @Bean
+    public HandlerInterceptor userStatusInterceptor() {
+        return new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(jakarta.servlet.http.HttpServletRequest request,
+                                     jakarta.servlet.http.HttpServletResponse response,
+                                     Object handler) throws java.io.IOException {
+                if (!StpUtil.isLogin()) return true;
+                long userId;
+                try {
+                    userId = StpUtil.getLoginIdAsLong();
+                } catch (Exception e) {
+                    return true;
+                }
+
+                String cacheKey = Constants.REDIS_USER_STATUS + userId;
+                Boolean active = null;
+                try {
+                    String cached = redis.opsForValue().get(cacheKey);
+                    if (cached != null) active = "1".equals(cached);
+                } catch (Exception ignore) {
+                    // Redis 不可用时直接查库, 不因缓存故障放行
+                }
+                if (active == null) {
+                    SysUser user = sysUserMapper.selectById(userId);
+                    active = user != null
+                            && Integer.valueOf(1).equals(user.getStatus())
+                            && (user.getDeleted() == null || user.getDeleted() == 0);
+                    try {
+                        redis.opsForValue().set(cacheKey, active ? "1" : "0",
+                                java.time.Duration.ofSeconds(60));
+                    } catch (Exception ignore) {
+                        // 缓存写入失败不影响本次判定
+                    }
+                }
+                if (Boolean.TRUE.equals(active)) return true;
+
+                try {
+                    StpUtil.kickout(userId);
+                } catch (Exception ignore) {
+                    // JWT 无状态 token 下的兜底: 即使无法注销会话, 下面也会返回 401
+                }
+                response.setStatus(401);
+                response.setContentType("application/json;charset=UTF-8");
+                response.getWriter().write(
+                        "{\"code\":401,\"msg\":\"账号已被禁用或删除，请联系管理员\",\"data\":null}");
+                return false;
+            }
+        };
     }
 
     /**

@@ -3,6 +3,50 @@
 
 ## changelog (倒序)
 
+### v1.1.129 (2026-10-26 — P1/P2 加固: 禁用即时失效 / 库存唯一键 / 锁提交后释放 / 监控与备份保留 / 版本统一)
+
+**背景**: P0 完成后按巡检清单处理 P1/P2。P1 中分页上限、备份内容校验、CI 单测此前已落地; 本次处理剩余可直接闭环的项。
+
+**(1) 账号安全 (P1-2)**
+- `SaTokenConfig` 新增 `userStatusInterceptor`: 每个请求校验账号状态 (Redis 缓存 60s), 已禁用/已删除账号立即返回 401, 不再等 30 天 token 过期。
+- `SysUserService` 在禁用、删除、管理员重置密码后调用 `StpUtil.kickout()` 并清除状态缓存 (`erp:user:status:<id>`)。
+
+**(2) 库存并发 (P1-3)**
+- `sql/132_v1129_p1_stock_unique.sql`: 原唯一键含可空列 (`location_id`/`batch_no`/`deleted`), MySQL 对 NULL 不去重 → 同仓库+商品+批次可插多行。新增生成列 `batch_key`/`deleted_key` 归一 NULL, 改唯一键为 `(warehouse_id, product_id, batch_key, deleted_key)`, 与 `selectForUpdate` 查询键一致。脚本含重复数据前置校验, 幂等可重跑。
+
+**(3) 锁释放时机 (P1-4)**
+- `RedisLock` 在有事务时注册 `TransactionSynchronization`, 改为事务提交/回滚后解锁; 避免下一线程在旧事务提交前拿到锁读到旧库存导致超卖。新增 `RedisLockTest` 覆盖有/无事务两种情况。
+
+**(4) 单号序列 (P1-5)**
+- `BillNoGenerator` 去掉序列键 TTL; 三节点 Redis `maxmemory-policy` 由 `allkeys-lru` 改 `volatile-lru`, 保证无 TTL 的单号序列不会被内存淘汰后从 1 重计。`docker-compose.yml` 同步。
+
+**(5) 监控与备份 (P1-7/P1-9)**
+- 新增 `scripts/erp-health-check.sh` (home/feiniu/aliyun 三角色): HTTP、复制线程与延迟、磁盘、容器健康、隧道、备份新鲜度; 每 10 分钟 cron, 状态变化或持续失败每小时告警, 支持企业微信机器人 (`/etc/erp-health.env` 的 `ALERT_WEBHOOK`)。
+- 飞牛 03:30 备份脚本追加保留策略: 最近 7 份 + 最近 12 个月每月 1 份。
+
+**(6) 版本统一 (P2)**
+- 六源版本统一到 1.1.129 (`pc-web/package.json` / `app/package.json` / `manifest.json` versionName+versionCode 1129 / `profile/index.vue` / `application.yml` / `SystemVersionInitializer`)。
+- 新增 `scripts/check-version.sh` 并在 CI 增加 `version-consistency` job, 版本漂移直接挡 PR。
+- `.gitignore` 补 `*.tar.gz` / `backups/*.sql` / `electron/pc-web-dist/`。
+- 单测修复: 8 个测试类补齐服务构造依赖 mock, `SecurityContext` 测试用户短路 Sa-Token 会话, 出库单测补乐观锁 `updateById=1`; 全量 `mvn test` **68/68 通过** (修复前 26 个失败/错误)。
+
+**(7) 部署验收 (2026-10-26)**
+- 三节点均 1.1.129: 飞牛 `erp-backend-failover` / .150 `erp-backend` / 阿里云 `erp-backend` 均 healthy, `sys_config.SYSTEM_VERSION_INFO` = 1.1.129。
+- `sql/132` 已在主库执行, 三节点 `inv_stock.uniq_inv_stock_biz` 均为 4 列; 复制 IO/SQL 双 Yes、延迟 0。
+- 公网 `http://47.96.188.129/` 200, `/api/auth/captcha` 200; 三节点健康巡检脚本退出码 0。
+
+**未纳入本次** (需业务确认或外部凭据): 数据权限落地 (现有角色 data_scope 为 2/4, 直接启用会改变可见范围)、Flyway 基线化、OSS 异地备份、发布流水线自动部署、Git 历史大文件重写、Spring Boot 大版本升级。
+
+**(8) App 原料入库页底栏遮挡修复 (2026-10-26)**
+- 现象: `pages/scan/in` 是 tabBar 页, 固定底栏 `bottom: 0` 渲染到 tabBar 之下, "保存检验记录 / 生成报告并入库" 两个按钮只露出上半截。
+- 修复: `app/src/pages/scan/in.vue` 底栏改 `bottom: var(--window-bottom, 0px)` (uni-h5 用该变量表示 tabBar 高度, 含安全区; App 端无 tabBar 变量时回退 0); 占位块从页面中部移到最末, 改为 `.footer-spacer` (140rpx), 综合判定面板不再被底栏压住。
+- 验证: 本地 H5 实测底栏 bottom = tabBar top (重叠 0), 滚到底部时最后一行判定内容与底栏留 24px 间距; APK 已重出 `erp-app-20261026-1.1.129.apk` (MD5 见交付记录)。
+
+**(9) App 原料入库「到货基本信息」新增品名 (2026-10-26)**
+- `pages/scan/in` 的「到货基本信息」在「关联采购订单」下新增只读「品名」行: 取采购订单明细的 `product_name` (多行去重后以「、」拼接), 无明细时回退检验单头快照 `iqc.productName`。
+- 数据来源为后端既有快照 (`pur_order_detail.product_name` / `mes_quality_inspection.product_name`), 无需改接口; 品名随订单切换自动刷新。
+- 交付: APK `erp-app-20261026-1.1.129.apk` (内嵌版本 1.1.129 / versionCode 1129, MD5 `272434b1ef523dc5b5ec69ac86e3ed20`), 已核对包含底栏修复与品名行。
+
 ### v1.1.126 (2026-10-25 — 吹膜米克重采集全字段上云 + PC 入口 + App/H5 端页面 + 重新出 APK)
 
 **背景**: v1.1.119 把 ESP32 吹膜米克重采集接收侧闭环 (3 表 + 设备免登录态上报 + PC 实时曲线), 但 `mes_weight_sample` 只存了 6 列 (设定/实测/偏差/偏差% / 线速/产量/长度)。冠尚达高精度米重控制系统 MCGS 屏上实际有 12 个量 —— 其余 6 个量 (设定长度/当前重量/上牵引Hz/下牵引Hz/机器产量/克重修正) 上不到云, 办公室/远程看不到, 无法质量追溯。

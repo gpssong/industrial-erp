@@ -80,6 +80,7 @@
 import * as qmsApi from '../../api/qms.js'
 import api from '../../api/index.js'
 import { pickAndUploadImage } from '../../utils/upload.js'
+import { getApiBaseOverride } from '../../utils/apiBase.js'
 import { getPermissions, isAdmin } from '../../utils/permission.js'
 
 export default {
@@ -104,7 +105,7 @@ export default {
     itemsFail() { return this.items.filter((x) => x.passFlag === 0).length }
   },
   onLoad(query) {
-    try { this.apiBase = (localStorage.getItem('erp_api_base') || '').replace(/\/$/, '') || (typeof window !== 'undefined' ? window.location.origin + '/api' : '') } catch (e) {}
+    try { this.apiBase = getApiBaseOverride() || (typeof window !== 'undefined' ? window.location.origin + '/api' : '') } catch (e) {}
     this.loadSemiIn()
     if (query && query.semiInId) { this.semiInId = String(query.semiInId); this.bootstrap() }
   },

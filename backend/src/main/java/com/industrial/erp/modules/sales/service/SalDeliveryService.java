@@ -389,6 +389,16 @@ public class SalDeliveryService {
         if (!Constants.STATUS_DRAFT.equals(d.getBillStatus())) {
             throw BizException.of("只有草稿状态可审核");
         }
+        // 并发防护: 原子抢占 DRAFT -> CHECKED。两个请求同时审核时只有一个能更新成功,
+        // 另一个会阻塞到前者提交后返回 0, 从而避免重复扣库存/重复生成应收。
+        int claimed = deliveryMapper.update(null, new LambdaUpdateWrapper<SalDelivery>()
+                .eq(SalDelivery::getId, id)
+                .eq(SalDelivery::getBillStatus, Constants.STATUS_DRAFT)
+                .eq(SalDelivery::getDeleted, 0)
+                .set(SalDelivery::getBillStatus, Constants.STATUS_CHECKED));
+        if (claimed == 0) {
+            throw BizException.of("单据已被审核或状态已变更，请刷新后重试");
+        }
         // 1. 信用校验
         BaseCustomer c = customerMapper.selectById(d.getCustomerId());
         if (c != null && c.getCreditLimit() != null && c.getCreditLimit().compareTo(BigDecimal.ZERO) > 0) {
@@ -423,7 +433,6 @@ public class SalDeliveryService {
         BigDecimal profit = d.getTotalAmount().subtract(totalCost);
         SalDelivery upd = new SalDelivery();
         upd.setId(id);
-        upd.setBillStatus(Constants.STATUS_CHECKED);
         upd.setCostAmount(totalCost);
         upd.setProfitAmount(profit);
         deliveryMapper.updateById(upd);

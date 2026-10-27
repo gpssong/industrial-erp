@@ -29,8 +29,9 @@ public class BillNoGenerator {
         if (seq == null) {
             throw BizException.of("单据号生成失败");
         }
-        // 每日 0 点过期 (86400s + 留 buffer)
-        redis.expire(key, java.time.Duration.ofSeconds(86400 + 60));
+        // 不设置 TTL: 单号序列一旦被淘汰会从 1 重新计数, 与当天已生成单号重复.
+        // Redis 淘汰策略固定为 volatile-lru (只淘汰带 TTL 的缓存), 无 TTL 的序列键不会被回收.
+        // 键按日期分段, 历史键数量 = 单据前缀数 × 天数, 体量可忽略.
         return prefix + LocalDate.now().format(FMT) + String.format("%04d", seq);
     }
 }

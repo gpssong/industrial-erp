@@ -14,9 +14,16 @@
         <label class="label">密码</label>
         <input class="input" type="password" v-model="form.password" placeholder="请输入密码" />
       </div>
+      <div class="form-item">
+        <label class="label">验证码</label>
+        <div class="captcha-row">
+          <input class="input" v-model="form.captchaCode" maxlength="4" placeholder="请输入验证码" />
+          <image v-if="captchaImage" :src="captchaImage" class="captcha-img" mode="aspectFit" @click="loadCaptcha" />
+          <span v-else class="captcha-img captcha-loading" @click="loadCaptcha">加载中</span>
+        </div>
+      </div>
       <button class="btn btn-block" @click="onLogin">登 录</button>
     </div>
-    <div class="muted" style="text-align:center;margin-top:20px">默认 admin / admin123</div>
     <div class="muted" style="text-align:center;margin-top:6px;font-size:11px">v1.0.10+ PC/App端权限分离</div>
     <!-- 服务器设置(折叠) -->
     <div class="card server-section">
@@ -43,7 +50,20 @@
 import { reactive, ref, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { navigateTo } from '../../utils/nav.js'
-const form = reactive({ username: '', password: '' })
+const form = reactive({ username: '', password: '', captchaKey: '', captchaCode: '' })
+const captchaImage = ref('')
+
+async function loadCaptcha() {
+  try {
+    const d = await api.getCaptcha()
+    form.captchaKey = d?.captchaKey || ''
+    captchaImage.value = d?.captchaImage || ''
+    form.captchaCode = ''
+  } catch (e) {
+    form.captchaKey = ''
+    captchaImage.value = ''
+  }
+}
 
 // 服务器设置
 const showServer = ref(false)
@@ -54,22 +74,22 @@ const currentDisplay = ref('')
 // v1.1.105: 原判断只认 `plus`, 会把 Capacitor APK 误判成 H5 (登录页跟着显示错默认值),
 //           统一收敛到 utils/runtime.js。
 import { isH5Runtime, isNativeApp } from '../../utils/runtime.js'
+import { getApiBaseOverride, setApiBaseOverride } from '../../utils/apiBase.js'
 
 function effectiveBase() {
-  const override = apiBase.value.trim()
+  const override = getApiBaseOverride()
   if (isH5Runtime()) {
-    if (override && /^https?:\/\//.test(override)) return override.replace(/\/$/, '')
-    return (window.location.origin) + '/api (同源)'
+    return override || ((window.location.origin) + '/api (同源)')
   }
-  return (override && /^https?:\/\//.test(override) ? override.replace(/\/$/, '') : nativeDefault)
+  return override || nativeDefault
 }
 function persistApiBase(val) {
-  if (val && /^https?:\/\//.test(val)) {
-    try { localStorage.setItem('erp_api_base', val.replace(/\/$/, '')) } catch (e) {}
-  } else {
-    try { localStorage.removeItem('erp_api_base') } catch (e) {}
-  }
+  const saved = setApiBaseOverride(val)
+  apiBase.value = saved
   currentDisplay.value = effectiveBase()
+  if (typeof uni !== 'undefined' && uni.showToast) {
+    uni.showToast({ title: saved ? '已保存: ' + saved : '已恢复默认', icon: 'none', duration: 2500 })
+  }
 }
 function onSaveServer() {
   persistApiBase(apiBase.value.trim())
@@ -80,8 +100,9 @@ function onResetServer() {
 }
 
 onMounted(() => {
-  apiBase.value = (() => { try { return localStorage.getItem('erp_api_base') || '' } catch (e) { return '' } })()
+  apiBase.value = getApiBaseOverride()
   currentDisplay.value = effectiveBase()
+  loadCaptcha()
 })
 
 async function onLogin() {
@@ -119,6 +140,14 @@ async function onLogin() {
       return
     }
 
+    if (r.passwordExpired) {
+      if (typeof uni !== 'undefined' && uni.showToast) {
+        uni.showToast({ title: '请先修改默认密码', icon: 'none', duration: 2500 })
+      }
+      navigateTo('/pages/profile/change-password')
+      return
+    }
+
     // 二次拉取 /me 确保菜单数据最新 (兼容老登录)
     try {
       const me = await api.me()
@@ -150,6 +179,7 @@ async function onLogin() {
     } else {
       alert(friendly)
     }
+    loadCaptcha()
   }
 }
 </script>
@@ -163,6 +193,10 @@ async function onLogin() {
 .label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; }
 .input { width: 100%; height: 40px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 12px; box-sizing: border-box; font-size: 14px; }
 .input:focus { border-color: #1e6091; outline: none; }
+.captcha-row { display: flex; align-items: center; gap: 8px; }
+.captcha-row .input { flex: 1; }
+.captcha-img { width: 100px; height: 40px; border: 1px solid #dcdfe6; border-radius: 4px; flex: none; }
+.captcha-loading { display: grid; place-items: center; font-size: 12px; color: #999; }
 .btn { background: #1e6091; color: #fff; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 16px; width: 100%; }
 .btn:hover { background: #2980b9; }
 .btn-sm { width: auto; padding: 6px 16px; font-size: 13px; }

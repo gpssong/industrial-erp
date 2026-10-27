@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.security.SecureRandom;
 import java.util.Collections;
@@ -58,13 +60,32 @@ public class RedisLock {
             Thread.currentThread().interrupt();
             throw BizException.of("操作被中断");
         } finally {
-            try {
-                redis.execute(UNLOCK_SCRIPT, Collections.singletonList(lockKey), token);
-            } catch (Exception e) {
-                // 解锁失败不应影响主流程 (锁本身有 lease 自动过期),
-                // 但需打 warn 便于排查 Redis 抖动 / 集群切换等场景
-                log.warn("[RedisLock] 解锁失败: key={}, token={}, err={}", lockKey, token, e.getMessage());
-            }
+            // 锁必须在事务提交/回滚之后释放, 否则下一个线程可能在旧事务提交前
+            // 拿到锁并读到未提交前的数据, 依然会超卖 (P1-4).
+            releaseAfterTransaction(lockKey, token);
+        }
+    }
+
+    private void releaseAfterTransaction(String lockKey, String token) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    unlock(lockKey, token);
+                }
+            });
+        } else {
+            unlock(lockKey, token);
+        }
+    }
+
+    private void unlock(String lockKey, String token) {
+        try {
+            redis.execute(UNLOCK_SCRIPT, Collections.singletonList(lockKey), token);
+        } catch (Exception e) {
+            // 解锁失败不应影响主流程 (锁本身有 lease 自动过期),
+            // 但需打 warn 便于排查 Redis 抖动 / 集群切换等场景
+            log.warn("[RedisLock] 解锁失败: key={}, token={}, err={}", lockKey, token, e.getMessage());
         }
     }
 

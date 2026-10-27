@@ -1,9 +1,11 @@
 package com.industrial.erp.modules.system.service;
 
 import cn.hutool.core.util.StrUtil;
+import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.industrial.erp.common.Constants;
 import com.industrial.erp.modules.system.entity.SysUser;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
@@ -11,6 +13,7 @@ import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +28,7 @@ public class SysUserService {
     private final SysUserMapper userMapper;
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
+    private final StringRedisTemplate redis;
     private static final BCryptPasswordEncoder ENCODER = new BCryptPasswordEncoder();
     private static final java.util.concurrent.ThreadLocalRandom RAND = java.util.concurrent.ThreadLocalRandom.current();
     private static final String ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -58,10 +62,29 @@ public class SysUserService {
         return sb.toString();
     }
 
-    public SysUserService(SysUserMapper userMapper, PermissionService permService, OperLogPublisher operLogPublisher) {
+    public SysUserService(SysUserMapper userMapper, PermissionService permService,
+                          OperLogPublisher operLogPublisher, StringRedisTemplate redis) {
         this.userMapper = userMapper;
         this.permService = permService;
         this.operLogPublisher = operLogPublisher;
+        this.redis = redis;
+    }
+
+    /**
+     * 禁用/删除账号后立即让该用户所有会话失效, 并清掉状态缓存.
+     */
+    private void invalidateSessions(Long userId) {
+        if (userId == null) return;
+        try {
+            redis.delete(Constants.REDIS_USER_STATUS + userId);
+        } catch (Exception ignore) {
+            // 缓存删除失败时最多 60 秒后自然过期
+        }
+        try {
+            StpUtil.kickout(userId);
+        } catch (Exception e) {
+            log.warn("[SysUser] 会话踢出失败 userId={} err={}", userId, e.getMessage());
+        }
     }
 
     public IPage<SysUser> page(Integer pageNum, Integer pageSize, String username, String realName, Long deptId) {
@@ -112,6 +135,17 @@ public class SysUserService {
         if (user.getDeptId() != null) u.setDeptId(user.getDeptId());
         if (user.getStatus() != null) u.setStatus(user.getStatus());
         userMapper.updateById(u);
+        if (user.getStatus() != null) {
+            if (Integer.valueOf(1).equals(user.getStatus())) {
+                try {
+                    redis.delete(Constants.REDIS_USER_STATUS + user.getId());
+                } catch (Exception ignore) {
+                    // 缓存 60 秒后自然过期
+                }
+            } else {
+                invalidateSessions(user.getId());
+            }
+        }
     }
 
     /**
@@ -150,6 +184,7 @@ public class SysUserService {
         u.setId(userId);
         u.setPassword(ENCODER.encode(newPassword));
         userMapper.updateById(u);
+        if (!isSelf) invalidateSessions(userId);
     }
 
     /**
@@ -164,6 +199,9 @@ public class SysUserService {
         if (oldPwd.equals(newPwd)) {
             throw new com.industrial.erp.exception.BizException("新密码不能与原密码相同");
         }
+        if ("admin123".equals(newPwd)) {
+            throw new com.industrial.erp.exception.BizException("新密码不能使用系统默认密码");
+        }
         assertPasswordComplexity(newPwd, "本人改密");
         Long uid = com.industrial.erp.security.SecurityContext.getUserId();
         if (uid == null) throw new com.industrial.erp.exception.BizException(401, "未登录");
@@ -176,6 +214,8 @@ public class SysUserService {
         upd.setId(uid);
         upd.setPassword(ENCODER.encode(newPwd));
         userMapper.updateById(upd);
+        // 默认密码用户改密成功后解除 API 级拦截
+        cn.dev33.satoken.stp.StpUtil.getSession().delete("mustChangePassword");
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -185,6 +225,7 @@ public class SysUserService {
         if (u == null) throw new com.industrial.erp.exception.BizException("用户不存在或已删除");
         userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
                 .eq(SysUser::getId, id).set(SysUser::getDeleted, 1));
+        invalidateSessions(id);
         operLogPublisher.publishDeleteSnapshot("用户管理", String.valueOf(id), u, null);
     }
 
@@ -196,6 +237,8 @@ public class SysUserService {
         user.setId(id);
         user.setPassword(ENCODER.encode(password));
         userMapper.updateById(user);
+        Long current = com.industrial.erp.security.SecurityContext.getUserId();
+        if (current == null || !current.equals(id)) invalidateSessions(id);
     }
 
     public List<Long> getRoleIds(Long userId) {

@@ -41,12 +41,14 @@ public final class SecurityContext {
     }
 
     public static String getUsername() {
+        if (TEST_USER_ID.get() != null) return "test-user";
         if (!isLogin()) return null;
         Object o = StpUtil.getSession().get("username");
         return o == null ? null : o.toString();
     }
 
     public static Long getTenantId() {
+        if (TEST_USER_ID.get() != null) return Constants.DEFAULT_TENANT;
         if (!isLogin()) return Constants.DEFAULT_TENANT;
         Object o = StpUtil.getSession().get(Constants.CURRENT_TENANT);
         return o == null ? Constants.DEFAULT_TENANT : Long.valueOf(o.toString());

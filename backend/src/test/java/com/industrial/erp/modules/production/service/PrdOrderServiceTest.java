@@ -1,7 +1,6 @@
 package com.industrial.erp.modules.production.service;
 
 import com.industrial.erp.common.Constants;
-import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
@@ -20,7 +19,9 @@ import com.industrial.erp.security.SecurityContext;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.modules.inventory.service.StockService;
+import com.industrial.erp.modules.mes.service.MesReportService;
 import com.industrial.erp.modules.system.aspect.OperLogPublisher;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -70,6 +71,7 @@ class PrdOrderServiceTest {
     @Mock private StockService stockService;
     @Mock private PermissionService permService;
     @Mock private OperLogPublisher operLogPublisher;
+    @Mock private MesReportService mesReportService;
 
     @InjectMocks private PrdOrderService prdOrderService;
 
@@ -81,6 +83,12 @@ class PrdOrderServiceTest {
     @BeforeEach
     void setUp() {
         SecurityContext.setCurrentUserIdForTest(1L);
+        lenient().when(mesReportService.allProcessesFinished(anyLong())).thenReturn(true);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContext.clearForTest();
     }
 
     // ===== release (开工) =====
@@ -111,13 +119,17 @@ class PrdOrderServiceTest {
         // 仓库回退: 生产单填了仓库
         when(orderMapper.selectById(ORDER_ID)).thenReturn(order);
 
+        // v1.1.119+: 用量 = 成品总重(planQty × 克重 / 1000) × 配比份额 × (1+损耗)
+        BaseProduct product = new BaseProduct();
+        product.setId(PRODUCT_ID);
+        product.setGramWeight(new BigDecimal("10"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product);
+
         // 执行
         Long reqId = prdOrderService.release(ORDER_ID);
 
         // 验证: 插入领料单
         verify(reqMapper, times(1)).insert(any(PrdRequisition.class));
-        // 验证: LDPE 用量 = 2.0 * (100/10) * 1.05 = 21.0
-        // 验证: LLDPE 用量 = 0.5 * (100/10) * 1.05 = 5.25
         verify(reqDetailMapper, times(2)).insert(any(PrdRequisitionDetail.class));
         // 验证: 生产单状态改为 RELEASED
         verify(orderMapper, times(1)).updateById(any(PrdOrder.class));
@@ -135,7 +147,7 @@ class PrdOrderServiceTest {
         bom.setId(BOM_ID);
         bom.setBaseQty(new BigDecimal("10"));
         bom.setLossRate(BigDecimal.ZERO);
-        bom.setDetails(Collections.emptyList());
+        bom.setDetails(List.of(buildBomDetail(1L, "LDPE", new BigDecimal("2.0"))));
         when(bomService.detail(BOM_ID)).thenReturn(bom);
 
         when(billNoGenerator.generate(eq(Constants.BILL_RQ))).thenReturn("RQ2026-001");
@@ -144,6 +156,11 @@ class PrdOrderServiceTest {
         defaultWh.setId(WAREHOUSE_ID);
         defaultWh.setWarehouseName("默认仓库");
         when(warehouseMapper.selectOne(any())).thenReturn(defaultWh);
+
+        BaseProduct product = new BaseProduct();
+        product.setId(PRODUCT_ID);
+        product.setGramWeight(new BigDecimal("10"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product);
 
         Long reqId = prdOrderService.release(ORDER_ID);
 
@@ -154,15 +171,16 @@ class PrdOrderServiceTest {
     }
 
     @Test
-    @DisplayName("开工: 无 BOM 时报错")
-    void release_shouldFailWhenNoBom() {
+    @DisplayName("开工: 无 BOM 时不阻塞, 仅置 RELEASED 且不生成领料单")
+    void release_shouldDegradeWhenNoBom() {
         PrdOrder order = buildDraftOrder();
-        order.setBomId(null); // 触发"未配置BOM"分支
+        order.setBomId(null); // v1.1.103+: 改为降级, 不再抛错
         when(orderMapper.selectById(ORDER_ID)).thenReturn(order);
 
-        assertThatThrownBy(() -> prdOrderService.release(ORDER_ID))
-                .isInstanceOf(BizException.class)
-                .hasMessageContaining("未配置BOM");
+        assertThatCode(() -> prdOrderService.release(ORDER_ID)).doesNotThrowAnyException();
+
+        verify(reqMapper, never()).insert(any(PrdRequisition.class));
+        verify(orderMapper, times(1)).updateById(any(PrdOrder.class));
     }
 
     // ===== finish (完工) =====
