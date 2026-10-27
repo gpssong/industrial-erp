@@ -4,13 +4,14 @@
       <div class="toolbar">
         <el-button type="primary" @click="onAdd(null)">新增菜单</el-button>
         <el-switch v-model="showAll" class="show-all-switch" active-text="显示停用/隐藏项" style="margin-left:16px" />
-        <span v-if="!showAll" class="show-all-tip">v1.1.126: 默认仅显示启用菜单, 停用的死项已收进「显示停用/隐藏项」</span>
+        <span v-if="!showAll" class="show-all-tip">v1.1.130: 已按现系统 4 组（经营总览 / 供应链 / 生产与质量 / 经营支持）重排；默认只显示启用且可见的目录与页面，按钮类权限点收进「显示停用/隐藏项」</span>
       </div>
-      <el-table :data="tableData" border stripe v-loading="loading" row-key="id">
-        <el-table-column prop="menuName" label="菜单名称" width="160" />
-        <el-table-column label="类型" width="80">
+      <el-table :data="tableData" border stripe v-loading="loading" row-key="id" default-expand-all
+        :tree-props="{ children: 'children' }">
+        <el-table-column prop="menuName" label="菜单名称" width="200" />
+        <el-table-column label="类型" width="88">
           <template #default="{ row }">
-            <el-tag :type="row.menuType==='M'?'primary':'warning'" size="small">{{ row.menuType==='M'?'菜单':'按钮' }}</el-tag>
+            <el-tag :type="menuTypeMeta(row.menuType).type" size="small">{{ menuTypeMeta(row.menuType).label }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="path" label="路由" width="180" show-overflow-tooltip />
@@ -47,7 +48,9 @@
           <el-form :model="form" label-width="100px">
             <el-form-item label="类型">
               <el-radio-group v-model="form.menuType">
+                <el-radio value="C">目录</el-radio>
                 <el-radio value="M">菜单</el-radio>
+                <el-radio value="F">功能</el-radio>
                 <el-radio value="B">按钮</el-radio>
               </el-radio-group>
             </el-form-item>
@@ -179,12 +182,25 @@ const form = reactive({
 })
 
 const menuTree = computed(() => buildTree(rawList.value))
-// v1.1.126: 默认视图只保留"启用"的节点, 停用/隐藏死项 (status=0) 收进 "显示全部" 开关
+// v1.1.130: 菜单已重排为 4 组 (目录 C) + 页面 (M) + 页面下挂功能(F)/按钮(B).
+// 默认视图只保留启用且可见的目录/页面, 按钮类权限点收进「显示停用/隐藏项」.
 const tableData = computed(() => {
   const roots = menuTree.value
   if (showAll.value) return roots
-  return roots.filter(n => n.status === 1 && n.isVisible === 1)
+  const prune = (nodes) => nodes
+    .filter(n => n.status === 1 && n.isVisible === 1)
+    .map(n => ({ ...n, children: n.children && n.children.length ? prune(n.children) : [] }))
+    .filter(n => n.menuType !== 'C' || n.children.length > 0)
+  return prune(roots)
 })
+
+const MENU_TYPES = {
+  C: { label: '目录', type: 'info' },
+  M: { label: '菜单', type: 'primary' },
+  F: { label: '功能', type: 'success' },
+  B: { label: '按钮', type: 'warning' }
+}
+function menuTypeMeta(t) { return MENU_TYPES[t] || { label: t || '—', type: 'info' } }
 
 function buildTree(list) {
   const map = {}, roots = []

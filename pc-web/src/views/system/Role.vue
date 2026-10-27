@@ -102,7 +102,7 @@
           <el-tree ref="appMenuTreeRef" :data="appMenus" node-key="id" show-checkbox
             check-strictly
             :props="{ label: 'menuName', children: 'children', disabled: 'disabled' }"
-            :default-expanded-keys="defaultExpanded"
+            :default-expanded-keys="appDefaultExpanded"
             :expand-on-click-node="false"
             style="max-height: 400px; overflow-y: auto;">
           </el-tree>
@@ -127,71 +127,61 @@ import { roleApi, menuApi } from '@/api/system'
 import { userApi } from '@/api/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-// v1.0.10+: App 端实际可用的菜单/功能白名单
-// 维护规则: 任何 App 端新增的功能, 都要在这里登记才能在"App 端菜单权限" Tab 显示
-// 与 app/src/pages/dashboard/index.vue 的 PATH_TO_APP 映射保持一致
-// 通过 sys_menu.perms 字段匹配, 自动找到对应的菜单 id (sys_menu 里找不到的 perms 会被自动跳过)
-// idApp 字段 (合成 ID 前缀) 用于 el-tree 唯一标识; 一个 sys_menu.perms 可能被多个 App 功能共用
-// (如"生产加工单"模块下的"外勤盘点"和"新增"共用 production:order:list), 需要用不同合成 ID
-//
-// v1.1.12+: 严格对齐 App PATH_TO_APP — 新增商品 / 库存台账 / 外勤盘点 都保留 App 端入口.
+// v1.1.130: App 端菜单权限白名单 — 按 App 实际页面维护 (不再复用 PC 菜单树).
+// 对齐 app/src/pages/*、utils/permission.js 的 PAGE_PERMS、dashboard 的 APP_MENU_TO_PAGE.
+// 按 sys_menu.perms 反查菜单行; 查不到的 perms 自动跳过 (需先在 sys_menu 补行).
+// idApp 只作 el-tree 节点 key — 同一 perms 可对应多个 App 入口 (如生产排程/OEE).
 const APP_MENU_WHITELIST = [
-  { name: '商品管理', children: [
-    // 新增商品: path /base/product 对应 sys_menu id=301 (perms=base:product:list), App 入口复用 /pages/base/product-add
-    { name: '新增商品 (商品库)', perms: 'base:product:list', idApp: 'app-301-add' }
-  ]},
-  { name: '采购管理', children: [
-    { name: '扫码入库', perms: 'purchase:receipt:list', idApp: 'app-402-receipt' },
-    // v1.1.15+: 采购入库单查询 (sys_menu id=402 path=/purchase/receipt perms=purchase:receipt:list)
-    // 注意: 与"扫码入库"复用同一 perms, 但 idApp 不同 (app-402-receipt-query)
-    // buildAppMenuTree 按 perms 去重时会跳过重复项, 这里用不同 idApp 确保都能显示
-    // v1.1.56+: 改用独立 perm purchase:receipt:query (sql/36 seed 新增 F 类型, 与 list 分离),
-    //   解决 App 端 dashboard APP_MENU_TO_PAGE 里「扫码入库」与「采购入库单查询」(perms+path 撞车) 撞车导致非超管看不到入库单入口的 BUG
-    { name: '采购入库单查询', perms: 'purchase:receipt:query', idApp: 'app-402-receipt-query' },,
-    // v1.1.54+: App 端审核入口 — perms=purchase:receipt:check (sql/28 seed 已建, F 类型 perm 行)
-    // 授权后可让角色在 App 端详情页审核入库单.
-    { name: '采购入库审核', perms: 'purchase:receipt:check', idApp: 'app-2014-receipt-check' },
-    // v1.1.55+: App 端反审核独立 perm — sql/35 seed 新增 purchase:receipt:uncheck (F 类型)
-    // 与"采购入库审核"对称, 老板/主管可单独勾选, 仓管员/制袋工不应勾 (反审核回退库存/AP)
-    { name: '采购入库反审核', perms: 'purchase:receipt:uncheck', idApp: 'app-2015-receipt-uncheck' }
-  ]},
-  { name: '销售管理', children: [
-    { name: '扫码出库', perms: 'sales:return:list', idApp: 'app-503-return' },
-    // v1.1.14+: 销售出库单查询 (sys_menu id=502 path=/sales/delivery perms=sales:delivery:list)
-    { name: '销售出库单查询', perms: 'sales:delivery:list', idApp: 'app-502-delivery' },
-    // v1.1.54+: App 端审核入口 — perms=sales:delivery:check
-    { name: '销售出库审核', perms: 'sales:delivery:check', idApp: 'app-1014-delivery-check' },
-    // v1.1.55+: App 端反审核独立 perm — sql/35 seed 新增 sales:delivery:uncheck (F 类型)
-    { name: '销售出库反审核', perms: 'sales:delivery:uncheck', idApp: 'app-1015-delivery-uncheck' }
-  ]},
-  { name: '库存管理', children: [
-    { name: '查库存',   perms: 'inventory:stock:list',  idApp: 'app-601-stock' },
-    { name: '库存台账', perms: 'inventory:ledger:list', idApp: 'app-602-ledger' },
-    // v1.1.52.5+: 库存预警 (App 工作台「库存预警」卡片, 具体产品列表).
-    // perms=inventory:warning:list → sys_menu id=4011 (sql/28_v124_permissions.sql 已建, parent 0 menu_type F)
-    { name: '库存预警', perms: 'inventory:warning:list', idApp: 'app-4011-warning' }
-  ]},
-  { name: '生产管理', children: [
-    // 外勤盘点: perms=inventory:check:list → sys_menu id=603 path=/inventory/check
-    { name: '外勤盘点',         perms: 'inventory:check:list',  idApp: 'app-603-check' },
-    // 生产加工单 (新增): perms=production:order:list → sys_menu id=702 path=/production/order
-    { name: '生产加工单 (新增)', perms: 'production:order:list', idApp: 'app-702-add' },
-    // v1.1.80 MES: 扫码报工 perms=production:report:list (F 型 perm 载体, sql/53 seed, 授 6 角色)
+  { name: '生产 / 质量', children: [
+    { name: '生产加工单', perms: 'production:order:list', idApp: 'app-order' },
     { name: '扫码报工', perms: 'production:report:list', idApp: 'app-mes-report' },
-    // v1.1.90 QMS: 质量检验 App 入口 (扫码发起 IQC/FAI/PAT/OQC) — perms=quality:inspection:list (sql/54 seed)
+    { name: '生产排程', perms: 'production:schedule:list', idApp: 'app-schedule' },
+    { name: '设备 OEE', perms: 'production:schedule:list', idApp: 'app-oee' },
+    { name: '吹膜米重采集', perms: 'mes:weight:list', idApp: 'app-weight' },
+    { name: '半成品入库', perms: 'production:semi-in:add', idApp: 'app-semi-in' },
+    { name: '成品入库', perms: 'production:finished-in:add', idApp: 'app-finished-in' },
+    { name: '首检 / 工序巡检', perms: 'quality:inspection:check', idApp: 'app-fai-pat' },
     { name: '质量检验', perms: 'quality:inspection:list', idApp: 'app-qms-inspection' },
-    // v1.1.90 PDM: 工艺 SOP 查询 (工人 App 查参数+SOP) — perms=pdm:sop:list
     { name: '工艺 SOP', perms: 'pdm:sop:list', idApp: 'app-pdm-sop' }
   ]},
-  { name: '报表中心', children: [
-    { name: '经营简报 (KPI)', perms: 'report:view', idApp: 'app-951-report' },
-    // v1.1.76+: AI 助手 (对话 + 补货预测); perms=report:ai → 命中 sql/48 建的 sys_menu 行
+  { name: '采购管理', children: [
+    { name: '原料入库 (扫码)', perms: 'purchase:receipt:list', idApp: 'app-scan-in' },
+    { name: '采购入库单查询', perms: 'purchase:receipt:query', idApp: 'app-receipt-query' },
+    { name: '新建入库单', perms: 'purchase:receipt:add', idApp: 'app-receipt-add' },
+    { name: '采购入库审核', perms: 'purchase:receipt:check', idApp: 'app-receipt-check' },
+    { name: '采购入库反审核', perms: 'purchase:receipt:uncheck', idApp: 'app-receipt-uncheck' }
+  ]},
+  { name: '销售管理', children: [
+    { name: '扫码出库', perms: 'sales:return:list', idApp: 'app-scan-out' },
+    { name: '销售出库单查询', perms: 'sales:delivery:list', idApp: 'app-delivery-list' },
+    { name: '销售出库审核', perms: 'sales:delivery:check', idApp: 'app-delivery-check' },
+    { name: '销售出库反审核', perms: 'sales:delivery:uncheck', idApp: 'app-delivery-uncheck' }
+  ]},
+  { name: '库存管理', children: [
+    { name: '查库存', perms: 'inventory:stock:list', idApp: 'app-stock' },
+    { name: '库存台账', perms: 'inventory:ledger:list', idApp: 'app-ledger' },
+    { name: '库存预警', perms: 'inventory:warning:list', idApp: 'app-warning' },
+    { name: '外勤盘点', perms: 'inventory:check:list', idApp: 'app-count' }
+  ]},
+  { name: '设备 / 现场', children: [
+    { name: '设备台账', perms: 'equipment:master:list', idApp: 'app-em-master' },
+    { name: '设备维保', perms: 'equipment:maintain:list', idApp: 'app-em-maintain' }
+  ]},
+  { name: 'XK 记录', children: [
+    { name: 'XK 工作台', perms: 'dashboard:kpi', idApp: 'app-xk-dashboard' },
+    { name: 'XK 批次溯源', perms: 'production:report:list', idApp: 'app-xk-trace' },
+    { name: 'XK 设备维保', perms: 'work:maintain:list', idApp: 'app-xk-maintain' },
+    { name: 'XK 安全卫生', perms: 'work:safety:list', idApp: 'app-xk-safety' },
+    { name: 'XK 单据打印', perms: 'report:view', idApp: 'app-xk-print' },
+    { name: 'XK 审计归档', perms: 'xk:audit:list', idApp: 'app-xk-audit' }
+  ]},
+  { name: '经营报表', children: [
+    { name: '经营简报', perms: 'report:view', idApp: 'app-report-kpi' },
     { name: 'AI 助手', perms: 'report:ai', idApp: 'app-ai-assist' }
   ]},
-  // v1.1.90 EM: 设备中心 (设备主数据 + 维保计划 + 报修 App 入口)
-  { name: '设备中心', children: [
-    { name: '设备主数据', perms: 'equipment:master:list', idApp: 'app-em-master' },
-    { name: '设备维保计划', perms: 'equipment:maintain:list', idApp: 'app-em-maintain' }
+  { name: '基础 / 系统', children: [
+    { name: '新增商品', perms: 'base:product:add', idApp: 'app-product-add' },
+    { name: '用户管理', perms: 'system:user:list', idApp: 'app-users' }
   ]}
 ]
 
@@ -216,11 +206,12 @@ const appMenuTreeRef = ref()
 const userSelectRef = ref()
 const selectedUserIds = ref([])
 const allMenus = ref([])
+const allMenuRows = ref([])
 const appMenus = ref([])
 const allUsers = ref([])
-// v1.1.56+ B: 默认展开 9 个 root 一级目录 (工作台/系统管理/基础资料/采购管理/销售管理/库存管理/生产管理/财务/报表中心)
-//   二级业务目录 (采购入库/销售出库/库存预警等) 默认折叠, 弹窗看着清爽
-const defaultExpanded = ref([1, 2, 3, 4, 5, 6, 7, 8, 9])
+// v1.1.130: 默认展开 4 个分组 + 购销存管理 (子容器按需展开), 与现侧栏一致
+const defaultExpanded = ref(['10001', '10002', '10003', '10004', '10011'])
+const appDefaultExpanded = APP_MENU_WHITELIST.map(g => `app-group-${g.name}`)
 
 function loadData() {
   loading.value = true
@@ -325,7 +316,13 @@ async function openPermDialog(row) {
     // 判定: 节点自身 path 以 /workflow 开头, 或沿 parentId 上溯任意祖先 path 以 /workflow 开头
     // (覆盖 18 个 path 为空的 B 按钮). 裁掉整棵子树, 不影响其它节点.
     const all = r.data || []
-    allMenus.value = buildMenuTree(all.filter(m => !inWorkflowDeadSubtree(m, all)))
+    // v1.1.130: 根级 B/F 是历史模块遗留的孤立权限点 (委外/工艺参数/校准等),
+    // 不进 PC 导航树 (否则弹窗底部会冒出一排无归属的勾选项); App 树仍从全量行反查 perm.
+    const live = all.filter(m => !inWorkflowDeadSubtree(m, all))
+    allMenuRows.value = live
+    allMenus.value = pruneDisabled(buildMenuTree(
+      live.filter(m => !(Number(m.parentId) === 0 && (m.menuType === 'B' || m.menuType === 'F')))
+    ))
   }
 
   // 加载该角色已分配的 PC 和 App 菜单
@@ -342,8 +339,8 @@ async function openPermDialog(row) {
     pcMenusData = pcR.data || []
     appMenusData = pcR.data || [] // 旧数据默认 BOTH → 都选中
   }
-  // v1.0.10+: 按白名单构建 App 端菜单树 (只显示 App 实际可用的功能)
-  appMenus.value = buildAppMenuTree(allMenus.value)
+  // v1.1.130: App 树从全量菜单行构建 (含根级 F 权限行), 不复用 PC 导航树
+  appMenus.value = buildAppMenuTree(allMenuRows.value.length ? allMenuRows.value : allMenus.value)
   // 设置 PC 树勾选状态
   setTimeout(() => {
     const pcKeys = pcMenusData.map(m => m.id)
@@ -370,6 +367,19 @@ async function openPermDialog(row) {
   // 加载该角色的关联用户
   const ur = await roleApi.users(row.id)
   selectedUserIds.value = ur.data || []
+}
+
+// v1.1.130: 停用的菜单 (status=0) 连同子树一起从 PC 权限树移除 —
+// 授权到 status=0 的 menu_id 不会生效, 显示出来只会误导.
+// 必须在 buildMenuTree 之后剪枝: 先过滤行会把子节点变成孤儿顶到根上.
+function pruneDisabled(nodes) {
+  const out = []
+  for (const n of (nodes || [])) {
+    if (Number(n.status) !== 1) continue
+    n.children = pruneDisabled(n.children)
+    out.push(n)
+  }
+  return out
 }
 
 // v1.1.126: /workflow「设备安全」死子树裁剪判定 (PC 权限树).
@@ -437,7 +447,9 @@ function buildAppMenuTree(allMenusTree) {
   walk(allMenusTree)
   const byPerm = new Map()
   for (const m of flat) {
-    if (!m.perms) continue
+    // v1.1.130: 只认启用行 — 同一 perms 在库里可能有已停用的历史行 (/workflow),
+    // 命中它会导致授权写入 status=0 的 menu_id, App 取权限时被过滤掉。
+    if (!m.perms || Number(m.status) !== 1) continue
     for (const p of String(m.perms).split(',')) {
       const k = p.trim()
       if (k) byPerm.set(k, m)
