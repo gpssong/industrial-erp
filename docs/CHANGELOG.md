@@ -3,6 +3,38 @@
 
 ## changelog (倒序)
 
+### v1.1.130 (2026-10-27 — 菜单管理 / 角色授权对齐现系统)
+
+> **范围**: 仅 PC 前端 (`pc-web`) + SQL; 后端 jar / APK 无改动, 六源版本号仍为 1.1.129, 下次发版时统一。
+
+**背景**: `/system/menu` 读的是 `sys_menu` 活表, 而 PC 导航早已改为 `MainLayout.vue` 静态 4 组 + 购销存管理 Hub 分类卡, 两边长期不一致 —— 列表里还是旧 9 个顶层目录 (工作台/系统管理/基础资料/采购管理/销售管理/库存管理/生产管理/财务/报表中心) 加散落的「成品入库查询」根节点; 同时 `/erp`、`/xk/*`、`/production/requisition`、`/production/schedule`、`/report/quality|inspection|equipment` 等现役页面在 `sys_menu` 里没有行, 非管理员侧边栏按 path 过滤时这些入口直接消失。
+
+**(1) 数据库**: 新增 `sql/133_v1130_menu_align_system.sql` (幂等, 已在 .150 主库执行)
+- 4 个顶层分组 (目录 C): 经营总览 / 供应链 / 生产与质量 / 经营支持; 旧 9 个目录就地复用为容器 (id 1-9 不变); 无 UI 载体的 24 条权限点暂留 `parent_id=0`, 由 `sql/134_v1130_role_perm_align.sql` 归位 (见下面 (3))。
+- 页面行按现导航归位; 新增 14 个现役页面行 (`/erp`、`/xk/material|trace|maintenance|safety|print|audit|iqc-ledger`、`/production/requisition|schedule`、`/purchase/suggest`、`/report/quality|inspection|equipment`), `perms` 取 `router` 的 `meta.perm`。
+- 100+ 条按钮/功能权限行从 `parent_id=0` 归位到所属页面 (id 不变 → 角色授权零影响); 老 `/workflow` 死子树的 `work:maintain:*` / `work:safety:*` 按钮就地挂到「设备维保」「质量与XK检查」。
+- 授权只增不改: `sys_role_menu` 1350 → 1442 行, 新页面按「角色已有该 perms」回填, `/erp` 授予有任一 ERP 页面授权的角色; 执行后孤儿授权 0 行。
+- 按钮/功能行统一 `is_visible=0`, 菜单管理默认视图只剩目录 + 页面。
+- 备份: `sys_menu_bak_v1130` / `sys_role_menu_bak_v1130` (回滚语句在脚本末尾)。
+
+**(2) PC 前端**: `pc-web/src/views/system/Menu.vue`
+- 类型标签区分 目录 / 菜单 / 功能 / 按钮 (原来非 M 一律显示「按钮」); 新增/编辑表单支持 C / F 类型。
+- 默认视图递归过滤停用/隐藏子节点并隐藏空目录, 表格 `default-expand-all` 直接展开整棵树。
+- 已重新构建并部署 home NAS (`/volume3/docker/erp-system/pc-web/dist`, 旧版备份 `dist.bak.20261027_100325`)。
+
+**(3) 角色授权树对齐** (`sql/134_v1130_role_perm_align.sql` + `pc-web/src/views/system/Role.vue`)
+- **问题**: 24 条历史模块权限点 (委外 4 / 工艺参数 4 / SOP 4 / 检验设备校准 11) 还是 `parent_id=0`, 角色弹窗里挂在 4 个分组之后成为一排无归属的勾选项; 其中 `qa:calibration:*` 正被 `/xk/safety` 第 5 个 Tab「检验设备校准」调用, 不能删。
+- **DB**: 校准 11 条 → 质量与XK检查 (10036); 工艺参数/SOP 8 条 → 生产加工单 (702); 委外 4 条 → 采购订单 (401)。只改挂载点, 不删行、不动 status / is_visible / 既有授权; 执行后根级 B/F = 0。备份 `sys_menu_bak_v1131` / `sys_role_menu_bak_v1131`。
+- **PC 树**: 根级 B/F 不再作为顶层节点渲染 (兜底防御); `status=0` 的节点连同子树在 `buildMenuTree` 之后剪枝 (先过滤行会把子节点变成孤儿顶到根上, 飞鹅打印机 / 已开发票即属此类)。
+- **App 树**: 白名单按 App 实际页面重写 (8 组 35 项: 生产/质量、采购、销售、库存、设备/现场、XK 记录、经营报表、基础/系统), 覆盖生产排程、设备 OEE、吹膜米重、半成品/成品入库、首检/巡检、XK 7 页、用户管理等现役入口; 与 `app/src/pages/*`、`utils/permission.js` `PAGE_PERMS`、dashboard `APP_MENU_TO_PAGE` 对齐。反查 `perms → sys_menu` 只认 `status=1`, 避免命中 `/workflow` 停用行导致授权写进无效 menu_id; 两棵树默认展开键分开 (PC 4 组 + 购销存管理, App 全部分组)。
+- **部署踩坑**: bind mount 绑定的是目录 inode, `rm -rf dist && mv dist.new dist` 会让容器继续指向已删除的空目录 (页面 404)。改为 `find dist -mindepth 1 -delete && tar xzf … -C dist` 原地覆盖, 无需重启容器。
+
+**(4) 验证**
+- 默认视图 58 个节点 = 4 组 + 8 个容器 + 46 个页面; 前端 47 条业务路由 path 全部能在 `sys_menu` 找到对应行。
+- 角色授权树: `F` / `C+perms` / `B` 仍可勾选, 未因归位丢失权限点。
+- 授权树实数据回放: PC 树 253 节点 / 4 个根 (无浮动权限行, 孤儿 0); App 白名单 35 项全部命中启用行, 未解析 0; `work:maintain:list` / `work:safety:list` 现解析到 10035 / 10036 (不再命中 `/workflow` 的 status=0 行)。
+- 线上 `Role-OFUPekC_.js` 200, 旧 dist 备份 `dist.bak.20261027_102233`。
+
 ### v1.1.129 (2026-10-26 — P1/P2 加固: 禁用即时失效 / 库存唯一键 / 锁提交后释放 / 监控与备份保留 / 版本统一)
 
 **背景**: P0 完成后按巡检清单处理 P1/P2。P1 中分页上限、备份内容校验、CI 单测此前已落地; 本次处理剩余可直接闭环的项。
