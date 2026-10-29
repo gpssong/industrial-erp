@@ -53,7 +53,8 @@ export const configApi = {
   add: (data) => request.post('/system/config', data),
   update: (data) => request.put('/system/config', data),
   delete: (id) => request.delete(`/system/config/${id}`),
-  getByKey: (key) => request.get(`/system/config/key/${key}`),
+  // 登录页也会读 SYS_NAME/SYS_FACTORY, 未登录时 401 属正常 → 调用方传 { silent401: true } 免弹「登录已过期」
+  getByKey: (key, config) => request.get(`/system/config/key/${key}`, config),
   updateValue: (key, value) => request.put('/system/config/value', { key, value })
 }
 

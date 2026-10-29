@@ -139,7 +139,7 @@ async function loadList() {
   try {
     const r = await inspectionApi.page({ ...query, inspectionType: 'IQC' })
     list.value = r.records || []
-    total.value = r.total || 0
+    total.value = Number(r.total) || 0
   } catch (e) {
     console.error('[IqcLedger] loadList failed:', e)
   } finally {

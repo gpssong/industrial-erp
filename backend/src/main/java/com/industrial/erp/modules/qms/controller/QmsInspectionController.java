@@ -9,6 +9,9 @@ import com.industrial.erp.common.Constants;
 import com.industrial.erp.common.R;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.qms.dto.InspectionCreateDTO;
+import com.industrial.erp.modules.qms.dto.ProcessInspectionEnsureDTO;
+import com.industrial.erp.modules.qms.dto.ProcessInspectionRecordDTO;
+import com.industrial.erp.modules.mes.entity.PrdProcess;
 import com.industrial.erp.modules.qms.entity.MesQualityInspection;
 import com.industrial.erp.modules.qms.service.QmsInspectionService;
 import com.industrial.erp.modules.purchase.entity.PurInboundPlan;
@@ -19,6 +22,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.List;
 
 /**
  * v1.1.90 QMS — 质量检验单 (IQC / FAI / PAT / OQC / OQC_RETURN) 接口.
@@ -51,6 +55,24 @@ public class QmsInspectionController {
     @PostMapping
     public R<Long> create(@RequestBody InspectionCreateDTO dto) {
         return R.ok(qms.create(dto, SecurityContext.getUsername()));
+    }
+
+    @SaCheckPermission(value = {"quality:inspection:list", "quality:inspection:check"}, mode = SaMode.OR, orRole = "admin")
+    @GetMapping("/processes/{orderId}")
+    public R<List<PrdProcess>> processes(@PathVariable Long orderId) {
+        return R.ok(qms.listInspectionProcesses(orderId));
+    }
+
+    @SaCheckPermission(value = {"quality:inspection:check"}, orRole = "admin")
+    @PostMapping("/ensure-for-process")
+    public R<Map<String, Object>> ensureForProcess(@RequestBody ProcessInspectionEnsureDTO body) {
+        return R.ok(qms.ensureForProcess(body.getOrderId(), body.getProcessId(), body.getInspectionType()));
+    }
+
+    @SaCheckPermission(value = {"quality:inspection:check"}, orRole = "admin")
+    @PutMapping("/{id}/process-record")
+    public R<Map<String, Object>> processRecord(@PathVariable Long id, @RequestBody ProcessInspectionRecordDTO body) {
+        return R.ok(qms.saveProcessRecord(id, body));
     }
 
     @Operation(summary = "检验单分页")
@@ -86,8 +108,22 @@ public class QmsInspectionController {
         String retainNo = body == null ? null : body.get("retainNo");
         String retainLoc = body == null ? null : body.get("retainLoc");
         java.time.LocalDate retainDueDate = parseDate(body, "retainDueDate");
-        qms.check(id, result, disposition, reason, reviewerName, approverName, retainNo, retainLoc, retainDueDate);
+        // v1.1.131 成品检验: 允许审核时同事务落 抽检/合格/不良 数量 (空则沿用原值)
+        java.math.BigDecimal sampleQty = parseDecimal(body, "sampleQty");
+        java.math.BigDecimal qualifiedQty = parseDecimal(body, "qualifiedQty");
+        java.math.BigDecimal unqualifiedQty = parseDecimal(body, "unqualifiedQty");
+        // v1.1.135 App 现场成品检: 批号在手机上确认实物后就地改
+        String batchNo = body == null ? null : body.get("batchNo");
+        qms.check(id, result, disposition, reason, reviewerName, approverName, retainNo, retainLoc, retainDueDate,
+                sampleQty, qualifiedQty, unqualifiedQty, batchNo);
         return R.ok();
+    }
+
+    private static java.math.BigDecimal parseDecimal(Map<String, String> body, String key) {
+        if (body == null) return null;
+        String v = body.get(key);
+        if (v == null || v.trim().isEmpty()) return null;
+        try { return new java.math.BigDecimal(v.trim()); } catch (Exception e) { return null; }
     }
 
     private static java.time.LocalDate parseDate(Map<String, String> body, String key) {
@@ -236,6 +272,53 @@ public class QmsInspectionController {
         String photoUrls = (String) body.get("photoUrls");
         qms.signPassedFaiForSemiIn(semiInId, faiId, reportNo, sampleQty, inspectorName, photoUrls);
         return R.ok();
+    }
+
+    /**
+     * v1.1.131 App 首检页选单入口 — 找/建 FAI + 灌吹膜首检模板, 一次回传 head+items.
+     * 幂等, 可安全重复调.
+     */
+    @Operation(summary = "XK: 定位/补建半成品入库 FAI (含吹膜模板检验项)")
+    @SaCheckPermission(value = {"quality:inspection:list", "quality:inspection:check", "qms:iqc:detail"}, mode = SaMode.OR, orRole = "admin")
+    @PostMapping("/ensure-fai-for-semi-in")
+    public R<Map<String, Object>> ensureFaiForSemiIn(@RequestBody Map<String, Object> body) {
+        Long semiInId = toLong(body.get("semiInId"));
+        return R.ok(qms.ensureFaiForSemiIn(semiInId));
+    }
+
+    /**
+     * v1.1.131 — 成品检验录入前置: 幂等给某检验单灌入服务器模板 (OQC/OQC_RETURN 及 FAI/PAT), 回传 head+items.
+     * 已签核单据只读回传, 不再补项.
+     */
+    @Operation(summary = "XK: 幂等灌入检验项模板并回传检验项")
+    @SaCheckPermission(value = {"quality:inspection:list", "quality:inspection:check", "qms:iqc:detail", "qms:iqc:list"}, mode = SaMode.OR, orRole = "admin")
+    @PostMapping("/{id}/ensure-template")
+    public R<Map<String, Object>> ensureTemplate(@PathVariable Long id) {
+        return R.ok(qms.ensureTemplateItems(id));
+    }
+
+    /**
+     * v1.1.131 — 找/建某成品入库单的 OQC 草稿并灌成品检验模板, 一次回传 head+items+finishedIn.
+     * 幂等, 可安全重复调.
+     */
+    @Operation(summary = "XK: 定位/补建成品入库 OQC (含成品检验模板)")
+    @SaCheckPermission(value = {"quality:inspection:list", "quality:inspection:check", "qms:iqc:detail"}, mode = SaMode.OR, orRole = "admin")
+    @PostMapping("/ensure-oqc-for-finished-in")
+    public R<Map<String, Object>> ensureOqcForFinishedIn(@RequestBody Map<String, Object> body) {
+        Long finishedInId = toLong(body.get("finishedInId"));
+        return R.ok(qms.ensureOqcForFinishedIn(finishedInId));
+    }
+
+    /**
+     * v1.1.135 App「生产单详情 → 做成品检」— 按生产单找/建 OQC 草稿并灌成品检验模板, 一次回传 head+items+order+stage.
+     * 现场顺序是先成品检、后成品入库, 此时可能还没有入库单, 故表头挂 PRD_ORDER; 幂等, 可安全重复调.
+     */
+    @Operation(summary = "XK: 定位/补建生产单成品检验 OQC (含成品检验模板)")
+    @SaCheckPermission(value = {"quality:inspection:list", "quality:inspection:check", "qms:iqc:detail", "qms:iqc:list"}, mode = SaMode.OR, orRole = "admin")
+    @PostMapping("/ensure-oqc-for-order")
+    public R<Map<String, Object>> ensureOqcForOrder(@RequestBody Map<String, Object> body) {
+        Long orderId = toLong(body.get("orderId"));
+        return R.ok(qms.ensureOqcForOrder(orderId));
     }
 
     /**

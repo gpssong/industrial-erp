@@ -106,7 +106,7 @@
           <view class="sg-item"><text class="sg-lbl">上牵引</text><text class="sg-val">{{ fmtN(s.upperHz) }}</text></view>
           <view class="sg-item"><text class="sg-lbl">克重修正</text><text class="sg-val">{{ fmtN(s.gaugeFix) }}</text></view>
         </view>
-        <view class="sample-foot muted" v-if="s.prdOrderNo">工单 {{ s.prdOrderNo }}</view>
+        <view class="sample-foot muted" v-if="s.prdOrderNo">工单 {{ s.prdOrderNo }}<text v-if="s.productName"> · {{ s.productName }}</text></view>
       </view>
 
       <view class="pager" v-if="total > pageSize">

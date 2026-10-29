@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.industrial.erp.common.PrdOrderNameInjector;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.mes.entity.MesWeightChannel;
 import com.industrial.erp.modules.mes.entity.MesWeightDevice;
@@ -11,6 +12,7 @@ import com.industrial.erp.modules.mes.entity.MesWeightSample;
 import com.industrial.erp.modules.mes.mapper.MesWeightChannelMapper;
 import com.industrial.erp.modules.mes.mapper.MesWeightDeviceMapper;
 import com.industrial.erp.modules.mes.mapper.MesWeightSampleMapper;
+import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
 import com.industrial.erp.modules.system.entity.SysOperLog;
 import com.industrial.erp.modules.system.mapper.SysOperLogMapper;
 import com.industrial.erp.security.SecurityContext;
@@ -58,15 +60,18 @@ public class MesWeightService {
     private final MesWeightChannelMapper channelMapper;
     private final MesWeightSampleMapper sampleMapper;
     private final SysOperLogMapper operLogMapper;
+    private final PrdOrderMapper prdOrderMapper;
 
     public MesWeightService(MesWeightDeviceMapper deviceMapper,
                             MesWeightChannelMapper channelMapper,
                             MesWeightSampleMapper sampleMapper,
-                            SysOperLogMapper operLogMapper) {
+                            SysOperLogMapper operLogMapper,
+                            PrdOrderMapper prdOrderMapper) {
         this.deviceMapper = deviceMapper;
         this.channelMapper = channelMapper;
         this.sampleMapper = sampleMapper;
         this.operLogMapper = operLogMapper;
+        this.prdOrderMapper = prdOrderMapper;
     }
 
     // ==================================================================
@@ -256,7 +261,7 @@ public class MesWeightService {
                                               LocalDateTime from, LocalDateTime to,
                                               Integer isOver) {
         Page<MesWeightSample> p = new Page<>(pageNum, pageSize);
-        return sampleMapper.selectPage(p, Wrappers.<MesWeightSample>lambdaQuery()
+        IPage<MesWeightSample> result = sampleMapper.selectPage(p, Wrappers.<MesWeightSample>lambdaQuery()
                 .eq(deviceId != null, MesWeightSample::getDeviceId, deviceId)
                 .eq(channelNo != null, MesWeightSample::getChannelNo, channelNo)
                 .eq(isOver != null, MesWeightSample::getIsOver, isOver)
@@ -264,6 +269,10 @@ public class MesWeightService {
                 .le(to != null, MesWeightSample::getCollectTime, to)
                 .orderByDesc(MesWeightSample::getCollectTime)
                 .orderByAsc(MesWeightSample::getChannelNo));
+        // v1.1.131: 注入关联工单的商品名称 (前端显示「工单号 · 品名」)
+        PrdOrderNameInjector.inject(prdOrderMapper, result.getRecords(),
+                MesWeightSample::getPrdOrderId, MesWeightSample::setProductName);
+        return result;
     }
 
     // ==================================================================

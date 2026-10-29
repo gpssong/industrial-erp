@@ -41,7 +41,7 @@ function getToken() {
   return ''
 }
 
-function request({ url, method = 'GET', data = {}, contentType }) {
+function request({ url, method = 'GET', data = {}, contentType, silent }) {
   const token = getToken()
   const base = getBase()
   const fullUrl = base + url
@@ -130,7 +130,8 @@ function request({ url, method = 'GET', data = {}, contentType }) {
             }
           }, 100)
         } else {
-          if (typeof uni !== 'undefined' && uni.showToast) {
+          // silent=true (如配置类读接口) 失败不弹 toast, 调用方 fail-open 兜底
+          if (!silent && typeof uni !== 'undefined' && uni.showToast) {
             uni.showToast({ title: d.msg || '请求失败', icon: 'none' })
           }
           reject(d)
@@ -255,6 +256,10 @@ export const api = {
   prdOrderUpdate: (id, data) => request({ url: '/production/order/' + id, method: 'PUT', data, contentType: 'json' }),
   prdOrderRelease: (id) => request({ url: '/production/order/' + id + '/release', method: 'POST' }),
   prdOrderDelete: (id) => request({ url: '/production/order/' + id, method: 'DELETE' }),
+  // v1.1.132 XK16-204 开工确认: 生产环境合格 + 投料原料批号 + 批号照片 (吹膜) / 领用半成品 (制袋)
+  prdOrderBlowStart: (id, data) => request({ url: '/production/order/' + id + '/blow-start', method: 'POST', data, contentType: 'json' }),
+  prdOrderBagStart: (id, data) => request({ url: '/production/order/' + id + '/bag-start', method: 'POST', data, contentType: 'json' }),
+  prdOrderStartRecords: (id) => request({ url: '/production/order/' + id + '/work-start-records', silent: true }),
   // v1.1.101 App XK 吹膜生产全流程 — 半成品入库 / 成品入库 (仓管现场建单 + 过门禁审核)
   // 复用 PC 端已有后端端点, App 端只补前端调用入口
   prdSemiInPage:    (params) => request({ url: '/production/semi-in/page', data: params }),
@@ -276,7 +281,7 @@ export const api = {
   // 飞鹅云打印
   feiePrint: (bizType, id) => request({ url: '/feie/print/' + bizType + '/' + id, method: 'POST' }),
   // v1.1.80 MES: 扫码报工 — 按生产单号查工序实例 + 报工提交
-  prdOrderProgress: (orderId) => request({ url: '/mes/order/' + orderId + '/progress' }),
+  prdOrderProgress: (orderId, opts) => request({ url: '/mes/order/' + orderId + '/progress', silent: opts && opts.silent }),
   mesReport: (data) => request({ url: '/mes/report', method: 'POST', data, contentType: 'json' }),
   // v1.1.90 Phase 2 — 质量检验 (QMS)
   // 4 类 IQC/FAI/PAT/OQC 合一, App 端只提交草稿 (DRAFT), 审核走 PC 端
@@ -373,7 +378,9 @@ export const api = {
   rolePage: (params) => request({ url: '/system/role/page', data: params }),
   // v1.1.80+: App 模块开关 (admin 全局一刀切, App 端只读)
   // 后端走 sys_config 表, key=APP_MODULE_ENABLED, value=JSON 字符串
-  appModuleGetConfig: () => request({ url: '/system/config/key/APP_MODULE_ENABLED' }),
+  appModuleGetConfig: () => request({ url: '/system/config/key/APP_MODULE_ENABLED', silent: true }),
+  // v1.1.130+: App 工作台区块开关 (4 区块 + 全部功能 7 子分组), key=APP_DASHBOARD_CONFIG
+  appDashboardGetConfig: () => request({ url: '/system/config/key/APP_DASHBOARD_CONFIG', silent: true }),
   // ===== v1.1.126: 吹膜米克重采集 (ESP32 → /mes/weight/**) =====
   // ⚠️ App 端拦截器已 resolve(d.data) — 返回值 r 就是业务数据, **不可再读 r.data**
   //    (v1.1.118 教训: 页面写 (r && r.data) || {} → 恒 {} → 字段静默空)

@@ -15,6 +15,9 @@ public class OutIssueDetail {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private Long issueId;
+    // v1.1.130 fix: 库里 (sql/07) 这两张明细表没有 line_no 列, 实体却映射了它 →
+    // MP 读写会报 Unknown column 'line_no', 标 exist=false 排除出 SQL
+    @TableField(exist = false)
     private Integer lineNo;
     private Long productId;
     private String productCode;

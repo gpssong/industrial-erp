@@ -1,8 +1,10 @@
 package com.industrial.erp.modules.system.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.industrial.erp.common.R;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -39,7 +41,8 @@ public class SysUploadController {
 
     @Operation(summary = "上传文件 (图片/文档)")
     @PostMapping("/file")
-    public Map<String, Object> upload(@RequestParam("file") MultipartFile file) throws IOException {
+    public R<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
+                                         HttpServletRequest request) throws IOException {
         if (file.isEmpty()) throw new RuntimeException("文件为空");
         if (file.getSize() > MAX_FILE_SIZE) {
             throw new RuntimeException("文件超过 10MB 上限, 当前=" + file.getSize() + " 字节");
@@ -67,14 +70,37 @@ public class SysUploadController {
         Path targetPath = Paths.get(dir.getAbsolutePath(), filename);
         Files.copy(file.getInputStream(), targetPath);
 
-        // 返回访问路径 (相对路径)
-        String url = "/upload/" + dateDir + "/" + dayDir + "/" + filename;
+        // 返回绝对地址: App 原生端把 fileUrl 直接塞进 <image :src> (in.vue / pat.vue),
+        // 根相对地址在 Capacitor/WebView 里会解析到本地协议 → 图裂; 因此沿用绝对 URL。
+        // 端口必须保留: nginx 侧要转发 Host $http_host (用 $host 会丢 :8088)。
+        String url = absoluteBase(request) + request.getContextPath()
+                + "/upload/" + dateDir + "/" + dayDir + "/" + filename;
 
         Map<String, Object> data = new HashMap<>();
         data.put("url", url);
         data.put("filename", filename);
         data.put("size", file.getSize());
         data.put("contentType", file.getContentType());
-        return data;
+        // 统一 R 信封: PC 拦截器只放行 code=200, App upload.js 也按 {code,data.url} 解析
+        return R.ok(data);
+    }
+
+    // 优先 X-Forwarded-* (nginx 反代后才拿得到原始 host/端口/协议), 否则退回请求本身
+    private String absoluteBase(HttpServletRequest request) {
+        String proto = firstToken(request.getHeader("X-Forwarded-Proto"), request.getScheme());
+        String host = firstToken(request.getHeader("X-Forwarded-Host"), request.getHeader("Host"));
+        if (host == null || host.isEmpty()) {
+            int port = request.getServerPort();
+            boolean defaultPort = ("http".equals(proto) && port == 80) || ("https".equals(proto) && port == 443);
+            host = request.getServerName() + (defaultPort ? "" : ":" + port);
+        }
+        return proto + "://" + host;
+    }
+
+    private static String firstToken(String value, String fallback) {
+        if (value == null || value.trim().isEmpty()) return fallback;
+        String v = value.trim();
+        int comma = v.indexOf(',');
+        return (comma > 0 ? v.substring(0, comma) : v).trim();
     }
 }

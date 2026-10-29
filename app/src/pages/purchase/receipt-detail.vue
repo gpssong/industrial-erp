@@ -9,7 +9,8 @@
       <view class="card">
         <view class="row">
           <view style="flex:1;min-width:0">
-            <view class="bill-no">{{ order.billNo }}</view>
+            <!-- v1.1.131: 单号后带商品名称 (取明细行商品名, 多行去重) -->
+            <view class="bill-no">{{ order.billNo }}<text v-if="productNames"> · {{ productNames }}</text></view>
             <view class="muted">{{ order.billDate }}</view>
           </view>
           <view :class="['tag', 'tag-' + (order.billStatus || 'DRAFT').toLowerCase()]">
@@ -108,13 +109,18 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
 import { getAppPermissions, isAdmin } from '../../utils/permission.js'
 import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const order = ref({})
+// v1.1.131: 明细行商品名去重后拼给单号用 (单据头没有品名列)
+const productNames = computed(() => {
+  const names = ((order.value && order.value.details) || []).map(d => d.productName).filter(Boolean)
+  return [...new Set(names)].join('、')
+})
 const loadError = ref(false)
 const loading = ref(true)
 const busy = ref(false)

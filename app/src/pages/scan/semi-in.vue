@@ -109,7 +109,14 @@ export default {
     }
   },
   computed: {
-    orderOptions() { return this.orderList.map((x) => x.billNo || ('#' + x.id)) },
+    // v1.1.131: 单号后带商品名称, 选单时不用再回查是哪个工单
+    orderOptions() {
+      return this.orderList.map((x) => {
+        const no = x.billNo || ('#' + x.id)
+        const name = x.productName || x.productCode || ''
+        return name ? no + ' · ' + name : no
+      })
+    },
     pickedOrder() { return this.orderList.find((x) => String(x.id) === String(this.orderId)) },
     whNames() { return this.warehouses.map((w) => w.warehouseName || ('仓#' + w.id)) },
     whName() { const w = this.warehouses.find((x) => String(x.id) === String(this.warehouseId)); return w ? (w.warehouseName || ('仓#' + w.id)) : '' },
@@ -213,8 +220,11 @@ export default {
         this.orderList = (o && o.records) || (o && o.data && o.data.records) || []
         this.warehouses = (w && (w.data || w)) || []
         this.loading = false
-        // 默认选第一个 SEMI 仓
-        const semi = this.warehouses.find((x) => x.warehouseType === 'SEMI') || this.warehouses[0]
+        // 默认选半成品仓 (warehouseType=SEMI); 老库没分类过则按仓名兜底
+        // (warehouses[0] 往往是成品仓, 直接退到它会静默把半成品入到成品仓)
+        const semi = this.warehouses.find((x) => x.warehouseType === 'SEMI')
+          || this.warehouses.find((x) => (x.warehouseName || '').includes('半成品'))
+          || this.warehouses[0]
         if (semi) this.warehouseId = String(semi.id)
       } catch (e) {
         this.loading = false

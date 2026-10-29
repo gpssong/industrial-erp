@@ -104,8 +104,12 @@
             :props="{ label: 'menuName', children: 'children', disabled: 'disabled' }"
             :default-expanded-keys="appDefaultExpanded"
             :expand-on-click-node="false"
+            @check="onAppCheck"
             style="max-height: 400px; overflow-y: auto;">
           </el-tree>
+          <div style="color: #909399; font-size: 12px; line-height: 1.5; margin-top: 4px;">
+            同一 App 权限对应多个入口时会联动勾选/取消。经营简报 / XK 单据打印、扫码报工 / XK 批次溯源、生产排程 / 设备 OEE 已拆成独立权限，可单独授权。
+          </div>
         </el-tab-pane>
         <el-tab-pane label="关联用户" name="user">
           <el-select ref="userSelectRef" v-model="selectedUserIds" multiple placeholder="请选择关联用户" style="width: 100%">
@@ -134,12 +138,21 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const APP_MENU_WHITELIST = [
   { name: '生产 / 质量', children: [
     { name: '生产加工单', perms: 'production:order:list', idApp: 'app-order' },
+    // v1.1.137: App 生产单详情页「飞鹅云打印」按钮 (sys_menu id=959, 同批把 status 0→1 才可授权)
+    { name: '工单飞鹅打印', perms: 'production:order:feie-print', idApp: 'app-order-feie-print' },
+    { name: '生产开工', perms: 'production:order:release', idApp: 'app-order-release' },
     { name: '扫码报工', perms: 'production:report:list', idApp: 'app-mes-report' },
+    { name: '制袋报工', perms: 'production:report:add', idApp: 'app-mes-report-add' },
     { name: '生产排程', perms: 'production:schedule:list', idApp: 'app-schedule' },
-    { name: '设备 OEE', perms: 'production:schedule:list', idApp: 'app-oee' },
+    // v1.1.130: OEE 独立 perm (原与生产排程共用 production:schedule:list, 已拆分为可分开授权)
+    { name: '设备 OEE', perms: 'production:schedule:oee', idApp: 'app-oee' },
     { name: '吹膜米重采集', perms: 'mes:weight:list', idApp: 'app-weight' },
     { name: '半成品入库', perms: 'production:semi-in:add', idApp: 'app-semi-in' },
+    { name: '半成品入库审核', perms: 'production:semi-in:check', idApp: 'app-semi-in-check' },
+    { name: '半成品入库反审核', perms: 'production:semi-in:uncheck', idApp: 'app-semi-in-uncheck' },
     { name: '成品入库', perms: 'production:finished-in:add', idApp: 'app-finished-in' },
+    { name: '成品入库审核', perms: 'production:finished-in:check', idApp: 'app-finished-in-check' },
+    { name: '成品入库反审核', perms: 'production:finished-in:uncheck', idApp: 'app-finished-in-uncheck' },
     { name: '首检 / 工序巡检', perms: 'quality:inspection:check', idApp: 'app-fai-pat' },
     { name: '质量检验', perms: 'quality:inspection:list', idApp: 'app-qms-inspection' },
     { name: '工艺 SOP', perms: 'pdm:sop:list', idApp: 'app-pdm-sop' }
@@ -154,6 +167,9 @@ const APP_MENU_WHITELIST = [
   { name: '销售管理', children: [
     { name: '扫码出库', perms: 'sales:return:list', idApp: 'app-scan-out' },
     { name: '销售出库单查询', perms: 'sales:delivery:list', idApp: 'app-delivery-list' },
+    // v1.1.130: App delivery-list 页「+ 新建销售出库单」按钮由 sales:delivery:add 门禁 (前后端同一套 perm),
+    //   原白名单缺该项 → 除超管外界面无法授予, App 里看不到新建入口
+    { name: '销售出库新建', perms: 'sales:delivery:add', idApp: 'app-delivery-add' },
     { name: '销售出库审核', perms: 'sales:delivery:check', idApp: 'app-delivery-check' },
     { name: '销售出库反审核', perms: 'sales:delivery:uncheck', idApp: 'app-delivery-uncheck' }
   ]},
@@ -169,10 +185,12 @@ const APP_MENU_WHITELIST = [
   ]},
   { name: 'XK 记录', children: [
     { name: 'XK 工作台', perms: 'dashboard:kpi', idApp: 'app-xk-dashboard' },
-    { name: 'XK 批次溯源', perms: 'production:report:list', idApp: 'app-xk-trace' },
+    // v1.1.130: 批次溯源独立 perm (原与扫码报工共用 production:report:list)
+    { name: 'XK 批次溯源', perms: 'production:report:trace', idApp: 'app-xk-trace' },
     { name: 'XK 设备维保', perms: 'work:maintain:list', idApp: 'app-xk-maintain' },
     { name: 'XK 安全卫生', perms: 'work:safety:list', idApp: 'app-xk-safety' },
-    { name: 'XK 单据打印', perms: 'report:view', idApp: 'app-xk-print' },
+    // v1.1.130: 单据打印独立 perm (原与经营简报共用 report:view)
+    { name: 'XK 单据打印', perms: 'report:print', idApp: 'app-xk-print' },
     { name: 'XK 审计归档', perms: 'xk:audit:list', idApp: 'app-xk-audit' }
   ]},
   { name: '经营报表', children: [
@@ -471,8 +489,26 @@ function buildAppMenuTree(allMenusTree) {
     .filter(g => g.children.length > 0)
 }
 
-async function submitPerm() {
-  permLoading.value = true
+// v1.1.130: 共用同一 sys_menu 授权行的白名单项, 勾选状态联动 —
+// 同一 perms 可能对应多个 App 入口 (经营简报 ↔ XK 单据打印 同为 report:view;
+// 扫码报工 ↔ XK 批次溯源 同为 production:report:list; 生产排程 ↔ 设备 OEE 同为 production:schedule:list),
+// 它们解析到同一个 _menuId, 授权按 menu_id 落库。不联动时取消其中一个、另一个仍勾着,
+// 提交后授权行保留, 重进弹窗又显示已勾 (报障: 取消经营简报后重进仍是勾选)。
+function onAppCheck(nodeObj) {
+  if (!nodeObj || nodeObj._menuId == null) return
+  const tree = appMenuTreeRef.value
+  if (!tree) return
+  const checked = (tree.getCheckedKeys() || []).includes(nodeObj.id)
+  for (const g of (appMenus.value || [])) {
+    for (const c of (g.children || [])) {
+      if (c.id !== nodeObj.id && String(c._menuId) === String(nodeObj._menuId)) {
+        tree.setChecked(c.id, checked)
+      }
+    }
+  }
+}
+
+async function submitPerm() {  permLoading.value = true
   try {
     if (permTab.value === 'pcMenu') {
       // v1.1.12+: check-strictly=true 下, 没有 halfKeys 概念. 只取 checkedKeys.

@@ -25,7 +25,8 @@
     <template v-else>
       <view class="card sched-card" v-for="s in list" :key="s.id">
         <view class="sched-head">
-          <text class="sched-order">{{ s.prdOrderNo || '—' }}</text>
+          <!-- v1.1.131: 工单号后带商品名称 (后端 MesSchedule.productName 注入) -->
+          <text class="sched-order">{{ s.prdOrderNo || '—' }}<text v-if="s.productName" class="sched-pname"> · {{ s.productName }}</text></text>
           <text :class="['tag', 'tag-' + s.status]">{{ s.statusLabel || s.status }}</text>
         </view>
         <view class="sched-eq">
@@ -225,6 +226,7 @@ onMounted(() => {
 .sched-card { border-left:3px solid #1e6091 }
 .sched-head { display:flex;justify-content:space-between;align-items:center;margin-bottom:4px }
 .sched-order { font-weight:700;font-size:14px }
+.sched-pname { font-weight:400;font-size:12px;color:#909399 }
 .sched-eq { font-size:13px;margin:4px 0 }
 .sched-time { margin:4px 0 }
 .sched-oee { font-size:12px;color:#67c23a;font-weight:600;margin-top:4px }

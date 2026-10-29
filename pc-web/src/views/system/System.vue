@@ -172,12 +172,28 @@
         <div v-else-if="activeTab === 'app'" class="sys-app">
           <div class="svc-banner">
             <span class="svc-icon"><el-icon :size="20"><Iphone /></el-icon></span>
-            <div class="svc-text"><b>车间移动端 App</b><small>当前正式版本 V2.3.0 · Android · 发布于 2025-06-10</small></div>
+            <div class="svc-text"><b>车间移动端 App</b><small>当前版本 v{{ frontendVersion }} · 构建 {{ frontendBuildTime }} · 含 App / H5 / APK 三端</small></div>
             <span class="svc-tag ok">已发布</span>
           </div>
           <el-tabs v-model="appTab">
-            <el-tab-pane label="版本管理" name="ver"><AppModules /></el-tab-pane>
-            <el-tab-pane label="模板管理" name="tpl"><AppModules /></el-tab-pane>
+            <el-tab-pane label="版本管理" name="ver">
+              <div class="page-card" style="margin-top:8px">
+                <div class="section-title">📱 App 版本信息</div>
+                <el-descriptions :column="3" border size="small">
+                  <el-descriptions-item label="版本号">{{ frontendVersion }}</el-descriptions-item>
+                  <el-descriptions-item label="构建日期">{{ frontendBuildTime }}</el-descriptions-item>
+                  <el-descriptions-item label="部署方式">飞牛同步盘 + NAS H5 + APK</el-descriptions-item>
+                  <el-descriptions-item label="APK 路径"><code>~/飞牛同步盘/erp/erp-app-{{ frontendBuildTime.replace(/-/g, '') }}.apk</code></el-descriptions-item>
+                  <el-descriptions-item label="H5 地址">飞牛 192.168.0.32:18090 / 阿里云 18090</el-descriptions-item>
+                  <el-descriptions-item label="版本对齐">package.json / manifest.json / application.yml 七源统一</el-descriptions-item>
+                </el-descriptions>
+                <p class="muted-tip" style="margin-top:8px">
+                  发新版流程：修改 package.json / manifest.json 版本号 → build-app.sh 重出 APK → 飞牛同步盘分发 → 用户在 App 设置里检查更新。
+                  版本号与后端 jar 的 ERP_VERSION 解耦（App 前端版本 ≠ 后端版本）。
+                </p>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="模块管理" name="mod"><AppModules /></el-tab-pane>
           </el-tabs>
         </div>
         <div v-else-if="activeTab === 'ai'" class="sys-ai">
@@ -197,14 +213,17 @@
             </div>
           </div>
         </div>
-        <!-- 经营驾驶舱管理 (v1.1.93: 驾驶舱模块开关, 复用 DashboardConfig 组件) -->
+        <!-- 经营驾驶舱管理 (v1.1.93: PC 驾驶舱模块开关; v1.1.130: 新增 App 工作台区块开关 tab) -->
         <div v-if="activeTab === 'dashboard'" class="sys-dashboard">
           <div class="svc-banner">
             <span class="svc-icon"><el-icon :size="20"><Odometer /></el-icon></span>
-            <div class="svc-text"><b>经营驾驶舱管理</b><small>驾驶舱 7 子模块的开关与显示顺序; 配置全局生效, 刷新工作台即时可见</small></div>
+            <div class="svc-text"><b>经营驾驶舱管理</b><small>PC 驾驶舱 7 子模块 + App 工作台区块的开关; 配置全局生效, 刷新即时可见</small></div>
             <span class="svc-tag ok">受控</span>
           </div>
-          <DashboardConfig />
+          <el-tabs v-model="dashTab">
+            <el-tab-pane label="PC 驾驶舱" name="pc"><DashboardConfig /></el-tab-pane>
+            <el-tab-pane label="App 工作台" name="app"><AppDashboardConfig /></el-tab-pane>
+          </el-tabs>
         </div>
         <FeiePrintTemplate v-if="activeTab === 'feieTemplate'" />
         <FeiePrintLog v-if="activeTab === 'feieLog'" />
@@ -215,7 +234,7 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   ArrowLeft, ArrowRight, Check, Printer, Odometer, Search,
@@ -230,15 +249,18 @@ import FeiePrintTemplate from './FeiePrintTemplate.vue'
 import FeiePrintLog from './FeiePrintLog.vue'
 import AppModules from './AppModules.vue'
 import DashboardConfig from './DashboardConfig.vue'
+import AppDashboardConfig from './AppDashboardConfig.vue'
 import Integration from './Integration.vue'
 import { useSystemName } from '@/composables/useSystemName'
 
 const router = useRouter()
+const route = useRoute()
 const activeTab = ref('config')
 
-// ——— 内层 tab 状态 (飞鹅: 配置/模板/日志; App: 版本/模板) ———
+// ——— 内层 tab 状态 (飞鹅: 配置/模板/日志; App: 版本/模板; 驾驶舱: PC/App) ———
 const feieTab = ref('cfg')
 const appTab = ref('ver')
+const dashTab = ref('pc')
 
 // ——— 系统参数: 基础参数表单 + 系统信息只读卡 ———
 /* global __APP_VERSION__, __BUILD_TIME__ */
@@ -266,6 +288,11 @@ async function saveConfig() {
 
 const { systemName, factoryName, saveSystemName, saveFactoryName, loadSystemName } = useSystemName()
 onMounted(async () => {
+  // v1.1.130+: URL 深链 ?tab=xxx 支持 (如经营驾驶舱管理 ?tab=dashboard) — 与侧栏点击共用 activeTab
+  const qTab = route?.query?.tab
+  if (qTab && ['config','brand','backup','log','feie','app','ai','dashboard','feieTemplate','feieLog'].includes(qTab)) {
+    activeTab.value = qTab
+  }
   await loadCfgInfo()
   await loadSystemName()
   // 把已存的品牌/工厂名回填到 brand 表单

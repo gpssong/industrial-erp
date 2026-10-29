@@ -31,15 +31,21 @@
     <div class="search-bar">
       <el-input v-model="query.keyword" placeholder="搜索单据编号、操作人或操作内容" clearable style="flex: 1; min-width: 240px" prefix-icon="Search" />
       <el-date-picker v-model="query.date" type="date" value-format="YYYY-MM-DD" style="width: 160px" />
-      <el-select v-model="query.bizType" clearable style="width: 160px" placeholder="全部业务类型">
+      <el-select v-model="query.bizType" clearable style="width: 190px" placeholder="全部业务类型">
         <el-option label="原料入库" value="INBOUND" />
         <el-option label="环境/卫生检查" value="XK_ENV_CHECK" />
         <el-option label="设备台账" value="SAVE_EQUIPMENT" />
         <el-option label="检验" value="CREATE_INSPECTION" />
         <el-option label="报工" value="REPORT_WORK" />
         <el-option label="单据打印" value="PDF" />
+        <el-option label="供应商暂停供货" value="SUPPLIER_SUSPEND" />
+        <el-option label="供应商恢复供货" value="SUPPLIER_RESUME" />
+        <el-option label="供应商准入评审" value="SUPPLIER_REVIEW" />
+        <el-option label="供应商证照登记" value="SUPPLIER_CERT" />
+        <el-option label="供应商绩效评级" value="SUPPLIER_RATING" />
       </el-select>
       <el-button type="primary" @click="onQuery">查询</el-button>
+      <el-button @click="onResetQuery">重置</el-button>
     </div>
 
     <!-- 审计日志 -->
@@ -62,6 +68,12 @@
             <span class="bill-link">{{ row.billNo }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="业务类型" width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.bizType" size="small" effect="plain">{{ bizTypeLabel(row.bizType) }}</el-tag>
+            <span v-else class="role-sub">—</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="change" label="变更内容" min-width="280" show-overflow-tooltip />
         <el-table-column label="完整性" width="100" align="center">
           <template #default>
@@ -78,7 +90,7 @@
         </el-table-column>
       </el-table>
       <el-pagination class="pager" background layout="total, prev, pager, next, jumper"
-        :current-page="logPage" :page-size="20" :total="logs.length" />
+        v-model:current-page="logPage" :page-size="20" :total="logs.length" />
     </el-card>
 
     <!-- 记录归档查询 (Figma 4 卡片归档格, 数据走真 /xk/audit/archive) -->
@@ -124,15 +136,16 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { CircleCheckFilled, Lock, Download, Files, Box, SetUp, Tools, Camera } from '@element-plus/icons-vue'
+import { CircleCheckFilled, Lock, Download, Files, Box, SetUp, Tools, Camera, OfficeBuilding } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { xkMock } from '@/api/xk'
 
 const tab = ref('log')
 const loading = ref(false)
-const query = ref({ keyword: '', date: '2025-06-18', bizType: '' })
+const query = ref({ keyword: '', date: '', bizType: '' })
 
 const logs = ref([])
+const rawLogs = ref([])   // 后端原始流水, 查询只做视图过滤, 不改写本数组
 // v1.1.99 hotfix: 客户端分页 (避免 el-pagination :page-size 弃用警告, 同时不让 20+ 行撑爆)
 const logPage = ref(1)
 const pagedLogs = computed(() => {
@@ -144,30 +157,36 @@ watch(logs, () => { logPage.value = 1 })
 
 const actionMap = {
   PDF: { label: '生成 PDF', type: 'success' },
+  ADD: { label: '新增', type: 'success' },
   EDIT: { label: '修改', type: 'warning' },
+  DELETE: { label: '删除', type: 'danger' },
   UPLOAD: { label: '上传附件', type: 'info' },
   VOID: { label: '作废', type: 'danger' }
 }
 function actionLabel(a) { return actionMap[a]?.label || a }
 function actionType(a) { return actionMap[a]?.type || 'info' }
 
-// 后端真实 writeAudit bizType (XkAuditService 落库字面量) → 中文
+// 后端真实 writeAudit bizType (XkAuditService / XkSupplierRecordService 落库字面量) → 中文
 const bizMap = {
   INBOUND: '原料入库', SIGN_PASSED_IQC: 'IQC 签署合格',
   CREATE_INSPECTION: '新建检验', CHECK_INSPECTION: '检验判定',
   REPORT_WORK: '生产报工',
   SAVE_EQUIPMENT: '设备建档', UPDATE_EQUIPMENT: '设备变更', DELETE_EQUIPMENT: '设备删除',
-  XK_ENV_CHECK: '环境检查', SAFETY: '卫生检查', PDF: '单据打印'
+  XK_ENV_CHECK: '环境检查', SAFETY: '卫生检查', PDF: '单据打印',
+  SUPPLIER_SUSPEND: '供应商暂停供货', SUPPLIER_RESUME: '供应商恢复供货',
+  SUPPLIER_REVIEW: '供应商准入评审', SUPPLIER_CERT: '供应商证照登记',
+  SUPPLIER_RATING: '供应商绩效评级'
 }
 function bizTypeLabel(b) { return bizMap[b] || b }
 
 // 记录归档卡片 (对齐 Figma mockup archive-grid) — 数据走真 /xk/audit/archive 实时聚合
-// 每个卡片 = 一组真实 writeAudit bizType (见 XkAuditService 落库字面量)
+// 每个卡片 = 一组真实 writeAudit bizType (见 XkAuditService / XkSupplierRecordService 落库字面量)
 const ARCHIVE_DEFS = [
-  { icon: 'Box', name: '原料入库与检验', bizType: 'INBOUND', group: ['INBOUND', 'SIGN_PASSED_IQC'], range: '2023-06 至今' },
-  { icon: 'SetUp', name: '生产工单记录', bizType: 'REPORT_WORK', group: ['REPORT_WORK', 'CREATE_INSPECTION', 'CHECK_INSPECTION'], range: '2023-06 至今' },
-  { icon: 'Tools', name: '设备维保档案', bizType: 'SAVE_EQUIPMENT', group: ['SAVE_EQUIPMENT', 'UPDATE_EQUIPMENT', 'DELETE_EQUIPMENT'], range: '2023-06 至今' },
-  { icon: 'Camera', name: '安全卫生巡检', bizType: 'XK_ENV_CHECK', group: ['XK_ENV_CHECK', 'SAFETY'], range: '2023-06 至今' }
+  { icon: Box, name: '原料入库与检验', bizType: 'INBOUND', group: ['INBOUND', 'SIGN_PASSED_IQC'], range: '2023-06 至今' },
+  { icon: SetUp, name: '生产工单记录', bizType: 'REPORT_WORK', group: ['REPORT_WORK', 'CREATE_INSPECTION', 'CHECK_INSPECTION'], range: '2023-06 至今' },
+  { icon: Tools, name: '设备维保档案', bizType: 'SAVE_EQUIPMENT', group: ['SAVE_EQUIPMENT', 'UPDATE_EQUIPMENT', 'DELETE_EQUIPMENT'], range: '2023-06 至今' },
+  { icon: Camera, name: '安全卫生巡检', bizType: 'XK_ENV_CHECK', group: ['XK_ENV_CHECK', 'SAFETY'], range: '2023-06 至今' },
+  { icon: OfficeBuilding, name: '供应商准入档案', bizType: 'SUPPLIER_REVIEW', group: ['SUPPLIER_SUSPEND', 'SUPPLIER_RESUME', 'SUPPLIER_REVIEW', 'SUPPLIER_CERT', 'SUPPLIER_RATING'], range: '2025-01 至今' }
 ]
 const archiveCards = ref([])
 const archiveDetail = ref(null)     // 进入某归档库后展示该组 bizType 的明细行
@@ -192,19 +211,26 @@ function onEnterArchive(a) {
   if (!rows.length) ElMessage.info(`「${a.name}」暂无归档记录`)
 }
 
-// 审计日志 tab 查询: 本地过滤已加载的 logs (keyword/bizType/date)
+// 审计日志 tab 查询: 本地过滤原始流水 (keyword/bizType/date), 不改写 rawLogs, 可反复查询
 function onQuery() {
   const kw = (query.value.keyword || '').trim().toLowerCase()
-  const base = logs.value.filter(l => {
+  const bt = query.value.bizType || ''
+  const day = query.value.date || ''
+  const rows = rawLogs.value.filter(l => {
+    if (bt && l.bizType !== bt) return false
+    if (day && !String(l.time || '').startsWith(day)) return false
     if (kw) {
       const hay = ((l.billNo || '') + ' ' + (l.operator || '') + ' ' + (l.change || '')).toLowerCase()
       if (!hay.includes(kw)) return false
     }
     return true
   })
-  // 结果写回 logs (保持表格数据源不变, 仅按搜索过滤)
-  logs.value = base
-  ElMessage.success('查询完成, 命中 ' + base.length + ' 条')
+  logs.value = rows
+  ElMessage.success('查询完成, 命中 ' + rows.length + ' 条')
+}
+function onResetQuery() {
+  query.value = { keyword: '', date: '', bizType: '' }
+  logs.value = rawLogs.value
 }
 function onDetail(row) {
   ElMessage.info('审计流水: ' + (row.billNo || '—') + ' · ' + (row.change || '无变更说明'))
@@ -225,7 +251,10 @@ async function onExportPack() {
 
 onMounted(async () => {
   const r1 = await xkMock.auditLogs()
-  if (r1.code === 200) logs.value = r1.data
+  if (r1.code === 200) {
+    rawLogs.value = r1.data || []
+    logs.value = rawLogs.value
+  }
   await loadArchive()
 })
 </script>
@@ -258,9 +287,8 @@ onMounted(async () => {
 .integrity { color: var(--success); font-size: 12px; display: inline-flex; align-items: center; gap: 3px; }
 .pager { margin-top: 14px; text-align: right; }
 
-/* Figma .archive-grid — 记录归档 4 卡片 */
-.archive-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding: 4px; }
-@media (max-width: 1100px) { .archive-grid { grid-template-columns: repeat(2, 1fr); } }
+/* Figma .archive-grid — 记录归档卡片 (5 组, 自适应换行) */
+.archive-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px; padding: 4px; }
 @media (max-width: 640px) { .archive-grid { grid-template-columns: 1fr; } }
 .archive-card {
   background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px;

@@ -62,6 +62,10 @@ public class PurOrder {
     @TableField(exist = false)
     private transient String createByName;
 
+    /** 首个商品的名称 (list page 注入, 不入库) — App 选单器显示「单号 · 品名」用 */
+    @TableField(exist = false)
+    private String firstProductName;
+
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -121,5 +125,9 @@ public class PurOrder {
     /** 操作员姓名 (list page 注入) */
     public String getCreateByName() { return createByName; }
     public void setCreateByName(String createByName) { this.createByName = createByName; }
+
+    /** 首个商品名称 (list page 注入) */
+    public String getFirstProductName() { return firstProductName; }
+    public void setFirstProductName(String firstProductName) { this.firstProductName = firstProductName; }
 
 }

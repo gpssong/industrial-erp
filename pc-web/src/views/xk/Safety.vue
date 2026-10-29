@@ -200,16 +200,23 @@
                 <div class="ct-col c-verdict">判定</div>
               </div>
               <div class="ct-body">
-                <div v-for="r in finItems" :key="r.item || r.name" class="ct-row">
-                  <div class="ct-col c-item">{{ r.item || r.name }}</div>
-                  <div class="ct-col c-req">{{ r.req || r.std }}</div>
+                <div v-for="r in finItems" :key="r.itemCode" class="ct-row">
+                  <div class="ct-col c-item">{{ r.itemName }}<small v-if="r.isFoodGradeItem" class="xk-food-flag">食</small></div>
+                  <div class="ct-col c-req">{{ r.requirement }}</div>
                   <div class="ct-col c-method">{{ r.method }}</div>
-                  <div class="ct-col c-result">{{ r.result || '-' }}</div>
+                  <div class="ct-col c-result">
+                    <el-input v-model="r.resultValue" size="small" :disabled="finLocked"
+                      :placeholder="r.unit ? ('实测值, 单位 ' + r.unit) : '记录实测或核验结论'" />
+                  </div>
                   <div class="ct-col c-verdict">
-                    <el-tag :type="r.ok === false ? 'danger' : 'success'" size="small" effect="light">{{ r.ok === false ? '不合格' : '合格' }}</el-tag>
+                    <el-select v-model="r.passFlag" size="small" :disabled="finLocked">
+                      <el-option label="待检" :value="-1" />
+                      <el-option label="合格" :value="1" />
+                      <el-option label="不合格" :value="0" />
+                    </el-select>
                   </div>
                 </div>
-                <div v-if="!finItems.length" class="empty-row">无检验项目数据, 请新建检验</div>
+                <div v-if="!finItems.length" class="empty-row">未取到成品检验模板项, 请确认检验单产品/工单信息完整后重选</div>
               </div>
             </div>
 
@@ -238,7 +245,7 @@
 
             <!-- 底部动作 -->
             <div class="semi-foot">
-              <el-button type="primary" :loading="finSubmitting" @click="onSaveFin" :disabled="!finSel"><el-icon><Check /></el-icon>保存检验记录 (PASS)</el-button>
+              <el-button type="primary" :loading="finSubmitting" @click="onSaveFin" :disabled="!finSel || finLocked"><el-icon><Check /></el-icon>{{ finLocked ? '检验记录已签发' : '逐项判定并签发检验记录' }}</el-button>
               <el-button @click="onOpenReport(finSel)" :disabled="!finSel"><el-icon><Document /></el-icon>查看详情</el-button>
             </div>
           </div>
@@ -990,24 +997,43 @@ async function loadFin() {
 }
 async function onSelectFin(row) {
   finSel.value = row
-  const r = await inspectionApi.detail(row.id)
-  if (r.code === 200 && r.data) {
-    const head = r.data.head || r.data
-    try { finItems.value = typeof head.items === 'string' ? JSON.parse(head.items) : (head.items || []) }
-    catch (e) { finItems.value = [] }
+  finItems.value = []
+  finPhotos.value = []
+  try {
+    // v1.1.131 — 走服务器成品检验模板 (OQC): 幂等灌模板 + 回传真检验项, 不再读 head.items JSON 快照
+    const r = await inspectionApi.ensureTemplate(row.id)
+    const head = r?.data?.head || row
+    finSel.value = { ...row, ...head }
+    finItems.value = (r?.data?.items || []).map(x => ({ ...x }))
     try { finPhotos.value = typeof head.photoUrls === 'string' ? JSON.parse(head.photoUrls) : (head.photoUrls || []) }
     catch (e) { finPhotos.value = [] }
+  } catch (e) {
+    ElMessage.error((e && (e.msg || e.message)) || '加载成品检验模板失败')
   }
 }
+const finLocked = computed(() => finSel.value?.status === 'CHECKED')
 const finSubmitting = ref(false)
 async function onSaveFin() {
   if (!finSel.value) { ElMessage.warning('请先选择一条记录'); return }
+  if (finLocked.value) { ElMessage.warning('该检验单已签发, 记录只读'); return }
+  if (!finItems.value.length) { ElMessage.warning('无检验模板项, 不能签发出厂检验记录'); return }
+  const pending = finItems.value.filter(it => Number(it.passFlag) !== 1 && Number(it.passFlag) !== 0)
+  if (pending.length) { ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName}`); return }
+  const noValue = finItems.value.filter(it => !String(it.resultValue || '').trim())
+  if (noValue.length) { ElMessage.warning(`${noValue[0].itemName} 缺实测/核验记录`); return }
+  const failed = finItems.value.filter(it => Number(it.passFlag) === 0)
   finSubmitting.value = true
   try {
-    const r = await inspectionApi.check(finSel.value.id, {
-      result: 'PASS', disposition: 'NONE', reason: ''
-    })
-    if (r.code === 200) { ElMessage.success('已保存 PASS'); await loadFin() }
+    await inspectionApi.iqcSaveItems(finSel.value.id, finItems.value.map(it => ({ ...it })))
+    const sample = Number(finSel.value.sampleQty || 0)
+    const body = failed.length
+      ? { result: 'FAIL', disposition: 'FROZEN', reason: '成品检验不合格项: ' + failed.map(f => f.itemName).join('、') }
+      : {
+        result: 'PASS', disposition: 'NONE', reason: '成品检验逐项合格, 放行入库',
+        sampleQty: String(sample), qualifiedQty: String(sample), unqualifiedQty: '0'
+      }
+    const r = await inspectionApi.check(finSel.value.id, body)
+    if (r.code === 200) { ElMessage.success(failed.length ? '已判定不合格并冻结批次' : '已签发合格检验记录'); await loadFin() }
     else ElMessage.error(r.msg || '保存失败')
   } catch (e) { ElMessage.error((e && (e.msg || e.message)) || '保存失败') }
   finally { finSubmitting.value = false }
@@ -1634,8 +1660,11 @@ watch(tab, async (t) => {
 .c-item { flex: 0 0 130px; font-weight: 600; color: var(--text); }
 .c-req { flex: 1; color: #5a6b7d; }
 .c-method { flex: 0 0 110px; color: #5a6b7d; }
-.c-result { flex: 0 0 110px; color: var(--text); font-weight: 550; }
-.c-verdict { flex: 0 0 90px; text-align: right; }
+/* v1.1.131 成品检验项改为可录入: 实测值/判定单元格容纳控件 */
+.c-result { flex: 0 0 180px; color: var(--text); font-weight: 550; white-space: normal; }
+.c-verdict { flex: 0 0 110px; text-align: right; white-space: normal; }
+.xk-food-flag { display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 3px;
+  font-size: 11px; font-weight: 600; color: #b45309; background: #fef3c7; }
 @media (max-width: 700px) { .ct-row { flex-wrap: wrap; gap: 6px; } .ct-col { flex: 1 1 40%; } }
 
 // 照片卡

@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.report.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.report.mapper.ReportMapper;
 import com.industrial.erp.modules.report.service.RecycleBinService;
@@ -37,7 +38,8 @@ public class ReportController {
 
     // v1.1.53: 工作台 KPI 卡片 — 独立鉴权 dashboard:kpi.
     // 同时清理孤儿 requirePerm("dashboard:view") (v1.0.10+ 遗留, sql 里无对应 sys_menu 行).
-    @SaCheckPermission("dashboard:kpi")
+    // v1.1.130: App「经营简报」入口 perm=report:view, 该页要读 KPI 卡片 → 认 report:view.
+    @SaCheckPermission(value = {"dashboard:kpi", "report:view"}, mode = SaMode.OR)
     @GetMapping("/dashboard")
     public R<Map<String, Object>> dashboard() {
         return R.ok(reportMapper.dashboardKpi().get(0));

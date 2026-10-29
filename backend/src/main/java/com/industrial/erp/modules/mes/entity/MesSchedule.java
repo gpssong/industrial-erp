@@ -58,6 +58,10 @@ public class MesSchedule {
     @TableLogic
     private Integer deleted = 0;
 
+    /** 关联工单的商品名称 (list page 注入, 不入库) — 前端显示「工单号 · 品名」用 */
+    @TableField(exist = false)
+    private String productName;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Long getPrdOrderId() { return prdOrderId; }
@@ -98,4 +102,7 @@ public class MesSchedule {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+    /** 关联工单的商品名称 (list page 注入) */
+    public String getProductName() { return productName; }
+    public void setProductName(String productName) { this.productName = productName; }
 }

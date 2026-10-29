@@ -67,7 +67,8 @@
       <view v-else-if="!schedules.length" class="muted">暂无排程</view>
       <view v-for="s in schedules" :key="s.id" class="sched-row">
         <view class="sched-head">
-          <text class="sched-order">{{ s.prdOrderNo || '—' }}</text>
+          <!-- v1.1.131: 工单号后带商品名称 (后端 MesSchedule.productName 注入) -->
+          <text class="sched-order">{{ s.prdOrderNo || '—' }}<text v-if="s.productName" class="sched-pname"> · {{ s.productName }}</text></text>
           <text :class="['tag', 'tag-' + s.status]">{{ s.status }}</text>
         </view>
         <view class="muted">工序 #{{ s.processNo || '-' }} {{ s.processName || '' }} ·
@@ -191,6 +192,7 @@ onMounted(() => {
 .sched-row { padding:8px 0;border-bottom:1px solid #f5f5f5 }
 .sched-head { display:flex;justify-content:space-between;align-items:center }
 .sched-order { font-weight:600;font-size:13px }
+.sched-pname { font-weight:400;font-size:12px;color:#909399 }
 .tag { font-size:11px;padding:2px 8px;border-radius:10px }
 .tag-PLANNED { background:#f0f2f5;color:#606266 }
 .tag-IN_PROGRESS { background:#fdf6ec;color:#e6a23c }

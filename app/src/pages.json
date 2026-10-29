@@ -7,6 +7,7 @@
     { "path": "pages/scan/out", "style": { "navigationBarTitleText": "扫码出库(销售)" } },
     { "path": "pages/scan/fai", "style": { "navigationBarTitleText": "首检 (FAI)" } },
     { "path": "pages/scan/pat", "style": { "navigationBarTitleText": "巡检 (PAT)" } },
+    { "path": "pages/scan/oqc", "style": { "navigationBarTitleText": "成品检验 (OQC)" } },
     { "path": "pages/scan/semi-in", "style": { "navigationBarTitleText": "半成品入库" } },
     { "path": "pages/scan/finished-in", "style": { "navigationBarTitleText": "成品入库" } },
     { "path": "pages/count/index", "style": { "navigationBarTitleText": "外勤盘点" } },

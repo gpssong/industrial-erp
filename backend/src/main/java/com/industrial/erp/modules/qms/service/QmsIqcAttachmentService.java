@@ -59,7 +59,7 @@ public class QmsIqcAttachmentService {
 
         QmsIqcAttachment a = new QmsIqcAttachment();
         a.setIqcId(iqcId);
-        a.setUploadId(null);  // sys_upload 表当前未使用, 留 null 兼容未来切到 DB
+        a.setUploadId(null);  // 本项目上传接口不落 sys_upload; sql/144 起该列可空 (原 NOT NULL 无默认值 → 绑定照片一直 500)
         a.setAttachType(attachType);
         a.setAttachName(StrUtil.isNotBlank(fileName) ? fileName : "unnamed");
         a.setFileUrl(fileUrl);

@@ -88,7 +88,16 @@
         </el-row>
         <el-row :gutter="12">
           <el-col :span="8"><el-form-item label="供货范围"><el-select v-model="form.supplierType"><el-option v-for="(v,k) in typeMap" :key="k" :label="v" :value="k" /></el-select></el-form-item></el-col>
-          <el-col :span="8"><el-form-item label="准入状态"><el-switch v-model="form.status" active-text="合格" inactive-text="暂停供货" :active-value="1" :inactive-value="0" /></el-form-item></el-col>
+          <el-col :span="8">
+            <!-- v1.1.130 P1: 准入状态变更必须走 XK 合格供应商台账 (暂停/恢复), 此处编辑态只读 -->
+            <el-form-item label="准入状态">
+              <div>
+                <el-switch v-if="!form.id" v-model="form.status" active-text="合格" inactive-text="暂停供货" :active-value="1" :inactive-value="0" />
+                <span v-else class="rec-pill" :class="form.status === 1 ? 'ok' : 'danger'">{{ form.status === 1 ? '合格' : '暂停供货' }}</span>
+                <div v-if="form.id" class="status-hint">状态变更请到「XK 合规 → 合格供应商 → 暂停与恢复供货」操作</div>
+              </div>
+            </el-form-item>
+          </el-col>
         </el-row>
         <el-form-item label="资质/评价"><el-input v-model="form.remark" placeholder="如：食品接触资料有效至 2026-12 · 年度评价 A 级" /></el-form-item>
         <!-- v1.1.100 食品资质 3 字段: 食品接触原料/食品相关产品生产许可证准入 (编号/有效期由用户填) -->
@@ -187,6 +196,7 @@ onMounted(loadData)
 .supplier-stat.ss-amber .ss-bar { background: var(--warning); }
 .scope-cell { font-size: 12px; color: var(--text); }
 .assess-cell { font-size: 12px; color: var(--muted); }
+.status-hint { font-size: 11px; color: var(--muted); line-height: 1.5; margin-top: 4px; max-width: 200px; }
 /* 准入状态 pill (对齐 mockup badge tone) */
 .rec-pill {
   display: inline-block; padding: 3px 12px; border-radius: 999px;

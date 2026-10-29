@@ -128,7 +128,14 @@ export default {
     }
   },
   computed: {
-    orderOptions() { return this.orderList.map((x) => x.billNo || ('#' + x.id)) },
+    // 工单号右侧带产品名称, 选单时不用再回查
+    orderOptions() {
+      return this.orderList.map((x) => {
+        const no = x.billNo || ('#' + x.id)
+        const name = x.productName || x.productCode || ''
+        return name ? no + ' · ' + name : no
+      })
+    },
     pickedOrder() { return this.orderList.find((x) => String(x.id) === String(this.orderId)) },
     // v1.1.120: 扫商品编码命中多张工单时的选择器文案 (单号 · 成品 · 状态)
     productMatchedOpts() {

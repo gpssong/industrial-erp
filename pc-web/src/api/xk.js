@@ -209,6 +209,7 @@ export const xkMock = {
         id: l.id, time: l.operTime,
         operator: (l.operatorName || '未知') + ' / ' + (l.operatorRole || '未知'),
         action: l.action,
+        bizType: l.bizType || '',
         billNo: l.bizBillNo || '', change: l.changeDesc || ''
       })))
     }
@@ -273,6 +274,24 @@ export const envCheckApi = {
   save:   (data)   => request.post('/xk/env-check', data),
   check:  (id, body) => request.post(`/xk/env-check/${id}/check`, body),
   delete: (id)     => request.delete(`/xk/env-check/${id}`)
+}
+
+// v1.1.130 XK 合格供应商准入 (Material.vue) — 统计 / 看板 / 暂停恢复台账 / 评审 / 证照 / 绩效
+export const xkSupplierApi = {
+  stats:       ()            => request.get('/xk/supplier/stats'),
+  dashboard:   ()            => request.get('/xk/supplier/dashboard'),
+  statusLogs:  (params)      => request.get('/xk/supplier/status-log/list', { params }),
+  suspend:     (id, body)    => request.post(`/xk/supplier/${id}/suspend`, body),
+  resume:      (id, body)    => request.post(`/xk/supplier/${id}/resume`, body),
+  reviewList:  (params)      => request.get('/xk/supplier/review/list', { params }),
+  reviewSave:  (data)        => request.post('/xk/supplier/review', data),
+  reviewDelete:(id)          => request.delete(`/xk/supplier/review/${id}`),
+  certList:    (params)      => request.get('/xk/supplier/cert/list', { params }),
+  certSave:    (data)        => request.post('/xk/supplier/cert', data),
+  certDelete:  (id)          => request.delete(`/xk/supplier/cert/${id}`),
+  perfList:    (params)      => request.get('/xk/supplier/perf/list', { params }),
+  perfSave:    (data)        => request.post('/xk/supplier/perf', data),
+  perfDelete:  (id)          => request.delete(`/xk/supplier/perf/${id}`)
 }
 
 export default xkMock

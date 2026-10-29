@@ -82,7 +82,8 @@ public class PurReceiptService {
     private final com.industrial.erp.modules.purchase.service.PurInboundPlanService inboundPlanService;
 
     public IPage<PurReceipt> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus, String productName) {
-        permService.requirePerm("purchase:receipt:list");
+        // v1.1.130: XK 单据打印页要读一张已审核入库单, report:print 独立后该入口也要能读
+        permService.requireAnyPerm("purchase:receipt:list", "report:print");
         Page<PurReceipt> p = new Page<>(pageNum, pageSize);
         // productName EXISTS 子查询已下沉到 mapper XML, 避免 QueryWrapper.apply() 字符串拼接反模式 (P1-3)
         IPage<PurReceipt> result = receiptMapper.selectPageWithProduct(p, billNo, supplierId, billStatus, productName);

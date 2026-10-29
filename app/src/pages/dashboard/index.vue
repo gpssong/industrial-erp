@@ -15,8 +15,9 @@
       </view>
     </view>
 
-    <!-- v1.1.100+: 全部功能 + 子标签横向滚动 (按 perm 裁剪) -->
-    <view class="card func-card">
+    <!-- v1.1.100+: 全部功能 + 子标签横向滚动 (按 perm 裁剪)
+         v1.1.130+: 区块受 APP_DASHBOARD_CONFIG.allFunc.enabled 控制 -->
+    <view class="card func-card" v-if="isSectionEnabled('allFunc')">
       <view class="func-head">
         <text class="func-title">全部功能</text>
         <text class="func-more">›</text>
@@ -40,16 +41,18 @@
       </view>
     </view>
 
-    <!-- v1.1.100+: KPI 四卡 (保留, 按 kpiVisible) -->
-    <view class="grid-4" style="margin-bottom:10px" v-if="kpiVisible">
+    <!-- v1.1.100+: KPI 四卡 (保留, 按 kpiVisible)
+         v1.1.130+: 区块受 APP_DASHBOARD_CONFIG.kpi.enabled 控制 (叠加在 kpiVisible 之上) -->
+    <view class="grid-4" style="margin-bottom:10px" v-if="kpiVisible && isSectionEnabled('kpi')">
       <view class="kpi"><text class="kpi-value">¥{{ kpi.todaySales || 0 }}</text><text class="kpi-label">今日销售</text></view>
       <view class="kpi"><text class="kpi-value">¥{{ kpi.totalSales || 0 }}</text><text class="kpi-label">累计销售</text></view>
       <view class="kpi"><text class="kpi-value">¥{{ kpi.arBalance || 0 }}</text><text class="kpi-label">应收余额</text></view>
       <view class="kpi"><text class="kpi-value">{{ kpi.stockSkuCount || 0 }}</text><text class="kpi-label">SKU数</text></view>
     </view>
 
-    <!-- v1.1.100+: 库存预警 (保留预警列表 + 「查看台账 ›」入口) -->
-    <view class="card" v-if="warningVisible && warningItems.length">
+    <!-- v1.1.100+: 库存预警 (保留预警列表 + 「查看台账 ›」入口)
+         v1.1.130+: 区块受 APP_DASHBOARD_CONFIG.warning.enabled 控制 -->
+    <view class="card" v-if="warningVisible && warningItems.length && isSectionEnabled('warning')">
       <view class="warn-head">
         <view>
           <text class="title">库存预警 <text class="warn-count">{{ warningItems.length }}</text></text>
@@ -71,8 +74,9 @@
       </view>
     </view>
 
-    <!-- v1.1.100+: 现场待办 (到货待检 IQC / 维保任务 / 复检 OQC — 真接后端) -->
-    <view class="card" v-if="todoItems.length">
+    <!-- v1.1.100+: 现场待办 (到货待检 IQC / 维保任务 / 复检 OQC — 真接后端)
+         v1.1.130+: 区块受 APP_DASHBOARD_CONFIG.todo.enabled 控制 -->
+    <view class="card" v-if="todoItems.length && isSectionEnabled('todo')">
       <view class="todo-head">
         <text class="title">现场待办</text>
         <text class="muted">今日需要完成的工作</text>
@@ -95,6 +99,7 @@ import api from '../../api/index.js'
 import { navigateTo } from '../../utils/nav.js'
 import { applyTabBar, isAdmin } from '../../utils/permission.js'
 import { isModuleEnabled, isPermEnabled, loadFromServer as loadAppModuleConfig } from '../../utils/appModuleEnabled.js'
+import { isSectionEnabled, isGroupEnabled, loadFromServer as loadAppDashboardConfig } from '../../utils/appDashboardConfig.js'
 
 // v1.1.53: KPI 区块按新 perm dashboard:kpi 控制 (之前是 report:view).
 // 之前 report:view 既管 KPI 又管"经营简报"快捷入口 (PAGE_TO_APP 里),
@@ -381,8 +386,8 @@ const visibleMenus = computed(() => {
         seen.add('/pages/scan/in')
         result.push({ path: '/pages/scan/in', title: 'XK 原料', icon: '📥' })
       }
-      // 3. 批次溯源 — production:report:list
-      if (perms.includes('production:report:list') && !seen.has('/pages/xk/trace')
+      // 3. 批次溯源 — production:report:trace (v1.1.130 从 report:list 拆出独立 perm)
+      if (perms.includes('production:report:trace') && !seen.has('/pages/xk/trace')
           && isModuleEnabled('production')) {
         seen.add('/pages/xk/trace')
         result.push({ path: '/pages/xk/trace', title: 'XK 批次溯源', icon: '🔗' })
@@ -399,8 +404,8 @@ const visibleMenus = computed(() => {
         seen.add('/pages/xk/safety')
         result.push({ path: '/pages/xk/safety', title: 'XK 安全卫生', icon: '⚠' })
       }
-      // 6. 单据打印 — report:view (ReportController 内部)
-      if (perms.includes('report:view') && !seen.has('/pages/xk/print')
+      // 6. 单据打印 — report:print (v1.1.130 从 report:view 拆出独立 perm)
+      if (perms.includes('report:print') && !seen.has('/pages/xk/print')
           && isModuleEnabled('report')) {
         seen.add('/pages/xk/print')
         result.push({ path: '/pages/xk/print', title: 'XK 单据打印', icon: '🖨' })
@@ -413,19 +418,22 @@ const visibleMenus = computed(() => {
       }
     }
 
-    // v1.1.99 C4 App 端联动: 生产排程 + 设备 OEE (perm=production:schedule:list, 模块 production)
-    // 与 XK 一样走 perm-only 兜底 — sys_menu 里尚无 path 节点, 双匹配永远 false.
-    if (Array.isArray(perms) && perms.includes('production:schedule:list')
-        && isModuleEnabled('production') && isPermEnabled('production', 'production:schedule:list')) {
-      // 排程管理
-      if (!seen.has('/pages/production/schedule')) {
-        seen.add('/pages/production/schedule')
-        result.push({ path: '/pages/production/schedule', title: '生产排程', icon: '📅' })
+    // v1.1.99 C4 App 端联动: 生产排程 + 设备 OEE
+    // v1.1.130 拆分: 排程 → production:schedule:list; OEE → production:schedule:oee, 两者独立授权
+    if (Array.isArray(perms) && isModuleEnabled('production')) {
+      if (perms.includes('production:schedule:list')
+          && isPermEnabled('production', 'production:schedule:list')) {
+        if (!seen.has('/pages/production/schedule')) {
+          seen.add('/pages/production/schedule')
+          result.push({ path: '/pages/production/schedule', title: '生产排程', icon: '📅' })
+        }
       }
-      // 设备 OEE
-      if (!seen.has('/pages/production/oee')) {
-        seen.add('/pages/production/oee')
-        result.push({ path: '/pages/production/oee', title: '设备 OEE', icon: '📊' })
+      if (perms.includes('production:schedule:oee')
+          && isPermEnabled('production', 'production:schedule:oee')) {
+        if (!seen.has('/pages/production/oee')) {
+          seen.add('/pages/production/oee')
+          result.push({ path: '/pages/production/oee', title: '设备 OEE', icon: '📊' })
+        }
       }
     }
 
@@ -491,6 +499,8 @@ const funcGroups = computed(() => {
   const map = new Map()
   for (const it of visibleMenus.value) {
     const g = classifyFunc(it)
+    // v1.1.130+: 按 APP_DASHBOARD_CONFIG 的分组开关过滤 (关闭的分组不出现在子标签)
+    if (!isGroupEnabled(g)) continue
     if (!map.has(g)) map.set(g, [])
     map.get(g).push(it)
   }
@@ -524,6 +534,7 @@ function loadUser() {
 
 async function loadWarningItems() {
   if (!warningVisible.value) return
+  if (!isSectionEnabled('warning')) return  // v1.1.130+: 区块停用则不请求
   try {
     const list = await api.warningList()
     // /inventory/warning/list 返回 [{productId, productCode, productName, qty, p_safety_stock (来自 base_product JOIN), safety_stock (来自 inv_stock, 通常 0), warehouseName, ...}]
@@ -553,6 +564,7 @@ async function loadWarningItems() {
 //   ③ XK 复检:  成品复检 OQC 草稿 (qmsInspectionPage, inspectionType=OQC, status=DRAFT)
 // 门禁: 各类受对应模块开关 (qms/em) 控制; 无 perm/模块关时静默跳过 (拦截器 403 不弹, R13).
 async function loadTodoItems() {
+  if (!isSectionEnabled('todo')) return  // v1.1.130+: 区块停用则不请求
   const todos = []
 
   // ① 到货待检 (IQC 草稿) — 跳质量检验页
@@ -667,6 +679,8 @@ onMounted(async () => {
 
   // v1.1.80+: 进入工作台时强制拉一次最新模块配置 (TTL 内的快速操作也能即时生效)
   await loadAppModuleConfig().catch(() => { /* 静默 */ })
+  // v1.1.130+: 拉一次 App 工作台区块配置 (4 区块 + 全部功能 7 子分组, TTL 内复用)
+  await loadAppDashboardConfig().catch(() => { /* 静默 — 失败兜底全开 */ })
 
   // v1.1.54 hotfix: 必须在 recompute* 之前先调 /me 同步最新 permissions.
   // 之前顺序是 recomputeWarningVisible() 先跑 (读陈旧 erp_permissions), 后面 /me 才刷新 storage —
@@ -705,7 +719,8 @@ onMounted(async () => {
   recomputeWarningVisible()
   recomputeReportEntryVisible()
   // v1.1.11+: 有 KPI 权限才请求数据 + 失败时主动隐藏 KPI 区块 (兼容老版本残留 + perm 时序错位)
-  if (kpiVisible.value) {
+  // v1.1.130+: 叠加 APP_DASHBOARD_CONFIG.kpi 区块开关 (关闭则不请求)
+  if (kpiVisible.value && isSectionEnabled('kpi')) {
     try {
       kpi.value = await api.dashboard()
     } catch (e) {

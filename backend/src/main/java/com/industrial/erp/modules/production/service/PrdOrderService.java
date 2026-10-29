@@ -74,6 +74,23 @@ public class PrdOrderService {
         this.mesReportService = mesReportService;
     }
 
+    /**
+     * v1.1.133 总重量 (kg) = 计划数量(件) × 成品克重(g/件) ÷ 1000.
+     * 唯一算法出口: 详情/列表展示与 release() 领料展开都走这里, 防止两处口径漂移.
+     * 缺数量或克重 (克重 ≤0 视为未填) → null, 调用方按降级处理.
+     */
+    static BigDecimal totalWeightKg(BigDecimal planQty, BigDecimal gramWeight) {
+        if (planQty == null || gramWeight == null || gramWeight.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return planQty.multiply(gramWeight).divide(new BigDecimal("1000"), 6, RoundingMode.HALF_UP);
+    }
+
+    /** 展示口径: 3 位小数 (kg); 领料展开仍用 6 位原值 */
+    private static BigDecimal display(BigDecimal kg) {
+        return kg == null ? null : kg.setScale(3, RoundingMode.HALF_UP);
+    }
+
     public IPage<PrdOrder> page(Integer pageNum, Integer pageSize, String billNo, String billStatus, String productName) {
         permService.requirePerm("production:order:list");
         Page<PrdOrder> p = new Page<>(pageNum, pageSize);
@@ -105,6 +122,7 @@ public class PrdOrderService {
                 order.setPGramWeight(prod.getGramWeight());
                 order.setPMaterial(prod.getMaterial());
                 order.setPColorNo(prod.getColorNo());
+                order.setTotalWeightKg(display(totalWeightKg(order.getPlanQty(), prod.getGramWeight())));
             }
         }
         return res;
@@ -144,6 +162,8 @@ public class PrdOrderService {
         }
         // 加载领料明细 (生产加工单打印用: 跨所有领料单汇总明细行)
         if (order != null) {
+            // v1.1.133 总重量 (kg) = 计划数量 × 克重 ÷ 1000, 生产单详情展示 + 领料合计口径
+            order.setTotalWeightKg(display(totalWeightKg(order.getPlanQty(), order.getPGramWeight())));
             order.setRequisitionDetails(reqDetailMapper.selectByPrdOrderId(id));
         }
         return order;
@@ -280,10 +300,8 @@ public class PrdOrderService {
                                       + "配比版用量 = 成品总重 × 本项/Σ配比, 缺任一项都算不出用量. 请到「基础数据 → 商品」补成品克重, 或到「生产管理 → BOM」核对配比份数. 状态仍置 RELEASED, 用户可后续手动建领料单.",
                                 order.getBillNo(), gram, order.getProductName(), sumRatio);
             } else {
-                // 成品总重: planQty(件) × 克重(g/件) ÷ 1000 → kg
-                BigDecimal totalKg = order.getPlanQty()
-                        .multiply(gram)
-                        .divide(new BigDecimal("1000"), 6, RoundingMode.HALF_UP);
+                // 成品总重: planQty(件) × 克重(g/件) ÷ 1000 → kg  (v1.1.133 与详情展示的「总重量」同一算法)
+                BigDecimal totalKg = totalWeightKg(order.getPlanQty(), gram);
 
                 if (canExpand) {
                     PrdRequisition req = new PrdRequisition();
@@ -316,6 +334,14 @@ public class PrdOrderService {
                         rd.setQty(need.setScale(4, RoundingMode.HALF_UP));
                         req.getDetails().add(rd);
                     }
+                    // v1.1.133 把口径写在单上: 领料合计应当等于生产单详情里的「总重量」
+                    // (损耗率 >0 的 BOM 会略高于总重量, 那是补投料, 不是算错)
+                    BigDecimal sumQty = BigDecimal.ZERO;
+                    for (PrdRequisitionDetail rd : req.getDetails()) {
+                        sumQty = sumQty.add(rd.getQty());
+                    }
+                    req.setRemark("按 BOM 配比份数分摊成品总重量 " + display(totalKg).toPlainString()
+                            + " kg (= 计划数量 × 克重 ÷ 1000); 本单领料合计 " + sumQty.setScale(3, RoundingMode.HALF_UP).toPlainString() + " kg");
                     reqMapper.insert(req);
                     for (PrdRequisitionDetail rd : req.getDetails()) {
                         rd.setId(null);

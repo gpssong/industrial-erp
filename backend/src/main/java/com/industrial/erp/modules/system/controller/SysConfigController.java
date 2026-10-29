@@ -58,6 +58,7 @@ public class SysConfigController {
      */
     private static final Set<String> CLIENT_READABLE_KEYS = Set.of(
             "APP_MODULE_ENABLED",
+            "APP_DASHBOARD_CONFIG",
             "DASHBOARD_CONFIG",
             "PRICE_TAX_SEPARATION",
             "SYS_FACTORY",

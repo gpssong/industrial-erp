@@ -22,7 +22,7 @@
       </view>
 
       <view v-if="loaded" class="card">
-        <view class="row"><view><view class="bill-no">{{ receipt.billNo }}</view>
+        <view class="row"><view><view class="bill-no">{{ receipt.billNo }}<text v-if="productNames"> · {{ productNames }}</text></view>
           <view class="muted">供应商 {{ receipt.supplierName || receipt.supplierId || '—' }}</view></view>
           <view class="tag tag-draft">IQC 草稿</view></view>
         <view class="muted form-hint">逐行录入抽检/合格/不良 + 缺陷</view>
@@ -61,7 +61,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
 import { doScan } from '../../utils/scan.js'
@@ -88,6 +88,11 @@ const loaded = ref(false)
 const submitting = ref(false)
 const receipt = ref({})
 const draft = ref([])
+// v1.1.131: 明细行商品名去重后拼给入库单号用 (单据头没有品名列)
+const productNames = computed(() => {
+  const names = ((receipt.value && receipt.value.details) || []).map(d => d.productName).filter(Boolean)
+  return [...new Set(names)].join('、')
+})
 const form = reactive({
   productId: '', batchNo: '', sampleQty: '', qualifiedQty: '', unqualifiedQty: ''
 })

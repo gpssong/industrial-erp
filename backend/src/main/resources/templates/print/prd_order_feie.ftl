@@ -17,7 +17,7 @@
 材质: ${order.material!''}<BR>
 </#if>
 <#if order.gramWeight??>
-克重: ${order.gramWeight!'0'}g/㎡<BR>
+克重: ${order.gramWeight!'0'}g/个<BR>
 </#if>
 <BR>
 计划: <B>${order.planQty!'0'}</B> ${order.unitName!''}<BR>

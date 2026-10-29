@@ -83,9 +83,9 @@ const PAGE_PERMS = {
   '/pages/production/order-detail':   { perm: 'production:order:list',   module: 'production' },
   // v1.1.80 MES: 扫码报工 (报工入口, 读+写 共用 production:report:list; 提交时后端再卡 :add)
   '/pages/production/report':         { perm: 'production:report:list',  module: 'production' },
-  // v1.1.99 C4: 生产排程 + 设备 OEE (走 production:schedule:list; 模块 production)
+  // v1.1.99 C4: 生产排程 + 设备 OEE — v1.1.130 拆分: OEE 独立 perm production:schedule:oee
   '/pages/production/schedule':       { perm: 'production:schedule:list', module: 'production' },
-  '/pages/production/oee':           { perm: 'production:schedule:list', module: 'production' },
+  '/pages/production/oee':           { perm: 'production:schedule:oee',  module: 'production' },
   // v1.1.126: 吹膜米克重采集 (ESP32 上云) — 读曲线/明细/统计, perm=mes:weight:list
   //   通道维护 (mes:weight:edit) 只在 PC 端, App 端只读
   '/pages/production/weight':         { perm: 'mes:weight:list',        module: 'production' },
@@ -114,10 +114,10 @@ const PAGE_PERMS = {
   //   module 用 '' 让 isAppModuleEnabled 短路, 不再卡模块开关 (XK 本身没在 8 模块开关列表里).
   '/pages/xk/dashboard':              { perm: 'dashboard:kpi',         module: '' },
   '/pages/xk/material':               { perm: 'purchase:receipt:list', module: '' },
-  '/pages/xk/trace':                  { perm: 'production:report:list', module: '' },
+  '/pages/xk/trace':                  { perm: 'production:report:trace', module: '' },
   '/pages/xk/maintenance':            { perm: 'work:maintain:list',    module: '' },
   '/pages/xk/safety':                 { perm: 'xk:audit:list',         module: '' },
-  '/pages/xk/print':                  { perm: 'report:view',           module: '' },
+  '/pages/xk/print':                  { perm: 'report:print',          module: '' },
   '/pages/xk/audit':                  { perm: 'xk:audit:list',         module: '' }
 }
 

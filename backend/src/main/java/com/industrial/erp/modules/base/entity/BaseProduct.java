@@ -26,7 +26,7 @@ public class BaseProduct {
     private BigDecimal thickness;
     private BigDecimal width;
     private BigDecimal density;
-    /** 克重 (g/m² 或 g/件) */
+    /** 克重 (g/个) — 单件成品净重, 总重量 kg = 数量 × 克重 ÷ 1000 */
     private BigDecimal gramWeight;
     private String colorNo;
     private String batchNo;

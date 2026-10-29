@@ -11,6 +11,8 @@ import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionDetailMapper;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +60,8 @@ public class PrdOrderBillLoader implements BillLoader {
                 order.setPMaterial(p.getMaterial());
                 order.setPColorNo(p.getColorNo());
                 order.setModel(p.getModel());
+                // v1.1.137: 使用原料 (kg) = 计划数量 × 克重 ÷ 1000, 与 PrdOrderService.totalWeightKg 同算法同展示口径
+                order.setTotalWeightKg(displayKg(computeRawMaterialKg(order.getPlanQty(), p.getGramWeight())));
             }
         }
         // 加载领料明细
@@ -86,5 +90,18 @@ public class PrdOrderBillLoader implements BillLoader {
     public String billNo(Long billId) {
         PrdOrder order = orderMapper.selectById(billId);
         return order == null ? null : order.getBillNo();
+    }
+
+    /** 3 位小数 (kg), 与 PrdOrderService.display 口径一致 */
+    private static BigDecimal displayKg(BigDecimal kg) {
+        return kg == null ? null : kg.setScale(3, RoundingMode.HALF_UP);
+    }
+
+    /** 与 PrdOrderService.totalWeightKg 同算法: 计划数量 × 克重 ÷ 1000 (6 位小数), 缺值或克重≤0 返回 null */
+    private static BigDecimal computeRawMaterialKg(BigDecimal planQty, BigDecimal gramWeight) {
+        if (planQty == null || gramWeight == null || gramWeight.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return planQty.multiply(gramWeight).divide(new BigDecimal("1000"), 6, RoundingMode.HALF_UP);
     }
 }

@@ -175,6 +175,11 @@ public class MesReportService {
         if (st == Constants.PROC_STATUS_FINISHED) {
             throw BizException.of("该工序已完成, 不可再报工 (如需反报工走财务红冲)");
         }
+        if ((g.signum() > 0 || b.signum() > 0)
+                && qmsInspectionService.isBagProcess(p)
+                && !qmsInspectionService.hasPassedFaiForProcess(processId)) {
+            throw BizException.of("制袋工序首检尚未合格，请先完成该工序首检");
+        }
 
         // v1.1.99 C3: 工艺参数越限判定 — 关键参数越限则本次合格量转不良, 不自动完工
         String paramViolation = judgeCriticalParamViolation(p, paramValues);
@@ -372,6 +377,20 @@ public class MesReportService {
             linkMapper.insert(link);
         }
         log.info("[MES] 领料登记 RAW 批次 {} → {} qty={}", rawBatchNo, childBatchNo, qty);
+    }
+
+    /**
+     * v1.1.132 XK 开工投料 — 原料批号是否已在 {@code mes_batch} 登记过。
+     *
+     * <p>开工确认接口用它回一份「未登记批号」清单给 App 提示 (操作工手录的常是供应商
+     * 桶号/袋号, 与来料检验登记的批次对不上号), 只提示不否决开工。
+     */
+    @Transactional(readOnly = true)
+    public boolean rawBatchKnown(String batchNo) {
+        if (StrUtil.isBlank(batchNo)) return false;
+        MesBatch exist = batchMapper.selectOne(new LambdaQueryWrapper<MesBatch>()
+                .eq(MesBatch::getBatchNo, batchNo.trim()).last("LIMIT 1"));
+        return exist != null;
     }
 
     /**
