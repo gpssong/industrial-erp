@@ -32,7 +32,7 @@
               <div class="gantt-bar"
                    :style="barStyle(row)"
                    :class="'gantt-' + row.status">
-                <span>{{ row.prdOrderNo || '' }}</span>
+                <span>{{ row.prdOrderNo || '' }}{{ row.productName ? ' · ' + row.productName : '' }}</span>
               </div>
             </div>
           </div>
@@ -43,7 +43,10 @@
       <!-- 排程列表 -->
       <el-tab-pane label="排程列表" name="list">
         <el-table :data="records" border stripe v-loading="listLoading" empty-text="暂无排程">
-          <el-table-column prop="prdOrderNo" label="工单" width="150" />
+          <el-table-column prop="prdOrderNo" label="工单" width="220">
+            <!-- v1.1.131: 工单号后带商品名称 -->
+            <template #default="{ row }">{{ row.prdOrderNo || '-' }}{{ row.productName ? ' · ' + row.productName : '' }}</template>
+          </el-table-column>
           <el-table-column label="设备" min-width="150">
             <template #default="{ row }">{{ row.equipmentName || ('设备#' + row.equipmentId) }}</template>
           </el-table-column>
@@ -178,7 +181,7 @@ async function loadList() {
   try {
     const r = await mesApi.schedulePage({ pageNum: pageNum.value, pageSize: pageSize.value })
     records.value = r.data?.records || []
-    total.value = r.data?.total || 0
+    total.value = Number(r.data?.total) || 0
   } catch { records.value = [] } finally { listLoading.value = false }
 }
 function onPageSizeChange(s) { pageSize.value = s; pageNum.value = 1; loadList() }

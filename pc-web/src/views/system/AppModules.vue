@@ -79,42 +79,76 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { configApi } from '@/api/system'
 
-/** 8 个业务模块固定配置 (与后端 AppModuleConfigDTO.DEFAULT_KEYS + MainLayout.vue 同步) */
+/** 11 个业务模块固定配置 (与后端 AppModuleConfigDTO.DEFAULT_KEYS + App permission.js PAGE_PERMS.module 同步)
+ *  v1.1.130: 对齐实际 App 页面 — 补 qms/pdm/em, 修正描述 (finance/workflow 无 App 入口) */
 const MODULE_DEFS = [
-  { key: 'purchase',   label: '采购管理',  description: '扫码入库 / 采购入库单查询 / 采购订单',
-    permList: ['purchase:receipt:list', 'purchase:receipt:query'] },
-  { key: 'sales',      label: '销售管理',  description: '扫码出库 / 销售出库单查询',
-    permList: ['sales:return:list', 'sales:delivery:list', 'sales:delivery:query'] },
+  { key: 'purchase',   label: '采购管理',  description: '原料入库(扫码) / 采购入库单查询 / 新建入库单 / 采购入库审核/反审核',
+    permList: ['purchase:receipt:list', 'purchase:receipt:query', 'purchase:receipt:add', 'purchase:receipt:check', 'purchase:receipt:uncheck'] },
+  { key: 'sales',      label: '销售管理',  description: '扫码出库 / 销售出库单查询 / 销售出库审核/反审核',
+    permList: ['sales:return:list', 'sales:delivery:list', 'sales:delivery:check', 'sales:delivery:uncheck'] },
   { key: 'inventory',  label: '库存管理',  description: '查库存 / 库存台账 / 库存预警 / 外勤盘点',
     permList: ['inventory:stock:list', 'inventory:ledger:list', 'inventory:check:list', 'inventory:warning:list'] },
-  { key: 'production', label: '生产管理',  description: '生产加工单',
-    permList: ['production:order:list'] },
-  { key: 'base',       label: '基础资料',  description: '新增商品',
-    permList: ['base:product:list'] },
-  { key: 'finance',    label: '应收应付',  description: '暂未实现 App 端入口',
+  { key: 'production', label: '生产管理',  description: '生产加工单 / 生产开工 / 扫码报工 / 制袋报工 / 生产排程 / 设备OEE / 吹膜米重采集 / 半成品·成品入库 / 质量首检·巡检',
+    permList: ['production:order:list', 'production:order:release', 'production:report:list', 'production:report:add',
+               'production:schedule:list', 'production:schedule:oee', 'mes:weight:list',
+               'production:semi-in:add', 'production:semi-in:check', 'production:semi-in:uncheck',
+               'production:finished-in:add', 'production:finished-in:check', 'production:finished-in:uncheck',
+               'quality:inspection:check'] },
+  { key: 'base',       label: '基础资料',  description: '新增商品 / 商品列表',
+    permList: ['base:product:add', 'base:product:list'] },
+  { key: 'qms',       label: '质量检验',  description: '质量检验单 (IQC/OQC/FAI/PAT)',
+    permList: ['quality:inspection:list', 'quality:inspection:check'] },
+  { key: 'pdm',       label: '工艺SOP',  description: '工艺参数 / 作业指导书',
+    permList: ['pdm:sop:list'] },
+  { key: 'em',        label: '设备台账',  description: '设备台账 / 设备维保 / 设备OEE',
+    permList: ['equipment:master:list', 'equipment:maintain:list'] },
+  { key: 'report',     label: '经营报表',  description: '经营简报 / AI 助手 / XK 单据打印',
+    permList: ['report:view', 'report:ai', 'report:print', 'dashboard:kpi'] },
+  { key: 'finance',    label: '应收应付',  description: '暂未实现 App 端入口 (PC 端)',
     permList: [] },
-  { key: 'report',     label: '报表中心',  description: '经营简报 (KPI) / AI 助手',
-    permList: ['report:view', 'dashboard:kpi', 'report:ai'] },
   { key: 'workflow',   label: '设备安全',  description: '仅 PC 端 (v1.1.79 决策)',
     permList: [] }
 ]
 
-/** perm 字符串 → 中文描述 (App dashboard 真实存在过的入口) */
+/** perm 字符串 → 中文描述 (App 端实际入口) */
 const PERM_DESCRIPTIONS = {
-  'purchase:receipt:list':  '扫码入库 (主入口)',
-  'purchase:receipt:query': '采购入库单查询',
-  'sales:return:list':      '扫码出库 (主入口)',
-  'sales:delivery:list':    '销售出库单列表入口',
-  'sales:delivery:query':   '销售出库单查询',
-  'inventory:stock:list':   '查库存 (工作台快捷)',
-  'inventory:ledger:list':  '库存台账',
-  'inventory:check:list':   '外勤盘点',
-  'inventory:warning:list': '库存预警 (工作台区块)',
-  'production:order:list':  '生产加工单',
-  'base:product:list':      '新增商品',
-  'report:view':            '经营简报入口',
-  'dashboard:kpi':          '工作台 KPI 卡片',
-  'report:ai':              'AI 助手'
+  'purchase:receipt:list':   '原料入库 (扫码主入口)',
+  'purchase:receipt:query':  '采购入库单查询',
+  'purchase:receipt:add':    '新建入库单',
+  'purchase:receipt:check':  '采购入库审核',
+  'purchase:receipt:uncheck':'采购入库反审核',
+  'sales:return:list':       '扫码出库 (主入口)',
+  'sales:delivery:list':     '销售出库单查询',
+  'sales:delivery:check':    '销售出库审核',
+  'sales:delivery:uncheck':  '销售出库反审核',
+  'inventory:stock:list':    '查库存 (工作台快捷)',
+  'inventory:ledger:list':   '库存台账',
+  'inventory:check:list':    '外勤盘点',
+  'inventory:warning:list':  '库存预警 (工作台区块)',
+  'production:order:list':   '生产加工单',
+  'production:order:release':'生产开工',
+  'production:report:list':  '扫码报工',
+  'production:report:add':   '制袋报工',
+  'production:schedule:list':'生产排程',
+  'production:schedule:oee': '设备 OEE',
+  'mes:weight:list':         '吹膜米重采集',
+  'production:semi-in:add':  '半成品入库',
+  'production:semi-in:check':'半成品入库审核',
+  'production:semi-in:uncheck':'半成品入库反审核',
+  'production:finished-in:add':'成品入库',
+  'production:finished-in:check':'成品入库审核',
+  'production:finished-in:uncheck':'成品入库反审核',
+  'quality:inspection:check':'首检 / 工序巡检',
+  'base:product:add':        '新增商品',
+  'base:product:list':       '商品列表',
+  'quality:inspection:list': '质量检验单',
+  'pdm:sop:list':            '工艺 SOP / 工艺参数',
+  'equipment:master:list':   '设备台账',
+  'equipment:maintain:list': '设备维保',
+  'report:view':             '经营简报',
+  'report:ai':               'AI 助手',
+  'report:print':            'XK 单据打印',
+  'dashboard:kpi':           'XK 工作台 KPI'
 }
 function permDesc(perm) { return PERM_DESCRIPTIONS[perm] || '' }
 
@@ -156,7 +190,7 @@ async function loadData() {
         ElMessage.warning('配置 JSON 解析失败, 使用默认值: ' + e.message)
       }
     } else {
-      ElMessage.info('尚未配置, 使用默认 (8 模块按代码硬编码: finance/workflow 默认关)')
+      ElMessage.info('尚未配置, 使用默认 (finance/workflow 默认关, 其余开)')
       for (const m of modules) {
         m.enabled = m.key !== 'finance' && m.key !== 'workflow'
         m.overridePerms = []
@@ -192,8 +226,8 @@ function onExpandChange(row, expanded) {
 }
 
 async function onSave() {
-  // 校验: 8 模块必须全在 (UI 限制无法删 key, 但保险起见)
-  if (modules.length !== 8) {
+  // 校验: 模块数量必须与 MODULE_DEFS 一致 (UI 限制无法删 key, 但保险起见)
+  if (modules.length !== MODULE_DEFS.length) {
     ElMessage.error('模块数量异常, 请联系管理员')
     return
   }

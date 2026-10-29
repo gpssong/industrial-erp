@@ -46,6 +46,9 @@ public class OutIssue {
     @TableLogic
     private Integer deleted = 0;
 
+    // v1.1.130 fix: 明细集合不是表字段, 未标 exist=false → MP 把 details 当列 select/insert,
+    // 报 Unknown column 'details'; 标掉后由 service 手工填充
+    @TableField(exist = false)
     private List<OutIssueDetail> details;
 
     public Long getId() { return id; }

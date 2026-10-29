@@ -39,6 +39,8 @@ class PurOrderServiceTest {
     @Mock private PurOrderDetailMapper detailMapper;
     @Mock private PurReceiptDetailMapper receiptDetailMapper;
     @Mock private BaseSupplierMapper supplierMapper;
+    @Mock private com.industrial.erp.modules.base.mapper.BaseProductMapper productMapper;
+    @Mock private com.industrial.erp.modules.xk.mapper.XkSupplierReviewMapper reviewMapper;
     @Mock private BillNoGenerator billNoGenerator;
     @Mock private PermissionService permService;
     @Mock private OperLogPublisher operLogPublisher;

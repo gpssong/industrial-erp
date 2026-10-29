@@ -209,7 +209,7 @@ async function loadList() {
     })
     if (r.code === 200) {
       records.value = r.data?.records || []
-      total.value = r.data?.total || 0
+      total.value = Number(r.data?.total) || 0
     }
   } catch (e) {
     records.value = []
@@ -319,8 +319,10 @@ async function loadOptions() {
 function openAdd() {
   form.value = emptyForm()
   loadOptions().then(() => {
-    // 入库仓库默认选半成品仓 (warehouseType=SEMI); 无则回退第一个
+    // 入库仓库默认选半成品仓 (warehouseType=SEMI); 老库没分类过则按仓名兜底
+    // (warehouses[0] 往往是成品仓, 直接退到它会静默把半成品入到成品仓)
     const semi = warehouses.value.find(x => x.warehouseType === 'SEMI')
+      || warehouses.value.find(x => (x.warehouseName || '').includes('半成品'))
     if (!form.value.warehouseId) form.value.warehouseId = (semi || warehouses.value[0] || {}).id
   })
   dialogVisible.value = true

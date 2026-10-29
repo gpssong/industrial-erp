@@ -62,6 +62,10 @@
         <input class="input" v-model.number="form.planQty" type="digit" placeholder="计划数量" />
       </view>
       <view class="form-item">
+        <text class="label">使用原料 (公斤)</text>
+        <input class="input" v-model.number="rawMaterialKg" type="digit" :disabled="!gramWeightNum" placeholder="计划数量 × 克重 ÷ 1000" @blur="onRawMaterialBlur" />
+      </view>
+      <view class="form-item">
         <text class="label">损耗率 (%)</text>
         <input class="input" v-model.number="form.lossRate" type="digit" placeholder="损耗率, 默认0" />
       </view>
@@ -153,7 +157,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import api from '../../api/index.js'
 import { onLoad } from '@dcloudio/uni-app'
 
@@ -188,6 +192,29 @@ const form = reactive({
   endDate: '',
   remark: ''
 })
+
+// v1.1.136 使用原料 (公斤) = 计划数量 × 克重 ÷ 1000, 与计划数量双向换算 (派生值, 不进 payload)
+const rawMaterialKg = ref(null)
+const gramWeightNum = computed(() => {
+  const g = Number(form.gramWeight)
+  return Number.isFinite(g) && g > 0 ? g : null
+})
+function round3(n) { return Math.round(n * 1000) / 1000 }
+function syncRawMaterial() {
+  const q = Number(form.planQty)
+  if (!gramWeightNum.value || !Number.isFinite(q) || q <= 0) { rawMaterialKg.value = null; return }
+  rawMaterialKg.value = round3(q * gramWeightNum.value / 1000)
+}
+function onRawMaterialBlur(e) {
+  const kg = Number(e.detail.value)
+  if (!gramWeightNum.value) { toast('该成品未维护克重, 无法反算计划数量'); rawMaterialKg.value = null; return }
+  if (!Number.isFinite(kg) || kg <= 0) { rawMaterialKg.value = null; return }
+  const q = Math.round(kg * 1000 / gramWeightNum.value)
+  if (q <= 0) { toast('使用原料过小, 计划数量至少 1'); return }
+  form.planQty = q
+  syncRawMaterial()
+}
+watch(() => form.planQty, syncRawMaterial)
 
 const currentProductName = computed(() => form.productName || '')
 const currentWarehouseName = computed(() => {
@@ -237,6 +264,7 @@ async function loadOrder(id) {
       form.endDate = r.endDate || ''
       form.remark = r.remark || ''
     }
+    syncRawMaterial()
   } catch (e) {
     // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg, catch 不重复弹
     console.warn('[order-add.loadOrder] 失败:', e)
@@ -285,6 +313,8 @@ function onProductSelect(idx) {
   form.material = p.material || ''
   form.bomId = p.bomId || null
   showProductPicker.value = false
+  // v1.1.136 换了成品 → 克重变了, 使用原料按新克重重算
+  syncRawMaterial()
 }
 
 function onWarehouseSelect(idx) {

@@ -64,6 +64,10 @@ public class SysRoleService {
         permService.requirePerm("system:role:delete");
         SysRole r = roleMapper.selectById(id);
         if (r == null) throw new com.industrial.erp.exception.BizException("角色不存在或已删除");
+        // v1.1.130: 内置超管角色不可删除 — 删掉会连带清空所有管理员的菜单授权 (授权按 role_id 落库)
+        if (id != null && (id == 1L || "SUPER_ADMIN".equalsIgnoreCase(r.getRoleCode()))) {
+            throw new com.industrial.erp.exception.BizException("内置超管角色不可删除");
+        }
         // 清理关联表 (角色-菜单、用户-角色) — 关联关系是物理实体
         roleMapper.deleteRoleMenus(id);
         roleMapper.deleteUserRoles(id);

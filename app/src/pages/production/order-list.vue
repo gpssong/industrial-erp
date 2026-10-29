@@ -21,16 +21,16 @@
     <view class="card" v-for="item in list" :key="item.id" @click="goDetail(item)">
       <view class="row">
         <view style="flex:1">
-          <view class="bill-no">{{ item.billNo }}</view>
+          <!-- v1.1.131: 单号后直接带商品名称, 列表扫一眼就知道是哪个活 -->
+          <view class="bill-no">{{ item.billNo }} · {{ item.productName || '—' }}</view>
           <view class="muted">{{ item.billDate }}</view>
         </view>
         <view :class="['tag', 'tag-' + (item.billStatus || 'DRAFT').toLowerCase()]">
           {{ statusTag(item.billStatus) }}
         </view>
       </view>
-      <view class="product-line">
-        <text class="product-name">{{ item.productName || '—' }}</text>
-        <text v-if="item.spec" class="muted"> ({{ item.spec }})</text>
+      <view class="product-line" v-if="item.spec">
+        <text class="muted">({{ item.spec }})</text>
       </view>
       <view class="row bottom-line">
         <text class="muted">{{ item.workshop || '未指定车间' }} · 损耗 {{ item.lossRate || 0 }}%</text>

@@ -173,12 +173,12 @@ async function onLogin() {
     })
     ElMessage.success('登录成功')
     // 登录成功后优先跳回原路径 (被 401 拦截时由 request.js 写入 ?redirect=)
+    // 防御: redirect 指向登录页本身 (旧版本 401 拦截器会写 /login) 或站外地址时, 一律去工作台
     const redirect = route.query.redirect
-    if (redirect && typeof redirect === 'string' && redirect.startsWith('/')) {
-      router.replace(redirect)
-    } else {
-      router.replace('/dashboard')
-    }
+    const target = typeof redirect === 'string' && redirect.startsWith('/') && !redirect.startsWith('/login')
+      ? redirect
+      : '/dashboard'
+    router.replace(target)
   } catch (e) {
     // P1-5: 生产环境不打印完整 AxiosError (含请求体 = 登录用户名密码)
     if (import.meta.env.DEV) console.error('[LOGIN_ERR]', e)

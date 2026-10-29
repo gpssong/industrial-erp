@@ -24,10 +24,12 @@
  */
 import { ref, reactive } from 'vue'
 
-// 8 个固定模块 key (与后端 AppModuleConfigDTO.DEFAULT_KEYS 对齐)
+// 11 个固定模块 key (与后端 AppModuleConfigDTO.DEFAULT_KEYS + App permission.js PAGE_PERMS.module 对齐)
+// v1.1.130: 补 qms/pdm/em (之前 App 端已有这些模块但不在开关列表里, admin 无法关闭)
 export const MODULE_KEYS = [
   'purchase', 'sales', 'inventory', 'production',
-  'base', 'finance', 'report', 'workflow'
+  'base', 'qms', 'pdm', 'em',
+  'finance', 'report', 'workflow'
 ]
 
 // 内存 cache (reactive, App 端任何页面 import 后能立即响应)

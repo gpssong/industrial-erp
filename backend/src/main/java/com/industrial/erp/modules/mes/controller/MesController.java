@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.mes.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.mes.entity.MesProcessDef;
 import com.industrial.erp.modules.mes.entity.PrdProcess;
@@ -72,7 +73,9 @@ public class MesController {
     }
 
     @Operation(summary = "批次追溯 (沿 料→半成品→成品→客户 递归展开, 前端逐层调)")
-    @SaCheckPermission(value = {"production:report:list"}, orRole = "admin")
+    // v1.1.130: 批次溯源从 production:report:list 拆出独立 perm production:report:trace
+    // (扫码报工与 XK 批次溯源在 App 端分开授权). OR 模式兼容旧授权: 已有 report:list 的角色不受影响.
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/batch/trace/{batchNo}")
     public R<MesReportService.TraceResult> trace(@PathVariable String batchNo,
                                                  @RequestParam(defaultValue = "0") int depth) {
@@ -80,14 +83,14 @@ public class MesController {
     }
 
     @Operation(summary = "批次全链追溯 (服务端双向 BFS 展开 料→半成品→成品→客户, 一次返回整链)")
-    @SaCheckPermission(value = {"production:report:list"}, orRole = "admin")
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/batch/trace-full/{batchNo}")
     public R<MesReportService.FullTrace> traceFull(@PathVariable String batchNo) {
         return R.ok(mes.traceFull(batchNo));
     }
 
     @Operation(summary = "批次列表 (按类型/产品筛)")
-    @SaCheckPermission(value = {"production:report:list"}, orRole = "admin")
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/batch/page")
     public R<List<com.industrial.erp.modules.mes.entity.MesBatch>> batches(
             @RequestParam(required = false) String batchType,
@@ -124,7 +127,8 @@ public class MesController {
     // ==================================================================
 
     @Operation(summary = "排程分页")
-    @SaCheckPermission(value = {"production:schedule:list"}, orRole = "admin")
+    // v1.1.130: OEE 页只读引用排程分页 → 放开 production:schedule:oee (OR), 与生产排程分开授权
+    @SaCheckPermission(value = {"production:schedule:list", "production:schedule:oee"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/schedule/page")
     public R<com.baomidou.mybatisplus.core.metadata.IPage<com.industrial.erp.modules.mes.entity.MesSchedule>> schedulePage(
             @RequestParam(defaultValue = "1") Integer pageNum,
@@ -158,7 +162,8 @@ public class MesController {
     }
 
     @Operation(summary = "设备 OEE (稼动率×性能率×良品率)")
-    @SaCheckPermission(value = {"production:schedule:list"}, orRole = "admin")
+    // v1.1.130: OEE 独立 perm production:schedule:oee (与生产排程分开授权); OR 兼容旧授权
+    @SaCheckPermission(value = {"production:schedule:oee", "production:schedule:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/oee/{equipmentId}")
     public R<MesScheduleService.OeeResult> oee(@PathVariable Long equipmentId) {
         return R.ok(scheduleService.oee(equipmentId));

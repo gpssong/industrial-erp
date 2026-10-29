@@ -22,10 +22,12 @@ import java.util.Map;
  */
 public class AppModuleConfigDTO {
 
-    /** 业务模块 key 固定 8 个 (与 MainLayout.vue menuTree 对齐). 顺序也用于 UI 渲染. */
+    /** 业务模块 key 固定 11 个 (与 App permission.js PAGE_PERMS.module + 实际 App 页面同步). 顺序也用于 UI 渲染.
+     *  v1.1.130: 补 qms/pdm/em (之前 App 端已有这些模块但不在开关列表里, admin 无法关闭) */
     public static final String[] DEFAULT_KEYS = {
             "purchase", "sales", "inventory", "production",
-            "base", "finance", "report", "workflow"
+            "base", "qms", "pdm", "em",
+            "finance", "report", "workflow"
     };
 
     /** key → ModuleEntry. 用 LinkedHashMap 保留顺序. */

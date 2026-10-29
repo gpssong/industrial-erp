@@ -9,7 +9,8 @@
       <view class="card">
         <view class="row">
           <view style="flex:1">
-            <view class="bill-no">{{ order.billNo }}</view>
+            <!-- v1.1.131: 单号后直接带商品名称 -->
+            <view class="bill-no">{{ order.billNo }} · {{ order.productName || '—' }}</view>
             <view class="muted">{{ order.billDate }}</view>
           </view>
           <view :class="['tag', 'tag-' + (order.billStatus || 'DRAFT').toLowerCase()]">
@@ -17,8 +18,7 @@
           </view>
         </view>
         <view class="product-line">
-          <text class="product-name">{{ order.productName || '—' }}</text>
-          <text v-if="order.spec" class="muted"> ({{ order.spec }})</text>
+          <text v-if="order.spec" class="muted">({{ order.spec }})</text>
           <text class="qty"> × {{ order.planQty || 0 }} {{ order.unitName || '' }}</text>
         </view>
 
@@ -54,8 +54,13 @@
             <text class="info-value">{{ order.density || '-' }}</text>
           </view>
           <view class="info-item">
-            <text class="info-label">克重</text>
-            <text class="info-value">{{ order.gramWeight || '-' }}g</text>
+            <text class="info-label">克重 (g/个)</text>
+            <text class="info-value">{{ order.gramWeight || '-' }}</text>
+          </view>
+          <!-- v1.1.133 总重量 = 计划数量 × 克重 ÷ 1000 (kg), 开工展开的领料数量按它分摊 -->
+          <view class="info-item">
+            <text class="info-label">总重量</text>
+            <text class="info-value">{{ totalWeightKg }}</text>
           </view>
           <view class="info-item">
             <text class="info-label">材质</text>
@@ -89,6 +94,10 @@
           <text style="flex:1">{{ d.productName || '—' }} <text v-if="d.productCode" class="muted">({{ d.productCode }})</text></text>
           <text class="req-qty">{{ d.qty || 0 }} {{ d.unitName || '' }}</text>
         </view>
+        <view v-if="reqTotalKg" class="req-row">
+          <text style="flex:1" class="muted">领料合计 (按 kg)</text>
+          <text class="req-qty">{{ reqTotalKg }} · 应等于总重量</text>
+        </view>
       </view>
 
       <!-- v1.1.101 App XK 吹膜生产全流程 — 生产流程 6 步卡 (按状态 + 角色显隐) -->
@@ -100,9 +109,13 @@
             <view class="step-no">{{ stepDone(1) ? '✓' : '①' }}</view>
             <view class="step-body">
               <text class="step-name">开工 · 吹膜</text>
-              <text class="step-desc">展开领料 + 工序链, 状态转生产中</text>
+              <text class="step-desc">确认生产环境合格 → 录原料批号并拍照 → 展开领料 + 工序链</text>
               <view v-if="order.releaseName" class="release-who">👤 开工: <text class="release-val">{{ order.releaseName }}</text></view>
-              <button v-if="canRelease()" class="step-btn" @click="onRelease">开工</button>
+              <view v-if="blowConfirm" class="start-facts">
+                <text class="start-fact">原料批号: {{ blowConfirm.rawBatchNos || '-' }}</text>
+                <text class="start-fact">批号照片: {{ parsePhotos(blowConfirm.photoUrls).length }} 张</text>
+              </view>
+              <button v-if="canRelease()" class="step-btn" @click="openStartSheet('BLOW')">开工</button>
             </view>
           </view>
           <!-- ② 首检/巡检 -->
@@ -113,7 +126,7 @@
               <text class="step-desc">逐检验项打分 + 拍照, 现场签合格放行</text>
               <view v-if="canInspect()" class="step-btns">
                 <button class="step-btn small" @click="goScan('/pages/scan/fai')">做首检</button>
-                <button class="step-btn small" @click="goScan('/pages/scan/pat')">做巡检</button>
+                <button class="step-btn small" @click="goScan('/pages/scan/pat', 'BLOW')">做巡检</button>
               </view>
             </view>
           </view>
@@ -126,13 +139,25 @@
               <button v-if="canSemiIn()" class="step-btn" @click="goScan('/pages/scan/semi-in')">建半成品入库</button>
             </view>
           </view>
-          <!-- ④ 制袋工序报工 -->
+          <!-- ④ 制袋开工 / 首检 / 巡检 / 报工 -->
           <view class="flow-step">
             <view class="step-no">④</view>
             <view class="step-body">
-              <text class="step-name">制袋 · 报工完工</text>
-              <text class="step-desc">制袋工序扫码报工, 累计良/不良</text>
-              <button v-if="canReport()" class="step-btn" @click="goScan('/pages/production/report')">工序报工</button>
+              <text class="step-name">制袋 · 开工 / 首检 / 巡检 / 报工</text>
+              <text class="step-desc">先确认制袋车间生产环境合格并领用该单半成品, 首检合格后报工</text>
+              <view v-if="bagProcess" class="start-facts">
+                <text class="start-fact">工序: {{ bagProcess.processName }} · 状态 {{ procStatusLabel(bagProcess.status) }}</text>
+              </view>
+              <view v-if="bagConfirm" class="start-facts">
+                <text class="start-fact">领用半成品: {{ bagConfirm.requisitionNo || '-' }}</text>
+              </view>
+              <view class="step-btns">
+                <button v-if="canBagStart()" class="step-btn" @click="openStartSheet('BAG')">开工</button>
+                <button v-if="canInspect()" class="step-btn small" @click="goScan('/pages/scan/fai', 'BAG')">制袋首检</button>
+                <button v-if="canInspect()" class="step-btn small" @click="goScan('/pages/scan/pat', 'BAG')">制袋巡检</button>
+                <button v-if="canReport()" class="step-btn" @click="goScan('/pages/production/report', 'BAG')">工序报工</button>
+              </view>
+              <view v-if="bagProcess && !bagStarted" class="gate-hint">未开工工序不能报工, 请先点「开工」确认生产环境</view>
             </view>
           </view>
           <!-- ⑤ 成品检验 -->
@@ -141,7 +166,7 @@
             <view class="step-body">
               <text class="step-name">成品检验 OQC · 检验员</text>
               <text class="step-desc">成品检打分 + 拍照, 现场签合格</text>
-              <button v-if="canInspect()" class="step-btn" @click="goScanOqc()">做成品检</button>
+              <button v-if="canInspect()" class="step-btn" @click="goScan('/pages/scan/oqc')">做成品检</button>
             </view>
           </view>
           <!-- ⑥ 成品入库 -->
@@ -156,6 +181,31 @@
         </view>
       </view>
 
+      <!-- v1.1.132 XK 开工记录 (生产环境确认 + 投料批号 + 批号照片留证) -->
+      <view v-if="startRecords.length" class="card">
+        <view class="section-title">开工记录 (XK 留痕)</view>
+        <view v-for="rec in startRecords" :key="rec.id" class="ws-item">
+          <view class="ws-head">
+            <text class="ws-no">{{ rec.confirmNo }}</text>
+            <text class="ws-stage">{{ rec.stage === 'BAG' ? '制袋' : '吹膜' }} · {{ rec.workshop }}</text>
+          </view>
+          <view class="kv"><text class="k">确认人 / 时间</text><text class="v">{{ rec.confirmName || '-' }} · {{ fmtTime(rec.confirmTime) }}</text></view>
+          <view class="kv"><text class="k">生产环境</text><text class="v ok">合格 · 已生成 2 份环境检查记录</text></view>
+          <view v-if="rec.rawBatchNos" class="kv"><text class="k">原料批号</text><text class="v">{{ rec.rawBatchNos }}</text></view>
+          <view v-if="parsePhotos(rec.photoUrls).length" class="ws-photos">
+            <image
+              v-for="(u, i) in parsePhotos(rec.photoUrls)"
+              :key="i"
+              :src="u"
+              mode="aspectFill"
+              class="ws-photo"
+              @click="previewPhotos(parsePhotos(rec.photoUrls), i)"
+            />
+          </view>
+          <view v-if="rec.requisitionNo" class="kv"><text class="k">领用半成品</text><text class="v">{{ rec.requisitionNo }} (待仓管审核)</text></view>
+        </view>
+      </view>
+
       <!-- 备注 -->
       <view v-if="order.remark" class="card">
         <view class="section-title">备注</view>
@@ -165,7 +215,7 @@
       <!-- 操作区 (DRAFT 才有) -->
       <view v-if="editable || releasable || deletable" class="card action-card">
         <button v-if="editable" class="btn btn-primary" @click="onEdit">编辑生产单</button>
-        <button v-if="releasable" class="btn btn-success" @click="onRelease">开工</button>
+        <button v-if="releasable" class="btn btn-success" @click="openStartSheet('BLOW')">开工</button>
         <button v-if="deletable" class="btn btn-danger" @click="onDelete">删除</button>
       </view>
 
@@ -178,12 +228,63 @@
       <view v-if="canShare()" class="card">
         <button class="btn btn-share" @click="onShare">📤 分享生产单</button>
       </view>
+
+      <!-- v1.1.132 开工确认弹窗: 生产环境 → (吹膜) 原料批号 + 批号照片 → 开工 -->
+      <view v-if="sheet.visible" class="mask">
+        <view class="ws-modal" @click.stop>
+          <text class="ws-title">{{ sheet.stage === 'BAG' ? '制袋开工确认' : '吹膜开工确认' }}</text>
+          <view class="ws-sub">{{ sheet.stage === 'BAG' ? '制袋车间' : '吹膜车间' }} · {{ order.billNo }} · {{ order.productName || '—' }}</view>
+
+          <text class="ws-label">1. 生产环境卫生是否合格?</text>
+          <view class="ws-checks">
+            <view class="ws-check-item">· 地面 / 设备台面清洁, 无异物与积水</view>
+            <view class="ws-check-item">· 车间温湿度符合工艺要求</view>
+            <view class="ws-check-item">· 人员穿戴洁净服, 工位无个人物品</view>
+          </view>
+          <view class="ws-radio-row">
+            <view :class="['ws-radio', 'ok', sheet.env === true && 'on']" @click="sheet.env = true">✓ 合格</view>
+            <view :class="['ws-radio', 'bad', sheet.env === false && 'on']" @click="sheet.env = false">✗ 不合格</view>
+          </view>
+          <view v-if="sheet.env === false" class="ws-warn">生产环境不合格禁止开工。请先整理整改, 再重新确认。</view>
+
+          <template v-if="sheet.stage === 'BLOW'">
+            <text class="ws-label">2. 本次投入的原料批号</text>
+            <view v-for="(b, i) in sheet.batches" :key="'b' + i" class="ws-batch-row">
+              <input v-model="sheet.batches[i]" class="ws-input" placeholder="如 L20261028-03 / 原料袋上批号" />
+              <text v-if="sheet.batches.length > 1" class="ws-del" @click="sheet.batches.splice(i, 1)">删除</text>
+            </view>
+            <view class="ws-add" @click="sheet.batches.push('')">＋ 添加批号</view>
+
+            <text class="ws-label">3. 拍下原料批号标识 (至少 1 张)</text>
+            <view class="ws-photo-row">
+              <view v-for="(u, i) in sheet.photos" :key="'p' + i" class="ws-thumb">
+                <image :src="u" mode="aspectFill" class="ws-photo" @click="previewPhotos(sheet.photos, i)" />
+                <text class="ws-thumb-del" @click="sheet.photos.splice(i, 1)">×</text>
+              </view>
+              <view v-if="sheet.photos.length < 3" class="ws-shoot" @click="onShoot">📷 拍照 / 相册</view>
+            </view>
+          </template>
+
+          <text class="ws-label">{{ sheet.stage === 'BAG' ? '2' : '4' }}. 备注 (选填)</text>
+          <input v-model="sheet.remark" class="ws-input" placeholder="如 2# 吹膜机, 换网后开工" />
+
+          <view class="ws-note">
+            确认开工后自动生成{{ sheet.stage === 'BAG' ? '「制袋车间」' : '「吹膜车间」' }} 2 份生产环境检查合格记录{{ sheet.stage === 'BAG' ? ', 并按该单已入库半成品生成领料单' : ', 投料批号同步登记到批次追溯' }}。
+          </view>
+          <view class="ws-actions">
+            <text class="ws-cancel" @click="closeStartSheet">取消</text>
+            <button class="ws-submit" :disabled="!canSubmitStart || sheet.submitting" @click="onStartSubmit">
+              {{ sheet.submitting ? '提交中...' : '确认开工' }}
+            </button>
+          </view>
+        </view>
+      </view>
     </template>
   </view>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { Share } from '@capacitor/share'
 import { registerPlugin } from '@capacitor/core'
@@ -192,7 +293,8 @@ const NativeShare = registerPlugin('NativeShare')
 // v1.1.103: QR 码生成 (扫了可直接定位/搜索该生产单)
 import QRCode from 'qrcode'
 import api from '../../api/index.js'
-import { applyTabBar, isAdmin, getPermissions } from '../../utils/permission.js'
+import { pickAndUploadImage } from '../../utils/upload.js'
+import { applyTabBar, isAdmin, getPermissions, getAppPermissions } from '../../utils/permission.js'
 import { navigateTo } from '../../utils/nav.js'
 
 const STATUS_MAP = {
@@ -212,6 +314,49 @@ const orderId = ref(null)  // v1.1.11+ 修: ref 替代 let, 避免 reLaunch 之�
 const p = ref([])
 // v1.1.103: 单号二维码 (QR 码内容 = billNo, 扫码能定位/搜索该单)
 const qrCodeUrl = ref('')
+// v1.1.132 XK 开工确认: 工序实例 (判制袋是否已开工) + 开工台账 + 弹窗状态
+const processes = ref([])
+const startRecords = ref([])
+const sheet = reactive({
+  visible: false,
+  stage: 'BLOW',
+  env: null,
+  batches: [''],
+  photos: [],
+  remark: '',
+  submitting: false
+})
+
+const bagProcess = computed(() => processes.value.find(x => String(x.processName || '').includes('制袋')) || null)
+const blowConfirm = computed(() => startRecords.value.find(r => r.stage === 'BLOW') || null)
+const bagConfirm = computed(() => startRecords.value.find(r => r.stage === 'BAG') || null)
+// 制袋「已开工」= 有过开工确认台账 或 工序状态已脱离未开工 (1 进行中 / 2 完成)
+const bagStarted = computed(() => !!bagConfirm.value
+  || (!!bagProcess.value && Number(bagProcess.value.status || 0) >= 1))
+const canSubmitStart = computed(() => {
+  if (sheet.env !== true) return false
+  if (sheet.stage !== 'BLOW') return true
+  const batches = (sheet.batches || []).map(s => String(s || '').trim()).filter(s => s)
+  return batches.length > 0 && (sheet.photos || []).length > 0
+})
+// v1.1.133 总重量 (kg) = 计划数量 × 克重 ÷ 1000. 以后端 order.totalWeightKg 为准
+// (PrdOrderService.totalWeightKg 唯一算法出口); 字段缺失时前端同式兜底, 不必等 jar.
+const totalWeightKg = computed(() => {
+  const o = order.value || {}
+  if (o.totalWeightKg != null && o.totalWeightKg !== '') return Number(o.totalWeightKg).toFixed(3) + ' kg'
+  const qty = Number(o.planQty) || 0
+  const gram = Number(o.gramWeight) || 0
+  if (qty <= 0 || gram <= 0) return '—'
+  return (qty * gram / 1000).toFixed(3) + ' kg'
+})
+// 领料明细中 kg 行的合计, 用来自查「领料数量 = 总重量」(半成品按卷等非 kg 行不计入)
+const reqTotalKg = computed(() => {
+  let sum = 0
+  ;(requisitionDetails.value || []).forEach(d => {
+    if (String(d.unitName || '').toLowerCase() === 'kg') sum += Number(d.qty) || 0
+  })
+  return sum > 0 ? sum.toFixed(3) : ''
+})
 
 function statusTag(s) { return STATUS_MAP[s] || s || '—' }
 
@@ -258,10 +403,15 @@ async function loadOrder(id) {
       requisitionDetails.value = (r.requisitionDetails) || []
       // v1.1.103: 生成单号二维码 (扫了能定位/搜索该单)
       genQrCode(r.billNo)
+      // v1.1.132: 工序实例 + 开工台账 (silent, 无 production:report:list 时静默 fail-open)
+      loadProcesses()
+      loadStartRecords()
     } else {
       order.value = null
       requisitionDetails.value = []
       qrCodeUrl.value = ''
+      processes.value = []
+      startRecords.value = []
     }
     p.value = getPermissions()
     checkPerms()
@@ -314,21 +464,129 @@ function onEdit() {
   navigateTo('/pages/production/order-add?id=' + orderId.value)
 }
 
-async function onRelease() {
-  const ok = await askConfirm('开工后将自动展开领料单, 确定开工?')
-  if (!ok) return
-  if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '开工中...', mask: true })
+// ============ v1.1.132 XK 开工确认 (生产环境 + 原料批号 + 批号照片) ============
+async function loadProcesses() {
   try {
-    await api.prdOrderRelease(orderId.value)
+    const rows = await api.prdOrderProgress(String(orderId.value), { silent: true })
+    processes.value = Array.isArray(rows) ? rows : []
+  } catch (e) {
+    console.warn('[order-detail.loadProcesses] 失败:', e)
+    processes.value = []
+  }
+}
+
+async function loadStartRecords() {
+  try {
+    const rows = await api.prdOrderStartRecords(String(orderId.value))
+    startRecords.value = Array.isArray(rows) ? rows : []
+  } catch (e) {
+    console.warn('[order-detail.loadStartRecords] 失败:', e)
+    startRecords.value = []
+  }
+}
+
+function procStatusLabel(s) {
+  const n = Number(s || 0)
+  return n === 1 ? '进行中' : n === 2 ? '已完成' : n === 3 ? '已回退' : '未开工'
+}
+
+function fmtTime(t) {
+  const s = String(t || '')
+  return s.length >= 16 ? s.slice(0, 16).replace('T', ' ') : (s || '-')
+}
+
+/** photoUrls 后端存 JSON 数组字符串; 容错也接受逗号分隔 */
+function parsePhotos(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return []
+  if (s.startsWith('[')) {
+    try {
+      const arr = JSON.parse(s)
+      return Array.isArray(arr) ? arr.filter(x => x) : []
+    } catch (e) { return [] }
+  }
+  return s.split(',').map(x => x.trim()).filter(x => x)
+}
+
+function previewPhotos(urls, i) {
+  if (!urls || !urls.length) return
+  if (typeof uni !== 'undefined' && uni.previewImage) {
+    uni.previewImage({ urls, current: urls[i] })
+  }
+}
+
+function openStartSheet(stage) {
+  if (stage === 'BAG' && !bagProcess.value) {
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: '该单还没有制袋工序, 请先开工吹膜展开工序链', icon: 'none' })
+    }
+    return
+  }
+  sheet.stage = stage
+  sheet.env = null
+  sheet.batches = ['']
+  sheet.photos = []
+  sheet.remark = ''
+  sheet.submitting = false
+  sheet.visible = true
+}
+
+function closeStartSheet() {
+  if (sheet.submitting) return
+  sheet.visible = false
+}
+
+async function onShoot() {
+  if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '上传照片...', mask: true })
+  try {
+    const r = await pickAndUploadImage()
+    if (r && r.url) sheet.photos.push(r.url)
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
-    if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: '开工成功', icon: 'success' })
-    // v1.1.110: 必须传 orderId.value, 否则 loadOrder(id) 内 `if (!id)` 命中 → 清空 order → 显示「生产单不存在」
+  } catch (e) {
+    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    console.warn('[order-detail.onShoot] 上传失败:', e)
+    if (e && e.code === 401) return
+    if (typeof uni !== 'undefined' && uni.showToast) uni.showToast({ title: '照片上传失败, 请重试', icon: 'none' })
+  }
+}
+
+async function onStartSubmit() {
+  if (!canSubmitStart.value || sheet.submitting) return
+  const isBag = sheet.stage === 'BAG'
+  const batches = (sheet.batches || []).map(s => String(s || '').trim()).filter(s => s)
+  const payload = isBag
+    ? { processId: String(bagProcess.value.id), envQualified: true, remark: sheet.remark || null }
+    : { envQualified: true, rawBatchNos: batches, photoUrls: sheet.photos.slice(), remark: sheet.remark || null }
+  sheet.submitting = true
+  if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '开工确认中...', mask: true })
+  try {
+    const r = isBag
+      ? await api.prdOrderBagStart(String(orderId.value), payload)
+      : await api.prdOrderBlowStart(String(orderId.value), payload)
+    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    sheet.visible = false
+    const unknown = (r && r.unknownBatchNos) || []
+    const reqNo = r && r.requisitionNo
+    const msg = isBag
+      ? ('制袋已开工' + (reqNo ? ', 领料单 ' + reqNo + ' 待仓管审核' : ''))
+      : ('吹膜已开工' + (unknown.length ? ', 批号 ' + unknown.join('/') + ' 系统暂无来料记录' : ''))
+    if (typeof uni !== 'undefined' && uni.showModal) {
+      uni.showModal({
+        title: '开工成功',
+        content: msg + '。已生成 2 份生产环境检查合格记录。',
+        showCancel: false
+      })
+    }
     loadOrder(orderId.value)
   } catch (e) {
     if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    console.warn('[order-detail.onStartSubmit] 失败:', e)
+    if (e && e.code === 401) return
     if (typeof uni !== 'undefined' && uni.showModal) {
-      uni.showModal({ title: '开工失败', content: e.message || '请检查BOM配置', showCancel: false })
+      uni.showModal({ title: '开工失败', content: e.message || '请检查生产环境与原料批号', showCancel: false })
     }
+  } finally {
+    sheet.submitting = false
   }
 }
 
@@ -409,24 +667,29 @@ function stepDone(n) {
 function canRelease() {
   return hasPerm('production:order:release') && order.value && order.value.billStatus === 'DRAFT'
 }
+// v1.1.132: 制袋开工 — 工序链已展开 (吹膜开工过) 且该工序未开工
+function canBagStart() {
+  return !!bagProcess.value && !bagStarted.value
+    && order.value && ['RELEASED', 'PRODUCING'].includes(order.value.billStatus)
+    && (hasPerm('production:order:release') || hasPerm('production:report:add'))
+}
 function canInspect() {
-  return hasPerm('quality:inspection:check') && order.value && ['RELEASED', 'PRODUCING'].includes(order.value.billStatus)
+  return (isAdmin() || getAppPermissions().includes('quality:inspection:check'))
+    && order.value && ['RELEASED', 'PRODUCING'].includes(order.value.billStatus)
 }
 function canSemiIn() {
   return hasPerm('production:semi-in:add') && order.value && order.value.billStatus !== 'DRAFT'
 }
 function canReport() {
+  // v1.1.132: 配置了制袋工序链的单, 未开工不给报工 (无工序实例的存量单维持原行为)
   return hasPerm('production:report:add') && order.value && ['RELEASED', 'PRODUCING'].includes(order.value.billStatus)
+    && (!bagProcess.value || bagStarted.value)
 }
 function canFinishedIn() {
   return hasPerm('production:finished-in:add') && order.value && order.value.billStatus !== 'DRAFT'
 }
-function goScan(path) {
-  navigateTo(path + '?orderId=' + encodeURIComponent(orderId.value))
-}
-function goScanOqc() {
-  // 成品检 = OQC, 复用巡检页做成品检打分草稿; 深度签放行走 finished-in 门禁
-  navigateTo('/pages/scan/pat?orderId=' + encodeURIComponent(orderId.value))
+function goScan(path, stage = '') {
+  navigateTo(path + '?orderId=' + encodeURIComponent(orderId.value) + (stage ? '&stage=' + stage : ''))
 }
 
 onMounted(() => { applyTabBar() })
@@ -493,4 +756,42 @@ onMounted(() => { applyTabBar() })
 .step-btns { display: flex; flex-wrap: wrap; gap: 4px; }
 .release-who { font-size: 12px; color: #606266; margin-top: 4px; }
 .release-val { font-weight: 600; color: #1e6091; }
+
+/* v1.1.132 XK 开工确认: 台账卡 + 弹窗 */
+.mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999; display: flex; align-items: center; justify-content: center; }
+.start-facts { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.start-fact { font-size: 12px; color: #1e6091; }
+.gate-hint { font-size: 11px; color: #e6a23c; margin-top: 6px; }
+.ws-item { padding: 8px 0; border-top: 1px dashed #eee; }
+.ws-item:first-of-type { border-top: none; }
+.ws-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.ws-no { font-size: 13px; font-weight: 600; color: #303133; }
+.ws-stage { font-size: 11px; color: #fff; background: #67c23a; border-radius: 10px; padding: 2px 8px; }
+.v.ok { color: #67c23a; }
+.ws-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ws-photo { width: 64px; height: 64px; border-radius: 6px; background: #f5f7fa; border: 1px solid #eee; }
+.ws-modal { background: #fff; border-radius: 12px; width: 88%; max-width: 420px; max-height: 84vh; overflow-y: auto; padding: 16px; }
+.ws-title { font-size: 16px; font-weight: bold; color: #303133; display: block; }
+.ws-sub { font-size: 12px; color: #909399; margin: 4px 0 12px; }
+.ws-label { font-size: 13px; font-weight: 600; color: #303133; display: block; margin: 12px 0 6px; }
+.ws-checks { background: #f8f9fa; border-radius: 6px; padding: 8px 10px; }
+.ws-check-item { font-size: 12px; color: #606266; line-height: 1.8; }
+.ws-radio-row { display: flex; gap: 10px; margin-top: 8px; }
+.ws-radio { flex: 1; text-align: center; padding: 9px 0; border-radius: 6px; font-size: 14px; border: 1px solid #dcdfe6; color: #606266; }
+.ws-radio.ok.on { background: #f0f9eb; border-color: #67c23a; color: #67c23a; font-weight: 600; }
+.ws-radio.bad.on { background: #fef0f0; border-color: #f56c6c; color: #f56c6c; font-weight: 600; }
+.ws-warn { margin-top: 8px; font-size: 12px; color: #f56c6c; background: #fef0f0; border-radius: 6px; padding: 8px 10px; }
+.ws-batch-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.ws-input { flex: 1; border: 1px solid #dcdfe6; border-radius: 6px; padding: 8px 10px; font-size: 14px; background: #fff; }
+.ws-del { font-size: 12px; color: #f56c6c; padding: 0 6px; }
+.ws-add { font-size: 13px; color: #1e6091; padding: 6px 0; }
+.ws-photo-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.ws-thumb { position: relative; }
+.ws-thumb-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; line-height: 18px; text-align: center; border-radius: 50%; background: #f56c6c; color: #fff; font-size: 13px; }
+.ws-shoot { width: 88px; height: 64px; line-height: 20px; text-align: center; border: 1px dashed #1e6091; border-radius: 6px; color: #1e6091; font-size: 12px; padding-top: 12px; box-sizing: border-box; }
+.ws-note { margin-top: 12px; font-size: 11px; color: #909399; line-height: 1.6; background: #f8f9fa; border-radius: 6px; padding: 8px 10px; }
+.ws-actions { display: flex; gap: 10px; margin-top: 14px; }
+.ws-cancel { flex: 1; text-align: center; padding: 10px 0; border-radius: 6px; background: #f4f4f5; color: #606266; font-size: 14px; }
+.ws-submit { flex: 2; background: #67c23a; color: #fff; border: none; border-radius: 6px; height: 42px; line-height: 42px; font-size: 15px; }
+.ws-submit[disabled] { background: #c8e6c1; color: #f0f0f0; }
 </style>

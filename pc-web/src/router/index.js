@@ -71,7 +71,7 @@ const routes = [
       // v1.1.90 EM: 设备报表
       { path: 'report/equipment', name: 'ReportEquipment', component: () => import('@/views/report/Equipment.vue'), meta: { title: '设备报表', icon: 'DataAnalysis', perm: 'equipment:maintain:list' } },
       // XK 合规中心 (XK16-204 食品接触塑料吹膜厂): 4 核心页 — 假数据先行
-      { path: 'xk/material', name: 'XkMaterial', component: () => import('@/views/xk/Material.vue'), meta: { title: '原料入库', icon: 'Box', perm: 'purchase:receipt:list' } },
+      { path: 'xk/material', name: 'XkMaterial', component: () => import('@/views/xk/Material.vue'), meta: { title: '合格供应商', icon: 'CircleCheck', perm: 'purchase:receipt:list' } },
       { path: 'xk/trace', name: 'XkTrace', component: () => import('@/views/xk/Trace.vue'), meta: { title: '批次溯源', icon: 'Share', perm: 'production:report:list' } },
       { path: 'xk/maintenance', name: 'XkMaintenance', component: () => import('@/views/xk/Maintenance.vue'), meta: { title: '设备维保', icon: 'Tools', perm: 'work:maintain:list' } },
       { path: 'xk/safety', name: 'XkSafety', component: () => import('@/views/xk/Safety.vue'), meta: { title: '安全卫生', icon: 'CircleCheckFilled', perm: 'work:safety:list' } },
@@ -95,8 +95,9 @@ router.beforeEach(async (to, from, next) => {
   // v1.0.5 cookie 改造后 user.token 永远是空 (cookie 由浏览器自动带, JS 读不到).
   // 改用 userInfo 判断: 它在 loginAction 已持久化到 localStorage, F5 刷新会 rehydrate.
   if (!user.userInfo) return next('/login')
-  // 如果 userInfo 缺失 (比如清缓存), 尝试重新拉取
-  if (!user.userInfo || !user.userInfo.id) {
+  // userInfo 缺主键 (清缓存/老格式) 时重新拉取。注意字段名是 userId, 不是 id —
+  // 写成 id 会让每次跳转都打一次 /auth/me, 该请求一旦失败就被踢回登录页 (登录成功也不跳转)。
+  if (!user.userInfo.userId && !user.userInfo.id) {
     try { await user.fetchMe() } catch (e) { return next('/login') }
   }
   // 简易权限

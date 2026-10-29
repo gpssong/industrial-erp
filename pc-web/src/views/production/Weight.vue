@@ -64,7 +64,10 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="工单" prop="prdOrderNo" min-width="120" show-overflow-tooltip />
+          <el-table-column label="工单" prop="prdOrderNo" min-width="180" show-overflow-tooltip>
+            <!-- v1.1.131: 工单号后带商品名称 -->
+            <template #default="{ row }">{{ row.prdOrderNo || '-' }}{{ row.productName ? ' · ' + row.productName : '' }}</template>
+          </el-table-column>
         </el-table>
         <div class="pager">
           <el-pagination
@@ -276,7 +279,7 @@ async function loadSamples() {
     if (to.value) params.to = fmtT(to.value)
     const r = await weightApi.samplePage(params)
     samples.value = r.data?.records || []
-    total.value = r.data?.total || 0
+    total.value = Number(r.data?.total) || 0
   } catch { samples.value = []; total.value = 0 } finally {
     loadingSamples.value = false
   }

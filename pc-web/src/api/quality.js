@@ -28,6 +28,13 @@ export const inspectionApi = {
   iqcAttachments: (iqcId) => request.get(`/qms/iqc/${iqcId}/attachments`),
   /** 标记附件已核验 */
   iqcVerifyAttachment: (id) => request.post(`/qms/iqc/attachment/${id}/verify`),
+  /**
+   * v1.1.131 — 幂等灌入服务器检验项模板 (OQC/OQC_RETURN 成品检, FAI/PAT 工序检), 回传 {head, items}.
+   * 老草稿首次打开录入面板时调一次, 之后重复调无副作用.
+   */
+  ensureTemplate: (id) => request.post(`/qms/inspection/${id}/ensure-template`),
+  /** v1.1.131 — 找/建某成品入库单的 OQC 草稿 + 灌成品检验模板, 回传 {head, items, finishedIn} */
+  ensureOqcForFinishedIn: (finishedInId) => request.post('/qms/inspection/ensure-oqc-for-finished-in', { finishedInId }),
   /** 采购计划触发建/复用 IQC */
   iqcCreateFromPlan: (planId) => request.post('/qms/inspection/create-from-plan', { planId }),
   /** 签署合格 + 自动建 DRAFT 入库单 (App 端"生成报告并自动入库" 走这里) */

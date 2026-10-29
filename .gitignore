@@ -144,3 +144,7 @@ data/
 backups/*.sql
 backups/*.sql.gz
 electron/pc-web-dist/
+
+# Python 缓存 (entity-schema-check 等脚本运行时生成)
+__pycache__/
+*.pyc

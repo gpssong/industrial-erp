@@ -270,11 +270,66 @@
           <template #default="{ row }">{{ { SCRAP: '报废', REWORK: '返工', CONCESSION: '让步接收', SORT: '分拣' }[row.disposal] || row.disposal || '-' }}</template>
         </el-table-column>
       </el-table>
+      <!-- v1.1.131 检验项模板 (服务器固化定义) 只读展示: 出厂/工序检验逐检验项留痕 -->
+      <template v-if="viewItems.length">
+        <div class="section-title" style="margin:14px 0 8px">检验项 ({{ viewItems.length }} 项)</div>
+        <el-table :data="viewItems" size="small" border>
+          <el-table-column prop="lineNo" label="#" width="46" align="center" />
+          <el-table-column prop="itemName" label="检验项" min-width="130" />
+          <el-table-column prop="requirement" label="检验要求 (按适用产品标准/检验规程)" min-width="240" />
+          <el-table-column prop="method" label="方法" min-width="120" />
+          <el-table-column prop="unit" label="单位" width="80" />
+          <el-table-column prop="resultValue" label="实测/观察" min-width="120">
+            <template #default="{ row }">{{ row.resultValue || '未检' }}</template>
+          </el-table-column>
+          <el-table-column label="判定" width="90" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" :type="judgeTag(row.passFlag)">{{ judgeLabel(row.passFlag) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="食品级" width="80" align="center">
+            <template #default="{ row }">{{ Number(row.isFoodGradeItem) === 1 ? '是' : '-' }}</template>
+          </el-table-column>
+        </el-table>
+      </template>
       <template #footer><el-button @click="viewVisible = false">关闭</el-button></template>
     </el-dialog>
 
     <!-- 审核对话框 -->
-    <el-dialog v-model="checkVisible" title="审核检验单" width="480px" destroy-on-close>
+    <el-dialog v-model="checkVisible" :title="checkTitle" :width="checkItems.length ? '940px' : '480px'" destroy-on-close>
+      <!-- v1.1.131 检验项逐项目录 (成品检 OQC/OQC_RETURN、工序检 FAI/PAT 由服务器模板固化, 只能回填不能删项) -->
+      <template v-if="checkItems.length">
+        <div class="items-head">
+          <span class="section-title">检验项 ({{ checkItems.length }} 项，已判定 {{ judgedCount }})</span>
+          <el-button size="small" :loading="itemsSaving" @click="onSaveItems">保存检验项</el-button>
+        </div>
+        <el-table :data="checkItems" size="small" border max-height="320" style="margin-bottom:12px">
+          <el-table-column prop="lineNo" label="#" width="46" align="center" />
+          <el-table-column prop="itemName" label="检验项" min-width="120" />
+          <el-table-column prop="requirement" label="检验要求 (按适用产品标准/检验规程)" min-width="230" />
+          <el-table-column prop="method" label="方法" min-width="110" />
+          <el-table-column label="实测/观察值" min-width="150">
+            <template #default="{ row }">
+              <el-input v-model="row.resultValue" size="small" :disabled="itemLocked"
+                :placeholder="row.unit ? ('如 ' + row.unit) : '记录实测或观察结果'" />
+            </template>
+          </el-table-column>
+          <el-table-column label="判定" width="120" align="center">
+            <template #default="{ row }">
+              <el-select v-model="row.passFlag" size="small" :disabled="itemLocked">
+                <el-option label="待检" :value="-1" />
+                <el-option label="合格" :value="1" />
+                <el-option label="不合格" :value="0" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="判定依据/报告号" min-width="150">
+            <template #default="{ row }">
+              <el-input v-model="row.judgmentBasis" size="small" :disabled="itemLocked" placeholder="标准条款/报告号" />
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
       <el-form :model="checkForm" label-width="90px">
         <el-form-item label="检验结果" required>
           <el-select v-model="checkForm.result" style="width:100%">
@@ -296,6 +351,18 @@
         <el-form-item label="原因/说明">
           <el-input v-model="checkForm.reason" type="textarea" :rows="3" placeholder="审核意见 / 不良原因" />
         </el-form-item>
+        <!-- v1.1.131 成品检验数量留痕 (XK16-204 要求记录检验数量与合格数量) -->
+        <template v-if="showQty">
+          <el-form-item label="抽检数量">
+            <el-input-number v-model="checkForm.sampleQty" :min="0" :disabled="itemLocked" :controls="false" style="width:100%" />
+          </el-form-item>
+          <el-form-item label="合格数量">
+            <el-input-number v-model="checkForm.qualifiedQty" :min="0" :disabled="itemLocked" :controls="false" style="width:100%" />
+          </el-form-item>
+          <el-form-item label="不良数量">
+            <el-input-number v-model="checkForm.unqualifiedQty" :min="0" :disabled="itemLocked" :controls="false" style="width:100%" />
+          </el-form-item>
+        </template>
         <!-- v1.1.100 OQC 成品放行 3 签 + 留样 (仅 OQC + 合格结果展开; 缺则后端按默认回填) -->
         <template v-if="isOqcPass">
           <el-divider content-position="left">OQC 放行 3 签 + 留样</el-divider>
@@ -350,6 +417,23 @@ const form = reactive(emptyForm())
 const viewVisible = ref(false)
 const view = ref(null)
 const viewDefects = ref([])
+// v1.1.131 — 检验项 (服务器模板固化): 详情只读展示 + 审核面板回填实测值/判定
+const viewItems = ref([])
+const checkItems = ref([])
+const itemsSaving = ref(false)
+const TEMPLATE_TYPES = ['FAI', 'PAT', 'OQC', 'OQC_RETURN']
+const itemLocked = computed(() => checkRow.value?.status === 'CHECKED')
+// 数量录入区仅成品检 (OQC/OQC_RETURN) 展开: 工序检数量由 App 报工链路写入, PC 不回改
+const showQty = computed(() => checkItems.value.length
+  && ['OQC', 'OQC_RETURN'].includes(checkRow.value?.inspectionType))
+const judgedCount = computed(() =>
+  checkItems.value.filter(it => Number(it.passFlag) === 1 || Number(it.passFlag) === 0).length)
+const checkTitle = computed(() => checkRow.value
+  ? `审核检验单 ${checkRow.value.billNo || ''} (${typeLabel(checkRow.value.inspectionType)})`
+  : '审核检验单')
+
+function judgeLabel(f) { return Number(f) === 1 ? '合格' : Number(f) === 0 ? '不合格' : '待检' }
+function judgeTag(f) { return Number(f) === 1 ? 'success' : Number(f) === 0 ? 'danger' : 'info' }
 
 // 审核
 const checkVisible = ref(false)
@@ -357,7 +441,9 @@ const checkRow = ref(null)
 const checkForm = reactive({
   result: 'PASS', disposition: '', reason: '',
   // v1.1.100 OQC 3 签 + 留样 (仅 OQC 合格结果时透传给后端回填)
-  reviewerName: '', approverName: '', retainNo: '', retainLoc: '', retainDueDate: null
+  reviewerName: '', approverName: '', retainNo: '', retainLoc: '', retainDueDate: null,
+  // v1.1.131 检验数量留痕 (仅模板检验单面板展开, 随审核一起提交)
+  sampleQty: 0, qualifiedQty: 0, unqualifiedQty: 0
 })
 // OQC 放行 (PASS/PASS_DISPOSITION) 才展开 3 签/留样区
 const isOqcPass = computed(() =>
@@ -447,12 +533,18 @@ async function openView(row) {
   // 先乐观填充 head 字段, 再拉详情补齐 defects
   view.value = { ...row }
   viewDefects.value = []
+  viewItems.value = []
   viewVisible.value = true
   try {
     const r = await inspectionApi.detail(row.id)
     const head = r?.data?.head
     if (head) view.value = head
     viewDefects.value = (r?.data?.defects || []).map(x => ({ ...x }))
+    viewItems.value = (r?.data?.items || []).map(x => ({ ...x }))
+    if (!viewItems.value.length) {
+      const ir = await inspectionApi.iqcItems(row.id)
+      viewItems.value = (ir?.data || []).map(x => ({ ...x }))
+    }
   } catch (e) {
     ElMessage.error((e && (e.msg || e.message)) || '加载详情失败')
   }
@@ -478,21 +570,73 @@ async function onSave() {
   }
 }
 
-function openCheck(row) {
+async function openCheck(row) {
   checkRow.value = row
   currentInspector.value = row.inspectorName || row.inspector || ''
+  checkItems.value = []
   Object.assign(checkForm, {
     result: 'PASS', disposition: '', reason: '',
-    reviewerName: '', approverName: '', retainNo: '', retainLoc: '', retainDueDate: null
+    reviewerName: '', approverName: '', retainNo: '', retainLoc: '', retainDueDate: null,
+    sampleQty: num(row.sampleQty), qualifiedQty: num(row.qualifiedQty), unqualifiedQty: num(row.unqualifiedQty)
   })
   checkVisible.value = true
+  if (!TEMPLATE_TYPES.includes(row.inspectionType)) return
+  try {
+    const r = await inspectionApi.ensureTemplate(row.id)
+    checkItems.value = (r?.data?.items || []).map(x => ({ ...x }))
+    if (r?.data?.head) checkRow.value = { ...row, ...r.data.head }
+    if (!checkItems.value.length) {
+      ElMessage.warning('该检验单未取到模板检验项，请确认产品/工序信息完整后重试')
+    }
+  } catch (e) {
+    ElMessage.error((e && (e.msg || e.message)) || '加载检验项模板失败')
+  }
+}
+
+/** v1.1.131 — 回填检验项: 整表提交 (后端只认服务器模板项, 删项/改定义/手工替代一律拒绝). */
+async function saveItems(silent = false) {
+  if (!checkItems.value.length || itemLocked.value) return true
+  const pending = checkItems.value.filter(it => Number(it.passFlag) !== 1 && Number(it.passFlag) !== 0)
+  if (pending.length && checkForm.result !== 'HOLD') {
+    if (!silent) ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName} 等`)
+    if (!silent) return false
+  }
+  const noValue = checkItems.value.filter(it => Number(it.passFlag) === 1 || Number(it.passFlag) === 0)
+    .filter(it => !String(it.resultValue || '').trim())
+  if (noValue.length) {
+    if (!silent) ElMessage.warning(`判定项缺少实测/观察记录: ${noValue[0].itemName}`)
+    return false
+  }
+  itemsSaving.value = true
+  try {
+    await inspectionApi.iqcSaveItems(checkRow.value.id, checkItems.value.map(it => ({ ...it })))
+    if (!silent) ElMessage.success('检验项已保存')
+    return true
+  } catch (e) {
+    ElMessage.error((e && (e.msg || e.message)) || '保存检验项失败')
+    return false
+  } finally {
+    itemsSaving.value = false
+  }
+}
+
+async function onSaveItems() {
+  if (await saveItems()) load()
 }
 
 async function onCheck() {
   if (!checkForm.result) { ElMessage.warning('请选择检验结果'); return }
+  if (checkItems.value.length && !await saveItems()) return
   checkLoading.value = true
   try {
-    await inspectionApi.check(checkRow.value.id, { ...checkForm })
+    // 后端 /{id}/check 收 Map<String,String>: 数量统一转字符串, 空值不提交 (沿用单据原值)
+    const qty = {}
+    if (showQty.value) {
+      if (checkForm.sampleQty != null && checkForm.sampleQty !== '') qty.sampleQty = String(checkForm.sampleQty)
+      if (checkForm.qualifiedQty != null && checkForm.qualifiedQty !== '') qty.qualifiedQty = String(checkForm.qualifiedQty)
+      if (checkForm.unqualifiedQty != null && checkForm.unqualifiedQty !== '') qty.unqualifiedQty = String(checkForm.unqualifiedQty)
+    }
+    await inspectionApi.check(checkRow.value.id, { ...checkForm, ...qty })
     ElMessage.success('审核成功')
     checkVisible.value = false
     load()
@@ -528,4 +672,5 @@ onMounted(load)
 .section-title { font-size:15px;font-weight:600;color:#333 }
 .muted-tip { color:#909399;font-size:12px }
 .pager { margin-top:12px; text-align:right; }
+.items-head { display:flex;align-items:center;justify-content:space-between;margin-bottom:8px }
 </style>

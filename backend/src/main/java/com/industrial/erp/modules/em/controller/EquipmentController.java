@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.em.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.em.entity.BaseEquipment;
@@ -28,7 +29,8 @@ public class EquipmentController {
         this.svc = svc;
     }
 
-    @SaCheckPermission(value = {"equipment:master:list"}, orRole = "admin")
+    // v1.1.130: 生产排程 / 设备 OEE 两个 App 入口都要读设备列表才能选设备
+    @SaCheckPermission(value = {"equipment:master:list", "production:schedule:list", "production:schedule:oee"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/page")
     public R<IPage<BaseEquipment>> page(@RequestParam(defaultValue = "1") Integer pageNum,
                                         @RequestParam(defaultValue = "20") Integer pageSize,
@@ -51,7 +53,7 @@ public class EquipmentController {
         return R.ok();
     }
 
-    @SaCheckPermission(value = {"equipment:master:list"}, orRole = "admin")
+    @SaCheckPermission(value = {"equipment:master:list", "production:schedule:list", "production:schedule:oee"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/list")
     public R<List<BaseEquipment>> listAll(@RequestParam(required = false) String workshop,
                                           @RequestParam(required = false) String type) {

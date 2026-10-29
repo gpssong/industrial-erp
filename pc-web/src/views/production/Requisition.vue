@@ -103,7 +103,8 @@ async function loadList() {
     })
     if (r.code === 200) {
       records.value = r.data?.records || []
-      total.value = r.data?.total || 0
+      // 后端 Long 统一序列化为字符串, el-pagination 只认 number (非 number 视为缺省, 整个分页不渲染)
+      total.value = Number(r.data?.total) || 0
     }
   } catch (e) {
     // 后端暂未连通时 (sql/56 未跑) 静默不弹错, 表格空态即可

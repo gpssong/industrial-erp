@@ -67,7 +67,7 @@
                 <el-tag v-else type="success" effect="plain">检验合格</el-tag>
               </div>
               <div class="xk-record-line">
-                <span class="xk-record-name">LLDPE 7042</span>
+                <span class="xk-record-name">{{ arrivalProductName || '—' }}</span>
                 <span class="xk-record-sub">采购单号: {{ form.orderNo || '—' }}</span>
                 <span class="xk-record-sub">交货批次: {{ batchNo }}</span>
                 <span class="xk-record-sub">关联采购订单号: CCL-A-{{ form.supplierCode || '—' }}</span>
@@ -99,6 +99,13 @@
                       <el-select v-model="form.warehouseId" style="width:100%">
                         <el-option v-for="w in warehouses" :key="w.id" :label="w.warehouseName" :value="w.id" />
                       </el-select>
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="16">
+                  <el-col :span="24">
+                    <el-form-item label="品名 (到货原料)">
+                      <el-input :model-value="arrivalProductName" readonly placeholder="选择采购订单后自动带出" />
                     </el-form-item>
                   </el-col>
                 </el-row>
@@ -478,6 +485,11 @@ const supplierObj = computed(() => suppliers.value.find(s => s.id === form.suppl
 const supplierQualified = computed(() => (supplierObj.value.status ?? 1) === 1)
 const warehouseName = computed(() => warehouses.value.find(w => w.id === form.warehouseId)?.warehouseName || '')
 const batchNo = computed(() => `CB-${(form.billDate || '').slice(0, 7)}-00${form.details.length || 1}`)
+// 到货原料品名: 取采购订单明细的产品名 (多行去重), 与 App 原料入库页口径一致
+const arrivalProductName = computed(() => {
+  const uniq = [...new Set((form.details || []).map(d => d.productName).filter(Boolean))]
+  return uniq.join('、')
+})
 
 // v1.1.122: 当前草稿明细是否全非食品级 (is_food_grade≠1). 口径与后端 check() 的 anyFood 一致.
 // true → 审核免 IQC / 免供应商门禁, 走「免检直通」; false (含食品级或无明细) → 走 XK 三步.

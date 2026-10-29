@@ -272,7 +272,7 @@ async function loadList() {
     })
     if (r.code === 200) {
       records.value = r.data?.records || []
-      total.value = r.data?.total || 0
+      total.value = Number(r.data?.total) || 0
     }
   } catch (e) {
     records.value = []

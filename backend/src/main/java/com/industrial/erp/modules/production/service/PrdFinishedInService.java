@@ -71,7 +71,11 @@ public class PrdFinishedInService {
         // 从 check() 挪到 add(), 避免「审核后才建草稿→草稿未 PASS→永远审不了」死锁.
         if (qmsInspectionService.isFoodGradeProduct(in.getProductId())) {
             try {
-                qmsInspectionService.createOnFinish(in);
+                // v1.1.135: App「生产单详情 → 做成品检」先检后入时, OQC 草稿挂在工单名下;
+                // 这里把它归并到本张入库单, 避免一张工单出现两条出厂检验记录.
+                if (!qmsInspectionService.relinkOqcToFinishedIn(in)) {
+                    qmsInspectionService.createOnFinish(in);
+                }
             } catch (Exception ex) {
                 log.warn("[PrdFinishedIn.add] QMS OQC auto-create failed (non-blocking): {}", ex.getMessage());
             }
@@ -96,8 +100,10 @@ public class PrdFinishedInService {
             }
             // v1.1.99 C3 质量门禁对称化 (软门禁, 零回归): 若该入库单已关联 OQC 检验单, 必须已合格放行 (PASS/PASS_DISPOSITION + CHECKED) 才允许入库;
             // 无 OQC 单 (旧数据/未建) 不拦, 保持向后兼容. 与半成品 FAI 硬门禁对称, 但成品侧避免历史数据死锁故用软门禁.
+            // v1.1.135: App 端按生产单先做的成品检验 (表头挂 PRD_ORDER) 也算放行依据, 归并失败时按工单兜底找.
             com.industrial.erp.modules.qms.entity.MesQualityInspection oqc = qmsInspectionService.findOqcByFinishedInId(id);
-            if (oqc != null && !qmsInspectionService.hasPassedOqc(id)) {
+            if (oqc == null) oqc = qmsInspectionService.findLinkedOqcByOrder(in.getPrdOrderId());
+            if (oqc != null && !qmsInspectionService.isPassedOqc(oqc)) {
                 throw BizException.of("XK 合规: 成品入库单关联 OQC 检验单 " + oqc.getBillNo()
                         + " 判定为 " + oqc.getResult()
                         + (Constants.RESULT_PASS.equals(oqc.getResult()) && !Constants.STATUS_CHECKED.equals(oqc.getStatus()) ? " (尚未审核放行)" : "")

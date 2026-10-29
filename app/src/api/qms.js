@@ -126,10 +126,48 @@ export function signFaiForSemiIn(body) {
 }
 
 /**
+ * ⑩' v1.1.131 App 首检页选单入口 — 找/建 FAI + 灌吹膜首检模板, 一次回传 {head, items}.
+ * 后端: POST /qms/inspection/ensure-fai-for-semi-in (幂等)
+ */
+export function ensureFaiForSemiIn(semiInId) {
+  return request({ url: '/qms/inspection/ensure-fai-for-semi-in', method: 'POST', data: { semiInId } })
+}
+
+/**
  * ⑪ App XK 吹膜生产全流程 — 现场签合格 OQC (成品入库 OQC 软门禁).
  * 后端: POST /qms/inspection/sign-oqc-for-finished-in
  * @param {object} body  { finishedInId, oqcId?, reportNo, sampleQty, inspectorName, photoUrls }
  */
 export function signOqcForFinishedIn(body) {
   return request({ url: '/qms/inspection/sign-oqc-for-finished-in', method: 'POST', data: body })
+}
+
+/**
+ * ⑪' v1.1.135 App「生产单详情 → 做成品检」— 按生产工单找/建 OQC 草稿 + 灌成品检验模板.
+ * 后端: POST /qms/inspection/ensure-oqc-for-order (幂等) → {head, items, order, stage}
+ * 现场顺序是先成品检后成品入库, 此时可能还没有成品入库单, 所以单据挂 PRD_ORDER.
+ */
+export function ensureOqcForOrder(orderId) {
+  return request({
+    url: '/qms/inspection/ensure-oqc-for-order', method: 'POST', contentType: 'json',
+    data: { orderId: String(orderId) }
+  })
+}
+
+// 工序首检/巡检只关联实际展开的制袋、吹膜工序；ID 全程按字符串传递。
+export function inspectionProcesses(orderId) {
+  return request({ url: `/qms/inspection/processes/${String(orderId)}`, method: 'GET' })
+}
+
+export function ensureInspectionForProcess({ orderId, processId, inspectionType }) {
+  return request({
+    url: '/qms/inspection/ensure-for-process', method: 'POST', contentType: 'json',
+    data: { orderId: String(orderId), processId: String(processId), inspectionType }
+  })
+}
+
+export function saveProcessInspectionRecord(id, body) {
+  return request({
+    url: `/qms/inspection/${String(id)}/process-record`, method: 'PUT', contentType: 'json', data: body
+  })
 }

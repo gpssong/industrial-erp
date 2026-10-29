@@ -60,7 +60,7 @@
         <input class="input" v-model.number="form.density" type="digit" placeholder="厚度/密度" />
       </view>
       <view class="form-item">
-        <text class="label">克重 (g/m²)</text>
+        <text class="label">克重 (g/个)</text>
         <input class="input" v-model.number="form.gramWeight" type="digit" placeholder="克重" />
       </view>
     </view>

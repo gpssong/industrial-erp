@@ -48,7 +48,16 @@ public class BaseSupplierService {
     public void add(BaseSupplier s) { permService.requirePerm("base:supplier:add"); if (s.getStatus()==null) s.setStatus(1); mapper.insert(s); }
     @OperLog(module="供应商管理", businessType="EDIT", saveParam=true)
     @Transactional(rollbackFor = Exception.class)
-    public void update(BaseSupplier s) { permService.requirePerm("base:supplier:edit"); mapper.updateById(s); }
+    public void update(BaseSupplier s) {
+        permService.requirePerm("base:supplier:edit");
+        BaseSupplier origin = s.getId() == null ? null : mapper.selectById(s.getId());
+        if (origin == null) throw BizException.of("供应商不存在或已删除");
+        // v1.1.130 P1: 准入状态变更必须走 XK 合格供应商台账 (暂停/恢复), 否则丢失原因/操作人/证据
+        if (s.getStatus() != null && !s.getStatus().equals(origin.getStatus())) {
+            throw BizException.of("准入状态不能直接修改, 请到「XK 合规 → 合格供应商 → 暂停与恢复供货」操作, 以保留台账与审计记录");
+        }
+        mapper.updateById(s);
+    }
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) { permService.requirePerm("base:supplier:delete"); BaseSupplier s = mapper.selectById(id); if (s == null) throw BizException.of("供应商不存在或已删除"); mapper.update(null, new LambdaUpdateWrapper<BaseSupplier>().eq(BaseSupplier::getId, id).set(BaseSupplier::getDeleted, 1)); operLogPublisher.publishDeleteSnapshot("供应商管理", String.valueOf(id), s, null); }
 }

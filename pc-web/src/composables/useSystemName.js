@@ -6,9 +6,10 @@ const systemName = ref('工业ERP')
 const factoryName = ref('华东一厂')
 
 // 通用: 从 sys_config 读一个键, 有值则覆盖 ref
+// v1.1.130: 登录页也会调用 (品牌名), 此时未登录 → 配置接口 401 属预期, silent401 避免弹框和 redirect=/login
 async function loadKey(key, target, fallback) {
   try {
-    const r = await configApi.getByKey(key)
+    const r = await configApi.getByKey(key, { silent401: true })
     if (r?.data) target.value = r.data
     else target.value = fallback
   } catch (e) {

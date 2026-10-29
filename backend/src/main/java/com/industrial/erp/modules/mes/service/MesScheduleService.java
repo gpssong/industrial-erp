@@ -4,12 +4,14 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.industrial.erp.common.PrdOrderNameInjector;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.mes.entity.MesProcessTime;
 import com.industrial.erp.modules.mes.entity.MesSchedule;
 import com.industrial.erp.modules.mes.mapper.MesProcessTimeMapper;
 import com.industrial.erp.modules.mes.mapper.MesScheduleMapper;
 import com.industrial.erp.modules.em.mapper.BaseEquipmentProcessMapper;
+import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.security.SecurityContext;
 import org.slf4j.Logger;
@@ -46,13 +48,16 @@ public class MesScheduleService {
     private final MesProcessTimeMapper processTimeMapper;
     private final BaseEquipmentProcessMapper equipmentProcessMapper;
     private final PermissionService permService;
+    private final PrdOrderMapper prdOrderMapper;
 
     public MesScheduleService(MesScheduleMapper scheduleMapper, MesProcessTimeMapper processTimeMapper,
-                              BaseEquipmentProcessMapper equipmentProcessMapper, PermissionService permService) {
+                              BaseEquipmentProcessMapper equipmentProcessMapper, PermissionService permService,
+                              PrdOrderMapper prdOrderMapper) {
         this.scheduleMapper = scheduleMapper;
         this.processTimeMapper = processTimeMapper;
         this.equipmentProcessMapper = equipmentProcessMapper;
         this.permService = permService;
+        this.prdOrderMapper = prdOrderMapper;
     }
 
     // ==================================================================
@@ -60,23 +65,32 @@ public class MesScheduleService {
     // ==================================================================
 
     public IPage<MesSchedule> page(Integer pageNum, Integer pageSize, Long equipmentId, Long prdOrderId, String status) {
-        permService.requirePerm("production:schedule:list");
+        // v1.1.130: 设备 OEE 页要读排程近 7 条, OEE 独立 perm 后两个入口都能读
+        permService.requireAnyPerm("production:schedule:list", "production:schedule:oee");
         Page<MesSchedule> p = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<MesSchedule> w = new LambdaQueryWrapper<>();
         w.eq(equipmentId != null, MesSchedule::getEquipmentId, equipmentId);
         w.eq(prdOrderId != null, MesSchedule::getPrdOrderId, prdOrderId);
         w.eq(StrUtil.isNotBlank(status), MesSchedule::getStatus, status);
         w.orderByAsc(MesSchedule::getPlanStart);
-        return scheduleMapper.selectPage(p, w);
+        IPage<MesSchedule> result = scheduleMapper.selectPage(p, w);
+        // v1.1.131: 注入关联工单的商品名称 (前端显示「工单号 · 品名」)
+        PrdOrderNameInjector.inject(prdOrderMapper, result.getRecords(),
+                MesSchedule::getPrdOrderId, MesSchedule::setProductName);
+        return result;
     }
 
     /** 某设备按时间轴排程 (甘特数据源), 仅活跃排程. */
     public List<MesSchedule> ganttByEquipment(Long equipmentId) {
         permService.requirePerm("production:schedule:list");
-        return scheduleMapper.selectList(new LambdaQueryWrapper<MesSchedule>()
+        List<MesSchedule> list = scheduleMapper.selectList(new LambdaQueryWrapper<MesSchedule>()
                 .eq(MesSchedule::getEquipmentId, equipmentId)
                 .ne(MesSchedule::getStatus, "CANCELLED")
                 .orderByAsc(MesSchedule::getPlanStart));
+        // v1.1.131: 注入关联工单的商品名称 (甘特条上显示「工单号 · 品名」)
+        PrdOrderNameInjector.inject(prdOrderMapper, list,
+                MesSchedule::getPrdOrderId, MesSchedule::setProductName);
+        return list;
     }
 
     // ==================================================================
@@ -161,7 +175,7 @@ public class MesScheduleService {
 
     @Transactional(readOnly = true)
     public OeeResult oee(Long equipmentId) {
-        permService.requirePerm("production:schedule:list");
+        permService.requireAnyPerm("production:schedule:list", "production:schedule:oee");
         OeeResult r = new OeeResult();
         r.equipmentId = equipmentId;
         if (equipmentId == null) return r;

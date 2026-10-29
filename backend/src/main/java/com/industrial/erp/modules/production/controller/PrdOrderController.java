@@ -1,9 +1,11 @@
 package com.industrial.erp.modules.production.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
+import com.industrial.erp.modules.mes.service.MesWorkStartService;
 import com.industrial.erp.modules.production.entity.PrdOrder;
 import com.industrial.erp.modules.production.service.PrdOrderService;
 import com.industrial.erp.modules.production.service.ProductionPdfService;
@@ -26,11 +28,14 @@ public class PrdOrderController {
     private final PrdOrderService service;
     private final ProductionPdfService pdfService;
     private final SysUserMapper userMapper;
+    private final MesWorkStartService workStartService;
 
-    public PrdOrderController(PrdOrderService service, ProductionPdfService pdfService, SysUserMapper userMapper) {
+    public PrdOrderController(PrdOrderService service, ProductionPdfService pdfService, SysUserMapper userMapper,
+                              MesWorkStartService workStartService) {
         this.service = service;
         this.pdfService = pdfService;
         this.userMapper = userMapper;
+        this.workStartService = workStartService;
     }
 
     // v1.1.104: 补全方法级 perm 拦截 (历史 v1.0 时代漏注解, v1.1.104 check-perm.py 脚本扫到)
@@ -79,6 +84,36 @@ public class PrdOrderController {
     @SaCheckPermission(value = {"production:order:delete"}, orRole = "admin")
     @DeleteMapping("/{id}")
     public R<Void> delete(@PathVariable Long id) { service.delete(id); return R.ok(); }
+
+    // ===== v1.1.132 XK16-204 开工确认 (生产环境 + 投料原料批号 + 批号照片) =====
+
+    /**
+     * 吹膜开工: 环境确认合格 + 原料批号 + 批号照片 → 自动出 2 份生产环境检查合格记录 → 开工.
+     * 环境不合格 / 缺批号 / 缺照片一律拒绝 (整事务回滚).
+     */
+    @SaCheckPermission(value = {"production:order:release"}, orRole = "admin")
+    @PostMapping("/{id}/blow-start")
+    public R<java.util.Map<String, Object>> blowStart(@PathVariable Long id,
+                                                      @RequestBody com.industrial.erp.modules.mes.dto.WorkStartConfirmDTO body) {
+        return R.ok(workStartService.confirmBlowStart(id, body));
+    }
+
+    /** 制袋开工: 环境确认合格 → 2 份制袋车间环境检查记录 → 工序转进行中 + 自动领用该单可用半成品. */
+    @SaCheckPermission(value = {"production:order:release", "production:report:add", "production:report:list"},
+            mode = SaMode.OR, orRole = "admin")
+    @PostMapping("/{id}/bag-start")
+    public R<java.util.Map<String, Object>> bagStart(@PathVariable Long id,
+                                                     @RequestBody com.industrial.erp.modules.mes.dto.WorkStartConfirmDTO body) {
+        return R.ok(workStartService.confirmBagStart(id, body));
+    }
+
+    /** 开工确认台账回显 (批号 + 照片 + 自动生成的环境检查单号). */
+    @SaCheckPermission(value = {"production:order:list", "production:report:list"},
+            mode = SaMode.OR, orRole = "admin")
+    @GetMapping("/{id}/work-start-records")
+    public R<java.util.List<com.industrial.erp.modules.mes.entity.MesWorkStartConfirm>> workStartRecords(@PathVariable Long id) {
+        return R.ok(workStartService.listByOrder(id));
+    }
 
     /**
      * v1.1.11+: 分享 PDF (流式输出 application/pdf)

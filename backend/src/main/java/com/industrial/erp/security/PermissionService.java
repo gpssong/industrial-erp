@@ -54,6 +54,21 @@ public class PermissionService {
         }
     }
 
+    /** v1.1.130: 任一 perm 命中即放行 (App 端入口拆分成独立 perm 后, 同一页面的读接口需认新旧两个 perm). */
+    public boolean hasAnyPerm(String... perms) {
+        if (perms == null) return false;
+        for (String p : perms) {
+            if (p != null && hasPerm(p)) return true;
+        }
+        return false;
+    }
+
+    public void requireAnyPerm(String... perms) {
+        if (!hasAnyPerm(perms)) {
+            throw BizException.of(403, "无权限: " + String.join(" | ", perms));
+        }
+    }
+
     public void requireSuperAdmin() {
         if (!SecurityContext.isSuperAdmin()) {
             throw BizException.of(403, "只有超级管理员才能执行此操作");

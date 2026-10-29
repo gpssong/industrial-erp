@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.industrial.erp.modules.outsource.mapper.OutIssueDetailMapper">
+    <!-- v1.1.130 fix: 该语句此前只在 mapper 接口声明, XML 缺实现 → 委外发料单审核 (checkIssue) 500
+         (Invalid bound statement: ...OutIssueDetailMapper.selectByIssueId) -->
+    <select id="selectByIssueId" resultType="com.industrial.erp.modules.outsource.entity.OutIssueDetail">
+        SELECT * FROM out_issue_detail WHERE issue_id = #{id} AND deleted = 0 ORDER BY id
+    </select>
+</mapper>

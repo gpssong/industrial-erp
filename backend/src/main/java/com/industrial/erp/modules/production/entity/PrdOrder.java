@@ -58,6 +58,10 @@ public class PrdOrder {
     @TableField(exist = false)
     private transient String bomRemark;
 
+    /** v1.1.133 总重量 (kg) = 计划数量(件) × 成品克重(g/件) ÷ 1000, 展示口径保留 3 位小数 */
+    @TableField(exist = false)
+    private transient BigDecimal totalWeightKg;
+
     /** 领料明细 (打印用, JOIN prd_requisition + prd_requisition_detail 注入, 按 prd_order_id 汇总) */
     @TableField(exist = false)
     private List<PrdRequisitionDetail> requisitionDetails;
@@ -248,6 +252,8 @@ public class PrdOrder {
     public void setMaterial(String material) { this.pMaterial = material; }
     public String getBomRemark() { return bomRemark; }
     public void setBomRemark(String bomRemark) { this.bomRemark = bomRemark; }
+    public BigDecimal getTotalWeightKg() { return totalWeightKg; }
+    public void setTotalWeightKg(BigDecimal totalWeightKg) { this.totalWeightKg = totalWeightKg; }
     public List<PrdRequisitionDetail> getRequisitionDetails() { return requisitionDetails; }
     public void setRequisitionDetails(List<PrdRequisitionDetail> requisitionDetails) { this.requisitionDetails = requisitionDetails; }
 

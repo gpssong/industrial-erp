@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.qms.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.qms.entity.QmsIqcItem;
 import com.industrial.erp.modules.qms.service.QmsIqcItemService;
@@ -27,13 +28,14 @@ public class QmsIqcItemController {
         this.itemService = itemService;
     }
 
-    @SaCheckPermission(value = {"qms:iqc:list", "qms:iqc:detail"}, orRole = "admin")
+    // v1.1.131: 本表 FAI/PAT 检验项共用 — App 检验员角色只持 quality:inspection:* 权限, 一并放行
+    @SaCheckPermission(value = {"qms:iqc:list", "qms:iqc:detail", "quality:inspection:list", "quality:inspection:check"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/{iqcId}/items")
     public R<List<QmsIqcItem>> list(@PathVariable Long iqcId) {
         return R.ok(itemService.listByIqcId(iqcId));
     }
 
-    @SaCheckPermission(value = {"qms:iqc:detail"}, orRole = "admin")
+    @SaCheckPermission(value = {"qms:iqc:detail", "quality:inspection:check"}, mode = SaMode.OR, orRole = "admin")
     @PutMapping("/{iqcId}/items")
     public R<Void> batchSave(@PathVariable Long iqcId, @RequestBody List<QmsIqcItem> items) {
         itemService.batchSave(iqcId, items);

@@ -18,6 +18,13 @@
         <el-table-column type="index" width="50" />
         <el-table-column prop="warehouseCode" label="编码" width="120" />
         <el-table-column prop="warehouseName" label="仓库名称" />
+        <el-table-column label="类型" width="110">
+          <template #default="{ row }">
+            <el-tag :type="row.warehouseType && row.warehouseType !== 'NORMAL' ? '' : 'info'" size="small">
+              {{ WH_TYPE_LABELS[row.warehouseType] || '未分类' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="manager" label="负责人" width="100" />
         <el-table-column prop="phone" label="电话" width="120" />
         <el-table-column prop="address" label="地址" />
@@ -39,6 +46,12 @@
       <el-form :model="form" label-width="100px">
         <el-form-item label="编码"><el-input v-model="form.warehouseCode" /></el-form-item>
         <el-form-item label="名称"><el-input v-model="form.warehouseName" /></el-form-item>
+        <el-form-item label="类型">
+          <el-select v-model="form.warehouseType" style="width: 100%">
+            <el-option v-for="(label, key) in WH_TYPE_LABELS" :key="key" :label="label" :value="key" />
+          </el-select>
+          <div style="color:#909399;font-size:12px;line-height:1.5">入库/领料默认仓库按类型自动选中 (成品入库找 FG, 半成品入库找 SEMI, 领料找 RAW); 未分类时只能手选。</div>
+        </el-form-item>
         <el-form-item label="负责人"><el-input v-model="form.manager" /></el-form-item>
         <el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item>
         <el-form-item label="地址"><el-input v-model="form.address" /></el-form-item>
@@ -58,10 +71,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const list = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
-const form = reactive({ id: null, warehouseCode: '', warehouseName: '', manager: '', phone: '', address: '', isDefault: 0, status: 1 })
+// 与 sql/02 base_warehouse.warehouse_type 注释一致: NORMAL/RAW/FG/SEMI
+// (PC/App 多处按类型自动选默认仓库, 见 FinishedIn.vue / SemiFinishedIn.vue / Order.vue)
+const WH_TYPE_LABELS = { RAW: '原料仓', SEMI: '半成品仓', FG: '成品仓', NORMAL: '普通仓' }
+const form = reactive({ id: null, warehouseCode: '', warehouseName: '', warehouseType: 'NORMAL', manager: '', phone: '', address: '', isDefault: 0, status: 1 })
 async function loadData() { loading.value = true; try { list.value = (await warehouseApi.list()).data } finally { loading.value = false } }
-function onAdd() { Object.assign(form, { id: null, warehouseCode: '', warehouseName: '', isDefault: 0 }); dialogVisible.value = true }
-function onEdit(row) { Object.assign(form, row); dialogVisible.value = true }
+function onAdd() { Object.assign(form, { id: null, warehouseCode: '', warehouseName: '', warehouseType: 'NORMAL', isDefault: 0 }); dialogVisible.value = true }
+function onEdit(row) { Object.assign(form, row); if (!form.warehouseType) form.warehouseType = 'NORMAL'; dialogVisible.value = true }
 async function onDelete(row) {
   await ElMessageBox.confirm(`删除 ${row.warehouseName}?`, '提示', { type: 'warning' })
   try {

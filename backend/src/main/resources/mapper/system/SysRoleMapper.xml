@@ -34,6 +34,13 @@
         </foreach>
     </insert>
 
+    <!-- 删除角色时清空该角色的全部菜单授权 (PC + APP + BOTH 全清)
+         v1.1.130 fix: 该语句此前只声明在 mapper 接口里, XML 缺实现 → 删除角色整链 500
+         (Invalid bound statement: com.industrial.erp.modules.system.mapper.SysRoleMapper.deleteRoleMenus) -->
+    <delete id="deleteRoleMenus">
+        DELETE FROM sys_role_menu WHERE role_id = #{roleId}
+    </delete>
+
     <!-- v1.0.10+: 按客户端类型删除角色菜单授权 -->
     <delete id="deleteRoleMenusByClient">
         DELETE FROM sys_role_menu WHERE role_id = #{roleId} AND client_type IN

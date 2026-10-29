@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.xk.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.em.entity.BaseEquipment;
@@ -128,7 +129,7 @@ public class XkController {
     // ==================================================================
 
     @Operation(summary = "XK 原料入库 — 采购入库单分页")
-    @SaCheckPermission(value = {"purchase:receipt:list"}, orRole = "admin")
+    @SaCheckPermission(value = {"purchase:receipt:list", "report:print"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/material/page")
     public R<PageResult<PurReceipt>> materialPage(
             @RequestParam(defaultValue = "1") Integer pageNum,
@@ -161,7 +162,8 @@ public class XkController {
     // ==================================================================
 
     @Operation(summary = "XK 批次溯源 — 批次列表")
-    @SaCheckPermission(value = {"production:report:list"}, orRole = "admin")
+    // v1.1.130: 拆出独立 perm production:report:trace (与扫码报工分开授权); OR 兼容旧授权
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/trace/batches")
     public R<List<MesBatch>> traceBatches(@RequestParam(required = false) String batchType,
                                           @RequestParam(required = false) Long productId) {
@@ -169,7 +171,7 @@ public class XkController {
     }
 
     @Operation(summary = "XK 批次溯源 — 双向链路追溯")
-    @SaCheckPermission(value = {"production:report:list"}, orRole = "admin")
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/trace/{batchNo}")
     public R<MesReportService.TraceResult> trace(@PathVariable String batchNo,
                                                  @RequestParam(defaultValue = "5") int depth) {
@@ -177,7 +179,7 @@ public class XkController {
     }
 
     @Operation(summary = "XK 批次溯源 — 服务端全链追溯 (料→半成品→成品→客户 一次展开)")
-    @SaCheckPermission(value = {"production:report:list"}, orRole = "admin")
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/trace/full/{batchNo}")
     public R<MesReportService.FullTrace> traceFull(@PathVariable String batchNo) {
         return R.ok(mesReportService.traceFull(batchNo));
@@ -256,7 +258,7 @@ public class XkController {
     // ==================================================================
 
     @Operation(summary = "XK 单据打印 — 打印参数 (留存年限等 XK 配置)")
-    @SaCheckPermission(value = {"xk:audit:archive"}, orRole = "admin")
+    @SaCheckPermission(value = {"xk:audit:archive", "report:print"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/print/preview")
     public R<Map<String, Object>> printPreview() {
         Map<String, Object> data = new HashMap<>();

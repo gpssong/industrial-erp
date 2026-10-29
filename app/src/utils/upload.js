@@ -16,8 +16,9 @@ function getUploadBase() {
   // 用户显式覆盖优先 (与 api/index.js 共用同一份归一化逻辑)
   const override = getApiBaseOverride()
   if (override) return override
-  // H5 同源: 空字符串 → fetch/uni.uploadFile 自动拼当前 origin
-  if (isH5Runtime()) return ''
+  // H5 同源: 相对路径 '/api' —— 后端 context-path 固定是 /api, 留空会被 nginx 当静态资源
+  // (v1.1.132 浏览器实测: 空 base → POST /system/upload/file → nginx 405 + index.html → JSON.parse 炸)
+  if (isH5Runtime()) return '/api'
   // 原生/Capacitor 默认地址
   return NATIVE_UPLOAD_BASE
 }

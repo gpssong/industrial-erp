@@ -31,7 +31,7 @@
       <view v-for="o in orderList" :key="o.id" class="plan-row" @click="onPickOrder(o)">
         <view class="plan-main">
           <view class="plan-no">{{ o.billNo }}</view>
-          <view class="muted small">{{ o.supplierName || '—' }}</view>
+          <view class="muted small">{{ o.firstProductName || '' }}{{ o.firstProductName && o.supplierName ? ' · ' : '' }}{{ o.supplierName || '—' }}</view>
         </view>
         <view class="plan-qty muted small">{{ o.totalQty || 0 }}</view>
         <view class="plan-go">检验 ›</view>
@@ -275,9 +275,16 @@ export default {
       return this.items.length > 0 && this.items.every((it) => it.passFlag === 1)
     },
     // 到货基本信息里的「关联采购订单」picker 选项 (label 数组)
+    // v1.1.131: 单号后带首个商品名称 (后端 selectPageWithProduct 注入 firstProductName),
+    // 让选单时能直接看出是哪个原料, 不用逐个点开看明细
     orderOptions() {
       return this.orderList.length
-        ? this.orderList.map((o) => (o.billNo || '') + ' · ' + (o.supplierName || '') + ' · ' + (o.totalQty || 0))
+        ? this.orderList.map((o) => {
+            const no = o.billNo || ''
+            const name = o.firstProductName || ''
+            const head = name ? no + ' · ' + name : no
+            return head + ' · ' + (o.supplierName || '') + ' · ' + (o.totalQty || 0)
+          })
         : ['（暂无采购订单）']
     },
     // 到货原料品名: 取采购订单明细 (多行去重), 回退检验单头的商品快照

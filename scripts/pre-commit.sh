@@ -1,15 +1,13 @@
 #!/bin/bash
 # ============================================================
-# v1.1.49 P2-22: pre-commit hook — 校验 npm lockfile 一致性
+# pre-commit hook — 校验:
+#   1. npm lockfile 一致性 (pc-web / app)
+#   2. 实体字段 vs DDL 对账 (防"改实体不补 DDL"回归, v1.1.130 SOP/委外 500 教训)
 #
-# 背景: 项目用 package-lock.json 而非 pnpm/yarn, 但没人校验
-#       lockfile 是否与 node_modules 一致. 手动 `npm install`
-#       可能漂移, 导致 CI 构建与本地不一致.
-#
-# 用法: 放到 .git/hooks/pre-commit (或用户手动 ln -s)
-#       运行时自动检测 pc-web/ 和 app/ 的 package-lock.json
+# 用法: 放到 .git/hooks/pre-commit (或 git config core.hooksPath .githooks)
 # ============================================================
-set -euo pipefail
+set -uo pipefail
+cd "$(dirname "$0")/.."
 
 echo "==> [pre-commit] 校验 npm lockfile 一致性..."
 
@@ -37,11 +35,33 @@ for DIR in pc-web app; do
   fi
 done
 
+# -----------------------------------------------------------
+# 2. 实体字段 vs DDL 对账 (离线 sql/ + 集合字段必查)
+# 离线模式: 集合字段没标 exist=false → 硬 fail (真 500 风险, 与 DDL 完整性无关);
+#          scalar 缺列只在离线 DDL 不全时误报 → 仅提示, 不 fail.
+# 需要权威对账时手动: DB_PWD=erp_root_pwd scripts/entity-schema-check.py --live-ssh
+# -----------------------------------------------------------
+echo ""
+echo "==> [pre-commit] 实体字段 vs DDL 对账 (scripts/entity-schema-check.py)..."
+if [ -f "scripts/entity-schema-check.py" ]; then
+  if python3 scripts/entity-schema-check.py; then
+    echo "  ✅ 实体字段与 DDL 对齐"
+  else
+    # 离线模式下, 只有 error (集合字段/表缺失) 才 fail; 纯 warning 不 fail.
+    # 上面的脚本: 有 error → exit 1, 只有 warning → exit 0. 所以 exit 1 = 真有问题.
+    echo "  ❌ 实体有字段在 DDL 里不存在 / 集合字段没标 exist=false → 会 500"
+    echo "     权威确认: DB_PWD=erp_root_pwd scripts/entity-schema-check.py --live-ssh"
+    FAILED=1
+  fi
+else
+  echo "  ⚠  scripts/entity-schema-check.py 不存在, 跳过"
+fi
+
 if [ $FAILED -eq 1 ]; then
   echo ""
-  echo "❌ pre-commit 失败: lockfile 不一致, 请修复后重试"
-  echo "   修复命令: cd pc-web && npm install && cd ../app && npm install"
+  echo "❌ pre-commit 失败, 请修复后重试"
   exit 1
 fi
 
-echo "==> [pre-commit] ✅ lockfile 校验通过"
+echo ""
+echo "==> [pre-commit] ✅ 全部校验通过"

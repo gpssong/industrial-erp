@@ -4,7 +4,7 @@
     <view v-if="!loaded" class="card scan-card">
       <view class="scan-title">扫生产单飞鹅标签 (billNo) 报工</view>
       <view class="scan-sub muted">扫飞鹅打印的生产单标签二维码, 或手输生产单号 (如 PD202610090001)</view>
-      <input class="scan-input" v-model="billNo" placeholder="输入生产单号" confirm-type="done" @confirm="onManual" />
+      <input class="scan-input" v-model="billNo" :disabled="loading" placeholder="输入生产单号" confirm-type="done" @confirm="onManual" />
       <view class="scan-actions">
         <button class="btn-primary" @click="onScan">📷 扫一扫</button>
         <button class="btn-plain" @click="onManual">定位报工</button>
@@ -17,16 +17,17 @@
       <view class="card">
         <view class="row" style="display:flex;justify-content:space-between;align-items:center">
           <view>
-            <view class="bill-no">{{ order.billNo }}</view>
-            <view class="muted">{{ order.productName || '—' }} × {{ order.planQty || 0 }}</view>
+            <!-- v1.1.131: 单号后直接带商品名称 -->
+            <view class="bill-no">{{ order.billNo }} · {{ order.productName || '—' }}</view>
+            <view class="muted">× {{ order.planQty || 0 }}</view>
           </view>
           <view class="muted" @click="reset">重扫</view>
         </view>
       </view>
 
       <view v-if="!processes.length" class="card empty-warn">
-        <view>该生产单未展开工序 (开单时没配默认工序链)。</view>
-        <view class="muted">请在 PC 端「生产管理 → 工序配置」配好该产品的默认工序链, 再重新开单/开工。</view>
+        <view>{{ stage === 'BAG' ? '该生产单没有匹配的制袋工序。' : '该生产单没有匹配的工序。' }}</view>
+        <view class="muted">请核对生产单与工序配置，不会改用其他工序报工。</view>
       </view>
 
       <template v-else>
@@ -40,8 +41,14 @@
             <text v-if="p.operator"> · {{ p.operator }}</text>
           </view>
 
-          <!-- 报工表单 (未完成才显示) -->
-          <view v-if="p.status !== 2 && p.status !== 3" class="report-form">
+          <view v-if="isBagProcess(p)" class="param-block">
+            <view class="muted">制袋报工前须本工序首检合格；巡检频次按批准的检验规程执行。</view>
+            <view v-if="canInspect()" class="scan-actions">
+              <button class="btn-plain" :disabled="submitting || loading" @click="goInspection(p, 'fai')">制袋首检</button>
+              <button class="btn-plain" :disabled="submitting || loading" @click="goInspection(p, 'pat')">制袋巡检</button>
+            </view>
+          </view>
+          <view v-if="Number(p.status) !== 2 && Number(p.status) !== 3" class="report-form">
             <view class="form-row">
               <text class="form-label">合格数</text>
               <input class="form-input" v-model="forms[p.id].good" type="number" placeholder="0" />
@@ -79,11 +86,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import { api } from '@/api/index.js'
 import { doScan } from '../../utils/scan.js'
 import { guardPage } from '../../utils/appModuleEnabled.js'
+import { getAppPermissions, isAdmin } from '../../utils/permission.js'
+import { navigateTo } from '../../utils/nav.js'
 
+const loading = ref(false)
+const stage = ref('')
+const processId = ref('')
 const loaded = ref(false)
 const order = ref({})
 const processes = ref([])
@@ -118,6 +131,7 @@ async function loadParams(p) {
 }
 
 function onScan() {
+  if (loading.value) return
   scanMsg.value = ''
   // doScan 走回调 (onResult/onCancel), 不返回对象 (与现有 scan 页一致)
   doScan({
@@ -132,37 +146,56 @@ function onScan() {
   })
 }
 
+function isBagProcess(p) { return String(p.processName || '').includes('制袋') }
+function canInspect() { return isAdmin() || getAppPermissions().includes('quality:inspection:check') }
+function goInspection(p, type) {
+  navigateTo('/pages/scan/' + type + '?orderId=' + encodeURIComponent(order.value.id)
+    + '&processId=' + encodeURIComponent(p.id) + '&stage=BAG')
+}
+
+async function refreshProcesses(operator = '') {
+  const rows = await api.prdOrderProgress(String(order.value.id))
+  const ps = (Array.isArray(rows) ? rows : []).filter(p =>
+    (!processId.value || String(p.id) === processId.value)
+    && (!stage.value || String(p.processName || '').includes(stage.value === 'BAG' ? '制袋' : '吹膜')))
+  for (const p of ps) forms[p.id] = { good: '', bad: '', operator }
+  processes.value = ps
+  await Promise.all(ps.map(loadParams))
+}
+
+async function loadOrder(ord) {
+  order.value = ord
+  billNo.value = ord.billNo || ''
+  await refreshProcesses()
+  loaded.value = true
+  scanMsg.value = ''
+}
+
 async function onManual() {
+  if (loading.value) return
   const no = (billNo.value || '').trim()
   if (!no) { scanMsg.value = '请先扫标签或输入生产单号'; return }
+  loading.value = true
   scanMsg.value = '加载中...'
   try {
-    // 1) 按 billNo 查生产单拿 id (App 端 page 支持 billNo 过滤)
-    const r = await api.prdOrderPage({ billNo: no, pageNum: 1, pageSize: 1 })
-    const recs = (r && (r.records || (r.data && r.data.records))) || []
-    const ord = recs[0]
+    const r = await api.prdOrderPage({ billNo: no, pageNum: 1, pageSize: 20 })
+    const ord = (r?.records || []).find(x => x.billNo === no)
     if (!ord) { scanMsg.value = '未找到生产单 ' + no; return }
-    order.value = ord
-    // 2) 查工序实例
-    const pr = await api.prdOrderProgress(String(ord.id))
-    const ps = (pr && pr.data) || []
-    processes.value = ps
-    // 初始化每道工序的报工表单
-    for (const p of ps) forms[p.id] = { good: '', bad: '', operator: '' }
-    // v1.1.99 C3: 拉每道工序的关键工艺参数
-    for (const p of ps) await loadParams(p)
-    loaded.value = true
+    await loadOrder(ord)
   } catch (e) {
     scanMsg.value = '加载失败: ' + ((e && (e.msg || e.message)) || e)
+  } finally {
+    loading.value = false
   }
 }
 
 async function onReport(p) {
+  if (submitting.value || loading.value) return
   const f = forms[p.id] || {}
   const good = Number(f.good || 0)
   const bad = Number(f.bad || 0)
-  if (good <= 0 && bad <= 0) {
-    if (typeof uni !== 'undefined') uni.showToast({ title: '合格/不良至少填一个', icon: 'none' })
+  if (!Number.isFinite(good) || !Number.isFinite(bad) || good < 0 || bad < 0 || good + bad <= 0) {
+    if (typeof uni !== 'undefined') uni.showToast({ title: '请输入非负数量，合格/不良至少一个大于零', icon: 'none' })
     return
   }
   // v1.1.99 C3: 组装工艺参数实测值 (key=paramKey, 仅提交已填项)
@@ -185,10 +218,7 @@ async function onReport(p) {
       paramValues
     })
     if (typeof uni !== 'undefined') uni.showToast({ title: '报工成功', icon: 'success' })
-    // 刷新该单工序进度
-    const pr = await api.prdOrderProgress(String(order.value.id))
-    processes.value = (pr && pr.data) || []
-    for (const x of processes.value) forms[x.id] = { good: '', bad: '', operator: f.operator || '' }
+    await refreshProcesses(f.operator || '')
   } catch (e) {
     if (typeof uni !== 'undefined') uni.showToast({ title: (e && (e.msg || e.message)) || '报工失败', icon: 'none' })
   } finally {
@@ -197,16 +227,31 @@ async function onReport(p) {
 }
 
 function reset() {
+  if (submitting.value || loading.value) return
   loaded.value = false
   order.value = {}
   processes.value = []
+  processId.value = ''
   billNo.value = ''
   scanMsg.value = ''
+  Object.keys(forms).forEach(key => delete forms[key])
+  Object.keys(params).forEach(key => delete params[key])
 }
 
-onMounted(() => {
-  // 模块开关短路 (生产模块被管理员全局关 → 回工作台)
+onLoad(async (options = {}) => {
   if (!guardPage('production')) return
+  stage.value = ['BAG', 'BLOW'].includes(options.stage) ? options.stage : ''
+  processId.value = options.processId ? String(options.processId) : ''
+  if (!options.orderId) return
+  loading.value = true
+  scanMsg.value = '加载中...'
+  try {
+    await loadOrder(await api.prdOrderDetail(String(options.orderId)))
+  } catch (e) {
+    scanMsg.value = '加载失败: ' + (e?.msg || e?.message || '请重新选择生产单')
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 

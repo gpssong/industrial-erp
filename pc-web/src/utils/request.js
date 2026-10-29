@@ -13,6 +13,10 @@ NProgress.configure({ showSpinner: false })
 // 修复: request 拦截器递归把 > MAX_SAFE_INTEGER 的数字序列化为字符串, Jackson 默认支持 String→Long 反序列化。
 // 边界: 业务字段 (qty/price/税率 等) 全是小数字, 不会被字符串化。
 const SAFE_MAX = Number.MAX_SAFE_INTEGER
+// v1.1.130 hotfix: 只有 JSON 载荷才需要遍历改写 — FormData/Blob/File/ArrayBuffer/URLSearchParams
+// 一旦被当普通对象遍历, Object.keys(FormData) 为空, 请求体会被替换成 {} →
+// 后端 `Required part 'file' is not present` (上传全站失效)。
+const isJsonPayload = (v) => Array.isArray(v) || Object.prototype.toString.call(v) === '[object Object]'
 function stringifyBigInts(value) {
   if (Array.isArray(value)) return value.map(stringifyBigInts)
   if (value && typeof value === 'object') {
@@ -63,7 +67,7 @@ const service = axios.create({
 service.interceptors.request.use(config => {
   NProgress.start()
   // v1.1.79 hotfix-2: 大整数 → 字符串 (避免雪花 ID 精度丢失)
-  if (config.data && typeof config.data === 'object') {
+  if (config.data && typeof config.data === 'object' && isJsonPayload(config.data)) {
     config.data = stringifyBigInts(config.data)
   }
   // 不再显式带 Authorization header, 由浏览器自动附带 httpOnly Cookie (Sa-Token cookie)
@@ -76,11 +80,15 @@ service.interceptors.request.use(config => {
 // 401 防重入锁: 同一时刻只弹一个确认框, 避免 token 过期时多个并发请求叠加弹窗
 let isShowing401 = false
 function handle401(msg) {
+  const cur = router.currentRoute.value
+  // 未登录页面 (如 /login) 上的 401 不是"登录过期": 不提示, 也绝不写入 redirect=/login
+  // —— 否则登录成功后会被 redirect 拉回登录页, 表现为"登录成功但不跳转"。
+  if (cur.meta?.public) return
   if (isShowing401) return
   isShowing401 = true
   ElMessageBox.confirm(msg || '登录已过期, 请重新登录', '提示', { type: 'warning' })
     .then(() => {
-      router.push({ path: '/login', query: { redirect: router.currentRoute.value.fullPath } })
+      router.push({ path: '/login', query: { redirect: cur.fullPath } })
     })
     .catch(() => {})
     .finally(() => { isShowing401 = false })
@@ -93,7 +101,8 @@ service.interceptors.response.use(res => {
   // 防御: 后端返回 HTML/字符串(例如 nginx 502/404 页面)时, data 不是对象, 不能 .code
   if (typeof data === 'object' && data !== null && data.code === 200) return data
   if (typeof data === 'object' && data !== null && data.code === 401) {
-    handle401(data.msg)
+    // silent401: 明确预期可能未登录的请求 (登录页读品牌配置等), 不弹框不改路由
+    if (!res.config?.silent401) handle401(data.msg)
     return Promise.reject(new Error(data.msg || '未登录'))
   }
   // v1.1.31: 不在拦截器弹 ElMessage, 把 data.msg 一并附给 Error 对象,
@@ -106,7 +115,7 @@ service.interceptors.response.use(res => {
   NProgress.done()
   // HTTP 层 401 (例如 Nginx 反代未鉴权)
   if (err.response && err.response.status === 401) {
-    handle401()
+    if (!err.config?.silent401) handle401()
     return Promise.reject(err)
   }
   // P1-5: 错误日志脱敏 — 生产环境仅记错误码/HTTP/请求路径, 不打请求体/userInfo/cookie
