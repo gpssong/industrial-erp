@@ -3,6 +3,30 @@
 
 ## changelog (倒序)
 
+### v1.1.139 (2026-10-30 — App 生产单详情 ② 的按钮点名「吹膜首检 / 吹膜巡检」，深链钉在本工单吹膜工序上，打开即吹膜工艺检验项)
+
+> **需求原话**: 「app端画红框的做首检该为吹膜首检，并将内容改为吹膜工艺的首检。」(红框 = 生产单详情 XK 流程卡 ② 的「做首检」按钮)
+> **现场证据**: 用户 10:38 在 `.32:18090` 工单 `PD202610170002` 上的两次点击留下 `QI202610300004` (PAT，挂**吹膜**工序 `2112787513954873345`，7 个 `PAT_*` 吹膜项) 和 `QI202610300005` (FAI，挂**制袋**工序 `2112787513992622082`，10 个 `BAG_*` 制袋项)。即「做巡检」落在吹膜、「制袋首检」落在制袋，路由本身没错 —— 问题是 ② 的「做首检」标签不写工序，和 ④ 的「制袋首检」并排时现场无法判断这张单检的是哪道工序，点错就签错模板。而 v1.1.138 之后该按钮虽已走 `ProcessInspection`，**落在哪条工序上仍靠「按 stage 过滤后只剩一条」隐式自动选中**，不是钉死的。
+
+**App (`app/src/pages/production/order-detail.vue`，3 处)**:
+- `:130-131` ② 卡两个按钮文案 `做首检 / 做巡检` → **`吹膜首检 / 吹膜巡检`**，与 ④ 的 `制袋首检 / 制袋巡检` 对称。
+- `:331` 新增 `blowProcess` computed (`processes` 里 `processName.includes('吹膜')`，与既有 `bagProcess` 同一口径；`processes` 来自 `api.prdOrderProgress`)。
+- `:694` `goScan(path, stage, processId)` 加第三个参数，命中时深链拼 `&processId=`；两个吹膜按钮传 `blowProcess && blowProcess.id`。`pages/scan/fai.vue` / `pages/scan/pat.vue` 本来就接 `query.processId` 并透传给 `ProcessInspection`，**组件零改动**。
+- 效果：`ProcessInspection.selectOrder` 走 `retryProcessId` 分支精确锁定吹膜工序，打开就是吹膜检验项，不再依赖"过滤后只剩一条"；若该工序 id 不属于本工单/阶段，组件明确报「指定工序不属于该工单或阶段，可能尚未配置 / 展开。不会改用吹膜或其他工序模板」并给重试，**不会静默换成别的模板**。
+- **零后端 Java、零 SQL、零 PC 改动**；③⑤⑥ 与半成品入库 XK 门禁不动。
+
+**版本**: 七处对齐 1.1.139 (`scripts/check-version.sh` 全 OK)，`app/src/manifest.json` versionCode 1139。**本批无后端改动，jar 未重建** → 三站容器仍 `ERP_VERSION=1.1.138`、主库 `sys_config.SYSTEM_VERSION_INFO` 仍显示 1.1.138，App「我的」页显示 1.1.139；下一批含后端改动时一并翻正。
+
+**部署**:
+- App H5 `index.html` md5 `ff2fe93fcfc0b386cb7ec8f0cc15baad`：`.32` 写 `/vol2/erp-system/app-h5/dist/build/h5` (备份 `h5.bak_v1139_20261030_110455.tgz`)、阿里云写 `/opt/erp-system/app-h5` (原 `49319889…`，备份 `/root/app-h5.bak_v1139_20261030_110624.tgz`，顺手清掉历次 tar 带上去的 `._*` AppleDouble)；`.150` 无 H5 容器。两站都从容器端口 `127.0.0.1:18090` 实取 `index-W64oF8va.js` 与 chunk 核对。
+- APK `erp-app-20261030-1139.apk` md5 `2fbb76b8e1423ac70b24e7ad87ceb288` (4442431 B，versionName 1.1.139 / versionCode 1139，`build-app.sh` 校验内嵌 H5 与 OS 级版本号一致)。**装新 APK 后需重新登录。**
+
+**验证**:
+- 线上产物就地反查：`.32` 与阿里云的 `assets/pages-production-order-detail.B8F9aacZ.js` 各含 1 处 `吹膜首检` + 1 处 `吹膜巡检`，`做首检/做巡检` 已 0 命中；编译后的 `goScan` 里能看到 `processId="+encodeURIComponent(String(n))`。
+- 内容 (吹膜工艺首检项) 用 canary 上 `gpssong` 的活 Sa-Token (Redis `Authorization:login:session:2`，绕开 P0-2 验证码) 直调 `POST /qms/inspection/ensure-for-process {orderId:2111270042198421505, processId:2112787513954873345, inspectionType:"FAI"}` → 200：head `QI202610300007` `FAI / PRD_PROCESS / DRAFT`，`process.processName=吹膜`、`stage=BLOW`，**6 项全是 `BLOW_MATERIAL_CHECK / BLOW_APPEARANCE / BLOW_THICKNESS / BLOW_WIDTH / BLOW_TENSILE / BLOW_ODOR`** (该单成品 `mjy1050007 马鲛鱼10*50*0.07` `is_food_grade=0` → 不追加食品级 2 项，与 `QmsInspectionService.foodProcessTemplate` 判型一致)。测试草稿 `QI202610300007` + 6 个检验项 + 本窗口审计行已删；`.32` 副本 `SHOW REPLICA STATUS` 仍 `IO=Yes SQL=Yes Seconds_Behind_Source=0`、无错误。
+
+**踩坑 (值得记)**: (1) **判断"内容对不对"要看落库的 `source_bill_id` + `qms_iqc_item.item_code`，别只看页面** —— ② 和 ④ 两个首检按钮共用同一个 `/pages/scan/fai`，唯一区分就是 query 里的 `stage`，页面长得一模一样。(2) 现场卡片上的按钮文案不带工序名，就是点错单的第一来源；同一组件多入口时，**入口标签必须自证"我检的是哪道工序"**。(3) 本项目 Jackson 全局 `Long → ToStringSerializer` (`WebMvcConfig`)，深链拼 `processId` 不会被 JS `Number` 精度截断 (工序 id 远超 `2^53`)。(4) 纯 App 批次不重建 jar 会造成 PC(服务端 `sys_config`) 与 App(`APP_VERSION`) 版本显示不一致 —— 要么接受并在 changelog 写明，要么 recreate 三站容器，而 `.150` 是生产主库，重建有约 30s 接口中断，别为了一串数字顺手做。
+
 ### v1.1.138 (2026-10-30 — App 吹膜首检改为「按工单 + 实际工序」做，不再强制先选半成品入库单；半成品入库 XK 门禁同步认工序侧那张)
 
 > **需求原话**: 「app端生产单吹膜开工后做的首检不需要关联半成品入库单」

@@ -125,8 +125,10 @@
               <text class="step-name">首检 / 巡检 · 检验员</text>
               <text class="step-desc">逐检验项打分 + 拍照, 现场签合格放行</text>
               <view v-if="canInspect()" class="step-btns">
-                <button class="step-btn small" @click="goScan('/pages/scan/fai', 'BLOW')">做首检</button>
-                <button class="step-btn small" @click="goScan('/pages/scan/pat', 'BLOW')">做巡检</button>
+                <!-- v1.1.139: 本卡是吹膜工序的检验节点, 按钮点名「吹膜」并把深链钉在本工单的吹膜工序上,
+                     打开即是吹膜工艺检验项, 不会再落到制袋模板 (与 ④ 的制袋首检/巡检区分开)。 -->
+                <button class="step-btn small" @click="goScan('/pages/scan/fai', 'BLOW', blowProcess && blowProcess.id)">吹膜首检</button>
+                <button class="step-btn small" @click="goScan('/pages/scan/pat', 'BLOW', blowProcess && blowProcess.id)">吹膜巡检</button>
               </view>
             </view>
           </view>
@@ -328,6 +330,7 @@ const sheet = reactive({
 })
 
 const bagProcess = computed(() => processes.value.find(x => String(x.processName || '').includes('制袋')) || null)
+const blowProcess = computed(() => processes.value.find(x => String(x.processName || '').includes('吹膜')) || null)
 const blowConfirm = computed(() => startRecords.value.find(r => r.stage === 'BLOW') || null)
 const bagConfirm = computed(() => startRecords.value.find(r => r.stage === 'BAG') || null)
 // 制袋「已开工」= 有过开工确认台账 或 工序状态已脱离未开工 (1 进行中 / 2 完成)
@@ -688,8 +691,10 @@ function canReport() {
 function canFinishedIn() {
   return hasPerm('production:finished-in:add') && order.value && order.value.billStatus !== 'DRAFT'
 }
-function goScan(path, stage = '') {
-  navigateTo(path + '?orderId=' + encodeURIComponent(orderId.value) + (stage ? '&stage=' + stage : ''))
+function goScan(path, stage = '', processId = '') {
+  navigateTo(path + '?orderId=' + encodeURIComponent(orderId.value)
+    + (stage ? '&stage=' + stage : '')
+    + (processId ? '&processId=' + encodeURIComponent(String(processId)) : ''))
 }
 
 onMounted(() => { applyTabBar() })
