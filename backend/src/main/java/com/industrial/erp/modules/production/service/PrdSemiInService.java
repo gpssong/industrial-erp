@@ -94,7 +94,9 @@ public class PrdSemiInService {
             // XK 硬门禁: 必须关联合格 FAI 检验单 (PASS/PASS_DISPOSITION + CHECKED) 才放行.
             // 若该入库单尚未自动建 FAI 草稿, 先兜底建一张 (老数据/手工建的单), 但门禁仍按合格判定拒绝.
             if (!qmsInspectionService.hasPassedFai(id)) {
-                com.industrial.erp.modules.qms.entity.MesQualityInspection fai = qmsInspectionService.findFaiBySemiInId(id);
+                // v1.1.138: 首检可能挂在「工单吹膜工序」上 (App 现场先首检后建入库单), 用关联口径找,
+                // 报错时也要指出到底是哪张 FAI 没放行.
+                com.industrial.erp.modules.qms.entity.MesQualityInspection fai = qmsInspectionService.findLinkedFaiForSemiIn(id);
                 if (fai == null) {
                     throw BizException.of("XK 合规: 半成品入库单未关联 FAI 检验, 不能入库; 请先完成「半成品检验」并判定合格 (PASS)");
                 }

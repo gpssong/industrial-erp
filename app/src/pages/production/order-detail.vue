@@ -125,7 +125,7 @@
               <text class="step-name">首检 / 巡检 · 检验员</text>
               <text class="step-desc">逐检验项打分 + 拍照, 现场签合格放行</text>
               <view v-if="canInspect()" class="step-btns">
-                <button class="step-btn small" @click="goScan('/pages/scan/fai')">做首检</button>
+                <button class="step-btn small" @click="goScan('/pages/scan/fai', 'BLOW')">做首检</button>
                 <button class="step-btn small" @click="goScan('/pages/scan/pat', 'BLOW')">做巡检</button>
               </view>
             </view>

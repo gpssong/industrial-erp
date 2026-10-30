@@ -137,7 +137,9 @@ export default {
     this.processOrderId = query.orderId == null ? '' : String(query.orderId)
     this.processId = query.processId == null ? '' : String(query.processId)
     this.processStage = query.stage == null ? '' : String(query.stage).toUpperCase()
-    this.processMode = this.processStage === 'BAG' || !!this.processId
+    // v1.1.138: 吹膜首检也不再选半成品入库单 —— 现场顺序是 开工→首检→入库, 入库单那时还不存在,
+    // 首检按「工单 + 实际工序」做 (与巡检/制袋首检同一组件), 挂在 PRD_PROCESS 上。
+    this.processMode = this.processStage === 'BAG' || this.processStage === 'BLOW' || !!this.processId
     if (this.processMode) return
     try { this.apiBase = getApiBaseOverride() || (typeof window !== 'undefined' ? window.location.origin + '/api' : '') } catch (e) {}
     this.loadSemiIn()

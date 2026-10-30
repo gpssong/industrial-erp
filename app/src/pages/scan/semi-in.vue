@@ -71,7 +71,7 @@
       <!-- XK 门禁提示 -->
       <view class="card gate-card">
         <view class="gate-title">🔒 XK 门禁</view>
-        <view class="muted">食品级原料须已关联合格 FAI 首检单 (检验员先在「首检」页签合格, 再回此审核)；工业品商品免检, 可直接入库。</view>
+        <view class="muted">食品级原料须已关联该工单的合格吹膜首检 (检验员在「生产单详情 → 首检」逐项签合格, 再回此审核)；工业品商品免检, 可直接入库。</view>
       </view>
 
       <!-- 固定底部双按钮 -->
