@@ -999,19 +999,55 @@ public class QmsInspectionService {
                 .last("LIMIT 1"));
     }
 
-    /** 该半成品入库单是否已关联"合格"的 FAI (result=PASS/PASS_DISPOSITION, status=CHECKED). */
+    /**
+     * 该半成品入库单是否已关联"合格"的 FAI (result=PASS/PASS_DISPOSITION, status=CHECKED).
+     *
+     * <p>v1.1.138: App 吹膜现场顺序是 开工 → 首检 → 半成品入库, 首检发生在入库单建出来之前,
+     * 所以首检按「工单 + 实际吹膜工序」做 (挂在 PRD_PROCESS 上), 不再关联入库单 ——
+     * 这里额外认工序侧那张, 否则食品级成品的入库会被门禁卡死。</p>
+     */
     public boolean hasPassedFai(Long semiInId) {
         MesQualityInspection ins = findFaiBySemiInId(semiInId);
-        if (ins == null) return false;
+        if (ins == null) {
+            PrdProcess blow = findBlowProcessOfSemiIn(semiInId);
+            return blow != null && hasPassedFaiForProcess(blow.getId());
+        }
         if (!Constants.STATUS_CHECKED.equals(ins.getStatus())) return false;
         return Constants.RESULT_PASS.equals(ins.getResult())
                 || Constants.RESULT_PASS_DISPOSITION.equals(ins.getResult());
     }
 
+    /**
+     * v1.1.138 — 半成品入库单关联的 FAI: 优先取挂在本入库单上的; 没有则取该工单吹膜工序上的首检
+     * (App 现场先做首检、后建入库单, 那张挂在 PRD_PROCESS 上)。
+     */
+    @Transactional(readOnly = true)
+    public MesQualityInspection findLinkedFaiForSemiIn(Long semiInId) {
+        MesQualityInspection ins = findFaiBySemiInId(semiInId);
+        if (ins != null) return ins;
+        PrdProcess blow = findBlowProcessOfSemiIn(semiInId);
+        return blow == null ? null : latestForProcess(blow.getId(), Constants.INSPECTION_FAI, false);
+    }
+
+    /** 该入库单所属工单上的吹膜工序 (已展开); 没有则 null。 */
+    private PrdProcess findBlowProcessOfSemiIn(Long semiInId) {
+        if (semiInId == null) return null;
+        com.industrial.erp.modules.production.entity.PrdSemiIn si = prdSemiInMapper.selectById(semiInId);
+        if (si == null || si.getPrdOrderId() == null) return null;
+        List<PrdProcess> processes = prdProcessMapper.selectList(new LambdaQueryWrapper<PrdProcess>()
+                .eq(PrdProcess::getPrdOrderId, si.getPrdOrderId())
+                .eq(PrdProcess::getDeleted, 0)
+                .orderByAsc(PrdProcess::getProcessNo));
+        for (PrdProcess p : processes) {
+            if (isExpandedProcess(p) && "BLOW".equals(processStage(p))) return p;
+        }
+        return null;
+    }
+
     /** 把关联 FAI 判定结果/报告号/抽样数/检验人 冗余快照进半成品入库单 (仿 snapshotXkGate). */
     public void snapshotFaiGate(com.industrial.erp.modules.production.entity.PrdSemiIn semiIn) {
         if (semiIn == null || semiIn.getId() == null) return;
-        MesQualityInspection ins = findFaiBySemiInId(semiIn.getId());
+        MesQualityInspection ins = findLinkedFaiForSemiIn(semiIn.getId());
         if (ins == null) return;
         semiIn.setInspectionResult(ins.getResult());
         semiIn.setInspectionReportNo(ins.getBillNo());

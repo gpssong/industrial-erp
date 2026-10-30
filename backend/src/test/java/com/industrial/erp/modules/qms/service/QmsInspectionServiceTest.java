@@ -417,6 +417,74 @@ class QmsInspectionServiceTest {
         assertThatThrownBy(() -> ensure("PAT")).hasMessageContaining("本工序首检");
     }
 
+    // ==================================================================
+    // v1.1.138 App 吹膜首检改为按工单+工序, 半成品入库门禁要认工序侧那张
+    // ==================================================================
+
+    @Test
+    void semiInGateAcceptsSignedBlowFaiOnOrderProcess() {
+        // 吹膜工序上首检签合格 (App 现场顺序: 开工 → 首检 → 半成品入库, 入库单后建)
+        bag.setProcessName("吹膜");
+        Long faiId = signFai();
+        assertThat(heads.get(faiId).getSourceBillType()).isEqualTo("PRD_PROCESS");
+        assertThat(heads.get(faiId).getStatus()).isEqualTo("CHECKED");
+
+        // 半成品入库单挂在该工单下, 但自身没有 FAI → 门禁应认工序侧那张
+        PrdSemiIn semiIn = new PrdSemiIn();
+        semiIn.setId(500L);
+        semiIn.setBillNo("PSI-500");
+        semiIn.setPrdOrderId(10L);
+        when(semiIns.selectById(500L)).thenAnswer(inv -> semiIn);
+
+        assertThat(service.hasPassedFai(500L)).isTrue();
+        MesQualityInspection linked = service.findLinkedFaiForSemiIn(500L);
+        assertThat(linked).isNotNull();
+        assertThat(linked.getId()).isEqualTo(faiId);
+        assertThat(linked.getSourceBillType()).isEqualTo("PRD_PROCESS");
+    }
+
+    @Test
+    void semiInGateStillRejectsUnsignedOrFailedBlowFai() {
+        bag.setProcessName("吹膜");
+        PrdSemiIn semiIn = new PrdSemiIn();
+        semiIn.setId(500L);
+        semiIn.setBillNo("PSI-500");
+        semiIn.setPrdOrderId(10L);
+        when(semiIns.selectById(500L)).thenAnswer(inv -> semiIn);
+
+        // 草稿态不算合格
+        ensure("FAI");
+        assertThat(service.hasPassedFai(500L)).isFalse();
+
+        // 签核不合格也不放行
+        Long id = ensure("FAI").getId();
+        ProcessInspectionRecordDTO fail = record(id, "FAIL");
+        fail.getItems().get(0).setPassFlag(0);
+        fail.getItems().get(0).setResultValue("实测不合格");
+        service.saveProcessRecord(id, fail);
+        assertThat(service.hasPassedFai(500L)).isFalse();
+    }
+
+    @Test
+    void semiInGateFallsBackToOwnFaiWhenLinked() {
+        // 入库单自己挂着已签合格的 FAI (存量单/PC 侧按入库单首检) → 照旧放行
+        PrdSemiIn semiIn = new PrdSemiIn();
+        semiIn.setId(500L);
+        semiIn.setBillNo("PSI-500");
+        semiIn.setPrdOrderId(10L);
+        when(semiIns.selectById(500L)).thenAnswer(inv -> semiIn);
+        MesQualityInspection own = new MesQualityInspection();
+        own.setId(700L);
+        own.setSourceBillType("PRD_SEMI_IN");
+        own.setSourceBillId(500L);
+        own.setInspectionType("FAI");
+        own.setStatus("CHECKED");
+        own.setResult("PASS");
+        heads.put(700L, own);
+        assertThat(service.hasPassedFai(500L)).isTrue();
+        assertThat(service.findLinkedFaiForSemiIn(500L).getId()).isEqualTo(700L);
+    }
+
     @Test
     void persistsDraftThenSignsAsCurrentUserWithDispositionAudit() {
         Long id = ensure("FAI").getId();

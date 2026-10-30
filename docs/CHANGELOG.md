@@ -3,6 +3,48 @@
 
 ## changelog (倒序)
 
+### v1.1.138 (2026-10-30 — App 吹膜首检改为「按工单 + 实际工序」做，不再强制先选半成品入库单；半成品入库 XK 门禁同步认工序侧那张)
+
+> **需求原话**: 「app端生产单吹膜开工后做的首检不需要关联半成品入库单」
+> 场景: 车间现场顺序是 **开工 → 首检 → 半成品入库**，而 App 的吹膜「做首检」入口旧实现强制先选一张 `prd_semi_in` —— 点进去那一刻入库单根本还没建出来 (主库 `prd_semi_in` 0 行时页面直接「暂无半成品入库单」，无单可选)，首检做不了、也就签不了合格，食品级成品的半成品入库又被 XK 门禁反过来说「未关联 FAI 检验」→ 死锁。
+
+**App**:
+- `app/src/pages/production/order-detail.vue:128` 吹膜工序「② 首检 / 巡检 · 检验员」的「做首检」按钮由 `goScan('/pages/scan/fai')` 改为 `goScan('/pages/scan/fai', 'BLOW')` —— 与「做巡检」(`goScan('/pages/scan/pat', 'BLOW')`) 对齐，把工单号 + 阶段一起带进检验页。
+- `app/src/pages/scan/fai.vue:140` `onLoad` 里 `processMode` 判定补上 BLOW：`this.processMode = this.processStage === 'BAG' || this.processStage === 'BLOW' || !!this.processId`。命中 processMode 后**不再 `loadSemiIn()`**，直接渲染共用的 `ProcessInspection` 组件 (工单/工序两个下拉 + 检验项 + 拍照 + 判定)，与吹膜巡检、制袋首检同一套 UI 与接口。
+- 检验单落库形态：`mes_quality_inspection.source_bill_type='PRD_PROCESS'`、`source_bill_id=<prd_process.id>`、`inspection_type='FAI'`，由 `POST /qms/inspection/ensure-for-process` 幂等建/取草稿并灌吹膜模板 (通用 6 项 + 食品级再加 2 项)，签核走 `PUT /qms/inspection/{id}/process-record`。
+- `app/src/pages/scan/semi-in.vue:74` XK 门禁提示文案改成「食品级原料须已关联**该工单的合格吹膜首检** (检验员在「生产单详情 → 首检」逐项签合格, 再回此审核)」，不再指挥检验员去「首检」页选入库单。
+- **不改的部分**: PC 侧「按半成品入库单开首检」的入口与 `POST /qms/inspection/ensure-fai-for-semi-in` 接口原样保留 (存量单、入库单侧首检仍可用)；`pages/scan/fai` 不带 `stage`/`processId` 进来时仍走入库单列表 (老入口兼容)。
+
+**后端 (`QmsInspectionService`)**: 门禁必须同时认两张来源，否则现场签了合格仍入不了库。
+- `hasPassedFai(semiInId)`：先按老口径找挂在入库单上的 FAI；找不到时经 `findBlowProcessOfSemiIn()` 定位该入库单所属工单的**已展开吹膜工序**，再用 `hasPassedFaiForProcess(processId)` 判工序侧那张是否 `status=CHECKED` 且 `result∈{PASS, PASS_DISPOSITION}`。
+- 新增 `findLinkedFaiForSemiIn(semiInId)` (`@Transactional(readOnly=true)`)：同一口径返回 FAI 单据本身，供门禁报错**指名道姓**是哪张单没放行；新增私有 `findBlowProcessOfSemiIn(semiInId)` (`prd_semi_in.prd_order_id` → `prd_process` where `deleted=0` order by `process_no`，取 `isExpandedProcess && processStage=="BLOW"`)。
+- `snapshotFaiGate(in)` 改用 `findLinkedFaiForSemiIn`，工序侧首检签合格后，入库单仍会冗余快照 `inspection_report_no / inspection_result / sample_qty / inspector_name` (XK 留痕口径不变)。
+- `PrdSemiInService.check()` 报错分支同步改用 `findLinkedFaiForSemiIn(id)`：门禁拒绝时会说「关联 FAI 检验单 QI… 判定为 HOLD/未审核放行」，而不是含糊的「未关联 FAI 检验」。
+- **零 SQL、零表结构改动** (工序侧 FAI 的字段与类型 v1.1.134/v1.1.135 就已在用)。
+
+**版本**: 七处对齐 1.1.138 (`scripts/check-version.sh` 全 OK)，`app/src/manifest.json` versionCode 1138。
+
+**单测**: `QmsInspectionServiceTest` +3 (`semiInGateAcceptsSignedBlowFaiOnOrderProcess` / `semiInGateStillRejectsUnsignedOrFailedBlowFai` / `semiInGateFallsBackToOwnFaiWhenLinked`) —— 覆盖「工序侧已签合格→放行」「草稿态/不合格→拒绝」「入库单自带 FAI→照旧走老口径且 `findLinkedFaiForSemiIn` 优先返回它」。该类 68/68，全量 167/167。
+
+**部署 (三站一致)**:
+- jar md5 `45bd61e5005da288ce22b40a5c7e92cd`：`.32` 用最小临时 context `/tmp/erp1138build` (只放 Dockerfile + `erp-backend.jar` = 1.1.138 jar) `docker build -t erp-system-backend:1.1.138`，compose `image: erp-system-backend:1.1.138` + `ERP_VERSION: 1.1.138` (备份 `docker-compose.failover.yml.bak_v1138`) → `docker compose -f docker-compose.failover.yml --profile failover up -d erp-backend-failover`；`.150` 上传 `backend/industrial-erp-1.1.138.jar` (旧 `1.1.137` 改名 `.jar.retired`) → 最小 context build `erp-system-backend:{1.1.138,latest}` → compose `ERP_VERSION: "1.1.138"` (备份 `docker-compose.yml.bak_v1138`) → `up -d`；阿里云 `backend/industrial-erp-1.1.138.jar` + `.env ERP_VERSION=1.1.138` → `docker compose up -d --build erp-backend` → 镜像 `erp-backend:1.1.138`，容器内 `/opt/app/app.jar` md5 与 `ERP_VERSION` 均核对一致，`/api/auth/captcha` 200。
+- PC dist `index.html` md5 `3d5b393b94fa6db8acfcf3b7e461a4a4` 三站一致 (`.32` 写 `pc-web/dist-new`、备份 `dist-new.bak_v1138_*.tgz`；`.150` 写 `/volume3/docker/erp-system/pc-web/dist`、备份 `dist.bak_v1138_20261030_101021.tgz`；阿里云写 `/opt/erp-system/pc-web`、备份 `pc-web.bak_v1138_20261030_101208.tgz`)。
+- App H5 `index.html` md5 `4931988971b0703640271da9c2260550` (`.32:18090` + 阿里云 `/opt/erp-system/app-h5`，备份 `app-h5.bak_v1138_20261030_101208.tgz`；`.150` 无 H5 容器)。部署后就地在 `.32` 产物里 grep 验到编译后的 `processMode` 条件含 `"BLOW"===`、H5 资源里 `1.1.138` 字样存在。
+- APK `app/android/app/build/outputs/apk/debug/app-debug.apk` md5 `2b178287d87070575e938425bc6dc51d` (versionCode 1138，内嵌 H5 与线上 H5 同一份产物)。**装新 APK 后需重新登录。**
+- 主库 `sys_config.SYSTEM_VERSION_INFO` = `{"version":"1.1.138","startTime":"2026-10-30 10:14:02",…}` (`.150` `erp-backend` recreate 后自动写入)。
+
+**验证 (飞牛 canary，真·非超管账号跑全链 + headless 浏览器实测)**: 临时账号 `zzfai1138` (角色 zdg 制袋工，只授 `quality:inspection:check`)：
+- `#/pages/scan/fai?orderId=…&stage=BLOW` 页面渲染的是**工单 + 工序下拉**，不再出现「半成品入库单」列表；选单后 `ensure-for-process` 自动建草稿 `QI202610300003` 挂在 `PRD_PROCESS` 上，8 个食品级吹膜检验项齐全。
+- UI 上填抽样数 10、逐项合格、拍照、「签合格」→ `mes_quality_inspection` 该单 `status=CHECKED result=PASS`，签核时间 2026-10-30T10:03:00，检验人 `zzfai1138`。
+- 随后 `POST /production/semi-in/{id}/check` 返回 200，且入库单被正确快照 `inspection_report_no=QI202610300003 / inspection_result=PASS / sample_qty=10 / inspector_name=zzfai1138`。
+- **负向对照**：签核前同一调用被拒，报的是「XK 合规: 关联 FAI 检验单 QI202610300001 判定为 HOLD, 不合格/未放行不能入库」—— 修复前的代码在这里只会说「未关联 FAI 检验」，可见工序侧那张现在能被门禁找到了。
+- **canary 数据全部手工清干净**：3 张测试 FAI + 22 个检验项、2 行 `mes_batch_link`、1 行 `mes_batch`、4 行 `inv_ledger`、1 行 `inv_stock`、1 张 `prd_semi_in`、临时账号与 `sys_user_role` 关联、测试窗口内 `sys_oper_log` 逐行删除；`is_food_grade` 还原 0；`gpssong` 在 canary 的密码 hash 与主库逐字节对齐 (测试期被临时覆盖过)。
+- 三站 md5 与 `ERP_VERSION` 逐项一致；`.32` / 阿里云副本 `SHOW REPLICA STATUS` 均 `IO=Yes SQL=Yes Seconds_Behind_Source=0`。
+
+**顺带修好的运维问题**: `.32` 副本 SQL applier 自 2026-10-29 16:44 起一直停在 `1062 Duplicate entry '2078644534343434242' for key 'sys_feie_print_template_bak_v1137.PRIMARY'` —— 正是 v1.1.137 同日第二批 `sql/146` **先在 canary 手工跑过、再灌主库**留下的老毛病 (主库那条 `insert into …bak_v1137` 通过复制流回来时本地已有同主键行)。先 `mysqldump` 该表留档，再 `TRUNCATE TABLE sys_feie_print_template_bak_v1137` + `START REPLICA`，复制恢复且那行由主库同步回来，落后归零。
+
+**踩坑 (值得记)**: (1) **现场顺序 ≠ 单据顺序** —— 质量门禁若假设「先有入库单再首检」，在 App 现场 (开工→首检→入库) 就是死锁；把检验单挂到**工序** (`PRD_PROCESS`) 上才与现场时序同构，这也是制袋首检/巡检早就采用的形态。 (2) 改门禁只改 `hasPassedFai` 不够 —— `findLinkedFaiForSemiIn` (报错要指名是哪张单) 和 `snapshotFaiGate` (XK 留痕字段回填) 必须同一口径，否则出现「能入库但入库单上报告号是空」。 (3) 工单的 `prd_process` 行是**开工 (`release()`) 时才展开**的，所以工序侧首检的前置条件天然满足 `requireActiveOrder` (RELEASED/PRODUCING)，未开工时 `ensure-for-process` 会被拒 —— 这是对的，别去绕。 (4) **先建草稿后改商品 `is_food_grade` 会让草稿的检验项集合失效**：`process-record` 保存时按当前模板重校验代码集合，报「检验模板代码集合不完整或与BLOW工序不匹配」；处理办法是软删旧草稿再重新 `ensure-for-process` 拿 8 项食品模板。 (5) `sys_config` 的列名是 `config_key/config_value` (不是 `cfg_key/cfg_value`)，版本核对直接 `SELECT config_value FROM sys_config WHERE config_key='SYSTEM_VERSION_INFO'`。 (6) `.150` 主库 `erp-mysql` 的 root 口令**不是** compose 里的 `MYSQL_ROOT_PASSWORD`，要从 `erp-backend` 的 `SPRING_DATASOURCE_PASSWORD` 读；`.32` 的 `erp-mysql-failover` 才是 `erp_root_pwd`。 (7) 阿里云 host nginx 只有 `listen 80` (`server_name 47.96.188.129`)，在机器上 `curl https://127.0.0.1/...` 命中的是宝塔默认站 → 会误判成 404/内容不对；探活要么 `curl -H "Host: 47.96.188.129" http://127.0.0.1/...`，要么直连容器发布端口 `127.0.0.1:18080` (PC) / `127.0.0.1:18090` (H5)。 (8) `docker compose ps` 不在 compose 文件所在目录跑会报 `no configuration file provided` (别误读成容器挂了)。 (9) **幂等迁移脚本先在 canary 跑再灌主库 → 复制必撞 1062 停** (本次又踩，见上)；主库灌过的脚本不要再在 canary 手工执行，或执行前确认该语句写的是纯备份表。
+
 ### v1.1.137 (2026-10-29 — 生产工单打印: PC 详情页「打印」下拉 (浏览器/飞鹅) + 飞鹅打印权限点真正可用 + 小票规格/使用原料修复)
 
 > **需求原话**: 「http://home.93gushi.com:8088/#/production/order pc端生产工单详情页添加打印按钮，可以选择浏览器打印和飞鹅打印」 + 「app端生产单详情页添加飞鹅打印按钮」
@@ -17,7 +59,7 @@
 
 **App**: `pages/production/order-detail.vue` 的「🖨 飞鹅云打印」按钮**自 v1.1.9 就在代码里，但从来没真正可用过** —— 界面上授不了权，除超管外没人看得到。根因是本项目**两套权限查询口径不一致** (见踩坑): `sys_menu` id=959 这行 `status=0`，登录接口 `SysMenuMapper.selectPermsByUserIdAndClient` 带 `m.status=1` 与 `rm.client_type IN ('BOTH',#{clientType})` 过滤 → 非管理员登录根本拿不到这个 perm；而后端注解校验走 `SysUserMapper.selectPermsByUserId` (不看 `status`、不按端过滤) → 只要 `sys_role_menu` 有行就放行。`sql/145_v1137_feie_print_perm_enable.sql` (幂等，只在 `.150` 主库执行) `UPDATE sys_menu SET status=1 WHERE id=959` + 按工单主菜单 702 的授权**镜像**给 SUPER_ADMIN/PRODUCTION_MGR/WAREHOUSE_MGR/zdg(制袋工)/cmg(吹膜工) (`insert … select … where not exists`)。App 按钮命中 `hasFeiePrintPerm()` 后调同一组 `/feie/print/**` 接口，零 App 代码改动 (顺带把 v1.1.136 漏的 App 详情/新增页克重标签补成 `g/个`，见下)。
 
-**克重单位补齐 (v1.1.136 收尾)**: `app/src/pages/production/order-detail.vue:58` 仍写 `{{ order.gramWeight }}g`、`order-add.vue:47` 无单位 —— 改成标签 `克重 (g/个)` (与 PC 详情 `克重 (g/个)`、商品编辑一致)。**纯前端标签，零 SQL**。
+**克重单位补齐 (v1.1.136 收尾)**: `app/src/pages/production/order-detail.vue:57` 标签由 `克重` 改成 `克重 (g/个)` (与 PC 详情、商品编辑一致)。**纯前端标签，零 SQL**。⚠️ 本批当时记为「同时补齐 `order-add.vue:47`」**不准确** —— 新建工单页那行至今仍是无单位的 `克重` (`app/src/pages/production/order-add.vue:46`)，属待补小项，因纯文案改动不值得为它单独重出 H5/APK，留到下一批 App 改动时一并带上。
 
 **版本**: 七处对齐 1.1.137 (`scripts/check-version.sh` 全 OK，versionCode 1137)。
 
