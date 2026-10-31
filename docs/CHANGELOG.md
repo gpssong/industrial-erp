@@ -3,6 +3,51 @@
 
 ## changelog (倒序)
 
+### v1.1.147 (2026-10-31 — 「单据与打印」「XK 批次溯源」「XK 单据打印」三张页全部接真实台账 + 真打印留痕)
+
+> **需求原话**: 「根据项目实际情况完善pc端端单据与打印及app端xk记录-xk批次溯源和xk单据打印。」
+
+v1.1.146 只把「单据类型」清单换成了真分类，**预览区仍是写死的样例**：12 类单据的供货方/仓库/明细行/照片/签章全是 mock 文字，「打印当前单据」「导出 PDF」只弹 `ElMessage` 提示；App 侧「XK 批次溯源」调 `/xk/trace/{batchNo}` 只取上下游各 2 条、把 **用户 id 当操作人**显示，且 `traceBatches` 的 `batchType` 走 GET `data` 序列化在 H5 fetch 回退时被丢掉（两个 tab 列表一模一样），「XK 单据打印」同样是版式样例。本轮把三张页全部接到**真实台账记录**上，打印/导出走浏览器真实打印并落审计。
+
+**PC · [xk/Print.vue](../pc-web/src/views/xk/Print.vue)（约 +700 行）**
+1. **列表接真实查询**：`fetchRecords(kind)` 按单据类型各发一条真实分页查询 —— 检验记录走 `qms/inspection/page?inspectionType=`、环境检查走 `xk/env-check/page`、采购订单 `pur/order/page`、采购入库走 **`xkMock.receiptList`（`/xk/material/page`）**、生产工单 `prd/order/page`、领料单 `prd/requisition/page`、维保记录/计划 `em/maintain-record|plan/page`；下拉里每行是「单号 · 日期 · 往来单位/商品 · 状态」拼的真实摘要。
+2. **详情接真实字段**：`loadDetail()` 用 `withRow(data) = {...rawRow, ...data}` 把**列表行铺在详情之上**（详情优先、列表兜底）—— 详情接口普遍不回 `createByName`/`customerName` 这类列表派生字段，受控记录必须打出操作人。`buildIqc / buildEnv / buildPurOrder / buildPurReceipt / buildPrdOrder / buildPrdRequisition / buildMaintRecord / buildMaintPlan` 全部改读真实字段（供货方、仓库、批号、数量单位、检验结果 PASS/FAIL、照片 `labelPhotos` JSON、签章「检验员/复核人/制单人」），维保计划无详情接口则直接用列表行。
+3. **真打印 / 导出**：`doPrint()` 先写打印审计再 `window.print()`；方向切换靠**动态 `@page` 规则**（`document.createElement('style')` 注入 `@page { size: A4 portrait|landscape; margin: 10mm }`，scoped CSS 里的 `@page` 不随选择变化）；「导出 PDF」= 同一套打印流程 + 提示在对话框里选「另存为 PDF」。
+4. **打印审计真实落库**：`writePrintAudit(code)` → `POST /xk/print/audit`，落 `xk_audit_log`（`XA…` 单号）；无权限时静默跳过不阻塞打印。
+5. PC [api/xk.js](../pc-web/src/api/xk.js) 新增 `receiptList / receiptDetail`，**走 `/xk/material/*` 而不是 `/purchase/receipt/*`**：前者 `report:print` OR `purchase:receipt:list` 都能读，且回填了制单人姓名。
+
+**后端（4 个文件）**
+- [XkController](../backend/src/main/java/com/industrial/erp/modules/xk/controller/XkController.java)：`/xk/material/page` 注入 `createByName`（`CreateByNameInjector`，与 `/purchase/receipt/page` 同口径）；`/xk/material/{id}` 门禁 `{"purchase:receipt:list","report:print"} mode=OR` —— **只有打印权限的账号能列单却打不开单**；`/xk/trace/full/{batchNo}` 回填 `customerName`（`FullTrace.customer` 有值但 `customerName` 一直是空壳）；`/xk/print/audit` 门禁加 `report:print` OR（见下文踩坑 ①）。
+- [PrdOrderController](../backend/src/main/java/com/industrial/erp/modules/production/controller/PrdOrderController.java) `detail()` 注入 `createByName`；[PrdRequisition](../backend/src/main/java/com/industrial/erp/modules/production/entity/PrdRequisition.java) 加 `@TableField(exist=false) createByName` + [PrdRequisitionController](../backend/src/main/java/com/industrial/erp/modules/production/controller/PrdRequisitionController.java) 在 page/detail 两处注入 —— 生产领料单此前**任何位置都没有操作人**。
+- [MesReportService.traceFull](../backend/src/main/java/com/industrial/erp/modules/mes/service/MesReportService.java)：**出口纠正** —— ① 上游只保留 `parentBatchNo` 非空的真实来料流向（销售出库 `FG_OUT` / 质量处置 `DISPOSITION` 写的是 child=本批、parent=空，属于状态/出口事件，混进「上游来料」会误导现场）；② 客户不在 `downstream` 里 —— `FG_OUT` 记 child=FG批 + `customer_id`，永远匹配不到 `parent=cur` 的下探，改为沿**整条下游链（含自身）**反查带 `customer_id` 的最新一条流向。
+- [BillNoGenerator](../backend/src/main/java/com/industrial/erp/utils/BillNoGenerator.java) `OWNER` 对账表补 13 个前缀（`XA/AJ/EC/WS/MP/MO/MR/CR/CE/BOM/CGJH/SK/FK`）。这些前缀此前不在表里，**Redis 计数器一丢就重复发号 → 撞唯一键 → 调用方 try/catch 吞掉**，表现就是「打印审计静默不落库」。
+
+**App** — [api/xk.js](../app/src/api/xk.js)：`traceBatches(direction)` 把 `batchType` **写进 URL 查询串**（H5 fetch 回退会丢 GET `data`），列表改显示来源单据（入库单/工单/工序）；新增 `traceFull(batchNo)`（`/xk/trace/full/`，含批次档案 + 上游 + 下游 + 客户）；新增 `receiptList()/receiptDetail(id)`（`/xk/material/page?billStatus=CHECKED` + 详情，含明细、标签照片、制单人、检验员）。[pages/xk/trace.vue](../app/src/pages/xk/trace.vue) 改为全链展示（料 → 半成品 → 成品 → 客户，逐条流向带单号/数量/时间）；[pages/xk/print.vue](../app/src/pages/xk/print.vue) 真单据打印 —— 选已审核入库单 → 详情铺版 → 「已审核 · 只读」水印 + 服务器时间 + 制单人签署 → 打印并写审计。
+
+**版本**: PC/App `package.json` + 后端 `application.yml`（`${ERP_VERSION:1.1.147}`）+ `SystemVersionInitializer` `@Value("${erp.version:1.1.147}")` 全对齐 **1.1.147**。
+
+**实测（飞牛 canary `.32`，**真·非超管**临时账号 `e2e_print` + 角色 `E2E_PRINT_TRACE`，11 个 `sys_role_menu` 授权，`is_admin=0`）**
+- 11 个读端点全 200（`/xk/print/preview`、`/xk/material/page|{id}`、`/xk/trace/batches|full`、`/prd/order|requisition`、`/em/maintain-*`、`/qms/inspection/page`、`/xk/env-check/page`）；负例 `/xk/audit/logs`、`/xk/audit/archive`、`/system/user/page` 均 **403**（符合预期）。
+- 修复前 `POST /xk/print/audit` 对 `e2e_print` **403**（只挂 `xk:audit:archive`），补 `report:print` OR 后 200，审计行 `XA202610310013`（RQ202610310003）、`XA202610310014`（RKP202610310005）分别由 PC 与 App H5 打印动作写出，`create_by` 就是该账号。
+- PC 浏览器 `#/xk/print`：12 类单据逐个切换均能列出真实记录并铺版 —— 生产工单「操作人 gpssong」、生产领料单「制单：gpssong1」（修复前是 `-`）、入库单照片与检验员、维保记录照片、A4 横竖切换生效。
+- App H5 `#/pages/xk/trace`：6 个真实成品批次；`PD202608180001` 全链详情正常（canary 无父子链，上下游为 0，属数据侧如实反映）。`#/pages/xk/print`：入库单「已审核 · 只读」+ 制单人 罗飞 + 服务器时间水印，打印后审计落库。
+- 测试账号/角色/授权与 3 条测试审计行**已删净**（`sys_user`/`sys_role`/`sys_user_role`/`sys_role_menu` 查 0 行）；`.32` 副本 `Slave_IO/SQL_Running=Yes`、`Seconds_Behind_Master=0`。
+
+**部署（三站一致）**: jar `8b6b715bda0e530ba0bb25c959744118`（101,618,313 B）/ PC dist `index.html` `648d24fb92f6c25ae4e85ab42ae55cfd` / App H5 `d01b22697f9f65901e332ce7d97725c5`。
+- APK `erp-app-20261031-1147.apk` `847feae421a649007a0765bfad0a29c9`（4,483,197 B / versionCode 1147，内嵌 H5 `d01b2269…`，profile 页版本串 1.1.147）。
+- `.32`：`docker cp` + `docker commit` 回 **`erp-system-backend:1.1.147`**（compose 引用的就是这个 tag），容器与镜像本体 md5 均核对；PC `dist-new` / H5 bind-mount 目录替换 + `docker restart`。
+- `.150`：旧 jar 改名 `.bak_v1146`/`.bak_old` 让 `COPY industrial-erp-*.jar` 只匹配一个 → `compose build backend` + `up -d backend`；compose YAML `ERP_VERSION: "1.1.147"`；容器内 jar md5 `8b6b715b…`；PC `pc-web/dist` 换新（旧目录留 `dist.bak_v1146_20261031`）。
+- 阿里云 `47.96.188.129`：jar `docker cp` + `docker commit erp-backend:1.1.147` + `.env ERP_VERSION=1.1.147` + `compose up -d erp-backend`；**镜像本体** `docker run --rm --entrypoint md5sum erp-backend:1.1.147 /opt/app/app.jar` = `8b6b715b…`；PC `/opt/erp-system/pc-web` / H5 `/opt/erp-system/app-h5` 平铺替换（旧目录留 `.bak_v1146_20261031`）。公网 `http://47.96.188.129/api/auth/captcha` 200（⚠️ 别用 `127.0.0.1` 探活，那是宝塔默认站）；`/api/xk/print/preview`、`/api/xk/material/page` 登录后 200；H5 只监听 `127.0.0.1:18090`（P0-1 收内网）。
+
+踩坑:
+1. **打印留痕只挂 `xk:audit:archive` = 审计链整段缺失** —— 单据与打印/App 打印的真正使用者是 `report:print` 岗，超管实测全绿把它盖住了；写审计的端点必须与「谁有权打印」同口径 OR。
+2. **详情接口不回列表派生字段** —— `createByName`/`customerName` 只在 list 侧有；前端用「列表行铺底 + 详情覆盖」兜住，后端同时在 detail 注入，两道都留。
+3. **bind-mount 换目录必须重启容器** —— 把 `dist` 目录 `mv` 走再放新目录，容器仍挂在**旧 inode** 上（`.150` 与阿里云都踩到：宿主机 index md5 已是新版，容器内还是旧版，公网 curl 回旧 hash）；`docker restart` 后 mounts 重新解析才生效。
+4. **`BillNoGenerator` 前缀不在对账表 = 静默不落库** —— 见上，Redis 计数器与库内最大单号对不上时唯一键冲突被吞。
+5. **`traceFull` 的客户出口不在下游链里** —— `FG_OUT` 是 child=FG、parent 空，必须沿链反查 `customer_id`。
+6. **canary 测试残留还在主库** —— 复查（2026-10-31 只读）后只剩 **1 条**：`prd_finished_in` 单据号 `PFI202610180001`、批号 `FG-E2E-01`、状态 `CHECKED`、备注「App e2e 成品入库」，带 1 条 `inv_ledger`（`PROD_IN`，带鱼袋 11*85*0.09，8 kg）；`.150` 与 `.32` 各一条（同一 id `2111732506356731905`）。原记录的 `PFI-FULL-CHAIN` 已不存在。**删除属于改主库业务数据（且会动库存台账），未动，待拍板**。
+7. **App「我的」页版本号是 `src/pages/profile/index.vue` 里写死的 `APP_VERSION` 常量** —— `package.json`/`manifest.json`/`ERP_VERSION` 全对齐到 1.1.147 后它还是 1.1.144，打出来的 APK 里 profile chunk grep 到旧版本串才暴露（`scripts/build-app.sh` 第 6 步防呆就是查这个）；版本升级时别漏这一处。
+
 ### v1.1.146 (2026-10-31 — PC「单据与打印」页的业务单据清单对齐系统真实存在的检验记录与报告)
 
 > **需求原话**: 「pc端，单据与打印业务单据与实际检验记录与报告对齐。」

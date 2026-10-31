@@ -75,6 +75,20 @@ export const xkMock = {
     return empty(500, null, r.msg)
   },
 
+  // v1.1.147 单据打印用: 已审核入库单列表/详情。
+  // 走 /xk/material/* 而不是 /purchase/receipt/*: 前者 report:print OR purchase:receipt:list
+  // 都能读, 且回填了制单人 createByName (purchase 侧只回 createBy id)。
+  async receiptList(params) {
+    const r = await request.get('/xk/material/page', { params })
+    if (r.code === 200 && r.data) return empty(200, r.data.records || [])
+    return empty(200, [])
+  },
+
+  async receiptDetail(id) {
+    const r = await request.get('/xk/material/' + id)
+    return empty(r.code, r.data, r.msg)
+  },
+
   async submitMaterialDraft(payload) {
     // 一期: XK 原料入库提交 = 采购入库单提交 (XK 合规固化: 走 PUR_RECEIPT 审核 + 审计)
     const r = await request.post('/xk/material', payload)

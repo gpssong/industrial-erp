@@ -600,6 +600,23 @@ public class MesReportService {
         }
         r.downstreamBatches = r.downstream.stream().map(MesBatchLink::getChildBatchNo)
                 .filter(StrUtil::isNotBlank).distinct().collect(java.util.stream.Collectors.toList());
+
+        // v1.1.147: 出口纠正 —
+        //   ① 上游只保留「真实来料流向」(parent 非空)。销售出库 FG_OUT / 质量处置 DISPOSITION
+        //      都写的是 child=本批、parent=空, 属于状态/出口事件, 混进「上游来料」会误导现场。
+        //   ② 客户不在 downstream 里: FG_OUT 记的是 child=FG批 + customer_id, 永远匹配不到
+        //      parent=cur 的下探。这里沿整条下游链 (含自身) 反查带 customer_id 的流向取最新一条。
+        r.upstream.removeIf(l -> StrUtil.isBlank(l.getParentBatchNo()));
+        java.util.Set<String> chain = new java.util.LinkedHashSet<>(r.downstreamBatches);
+        chain.add(batchNo);
+        List<MesBatchLink> outLinks = linkMapper.selectList(new LambdaQueryWrapper<MesBatchLink>()
+                .in(MesBatchLink::getChildBatchNo, chain)
+                .isNotNull(MesBatchLink::getCustomerId)
+                .orderByDesc(MesBatchLink::getId)
+                .last("LIMIT 200"));
+        if (!outLinks.isEmpty()) {
+            r.customer = outLinks.get(0).getCustomerId();
+        }
         return r;
     }
 

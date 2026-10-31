@@ -53,7 +53,14 @@ public class PrdOrderController {
 
     @SaCheckPermission(value = {"production:order:list"}, orRole = "admin")
     @GetMapping("/{id}")
-    public R<PrdOrder> detail(@PathVariable Long id) { return R.ok(service.detail(id)); }
+    public R<PrdOrder> detail(@PathVariable Long id) {
+        PrdOrder order = service.detail(id);
+        if (order != null) {
+            CreateByNameInjector.inject(userMapper, java.util.List.of(order),
+                    PrdOrder::getCreateBy, PrdOrder::setCreateByName);
+        }
+        return R.ok(order);
+    }
 
     @SaCheckPermission(value = {"production:order:add"}, orRole = "admin")
     @PostMapping
