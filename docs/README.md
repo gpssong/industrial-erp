@@ -9,7 +9,7 @@
 | [02_部署方案.md](02_部署方案.md) | 生产部署 / Nginx / 监控 / 升级 |
 | [03_API接口文档.md](03_API接口文档.md) | 全部 REST 接口列表 |
 | [26_运行手册.md](26_运行手册.md) | 当前拓扑 / 巡检 / 发布回滚 / 备份恢复 / 主备切换 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本变更历史 (倒序, 当前 v1.1.146) |
+| [CHANGELOG.md](CHANGELOG.md) | 版本变更历史 (倒序, 当前 v1.1.147) |
 | [security.md](security.md) | 安全基线与加固清单 |
 
 ## 项目目录

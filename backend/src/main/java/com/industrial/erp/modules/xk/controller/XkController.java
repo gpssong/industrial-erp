@@ -2,8 +2,12 @@ package com.industrial.erp.modules.xk.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
+import cn.hutool.core.util.StrUtil;
+import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
+import com.industrial.erp.modules.base.entity.BaseCustomer;
+import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
 import com.industrial.erp.modules.em.entity.BaseEquipment;
 import com.industrial.erp.modules.em.service.EquipmentService;
 import com.industrial.erp.modules.mes.entity.MesBatch;
@@ -12,6 +16,7 @@ import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.service.PurReceiptService;
 import com.industrial.erp.modules.qms.service.QmsInspectionService;
 import com.industrial.erp.modules.report.mapper.ReportMapper;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.modules.system.service.SysConfigService;
 import com.industrial.erp.modules.workflow.service.WfDashboardService;
 import com.industrial.erp.modules.workflow.service.WfMaintainRecordService;
@@ -59,6 +64,9 @@ public class XkController {
     private final XkSafetyCheckService xkSafetyCheckService;
     private final XkAuditService xkAuditService;
     private final SysConfigService sysConfigService;
+    /** v1.1.147 XK 单据打印: 入库单要有制单人姓名 (仓库员签署), 追溯要有客户名 (流向出口). */
+    private final SysUserMapper userMapper;
+    private final BaseCustomerMapper customerMapper;
 
     public XkController(ReportMapper reportMapper,
                         WfDashboardService wfDashboardService,
@@ -70,7 +78,9 @@ public class XkController {
                         QmsInspectionService qmsInspectionService,
                         XkSafetyCheckService xkSafetyCheckService,
                         XkAuditService xkAuditService,
-                        SysConfigService sysConfigService) {
+                        SysConfigService sysConfigService,
+                        SysUserMapper userMapper,
+                        BaseCustomerMapper customerMapper) {
         this.reportMapper = reportMapper;
         this.wfDashboardService = wfDashboardService;
         this.wfMaintainRecordService = wfMaintainRecordService;
@@ -82,6 +92,8 @@ public class XkController {
         this.xkSafetyCheckService = xkSafetyCheckService;
         this.xkAuditService = xkAuditService;
         this.sysConfigService = sysConfigService;
+        this.userMapper = userMapper;
+        this.customerMapper = customerMapper;
     }
 
     // ==================================================================
@@ -137,14 +149,23 @@ public class XkController {
             @RequestParam(required = false) String billNo,
             @RequestParam(required = false) String billStatus,
             @RequestParam(required = false) String productName) {
-        return R.ok(PageResult.of(purReceiptService.page(pageNum, pageSize, billNo, null, billStatus, productName)));
+        PageResult<PurReceipt> pr = PageResult.of(purReceiptService.page(pageNum, pageSize, billNo, null, billStatus, productName));
+        // v1.1.147: 打印页要显示「制单人/仓库员」, 与 /purchase/receipt/page 同口径注入姓名
+        CreateByNameInjector.inject(userMapper, pr.getRecords(), PurReceipt::getCreateBy, PurReceipt::setCreateByName);
+        return R.ok(pr);
     }
 
     @Operation(summary = "XK 原料入库 — 入库单详情 (含明细)")
-    @SaCheckPermission(value = {"purchase:receipt:list"}, orRole = "admin")
+    // v1.1.147: report:print 也要能读详情 — 否则只有打印权限的账号能列单却打不开单
+    @SaCheckPermission(value = {"purchase:receipt:list", "report:print"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/material/{id}")
     public R<PurReceipt> materialDetail(@PathVariable Long id) {
-        return R.ok(purReceiptService.detail(id));
+        PurReceipt r = purReceiptService.detail(id);
+        if (r != null) {
+            CreateByNameInjector.inject(userMapper, java.util.Collections.singletonList(r),
+                    PurReceipt::getCreateBy, PurReceipt::setCreateByName);
+        }
+        return R.ok(r);
     }
 
     @Operation(summary = "XK 原料入库 — 提交入库单 (走采购入库 + XK 审计 INBOUND)")
@@ -182,7 +203,13 @@ public class XkController {
     @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/trace/full/{batchNo}")
     public R<MesReportService.FullTrace> traceFull(@PathVariable String batchNo) {
-        return R.ok(mesReportService.traceFull(batchNo));
+        MesReportService.FullTrace t = mesReportService.traceFull(batchNo);
+        // v1.1.147: FullTrace.customerName 一直是空壳 —— 这里按 customer 回填, 现场才能看到「流向哪个客户」
+        if (t != null && t.customer != null && StrUtil.isBlank(t.customerName)) {
+            BaseCustomer c = customerMapper.selectById(t.customer);
+            if (c != null) t.customerName = c.getCustomerName();
+        }
+        return R.ok(t);
     }
 
     // ==================================================================
@@ -270,7 +297,9 @@ public class XkController {
     }
 
     @Operation(summary = "XK 单据打印 — 记录一条 PDF 生成审计 (含 SHA256)")
-    @SaCheckPermission(value = {"xk:audit:archive"}, orRole = "admin")
+    // 打印留痕必须由「有权打印」的人写入: 只挂 xk:audit:archive 会让 report:print 账号
+    // (单据与打印 / App 单据打印的实际使用者) 静默 403, 审计链整段缺失.
+    @SaCheckPermission(value = {"xk:audit:archive", "report:print"}, mode = SaMode.OR, orRole = "admin")
     @PostMapping("/print/audit")
     public R<Void> printAudit(@RequestBody Map<String, String> body) {
         xkAuditService.writeAudit("PDF",

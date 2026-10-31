@@ -7,10 +7,17 @@
  * 约定形态 ({code,data} / {code,items} / 顶层字段).
  */
 import { request } from './index'
+import { photosFromJson } from '../utils/photo.js'
 
 // 统一: 成功返回 {code:200, ...}; 失败 {code:500, msg}
 function ok(data, extra = {}) { return Object.assign({ code: 200, data }, extra) }
 function fail(msg = '加载失败', data = null) { return { code: 500, msg, data } }
+
+/** ISO 时间 → 'YYYY-MM-DD HH:mm' (后端 LocalDateTime 序列化成 2026-10-31T09:30:00) */
+function fmtDateTime(v) {
+  if (!v) return ''
+  return String(v).replace('T', ' ').slice(0, 16)
+}
 
 export const dashboardKpi = async () => {
   try {
@@ -83,37 +90,65 @@ export const submitMaterial = async (payload) => {
 
 export const traceBatches = async (direction) => {
   try {
+    // v1.1.147: 方向必须真的传到后端 (旧版 load() 不带参 → 两个 tab 列表一模一样);
+    //   查询串写在 URL 上, 不依赖 GET data 序列化 (H5 fetch 回退会丢 data 参数).
+    const batchType = direction === 'FG_TO_RM' ? 'FG' : 'RAW'
     const data = await request({
-      url: '/xk/trace/batches',
-      method: 'GET',
-      data: { batchType: direction === 'FG_TO_RM' ? 'FG' : 'RAW' }
+      url: '/xk/trace/batches?batchType=' + batchType,
+      method: 'GET'
     })
     const list = (data || []).map(b => ({
       batchNo: b.batchNo,
       batchType: b.batchType,
-      productName: b.productName || (b.productId ? '#' + b.productId : '原料批次'),
-      supplier: b.receiptBillNo ? '入库单 ' + b.receiptBillNo : '-',
-      qty: b.qty ?? 0,
-      unit: 'kg',
-      receiptDate: b.productionDate || '-',
-      qcStatus: b.status || 'ACTIVE'
+      // mes_batch 只有来源单号, 没有供应商/商品名 —— 如实展示来源单据
+      source: b.receiptBillNo ? '入库单 ' + b.receiptBillNo
+        : b.sourcePrdOrderNo ? '工单 ' + b.sourcePrdOrderNo
+          : (b.processName || ''),
+      qty: b.qty ?? null,
+      date: b.productionDate || fmtDateTime(b.createTime),
+      status: b.status || 'ACTIVE',
+      holdReason: b.holdReason || ''
     }))
     return ok(list)
   } catch (e) { return fail(e.msg || '加载失败', []) }
 }
 
-export const traceTimeline = async (batchNo) => {
+/**
+ * v1.1.147: 全链追溯 (料→半成品→成品→客户, 服务端一次展开).
+ * 旧版用 /xk/trace/{batchNo} 只取上下游各 2 条, 且把用户 id 当操作人显示 —— 已废弃.
+ */
+export const traceFull = async (batchNo) => {
   try {
-    const t = await request({ url: '/xk/trace/' + batchNo, method: 'GET' })
-    const stations = []
-    ;(t?.upstream || []).slice(0, 2).forEach(l => {
-      stations.push({ title: '上游 (用了哪些料)', operator: l.createBy || '', time: l.createTime || '', remark: l.parentBatchNo || '' })
+    const t = await request({ url: '/xk/trace/full/' + encodeURIComponent(batchNo), method: 'GET' })
+    if (!t) return fail('该批次暂无追溯记录')
+    const mapLink = (l) => ({
+      parentBatchNo: l.parentBatchNo || '',
+      childBatchNo: l.childBatchNo || '',
+      qty: l.qty ?? null,
+      billType: l.billType || '',
+      billNo: l.billNo || '',
+      time: fmtDateTime(l.createTime)
     })
-    ;(t?.downstream || []).slice(0, 2).forEach(l => {
-      stations.push({ title: '下游 (流向哪)', operator: l.createBy || '', time: l.createTime || '', remark: l.childBatchNo || '' })
+    return ok({
+      batchNo: t.batchNo || batchNo,
+      batch: t.batch ? {
+        batchNo: t.batch.batchNo,
+        batchType: t.batch.batchType,
+        status: t.batch.status || 'ACTIVE',
+        holdReason: t.batch.holdReason || '',
+        qty: t.batch.qty ?? null,
+        date: t.batch.productionDate || fmtDateTime(t.batch.createTime),
+        sourcePrdOrderNo: t.batch.sourcePrdOrderNo || '',
+        receiptBillNo: t.batch.receiptBillNo || '',
+        processName: t.batch.processName || '',
+        remark: t.batch.remark || ''
+      } : null,
+      upstream: (t.upstream || []).map(mapLink),
+      downstream: (t.downstream || []).map(mapLink),
+      customer: t.customer ?? null,
+      customerName: t.customerName || ''
     })
-    return { code: 200, batchNo, stations }
-  } catch (e) { return { code: 500, msg: e.msg || '加载失败', batchNo, stations: [] } }
+  } catch (e) { return fail(e.msg || '加载失败') }
 }
 
 export const maintenanceOrders = async () => {
@@ -191,7 +226,66 @@ export const printPreview = async () => {
   } catch (e) { return fail(e.msg || '加载失败') }
 }
 
+// ===== v1.1.147 单据打印: 已审核采购入库单 =====
+
+/** 可打印的入库单 (仅已审核 CHECKED, 与 PC「单据与打印」同口径). */
+export const receiptList = async () => {
+  try {
+    const page = await request({ url: '/xk/material/page?pageNum=1&pageSize=50&billStatus=CHECKED', method: 'GET' })
+    const list = (page?.records || []).map(r => ({
+      id: r.id,
+      billNo: r.billNo,
+      supplier: r.supplierName || '-',
+      billDate: r.billDate || '',
+      warehouse: r.warehouseName || '-',
+      label: [r.billNo, r.supplierName || '-', r.billDate || ''].filter(Boolean).join(' · ')
+    }))
+    return ok(list)
+  } catch (e) { return fail(e.msg || '加载失败', []) }
+}
+
+/** 入库单详情 (含明细 + 标签照片 + 制单人/检验员). */
+export const receiptDetail = async (id) => {
+  if (id == null) return fail('未选择入库单')
+  try {
+    const r = await request({ url: '/xk/material/' + id, method: 'GET' })
+    if (!r) return fail('入库单不存在')
+    return ok({
+      id: r.id,
+      billNo: r.billNo || '',
+      supplier: r.supplierName || '-',
+      billDate: r.billDate || '',
+      warehouse: r.warehouseName || '-',
+      operator: r.createByName || '',
+      inspector: r.inspectorName || '',
+      reportNo: r.inspectionReportNo || '',
+      inspectionResult: r.inspectionResult || '',
+      remark: r.remark || '',
+      status: r.billStatus || '',
+      totalQty: r.totalQty ?? null,
+      photos: photosFromJson(r.labelPhotos),
+      details: (r.details || []).map(x => ({
+        productName: x.productName || '-',
+        batchNo: x.batchNo || '',
+        qty: x.qty ?? null,
+        unitName: x.unitName || '',
+        location: x.locationName || x.location || '',
+        productionDate: x.productionDate || ''
+      }))
+    })
+  } catch (e) { return fail(e.msg || '加载失败') }
+}
+
+/** 打印留痕 (XK 审计表). 无 xk:audit:archive 的账号会 403 —— 静默忽略, 不影响打印. */
+export const printAudit = async (billNo) => {
+  try {
+    await request({ url: '/xk/print/audit', method: 'POST', data: { billNo }, contentType: 'json', silent: true })
+    return ok(true)
+  } catch (e) { return { code: 500, msg: e.msg || '审计登记失败' } }
+}
+
 export default {
-  dashboardKpi, materialDraft, submitMaterial, traceBatches, traceTimeline,
-  maintenanceOrders, safetyCheck, auditLogs, archivedRecords, equipmentInfo, printPreview
+  dashboardKpi, materialDraft, submitMaterial, traceBatches, traceFull,
+  maintenanceOrders, safetyCheck, auditLogs, archivedRecords, equipmentInfo,
+  printPreview, receiptList, receiptDetail, printAudit
 }

@@ -56,6 +56,22 @@ public class BillNoGenerator {
         OWNER.put("WM", "wf_maintain_record.record_no");
         OWNER.put("SIN", "wf_safety_record.record_no");
         OWNER.put("EP", "wf_emergency_plan.plan_no");
+        // v1.1.147: 补齐 XK/MES/EM/QA/PDM/采购计划/资金流水 的前缀 —
+        // 这些前缀此前不在对账表里, Redis 计数器一丢 (换实例 / 被清) 就重复发号,
+        // 撞 uniq 唯一键后由调用方 try/catch 吞掉 (打印审计静默不落库就是这条)。
+        OWNER.put("XA", "xk_audit_log.log_no");
+        OWNER.put("AJ", "xk_safety_check.check_no");
+        OWNER.put("EC", "xk_env_check.check_no");
+        OWNER.put("WS", "mes_work_start_confirm.confirm_no");
+        OWNER.put("MP", "em_maintain_plan.plan_no");
+        OWNER.put("MO", "em_maintain_order.order_no");
+        OWNER.put("MR", "em_maintain_record.record_no");
+        OWNER.put("CR", "qa_calibration_record.record_no");
+        OWNER.put("CE", "qa_calibration_equipment.code");
+        OWNER.put("BOM", "prd_bom.bom_code");
+        OWNER.put("CGJH", "pur_inbound_plan.plan_no");
+        OWNER.put("SK", "fin_cash_flow.bill_no");
+        OWNER.put("FK", "fin_cash_flow.bill_no");
     }
 
     /**

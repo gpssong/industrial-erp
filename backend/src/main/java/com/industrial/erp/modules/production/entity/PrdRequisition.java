@@ -47,6 +47,10 @@ public class PrdRequisition {
     @TableField(exist = false)
     private List<PrdRequisitionDetail> details;
 
+    /** 制单人姓名 (打印/详情展示用, 不入库) */
+    @TableField(exist = false)
+    private String createByName;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getBillNo() { return billNo; }
@@ -79,6 +83,8 @@ public class PrdRequisition {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+    public String getCreateByName() { return createByName; }
+    public void setCreateByName(String createByName) { this.createByName = createByName; }
     public List<PrdRequisitionDetail> getDetails() { return details; }
     public void setDetails(List<PrdRequisitionDetail> details) { this.details = details; }
 }
