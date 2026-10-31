@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.entity.BaseProductUnit;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
@@ -58,8 +59,10 @@ public class PrdOrderService {
     private final OperLogPublisher operLogPublisher;
     /** v1.1.80 MES: 开单时按产品默认工序链展开 prd_process 工序实例. */
     private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
+    /** v1.1.142: 规格/单位 派生字段兜底回填的唯一口径. */
+    private final ProductDeriveService deriveService;
 
-    public PrdOrderService(PrdOrderMapper orderMapper, PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper, PrdFinishedInMapper finishedInMapper, PrdBomService bomService, BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher, com.industrial.erp.modules.mes.service.MesReportService mesReportService) {
+    public PrdOrderService(PrdOrderMapper orderMapper, PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper, PrdFinishedInMapper finishedInMapper, PrdBomService bomService, BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher, com.industrial.erp.modules.mes.service.MesReportService mesReportService, ProductDeriveService deriveService) {
         this.orderMapper = orderMapper;
         this.reqMapper = reqMapper;
         this.reqDetailMapper = reqDetailMapper;
@@ -72,6 +75,7 @@ public class PrdOrderService {
         this.permService = permService;
         this.operLogPublisher = operLogPublisher;
         this.mesReportService = mesReportService;
+        this.deriveService = deriveService;
     }
 
     /**
@@ -113,8 +117,11 @@ public class PrdOrderService {
                 : productMapper.selectBatchIds(productIds).stream()
                         .filter(prod2 -> prod2 != null)
                         .collect(java.util.stream.Collectors.toMap(BaseProduct::getId, prod2 -> prod2, (a, b) -> a));
+        // v1.1.142: 一次批量取主单位, 供下方 规格/单位 兜底回填 (别在循环里逐行查)
+        Map<Long, BaseProductUnit> mainUnitById = deriveService.mainUnits(productIds);
         for (PrdOrder order : res.getRecords()) {
             BaseProduct prod = order.getProductId() == null ? null : prodById.get(order.getProductId());
+            BaseProductUnit mainUnit = order.getProductId() == null ? null : mainUnitById.get(order.getProductId());
             if (prod != null) {
                 order.setPThickness(prod.getThickness());
                 order.setPWidth(prod.getWidth());
@@ -124,15 +131,40 @@ public class PrdOrderService {
                 order.setPColorNo(prod.getColorNo());
                 order.setTotalWeightKg(display(totalWeightKg(order.getPlanQty(), prod.getGramWeight())));
             }
+            backfillDerived(order, prod, mainUnit);
         }
         return res;
+    }
+
+    /**
+     * v1.1.142: 工单上的 规格/单位 是开单时从商品拷的快照, 老单经常是空 (单位历史上压根没写过,
+     * 规格则因 base_product.spec 未填而空 —— 实际规格在 base_product.model 里).
+     * 快照空时用商品主数据兜底 (规格: 商品 spec → 商品 model; 单位: base_product_unit 主单位),
+     * 已有快照一律不动。App/PC 的「成品入库」页直接消费这份快照, 不兜底就会显示「该商品未配置单位」,
+     * 并把 NULL 单位一路带进入库单与库存流水。
+     */
+    private void backfillDerived(PrdOrder order, BaseProduct prod, BaseProductUnit mainUnit) {
+        if (order == null) return;
+        if (StrUtil.isBlank(order.getSpec())) {
+            String spec = deriveService.spec(order.getSpec(), prod);
+            if (StrUtil.isNotBlank(spec)) order.setSpec(spec);
+        }
+        if (prod != null) {
+            if (StrUtil.isBlank(order.getProductCode())) order.setProductCode(prod.getProductCode());
+            if (StrUtil.isBlank(order.getProductName())) order.setProductName(prod.getProductName());
+        }
+        if (!deriveService.hasUnit(order.getUnitName()) && mainUnit != null) {
+            order.setUnitName(mainUnit.getUnitName());
+            if (mainUnit.getUnitId() != null && mainUnit.getUnitId() > 0L) order.setUnitId(mainUnit.getUnitId());
+        }
     }
 
     public PrdOrder detail(Long id) {
         PrdOrder order = orderMapper.selectById(id);
         // JOIN 注入商品规格属性 + BOM 备注 (打印模板用)
+        BaseProduct p = null;
         if (order != null && order.getProductId() != null) {
-            BaseProduct p = productMapper.selectById(order.getProductId());
+            p = productMapper.selectById(order.getProductId());
             if (p != null) {
                 order.setPThickness(p.getThickness());
                 order.setPWidth(p.getWidth());
@@ -160,6 +192,8 @@ public class PrdOrderService {
                 }
             }
         }
+        // v1.1.142: 规格/单位 快照为空时从商品主数据兜底 (与 page() 同一口径)
+        backfillDerived(order, p, order == null ? null : deriveService.mainUnit(order.getProductId()));
         // 加载领料明细 (生产加工单打印用: 跨所有领料单汇总明细行)
         if (order != null) {
             // v1.1.133 总重量 (kg) = 计划数量 × 克重 ÷ 1000, 生产单详情展示 + 领料合计口径

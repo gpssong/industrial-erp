@@ -38,7 +38,9 @@ public class PrdSemiInService {
     public PrdSemiInService(PrdSemiInMapper mapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator,
                             StockService stockService, PermissionService permService,
                             com.industrial.erp.modules.mes.service.MesReportService mesReportService,
-                            QmsInspectionService qmsInspectionService) {
+                            QmsInspectionService qmsInspectionService,
+                            com.industrial.erp.modules.production.mapper.PrdOrderMapper prdOrderMapper,
+                            ProductDeriveService deriveService) {
         this.mapper = mapper;
         this.warehouseMapper = warehouseMapper;
         this.billNoGenerator = billNoGenerator;
@@ -46,6 +48,8 @@ public class PrdSemiInService {
         this.permService = permService;
         this.mesReportService = mesReportService;
         this.qmsInspectionService = qmsInspectionService;
+        this.prdOrderMapper = prdOrderMapper;
+        this.deriveService = deriveService;
     }
 
     private final PrdSemiInMapper mapper;
@@ -55,6 +59,9 @@ public class PrdSemiInService {
     private final PermissionService permService;
     private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
     private final QmsInspectionService qmsInspectionService;
+    /** v1.1.142: 规格/单位 缺失时回查工单快照 + 商品主数据兜底 */
+    private final com.industrial.erp.modules.production.mapper.PrdOrderMapper prdOrderMapper;
+    private final ProductDeriveService deriveService;
 
     public IPage<PrdSemiIn> page(Integer pageNum, Integer pageSize, String billNo) {
         permService.requirePerm("production:semi-in:list");
@@ -75,6 +82,18 @@ public class PrdSemiInService {
         if (in.getQty() == null) in.setQty(java.math.BigDecimal.ZERO);
         if (in.getPrice() == null) in.setPrice(java.math.BigDecimal.ZERO);
         in.setAmount(in.getPrice().multiply(in.getQty()));
+        // v1.1.142: 半成品入库同样兜底 商品/规格/单位 (App semi-in 页直接把工单快照传过来, 工单上常年是空)
+        com.industrial.erp.modules.production.entity.PrdOrder derivedOrder = in.getPrdOrderId() == null ? null
+                : prdOrderMapper.selectById(in.getPrdOrderId());
+        ProductDeriveService.InboundFields f = deriveService.inboundFields(
+                in.getProductId(), in.getProductCode(), in.getProductName(),
+                in.getSpec(), in.getUnitId(), in.getUnitName(), derivedOrder);
+        in.setProductId(f.productId);
+        in.setProductCode(f.productCode);
+        in.setProductName(f.productName);
+        in.setSpec(f.spec);
+        in.setUnitId(f.unitId);
+        in.setUnitName(f.unitName);
         mapper.insert(in);
     }
 

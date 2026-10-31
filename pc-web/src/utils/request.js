@@ -55,6 +55,10 @@ if (_resolvedBase !== apiBase) {
   localStorage.removeItem('erp_api_base')
 }
 
+// v1.1.145: 给「不走 axios 的下载」用 (CSV 导出要 fetch + credentials, axios 拦截器只认 code===200 的 JSON)。
+// 导出的是同一个判定结果, 别在页面里再拼一遍 Electron/localStorage 优先级。
+export const API_BASE = apiBase
+
 const service = axios.create({
   baseURL: apiBase,
   timeout: 30000,

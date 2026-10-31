@@ -27,7 +27,7 @@ public class PrdFinishedInService {
 
     private static final Logger log = LoggerFactory.getLogger(PrdFinishedInService.class);
 
-    public PrdFinishedInService(PrdFinishedInMapper mapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, com.industrial.erp.modules.mes.service.MesReportService mesReportService, QmsInspectionService qmsInspectionService) {
+    public PrdFinishedInService(PrdFinishedInMapper mapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, com.industrial.erp.modules.mes.service.MesReportService mesReportService, QmsInspectionService qmsInspectionService, com.industrial.erp.modules.production.mapper.PrdOrderMapper prdOrderMapper, ProductDeriveService deriveService) {
         this.mapper = mapper;
         this.warehouseMapper = warehouseMapper;
         this.billNoGenerator = billNoGenerator;
@@ -35,6 +35,8 @@ public class PrdFinishedInService {
         this.permService = permService;
         this.mesReportService = mesReportService;
         this.qmsInspectionService = qmsInspectionService;
+        this.prdOrderMapper = prdOrderMapper;
+        this.deriveService = deriveService;
     }
     private final PrdFinishedInMapper mapper;
     private final BaseWarehouseMapper warehouseMapper;
@@ -45,6 +47,9 @@ public class PrdFinishedInService {
     private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
     /** v1.1.90+: QMS 自动触发器 (OQC 草稿在 check() 末 try/catch 调用) */
     private final QmsInspectionService qmsInspectionService;
+    /** v1.1.142: 规格/单位 缺失时回查工单快照用 */
+    private final com.industrial.erp.modules.production.mapper.PrdOrderMapper prdOrderMapper;
+    private final ProductDeriveService deriveService;
 
     public IPage<PrdFinishedIn> page(Integer pageNum, Integer pageSize, String billNo) {
         permService.requirePerm("production:finished-in:list");
@@ -65,6 +70,7 @@ public class PrdFinishedInService {
         if (in.getQty() == null) in.setQty(java.math.BigDecimal.ZERO);
         if (in.getPrice() == null) in.setPrice(java.math.BigDecimal.ZERO);
         in.setAmount(in.getPrice().multiply(in.getQty()));
+        backfillDerived(in);
         mapper.insert(in);
         // v1.1.102: 仅食品级商品 (is_food_grade=1) 建单时自动建 OQC 草稿 (先检后入);
         // 工业品不自动建 OQC, 可直接入库 (可现场签, 不强制先检后入).
@@ -80,6 +86,26 @@ public class PrdFinishedInService {
                 log.warn("[PrdFinishedIn.add] QMS OQC auto-create failed (non-blocking): {}", ex.getMessage());
             }
         }
+    }
+
+    /**
+     * v1.1.142: 成品入库单的 商品/规格/单位 兜底回填.
+     * 这些列会随 check() 一路写进 inv_ledger/inv_stock, 空了以后库存与报表就没有单位;
+     * 而 App 深链过来的工单快照 (prd_order.spec/unit_name) 常年为空, 客户端拿不到值.
+     * 解析口径全部在 ProductDeriveService.inboundFields (与工单侧一致), 已有快照不会被覆盖.
+     */
+    private void backfillDerived(PrdFinishedIn in) {
+        com.industrial.erp.modules.production.entity.PrdOrder order = in.getPrdOrderId() == null ? null
+                : prdOrderMapper.selectById(in.getPrdOrderId());
+        ProductDeriveService.InboundFields f = deriveService.inboundFields(
+                in.getProductId(), in.getProductCode(), in.getProductName(),
+                in.getSpec(), in.getUnitId(), in.getUnitName(), order);
+        in.setProductId(f.productId);
+        in.setProductCode(f.productCode);
+        in.setProductName(f.productName);
+        in.setSpec(f.spec);
+        in.setUnitId(f.unitId);
+        in.setUnitName(f.unitName);
     }
 
     @Transactional(rollbackFor = Exception.class)

@@ -3,6 +3,201 @@
 
 ## changelog (倒序)
 
+### v1.1.145 (2026-10-31 — PC 报表中心·销售报表能「按客户/时间段查销售明细 + 汇总」并下载 CSV；顺带把这张页从"只有超管进得去"里救出来)
+
+> **需求原话**: 「pc端报表中心-销售报表需要能按客户/时间段查询销售明细及汇总，并生成表格供我下载。」
+> 此前这个页面只有两张趋势图 + 一张 TOP10 榜单，**明细一行都看不到、也没有下载**；而 v1.1.144 那套「按客户/时间段查汇总」只长在 AI 助手里 —— 报表中心本身反而查不到，且非超管连页面都进不去。
+
+**设计红线**：零新表、零 SQL 迁移、**纯只读**（无写操作 ⇒ 不需要「确认执行」）。四件事：**① 口径只写一处**（AI 与报表页共用同一个 service，两处数字必然一致），**② 列名/数字格式后端出**（前端按 `columns` 动态渲染，不重排、不再格式化，免得下载的和屏幕上对不上），**③ 合计永远全查询范围**（另开一条不分页的聚合 SQL，绝不让浏览器拿当前页累加），**④ CSV 回服务端重查**（不能把屏幕上那一页导回去，权限判定也只能在服务端做）。
+
+**后端 · 口径下沉** `modules/ai/agent/AiSalesSummaryService` → [modules/report/service/SalesSummaryService](../backend/src/main/java/com/industrial/erp/modules/report/service/SalesSummaryService.java)（改名 + 搬家，`ErpToolRegistry` 与 `AiAgentController` 跟着换引用）：AI 侧的 `query()` 一行没改逻辑，报表中心新加 `detail()`（分页）+ `detailForExport()`（一次取满 `MAX_EXPORT_LINES=20000`，不分页）+ `toCsv()`。所有产物仍是同一个 `Table`(title/columns/rows/totals/note/hint/params/error/page/pageSize/totalRows/truncated)。**权限仍是双层**：`DATA_PERMS = {sales:delivery:list, report:view, dashboard:sales-ranking}` 任一，缺权限**返回 `Table#error` 且不查库**，绝不返回空表（空表会被当成「这客户没卖过」）。分页参数夹逼 `MAX_PAGE_SIZE=200`，`limit` 夹到 `MAX_LIMIT=300`；**先数行数再取页** —— 越界页直接返回空列表，不然 `offset` 为负会让 SQL 直接炸。
+
+**后端 · 明细 SQL** [ReportMapper.salesDetailLines / salesDetailTotals](../backend/src/main/resources/mapper/report/ReportMapper.xml) + 公共过滤段 `<sql id="salesDetailWhere">`：一行 = 一张出库单的一个商品行，主表 `sal_delivery h` JOIN **`sal_delivery_detail d`**（⚠️ 行表叫 `sal_delivery_detail`，**不是** `sal_delivery_line`），过滤段逐字对齐 `aiSalesSummary`：`h.bill_status IN ('CHECKED','FINISHED') AND h.deleted=0 AND d.deleted=0 AND h.bill_date BETWEEN …`，另加 `customerId` 精确 / `customer` 与 `product` 名码 LIKE。**汇总金额=单据头 `total_amount_tax`，明细金额=行 `amount_tax` 加总**，两者口径不同，所以 `note` 里明写「对不上说明有出库单的单据头金额与明细行不符，需核对该单」—— 这个差异必须在表面上说清楚，否则用户以为系统在瞎报数。汇总那条 SQL 也补了 `customerId`（报表页下拉用精确 id，AI 只认识客户名所以传 null 走 LIKE）。
+
+**后端 · 三个新端点** [ReportController](../backend/src/main/java/com/industrial/erp/modules/report/controller/ReportController.java)：`GET /report/sales/by-customer`（汇总，`groupBy=month` 出「月份×客户」）、`GET /report/sales/lines`（明细分页）、`GET /report/sales/export?scope=summary|detail`（CSV 二进制）。三个都挂 `@SaCheckPermission(value={"report:view","sales:delivery:list"}, mode=OR)` —— **销售岗常只被勾了出库列表，不该因为没勾「报表中心」就看不了自家客户的销售数**。返回值统一是 `R<Table>`，参数不对/没权限走 `Table.error` 而不是抛 500，前端能把原因原样显示在表格位置；CSV 端点例外：`scope` 非法或 `Table.error` 抛 `BizException`（那侧只能靠 content-type 判别）。
+
+**⚠️ 后端 · 两处真实 403（用非超管账号跑出来的，超管实测完全掩盖）**：
+1. `GET /report/sales/summary` 与 `/report/sales/ranking` 原来只认 `dashboard:sales-trend|sales-ranking`（v1.1.53 为工作台拆的细权限），但**报表中心销售报表页顶部两张图用的正是这两个端点** —— 只授权「报表中心」的人整页图表静默空白。按 v1.1.130 KPI 卡片的先例，两个都加 `"report:view"` 进 OR。
+2. [router](../pc-web/src/router/index.js) 里 `report/sales` 的 `meta.perm` 写的是 **`report:sales:view`**，这个字符串在 `sys_menu` 里**根本没有对应行**（角色权限树勾不到），后果是这张页只有超管进得去。改成真实存在的 `report:view`（已核对 `sql/46_v169_recycle_report_view_grant.sql` 里 `report:view` 有 `F` 型行）。
+
+**PC** [report/Sales.vue](../pc-web/src/views/report/Sales.vue)（150 → 351 行）：筛选栏加日期范围 / 客户下拉（`customerApi.list()`，失败自动退成手输客户名关键字，不挡住页面）/ 商品关键字 / 按客户·按月切换，并在页面上写清「商品筛选只作用于明细表；客户/日期同时作用于图表、明细与汇总」。两张新卡片 —— 明细（`el-table` + `show-summary` + 后端 `totalRows` 分页器 + 「共 N 行 · M 张单」）与汇总（`truncated` 时挂「已达行数上限，请缩小日期范围」黄标），列全按后端 `columns` 渲染，`error` 用 `el-alert` 顶掉表格，`note`/`hint` 分两行显示。下载走 **`fetch(url, {credentials:'include'})` → blob**，不复用 axios：PC 是 httpOnly Sa-Token cookie，且 [request.js](../pc-web/src/utils/request.js) 的响应拦截器只认 `{code:200}` 的 JSON，二进制喂进去会被判成失败；所以 `reportApi.salesExportUrl(params)` 只拼 URL（`API_BASE` 从 request.js **导出**复用，避免页面里再拼一遍 Electron/localStorage 优先级）。响应先嗅 `content-type`：`json` 或非 2xx 就 `.json()` 取 `msg` 报错，否则从 `content-disposition` 解 `filename*=UTF-8''` 落盘。**`loadCharts()`** 三个图表各自 try/catch + `Promise.all`，汇总成一条 warning：一个 403 不该把另外两张图一起清空，也不该留未捕获的 rejection。
+
+**单测**（全量 **223/223 绿**，0 fail / 0 error / 0 skip）：[SalesSummaryServiceTest](../backend/src/test/java/com/industrial/erp/modules/report/service/SalesSummaryServiceTest.java) **24 例**（沿用 AI 那 15 例 + 明细 9 例：分页夹逼、越界页不查库、合计取全范围而非当前页、`detailForExport` 上限、明细/汇总两套 `columns` 与 `note`、CSV 表头取 `label` + BOM + 合计行 + 口径行、无权限 fail-fast 不查库、非法日期与反向日期、`customerId` 与 `customer` 同时传）。全量数字 `214 − 15 (AiSalesSummaryServiceTest) + 24 = 223`。
+
+**实测**（飞牛 canary，**真·非超管 `gpssong1`（铜板，`WAREHOUSE_MGR`+`FINANCE`，`is_admin=0`**）；⚠️ 这个账号是 2026-09-20 就存在的**真实在职账号，不是测试号，不能删**，测完只把它在 `.32` 备库上被改过的密码 hash 与主库对齐回来）：
+- 页面进入 + 筛选：客户下拉列出真实客户，选中后 `customerId` 是**完整 19 位雪花 id**（URL 里没掉精度）；商品关键字只作用在明细表（汇总表行数不变）；按客户 ↔ 按月切换多出「月份」列。
+- 分页与合计：明细翻到第 2 页、页大小 50，页脚合计仍是**整个查询范围**的数（汇总 `1955438.53 / 366896.82 …`，明细 `58 张单 / 1819938.53 / 358697.02`）。⚠️→✅ **首测页脚是空的** —— `summaryOf()` 按 `c.key` 取值，但 Element Plus 的 `summary-method` 给的是列的 `property`（来自 `:prop`），改成 `c.property` 后重打 dist 才正常。
+- 两份 CSV：都 200 + `text/csv` + `filename*=UTF-8''销售明细_….csv`，内容有 BOM、表头取 `label`、末尾带合计与口径行，页面弹「已下载 …」。
+- 负例：`scope=bogus` → 报「scope 只支持 summary 或 detail」；反向日期 → `Table.error` 显示在表格位置；修复前 `/report/sales/summary` 对 `gpssong1` 是 403（图表静默空白），加 OR 后三个图表端点全 200。
+- **零写入**：全程只读，主库业务表未动一行。
+
+**⚠️ 追出一个"数据不一致"虚惊（结论：主库干净，是 canary 副本本地脏数据）**：`note` 说汇总与明细可能对不上，实测就撞上 `CKP202610290001`（明细 8 行 / 汇总差 8,199.80）与 `CKP202610290002`（4 行 / 差 11,120.00）。逐站对账：**`.150` 主库整月 0 张单据头金额 ≠ Σ 明细行**，这两张单在主库是 4 行 / 2 行、金额吻合；**行数翻倍只存在于 `.32` 备库** —— 历次 canary 端到端测试的本地写残留（`read_only=1` 拦不住 root 连本地库，见 [[canary-writes-stay-on-feiniu-replica]]）。所以**不需要修主库数据**，报表页那句口径说明留着即可（它对真实脏数据仍然有效）。
+
+**部署**（三站一致）：jar `dd25e8bef28c2874ac858ebcdbcf17d9`（101,616,003 B）—— `.32` `docker cp /opt/app/app.jar` + `docker commit` 回 **`erp-system-backend:1.1.145`**（compose 引用的就是这个 tag，commit 到别处下次重建就静默回退）、`.150` 把旧 jar 改名 `.bak_v1145_*` 让 `COPY industrial-erp-*.jar` 只匹配一个 + `compose build backend` / `up -d backend`、阿里云 `.env ERP_VERSION=1.1.145` + `compose up -d erp-backend`（⚠️ 该站 compose 服务名是 **`erp-backend`**，`up -d backend` 报「no such service: backend」）。三站都核**镜像本体** `docker run --rm --entrypoint md5sum <image:tag> /opt/app/app.jar` = `dd25e8be…`。`ERP_VERSION` 容器 env 三站 1.1.145，主库 `sys_config.SYSTEM_VERSION_INFO` = 1.1.145（启动 13:36:22）。
+PC dist `index.html` md5 `912ccec590f3dee0fe4971ca26bd0576`、`assets/Sales-BNOaDZzD.js` `525fc161c278f3366dd815027ba79f32`、`assets/sales-DlGGIJ_J.js` `8c88a80e4791549ae2371d4d7338ddf5`（`.32` `dist-new` / `.150` `pc-web/dist` bind-mount 覆盖 + `docker restart erp-pc-web-failover`；阿里云 `/opt/erp-system/pc-web` 平铺替换）—— 三站都**从容器端口 curl 回同一份 `912ccec5…`**。**App H5 零改动**（本轮没碰 `app/`，`.32:18090` 与阿里云仍 200，`.150` 无 H5 容器），故无 APK 重出。
+副本 `.32` `Slave_IO/SQL_Running=Yes`、`Seconds_Behind_Master=0`；阿里云未登录打 `/api/report/sales/lines` 得 401（证明端点已在新 jar 里）。测试遗留（`.32` 上传的 jar/tarball、`.150` upload 中转、阿里云 `/opt/erp-system/staging` + `docker image prune -f`、本地 `/tmp`）全清。
+
+**同日第二批修补（版本仍 1.1.145 —— 纯 PC 一行路由 + 一处副本数据清理，零后端改动、零 SQL、零 jar 重打）**：用户就上一条汇报里的两个待拍板项拍板：「把副本那 6 行脏明细清掉」+「改成 report:view」。
+- **① 清副本脏明细（只动 `.32`，主库与阿里云本来干净）**：`.32` 上 `CKP202610290001` 有 8 行活明细（单据头只有 4 行）、`CKP202610290002` 有 4 行（单据头 2 行）—— 这 6 行是 2026-10-31 09:22–09:32 历次 canary 端到端测试的本地写残留（`read_only=1` 拦不住 root 直连本地库）。做法：**先 `mysqldump` 备份**（`.32` `/var/tmp/sal_delivery_detail_dirty_20261031.sql` md5 `d52238c0…`，本地另存一份），再按「主库没有的 id」精确 `DELETE` **17 行** = 6 行 `deleted=0` 的活行 + 11 行 `deleted=1` 的已软删残留。后者不参与任何统计，但**必须一起删**：将来这张单一旦被软删再恢复，`RecycleBinService.restoreDetail` 是按 `delivery_id` 整表翻 `deleted=0` 的 —— 留着它们会被一起复活，翻倍再现。删完 `.32` 这两张单的明细与 `.150`/阿里云**逐行一致**（同 id、同活/删状态）；全量「单据头 ≠ Σ 明细行」体检从 2 张降到 **0 张**；复制 `IO/SQL=Yes Behind=0` 不受影响（从库本地写不回主库）。回滚办法：`mysql industrial_erp < /var/tmp/sal_delivery_detail_dirty_20261031.sql`（文件里是原样 id 的 `INSERT`）。
+- **② 库存报表页的幽灵权限**：[router](../pc-web/src/router/index.js) `report/inventory` 的 `meta.perm` 由 `report:inventory:view` 改成 `report:view`。后端 `/report/inventory/summary`·`/aging` 本来就挂 `report:view`，**只改前端路由守卫**，`sys_menu` 一行不用动 —— 901/902 两个 M 节点的 `perms` 本来就是空，页面可见性由 F 型「报表查看」`report:view` 派生。
+- **顺带全量体检**：把 PC 路由里 41 个 `meta.perm` 与 `sys_menu` 实际存在的 240 个 perms 求差集 ⇒ **改完已无幽灵权限**（此前只有 sales / inventory 两个）。这是查"页面只有超管进得去"的通用办法，比逐页猜靠谱。
+- **实测（三站各一遍，真·非超管）**：`gpssong1`（`is_admin=0`、182 perm、**有 `report:view` 无 `report:inventory:view`**）—— canary 用真实 UI 登录留下的会话；生产 `.150` 与阿里云用干净 profile 的 CDP 注入会话（`.150` 复用站点 Redis 里那个已存在的 gpssong1 会话；阿里云没有非超管会话，**临时** `SET Authorization:login:token:<uuid> 2101579680441774082 EX 900` 造一个，测完 `DEL` 掉，并把 Sa-Token 顺带生成的 `login:session:2101579680441774082` 一并删掉，Redis keyspace 已复原成原样）。结果：三站 `/api/report/inventory/summary`·`/aging` 全 **200**，页面「库存汇总 (按商品)」+「呆滞库存 (30天未动)」正常出图（1 个 canvas）+ 41 行真实数据，**无「无访问权限」提示**。
+  - ⚠️ **浏览器吃旧缓存会让人以为没改**：dist 换新后不强制刷新，页面仍跑旧 bundle → 路由守卫照样拦 → 表现成"改了没用"。实测用 `location.replace(origin + '/?t=' + Date.now() + '#/report/inventory')` 破缓存。
+- **部署**：**只重打 PC dist，jar 未动** —— 三站 `ERP_VERSION` 仍 1.1.145，主库 `SYSTEM_VERSION_INFO` 不变。PC dist `index.html` md5 **`4cd580fd340968c3df70e18e85e579fb`**（上一版 `912ccec5…` 作废）、`assets/index-C7Fm4Gdk.js` `6eddae2994354a32dcc1fae8554e9703`、`assets/Sales-DU-7jXTO.js` `585642215cc6112580eabdfbfd3db5ff`、`assets/sales-BNxSh55u.js` `625b8666e6a32e3870268eaaac5f71ea` —— 三站都**从对外端口 curl 回同一份 `4cd580fd…`**（`.32:18080` / `.150:8088` / 阿里云公网）。App H5 与后端 jar 零改动。
+
+**同日第三批修补（版本仍 1.1.145 —— 用户在生产站看到控制台报错，一行属性修掉）**：用户报 `http://home.93gushi.com:8088/#/report/sales` 提示
+`ElementPlusError: [el-pagination] [API] small is about to be deprecated in version 3.0.0, please use size instead.`
+根因：**第一批我给销售明细页加分页器时写了旧布尔属性 `small`**（`<el-pagination small ...>`）—— element-plus 2.6 起该属性已弃用，组件加载时用 `debugWarn` 抛一条 `ElementPlusError`，控制台一片红（页面功能本身正常，但用户看到的是"报错"）。
+修法：`<el-pagination size="small" ...>`（element-plus 2.4+ 的 `size` = `default|small|large`，视觉与旧 `small` 完全一致 —— 实测 DOM 类名仍是 `el-pagination--small`）。**全项目只有这一处用了旧属性**：其余 20 多个 `el-pagination` 都是 `class="pager"` + CSS 控制尺寸，没有 `small` 布尔属性。
+- **实测**：飞牛 canary 与生产 `home.93gushi.com:8088` 各用**干净 profile 的 CDP** 跑一遍（注入非超管会话 + 复原 localStorage 登录态），抓 `Runtime.consoleAPICalled` / `Log.entryAdded` ⇒ **el-pagination 的弃用告警已消失**，控制台只剩一条与本次无关的 `favicon.ico` 404（`index.html` 引用了 `/favicon.ico` 但 `pc-web/public/` 是空的 —— 这个 404 从项目第一天就有，**本次未处理**）。分页器正常渲染：`Total 108 20/page 1 2 3 4 5 6 Go to`。
+- **部署**：仍**只重打 PC dist**，jar / ERP_VERSION / App H5 全不动。PC dist `index.html` md5 **`a913330f35dcde0bfa96f6b5a3f42334`**（第二批 `4cd580fd…` 作废）、`assets/index-CKr1vla8.js` `fac9539b2965463d33d0cff492934eed`、`assets/Sales-CKIZXHp7.js` `bdf4c67087df077fb98d18a5ef181d11`、`assets/sales-fA0L7t-B.js` `15dbd66be266f3f554e4618b217d7a10` —— 三站 + `home.93gushi.com:8088` 都从对外端口 curl 回同一份 `a913330f…`。
+
+⚠️ 踩坑记录：
+1. **路由 `meta.perm` 可以是个"幽灵权限"** —— `sys_menu` 里没有这一行，角色权限树就勾不到，页面变成超管专属；非超管实测是唯一能暴露它的办法。**根治办法**：把路由里所有 `meta.perm` 与 `sys_menu` 现有 perms 求差集，一次性揪干净（v1.1.145 同日第二批已把 sales / inventory 两个都改掉，改完全量差集为空）。
+2. **`summary-method` 只认列的 `property`（`:prop`），不认自定义 `key`** —— 按 `key` 取值会得到 `undefined`，症状是「数据行好好的、合计行整片空白」。
+3. **PC 下载必须 `fetch(..., {credentials:'include'})` + blob，不能走 axios**（拦截器强制 `code===200`），也别在页面里重拼 API_BASE —— 从 `utils/request.js` 导出同一个 `API_BASE`，否则 Electron/localStorage 优先级两处各写一遍必然漂移。
+4. **明细行表叫 `sal_delivery_detail`**，`sal_delivery_line` 不存在（`ERROR 1146`）。
+5. **图表逐个兜异常**：三个图表共用一个 `try` 时，一个 403 会让另外两个已取到的数据一起丢，还会抛未捕获 rejection。
+6. **canary 上的"数据对不上"先分站对账再下结论** —— `.32` 是 root 直连本地库的**可写副本**，历次端到端测试写的脏数据不回主库，拿它当生产数会误判成线上 bug、甚至误"修"主库。
+7. **删副本脏数据要连已软删的残留一起删**：只删 `deleted=0` 的活行不够 —— `RecycleBinService.restoreDetail` 按外键整表翻 `deleted=0`，将来这张单被软删再恢复，活着的旧残留会被一起复活，脏数据"诈尸"。删之前一定 `mysqldump` 留一份（还原时 id 原样写回）。
+9. **element-plus 的弃用属性也会被用户当成"报错"** —— `small` 布尔属性在 2.6 已弃用，组件加载时直接 `console.error` 一条 `ElementPlusError`（页面上其实一切正常）。**新写组件一律用新 API**（`size="small"` 而不是 `small`）；改完要用 CDP 的 `Runtime.consoleAPICalled` / `Log.entryAdded` **抓控制台**复核，别只看页面渲染正常。
+10. **仓库里没有 favicon** —— `index.html` 写着 `<link rel="icon" href="/favicon.ico" />` 而 `pc-web/public/` 是空的，于是每个 PC 页面都有一条 `favicon.ico` 404（项目第一天就存在，与业务无关）。
+8. **换 dist 后浏览器可能还在跑旧 bundle**：路由守卫拦的报错和改之前一模一样，很容易误判成"改了没用"。实测前先破缓存（`location.replace(origin + '/?t=' + Date.now() + hash)`），并确认 `performance.getEntriesByType('resource')` 里加载的是新 `index-*.js`。
+
+### v1.1.144 (2026-10-31 — AI 助手能「按客户/时间段查销售汇总」了：数字直接出表格 (不经模型转述)，PC/App 都能下载 CSV)
+
+> **需求原话**: 「要求ai助手能帮我按客户/时间段查询销售汇总，并生成表格供我下载。」(附截图：AI 助手对「长晟9月份一共销售多少」回「目前工具里**没有按客户/时间段查询销售汇总**的接口」)。
+> 此前 AI 只有逐单列表类工具，用户问"某客户某段时间卖了多少"它就宣布做不到。
+
+**设计红线**：零新表、零 SQL 迁移、**纯只读** (不涉及写操作，因此不需要「确认执行」)。两件关键事：**① 口径只写一处** (同一份算法同时喂模型 / 对话表格 / CSV)，**② 数字不让模型抄** (表格由后端 payload 直接渲染)。
+
+**后端 · 查询** [ReportMapper.aiSalesSummary](../backend/src/main/resources/mapper/report/ReportMapper.xml) (+`ReportMapper.java` 接口)：按 `sal_delivery` 聚合，`bill_status IN ('CHECKED','FINISHED') AND deleted = 0`，金额取**含税** `total_amount_tax`，时间窗落在 `bill_date`；`groupBy=month` 时加 `DATE_FORMAT(bill_date,'%Y-%m') AS period` 并按 客户+月份 出行。
+> ⚠️ **不能写 `NULL AS period`**：MyBatis `resultType="java.util.Map"` 不回填 NULL 列，那一列会**整列消失**，前端表头就少一格 —— 要么给真值要么别查这列。
+
+**后端 · 口径唯一出口** [AiSalesSummaryService](../backend/src/main/java/com/industrial/erp/modules/ai/agent/AiSalesSummaryService.java) (新)：`query()` 一个方法产出 `Table`(title/columns/rows/totals/note/fileName/params)，三个消费者 (`toToolJson()` 给模型、`Result.tables` 给前端、`toCsv()` 给下载) 全从它派生，所以**屏幕上的表和 CSV 一定逐字节一致**。内含：
+- 日期归一：`^\d{4}-\d{2}$` (模型很爱直接写「2026-09」) 自动展开成**该月首末日**；非法日期不抛异常，进 `Table#error`。
+- `limit` 默认 100、硬夹到 `MAX_LIMIT=300`，防大结果集打爆上下文。
+- **双层权限**：AI 页本身有 `report:ai`，但销售金额属敏感数据，另要求 `DATA_PERMS` = `sales:delivery:list` / `report:view` / `dashboard:sales-ranking` **任一**；缺权限**fail-fast 返回错误且不查库** —— 绝不返回空表，因为空表会被模型解读成「这个客户没卖过」，那是会拿去做生意决定的假结论。
+- CSV 前置 `CSV_BOM` (`\ufeff`)，Excel 打开中文列头才不乱码。
+
+**后端 · 表格透传** [ErpToolRegistry](../backend/src/main/java/com/industrial/erp/modules/ai/agent/ErpToolRegistry.java) + [AgentService](../backend/src/main/java/com/industrial/erp/modules/ai/agent/AgentService.java) + [AgentResultVO](../backend/src/main/java/com/industrial/erp/modules/ai/vo/AgentResultVO.java)：新增 `TABLE_TOOLS = Set.of("getSalesSummary")` 白名单，`AgentService.collectTable()` 在工具执行后把**原始 tool JSON** 塞进 `Result.tables` → `AgentResultVO.tables` 返回前端。理由很实际：**LLM 会抄错数字** (`14622.00` 抄成 `14,622.0` 甚至整行错位)，表格根本不经过模型；`collectTable` 只认白名单、且跳过 error 与空表 (报错要让模型自己解释)。`getSalesSummary` 的 schema 描述里明写「回答这类问题【必须】用本工具，不要说没有销售汇总接口」。
+
+**后端 · 下载端点** [AiAgentController.salesSummaryCsv](../backend/src/main/java/com/industrial/erp/modules/ai/controller/AiAgentController.java)：`GET /api/ai/sales-summary/csv`，`@SaCheckPermission(value={"report:ai"}, orRole="admin")`，**服务端按参数重新查询**而不是把前端那张表导回来 —— 否则"表已经显示在屏幕上"就成了绕过销售金额权限的后门。`Content-Disposition` 用 `filename="…"` + `filename*=UTF-8''…` 双写发中文文件名。
+
+**提示词** (`AgentService.sys()` 新增【销售汇总】段 4 条硬性规则)：(a) 相对时间换算成具体日期再传参 (「9月」= 本年 2026-09-01 ~ 09-30；拿不准就写 `YYYY-MM`，后端自己展开)；(b) 客户名不确定先调 `listCustomers` 核对关键字，**严禁猜客户名** (猜错查不到数，用户会以为没卖过)；(c) 返回里带 columns/rows/totals 时系统会直接渲染表格并支持下载，**不要再把整张表重抄一遍**，只用一两句话点合计/涨幅/风险；(d) 工具回 error 时如实转述，不许编一个销售额出来。
+
+**PC** [report/Ai.vue](../pc-web/src/views/report/Ai.vue)：`.table-block` (标题 + 「下载 CSV」+ `el-table` 按 `t.columns` 动态出列 + `.table-foot` 合计 + `.note` 口径说明)；`fmt()` 只补千分位不改数值；下载**在客户端拼 CSV** —— PC 的 axios 响应拦截器强制 `code===200`，`responseType:'blob'` 的二进制响应过不去，所以复用屏幕这份 `tables` 生成 Blob (BOM + 表头 + 数据 + 合计 + 口径)，行序与后端 `toCsv` 同款。
+
+**App** [report/ai.vue](../app/src/pages/report/ai.vue) + [api/index.js](../app/src/api/index.js)：同一张表按窄屏重排 (`COL_W` 列宽 + `cellStyle`)；`downloadTable(t)` 分平台 —— H5 走 `<a download>` 直连后端 `aiSalesSummaryCsvUrl(p)` (同源带 cookie，回后端重查)；原生 App 走 `NativeSharePlugin.shareFile`。[NativeSharePlugin.java](../app/android/app/src/main/java/com/pengcheng/erp/NativeSharePlugin.java) 把原来只服务 PDF 的 `sharePdf` 通用化成 `share(call, mimeType, defaultSuffix)`，`shareFile` = `share(call, "text/csv", ".csv")`，内部 `download()` 仍从 `CookieManager` 取 cookie 注入 `HttpURLConnection` 让 Sa-Token 过鉴权，再用 FileProvider 分享出去。
+
+**单测** (全量 **214/214 绿**，0 fail / 0 error / 0 skip)：新增 [AiSalesSummaryServiceTest](../backend/src/test/java/com/industrial/erp/modules/ai/agent/AiSalesSummaryServiceTest.java) 15 例 (月份展开、非法日期、limit 夹逼、无权限 fail-fast 不查库、CSV 表头取 label / 含 BOM / 合计行 / 口径行、`groupBy=month` 多一列)、`AgentServiceTest` +4 例 (透传只认白名单 / error 与空表不透传 / 答复里不重复出现表格)、`ErpToolRegistryTest` +1 例 (`getSalesSummary` 在 `tools()` 与 `toolsEnabled()` 都在且只读)。
+
+**实测** (飞牛 canary，真·非超管临时账号 `ai_ss144` = `WAREHOUSE_MGR`、`is_admin=0`、持 `report:ai` + 销售数据读权限；负例 `ai_ss144n` 只持 `report:ai`)：
+- **PC 按客户**：问「长晟9月份一共销售多少」→ 表头 客户/出库单数/数量/销售额(元)，行 `长晟塑业 3 193800 14622.00` + 合计 + 口径说明；模型正文只补结论，没重抄表。
+- **PC 下载 CSV**：⚠️→✅ **首测下载的表头是 `,,,`** —— 客户端把 `columns` 当数据行喂给了 `csvRow(cols)`，而 `csvRow` 只认 `row[c.key]`；改成 `cols.map(c => csvCell(c.label))` 后重打 dist (最终 `8631156a…`，首版 `a8acfbd5…` 作废)，复测得 `客户,出库单数,数量,销售额(元)` + 数据 + 合计 + 口径，文件名 `销售汇总_长晟_20260901-20260930.csv`。**"下载内容对不对"单测覆盖不到** (后端 `toCsv` 有单测，客户端那份没有)，只有真点一次下载才暴露。
+- **App H5 按客户 + 按月**：「长晟今年每个月的销售额」多出「月份」列 → `2026-09 长晟塑业 3 193800 14622.00` / `2026-10 … 9 573320 44984.91` + 合计 `12 767120 59606.91`；点「下载」的 `<a>` href 是 `/api/ai/sales-summary/csv?startDate=…&customer=%E9%95%BF%E6%99%9F&groupBy=…`，实测 200 + `filename*=UTF-8''销售汇总_…`，按月 CSV 同样带「月份」列。
+- **负例**：`ai_ss144n` 提问拿到文档化的"无权查看销售金额"提示且 `tables: []` —— 不给空表也不给数。
+- **零写入**：全程只读；主库 `sal_delivery`/`inv_*` 未动 (当天两张 `CKP…` 出库单是 08:07/08:56 的真实草稿，本来就不计入口径)；临时账号与上传产物事后全清 (只落 `.32` 备库本地写)。
+
+**部署** (三站一致)：jar `ed5563719a0938ed452504cb774e59a3` (101,610,385 B) —— `.32` `docker cp /opt/app/app.jar` + `docker commit erp-system-backend:1.1.144` (⚠️ 该站 backend 服务名是 `erp-backend-failover` 且带 `profiles: ["failover"]`，`compose up -d backend` 会报「no such service」，要 `--profile failover up -d erp-backend-failover`)、`.150` 把 `industrial-erp-1.1.143.jar` 改名 `.bak_v1144_20261031` 让 `COPY industrial-erp-*.jar` 只匹配一个 + `compose build backend` / `up -d backend`、阿里云 `.env ERP_VERSION=1.1.144` + `compose up -d --build erp-backend`；**三站都核镜像本体** `docker run --rm --entrypoint md5sum <image:tag> /opt/app/app.jar` = `ed556371…`。`ERP_VERSION` 容器 env 三站 1.1.144、主库 `sys_config.SYSTEM_VERSION_INFO` = `{"version":"1.1.144","startTime":"2026-10-31 12:01:01"}`。
+PC dist `index.html` md5 `8631156a9386de94d9b82b6a6da00fb0`、`assets/Ai-Cn-v_MLd.js` `a1e1ba7054c177cd4835982bd0c0b73e` (`.32` `dist-new` / `.150` `pc-web/dist` 两处 bind-mount 覆盖即可；阿里云 `/opt/erp-system/pc-web` 平铺替换) —— 三站都**从容器端口 curl 回同一份 md5** 才算落地。
+App H5 `index.html` `4be6fc1fed0d4a52b6bb4f82dd1994a0`、`assets/pages-report-ai.BXRyJhRE.js` `5c6f35b3f069eb3b3e3da71c448598b6` (`.32:18090` 与阿里云 `:18090` 逐字节一致；`.150` 无 H5 容器)。APK `erp-app-20261031-1144.apk` md5 `f9d15b7251862249954486e3bcc67455` (4,447,955 B，versionName 1.1.144 / versionCode 1144，内嵌 H5 与部署版逐字节一致)。
+**生产复核**：`.150` PC 走**真实 UI 登录** (`gpssong`，验证码答案从本站 Redis `erp:login:limit:captcha:<key>` 读；⚠️ PC 的 Sa-Token cookie 是 httpOnly 且 store 故意不存 token，"JS 注入登录态"这条捷径不通) → AI 页出表、「下载 CSV」Blob 文件名正确、`GET /api/ai/sales-summary/csv` 200 返回同款内容；阿里云从容器端口取回 PC `8631156a…` / chunk `a1e1ba70…` 与 H5 `4be6fc1f…` / chunk `5c6f35b3…`，未登录打 CSV 端点 401。副本 `Slave_IO/SQL_Running=Yes`、`Seconds_Behind_Master=0`。
+
+⚠️ 踩坑记录：
+1. **PC 客户端 CSV 表头必须取 `label`** (`csvRow(cols)` 只会读 `row[c.key]`)；"数据行对、表头空逗号"这种半对问题最容易被误判成后端 bug。
+2. **`curl` 手工编码客户名要复核**：把「长晟」写成 `%E6%99%8F`(晕) 会返回空结果，看着像"查不到这个客户"，其实是自己编码错 —— 用 `curl -G --data-urlencode "customer=长晟"` 让工具做编码。
+3. **uni-app H5 的按钮**用 `browser-use` 的 click 会 `TypeError: this.scrollIntoView is not a function`，改 `evaluate_script` 直接打选择器 (`.sendbtn` / `uni-button` 里的「下载」)。
+4. **`.150` 是主库**，`SHOW SLAVE STATUS` 恒为空 (那是备库该查的)；主库看 `SHOW MASTER STATUS`，复制健康去 `.32` 看。
+
+### v1.1.143 (2026-10-31 — AI 助手可以「把生产出来的货入账」了：成品入库两步进白名单，PC/App 都要点「确认执行」；顺带根治单号计数器落后)
+
+> **需求原话**: 「要求ai助手能帮我自动添加产品，只要我确认就行。」(附微信截图：AI 助手对「生产入库」回「这个写操作暂不在自动执行白名单里，我不能直接执行」)。
+> 此前白名单只有 `checkSalDelivery` (审核出库) 与 `addPurReceipt` (采购入库)，车间产出的成品入账只能手工录单。
+
+**设计红线不变**：零新表、零 SQL、**后端仍然不执行任何写**。链路仍是 `模型 PROPOSE → 前端弹「确认执行」→ 用户点击 → 前端直调原写端点 (带用户自己的 token，走原有 `@SaCheckPermission`)`。
+
+**后端** [ErpToolRegistry](../backend/src/main/java/com/industrial/erp/modules/ai/agent/ErpToolRegistry.java) — 加两个**只读**工具 (同时挂进 `tools()` 与 `toolsEnabled()`，漏一处就等于"开写但模型查不到")：`listWarehouses` (拿真实 `warehouseId` + `isDefault` 默认仓)、`listFinishedInBills` (拿草稿单真实 `id`)；新增依赖 `BaseWarehouseMapper` + `PrdFinishedInService`。
+
+**后端** [AgentService](../backend/src/main/java/com/industrial/erp/modules/ai/agent/AgentService.java)：
+- `run()`：**`allowWrite=true` 时强制放开 `GROUP_BUSINESS` 工具组**。写提议依赖只读工具先查真实 id，而这些工具全在 business 组 —— 只开写、经营数据组关着，模型就只剩"臆造 id"一条路。
+- `sys()` 白名单加两步 + 各自硬性规则：
+  - `addPrdFinishedIn` (建草稿单)：(a) 先 `listProducts` 拿真实 `productId`，**成品在本厂档案里可能是 `FG` 也可能是 `GOODS`** (如「马鲛鱼」「胶带」就是 `GOODS`)，不得因类型不是 FG 就拒建，同名多候选必须先列出来问用户；(b) 先 `listWarehouses` 拿 `warehouseId`，用户没说仓就用 `isDefault=1` 并把仓名写进 summary；(c) `qty` **只能用用户明确说出的实际产量**，严禁拿工单计划量/克重推算；(d) 不填 `billNo/billDate/billStatus/spec/unitId/unitName/amount/productCode/productName` —— 后端生成单号并按 v1.1.142 `ProductDeriveService` 回填规格与单位；(e) 一单一商品，多商品提多条 PROPOSE；(f) `RAW`/`SEMI` 不走本动作。
+  - `checkPrdFinishedIn` (审核入库存)：必须先 `listFinishedInBills` 拿到真实 `id` 且该单 `billStatus=DRAFT`；"刚建的那张"取列表最新一条 DRAFT 并把单号写进 summary 让用户核对；严禁臆造 id、严禁重复审核 CHECKED 单。**两步分开提，一次只提一步**。
+- **`quoteLongIds()` (后端统一出口) + 提示词【id 写法】规则**：19 位雪花 id 在浏览器 `JSON.parse` 超过 2^53 会被抹尾 (`2116353847494504578 → …504400`)，前端拿去审核就报「入库单不存在」。PROPOSE payload 里 ≥16 位裸整数一律加引号变字符串，同时要求模型自己就写成带引号的字符串 (双保险)。
+- **`MAX_STEPS` 收尾改造**：跑满轮数仍未收敛 (备援 provider 常犯) 时，不再把「(已达到最大分析轮数 6…)」这种内部提示丢给用户，改成**禁掉工具再问一次**强制基于已查到的数据出文本答案，并照样收集该轮的 PROPOSE。加 `[AI Agent] step/tools/proposals` 日志便于事后定位模型到底调了哪几个工具。
+
+**后端** [BillNoGenerator](../backend/src/main/java/com/industrial/erp/utils/BillNoGenerator.java) (顺带根治一个线上必现的 500)：Redis 计数器只记得"本站见过的事"，库里的行可能来自别处 —— 主备复制把主库单号带进备库、或 Redis 被清空/换实例，计数器落后就重复发号，撞 `uniq_*_bill_no` 让建单报「数据已存在」。现在发完先跟**库内当天该前缀最大单号**对账 (19 个前缀 → `表.列` 常量表)，落后就把计数器抬到最大号后重发。`JdbcTemplate` 用 `@Autowired(required=false) @Nullable` 注入，未知前缀/无数据源/查库异常一律返回 `-1` **不阻塞开单** (fail-open)。
+
+**PC** [report/Ai.vue](../pc-web/src/views/report/Ai.vue)：`parseProposal()` 前端二次防精度 (与后端同一条正则)；动作别名表加 `addPrdFinishedIn`/`checkPrdFinishedIn` 及 8 个模型常见同义写法；执行分支校验缺商品/缺仓库/数量≤0 时给**下一步指引**文案而不是干报错；建单成功后回显真实单号 (`latestFinishedInBillNo()`)；`spent(p)` 把已执行/执行中的「确认执行」按钮锁死 —— **写提议不是幂等的，再点一次就多建一张草稿单**；失败的原样留着让用户改口重试。
+
+**App** [report/ai.vue](../app/src/pages/report/ai.vue)：同款「确认执行 / 取消」，成功后 `disabled` 锁死 (产物 `pages-report-ai.wP0JtLK9.js` 内 `G(e)` = `!!e.executing || 0===String(e.executed||"").indexOf("✓")`)。
+
+**单测** (新增 16 例，全量 **194/194 绿**)：[AgentServiceTest](../backend/src/test/java/com/industrial/erp/modules/ai/agent/AgentServiceTest.java) 5 (含 `quoteLongIds` 精度、未收敛收尾)、[ErpToolRegistryTest](../backend/src/test/java/com/industrial/erp/modules/ai/agent/ErpToolRegistryTest.java) 6 (两个新工具在 `tools()` 与 `toolsEnabled()` 都在、只读不改数据)、[BillNoGeneratorTest](../backend/src/test/java/com/industrial/erp/utils/BillNoGeneratorTest.java) 5 (落后抬升重发、未知前缀/无 JdbcTemplate 不阻塞)。
+
+**实测** (飞牛 canary，真·非超管临时账号 `ai_wm1143` = `WAREHOUSE_MGR`、`is_admin=0`、持 `report:ai` + `production:finished-in:add` + `production:finished-in:check`，**不用超管**避免 `orRole=admin` 掩盖 403)：
+- **PC 两步全链**：AI 助手「把刚生产出来的 X 入到成品仓」→ 模型自己调 `listProducts`+`listWarehouses` → PROPOSE 里 `productId`/`warehouseId` 是**带引号的 19 位字符串** → 点「确认执行」→ 建草稿单 → 再说「审核」→ PROPOSE `checkPrdFinishedIn` → 点确认 → `bill_status=CHECKED`；两步执行后按钮均变灰不可再点。
+- **App 两步全链** (H5 `:18090`)：同款，`UNI-BUTTON` 上 `disabled` 生效。
+- **落库证据**：`inv_ledger` `PROD_IN` 的 `before_qty/after_qty` 走 `0 → 5000 → 5200`、`inv_stock` 落 `5200.0000`，`unit_name`/`spec` 由 v1.1.142 的 `ProductDeriveService` 自动带上 (AI 完全没填这些字段)。
+- **单号自愈**：故意让 Redis 计数器落后，日志命中「计数器落后: redis=2 库内最大=4, 抬升后重发」，建单不再撞唯一键。
+- **清理**：本次造的入库单/台账/库存变动与临时账号 `ai_wm1143` 全部删除 (只落 `.32` 备库本地写，主库零写入)；副本 `Slave_IO/SQL_Running=Yes`、`Seconds_Behind_Master=0`。
+- **阿里云 (生产)**：登录 → AI 助手页文案已是新版 (「以及帮你开成品入库单 (需要你点确认)」) → 提问后 PROPOSE 卡正常渲染，`productId=2075453564248965121` / `warehouseId=2073701024629047297` **19 位逐位精确未掉精度** → 点「取消」，复核该站 `prd_finished_in` 最大 `create_time` 仍是 09:35:35 ⇒ 取消不写任何东西 (生产主库业务数据未动)。
+
+**部署** (三站一致)：jar `fa4e69afbdfb6ae9939474841549ae2d` (101,597,471 B) — `.32` `docker cp /opt/app/app.jar` + `docker commit erp-system-backend:1.1.143`、`.150` 把 `industrial-erp-1.1.142.jar` 改名 `.bak_v1142_*` 使 `COPY industrial-erp-*.jar` 只匹配一个后 `compose build/up -d backend`、阿里云 `.env ERP_VERSION=1.1.143` + `compose up -d --build erp-backend`；**三站都核镜像本体** `docker run --rm --entrypoint md5sum <image:tag> /opt/app/app.jar`。`ERP_VERSION` 三站 1.1.143、`sys_config.SYSTEM_VERSION_INFO` 三站回写 `{"version":"1.1.143"}`。PC dist `index.html` md5 `1b9228875c08a5b896dd56000d836cb5` (`.32` `dist-new` bind-mount / `.150` `pc-web/dist` bind-mount / 阿里云整目录替换 + restart `erp-pc-web`)。App H5 `index.html` `9e0606f893a469e3d41ba3b5e8f2aa45`、`assets/pages-report-ai.wP0JtLK9.js` `71b9885c3c31d6b4ec35390053311c2f` (`.32:18090` 与阿里云逐字节一致；`.150` 无 H5 容器)。APK `erp-app-20261031-1143.apk` md5 `5c8b623a00442f72f305ec98da2b3bdf` (4,477,598 B，versionName 1.1.143 / versionCode 1143)。三站 `AI_INTEGRATION.llm.capabilities.allowWrite=true` 均已开 (阿里云复核)。
+
+**踩坑**:
+1. **开写权限必须同时开"查真实 id"的只读工具** —— 否则模型只能臆造 id，症状是建单报「商品/仓库不存在」，看起来像数据问题，其实是工具组没联动 (`allowWrite` ⇒ 强制 `GROUP_BUSINESS`)。
+2. **19 位雪花 id 过 `JSON.parse` 必掉精度** —— 后端输出侧加引号是唯一可靠出口，前端再兜一层正则；提示词也要显式教模型写字符串 (v1.1.115 是"前端别 `Number(id)`"，这次是"跨 JSON 文本协议层就得是字符串")。
+3. **写提议按钮执行完必须锁死** —— `addPrdFinishedIn` 不幂等，用户多点一次就多一张草稿单；失败态反而要留着让人改口重试。
+4. **单号计数器要认库不认 Redis** —— 主备复制/换 Redis 实例都会让本站计数器落后于库内最大号，撞唯一键的表现是建单 500「数据已存在」，用户完全看不出为什么。对账失败要 fail-open，不能因为查不到最大号就不让人开单。
+5. **`browser-use` 点 uni-app 按钮会 `TypeError: this.scrollIntoView is not a function`** —— `click` 的 schema 只有 `{uid,dblClick,includeSnapshot}`，且 uni-app H5 渲染的是 `UNI-BUTTON` 不是 `button`；改用 `evaluate_script` 按 class 选择器 (`uni-button.pbtn` / `uni-button.sendbtn`) + `textContent` 过滤来点。
+6. **自动化登录不必识图** —— 验证码答案就在本站 Redis `erp:login:limit:captcha:<uuid>`，点一次图片刷新让 TTL 拉开差距，取剩余 TTL 最大的那条，再和截图对一眼即可。
+7. **`prd_finished_in` 没有 `unit`/`check_by` 列** (是 `unit_name`/`update_by`)、**`inv_ledger` 没有 `in_qty`** (是 `qty` + `biz_direction` + `before_qty`/`after_qty`) —— 查库前先 `information_schema.COLUMNS` 列表名。
+
+### v1.1.142 (2026-10-31 — App 工单成品入库「该商品未配置单位」: 深链 `onLoad` 竞态 + 工单快照本来就空，读/写两条路径都改成后端兜底回填)
+
+> **需求原话**: 「9*75的产品有单位，但成品入库时显示没有配置单位」+ 澄清入口「app端通过生产单成品入库」 (截图: App 成品入库 `PD202610200001 · 带鱼袋9*75*0.07`，规格 `—`、单位显示兜底文案「该商品未配置单位」)。
+> 该商品 `dyd975007` (product_id `2104473647277748226`) 在 `base_product_unit` 里确实配了主单位「只」(`is_main=1, deleted=0`)，所以"没配单位"是假象 —— 页面没拿到。
+
+**两层根因** (都要修，缺一层仍是坏的):
+1. **App 初始化竞态** — [app/src/pages/scan/finished-in.vue](../app/src/pages/scan/finished-in.vue) 的 `onLoad(query)` 里 `this.loadAll()` 是 async 但**没 await**，紧接着同步调 `onOrderPicked()`；那一刻 `orderList` 还是 `[]` → `pickedOrder` 取不到 → 「带出成品/规格/数量/批号 + `loadUnits()`」整条链路直接 return，单位永远停在 `unitTip()` 的兜底文案。只有**「生产单详情 → 建成品入库」这条深链** (`goScan` 带 `?orderId=`) 100% 命中；手工从页面内 picker 选单反而正常 (这也是为什么 PC 端一直没人报)。`scan/semi-in.vue` 同款写法，一并修。
+2. **工单快照本来就是空的** — canary 与主库 `prd_order` (`PD202610200001`) 都是 `spec=''`、`unit_id=NULL`、`unit_name=NULL`：开单时没人往工单写单位 (单位只在 `base_product_unit`)；规格则因 `base_product.spec` 未填、实际写在 `base_product.model='9*75*0.07'`。所以就算竞态修好、`loadUnits()` 跑起来，工单侧的兜底仍取不到值。
+
+**App** (`scan/finished-in.vue`、`scan/semi-in.vue`): `onLoad` 改 `async` + `await this.loadAll()`，之后再 `applyOrder(query.orderId)`；新增 `applyOrder(id)` —— 首屏工单列表里找不到该 id 时按 `prdOrderDetail(id)` 单独补拉进 `orderList` 再 `onOrderPicked()` (老工单/工单多于分页 100 条时不再"白选一次")；响应解包沿用 v1.1.118 口径 `(r && (r.data || r))`。
+
+**后端** — 新增 [ProductDeriveService](../backend/src/main/java/com/industrial/erp/modules/production/service/ProductDeriveService.java) 作为「规格 / 单位」派生口径的**唯一出口** (与 v1.1.133 `totalWeightKg()` 同一治理思路):
+- `spec(snapshot, product)`: 单据快照 → `base_product.spec` → `base_product.model`；`mainUnit(productId)` / `mainUnits(ids)` 一次批量查 `base_product_unit` `is_main=1` (TableLogic 自带 `deleted=0`)；`hasUnit(unitName)` **只认 `unit_name`** —— `unit_id=0` 是 v1.1.117 记录的历史脏行 (指向不存在的 `base_unit`)，与 null 同等对待，判定一律不用 `unitId > 0` 过滤。
+- `inboundFields(...)` + `InboundFields`: 入库单的 productId/code/name/spec/unitId/unitName 六个字段按「单据自带 → 商品主数据 → 工单快照」逐级兜底，非空快照永不覆盖。
+- **读路径回填** `PrdOrderService.backfillDerived()` 挂到 `page()` (批量 `mainUnits(productIds)`，不逐行查) 与 `detail()` —— App/PC 工单列表、详情的规格列与「建成品入库」带出的初始值都靠它。**`update()` 故意不回填** (否则派生值会被持久化写回 `prd_order`，把"快照本来为空"这个事实抹掉)。
+- **写路径回填** `PrdFinishedInService.add()`、`PrdSemiInService.add()` 在 `mapper.insert()` 前调 `inboundFields(...)`。这一条是关键: `check()` 会把入库单的 `unitId/unitName` 一路传进 `stockService.inStock()` 落 `inv_ledger`/`inv_stock`，不兜底则库存流水与出入库报表永远没单位。
+
+**零 SQL** (存量工单/入库单不改，只改读取与写入时的派生口径)、**零 PC 代码** (PC 的 `FinishedIn.vue`/`SemiFinishedIn.vue` 本来就自己查商品单位，且已按 v1.1.117 只认 `unitName`)。
+
+**实测** (三站，`PD202610200001` / 商品 `dyd975007`)。⚠️ 鉴权链一律用**真·非超管** `gpssong1` (roles `WAREHOUSE_MGR`+`FINANCE`，38 个 perm，含 `production:finished-in:add`/`production:semi-in:add`，无 `add` 之外的 admin 兜底)，不用超管，避免 `orRole=admin` 掩盖缺口:
+- **读路径 API** (`.32` 与 `.150`，`gpssong1` token)：`GET /production/order/page?billNo=PD202610200001` 与 `GET /production/order/2112543587985600514` 均返回 `spec=9*75*0.07`、`unitName=只`、`unitId=2089154538889621509`；同一时刻 `SELECT spec,unit_id,unit_name FROM prd_order WHERE id=…` 仍是 `''`/NULL/NULL ⇒ 回填只在读取时发生，不污染存量。阿里云同一口径复测 (两接口) 亦带出。
+- **浏览器全链** (headless CDP + 真实 bundle)：工作台 → 生产单列表 → 点行 → 详情商品行渲染 `(9*75*0.07) × 1 只` → 点「建成品入库」→ 落 `#/pages/scan/finished-in?orderId=2112543587985600514`，信息区 `规格=9*75*0.07`、计划量 `1`，表单 `单位 = 只` (修复前此处是「该商品未配置单位」)、「数量」由计划量带出、「批号」默认=工单号 → 点「保存草稿」→ 落库 `PFI202610310002` 带 `spec='9*75*0.07'` / `unit_name='只'` / `unit_id=2089154538889621509`，`create_by` 为 `gpssong1`。全程**未点「审核入库」** (不产生真实库存与 XK 门禁副作用)。
+- **写路径回填 (故意发空)**：`POST /production/finished-in` 只带 `productId` + 仓库 + `spec=''`/`unitId=null`/`unitName=null` → 落库仍 `product_code='dyd975007'`、`spec='9*75*0.07'`、`unit_name='只'`；`POST /production/semi-in` 同 (得 `PSI202610310001`)。证明老客户端/PC 之外的入口不会再写进 NULL 单位。
+- **清理**：本次在 canary 造的 3 张测试单 (`PFI202610310001`、`PFI202610310002`、`PSI202610310001`) 逐条按 `id + bill_no + bill_status='DRAFT'` 三条件手工 DELETE，复核 `leftover=0`、当日 `inv_ledger=0` 行 (草稿不写库存)；`.150` 主库当日 `prd_finished_in` 0 行 ⇒ **主库零写入**；副本 `Slave_IO/SQL_Running=Yes`、`Seconds_Behind_Master=0`。
+- **遗留待拍板 (未动)**：已审核的存量单 `PFI202610230003` (42000 只) 仍 `spec=''`/`unit_name=NULL`，它当年写进 `inv_ledger`/`inv_stock` 的行同样没有单位 —— 属数据回填 (需 SQL + 改主库)，本次只兜未来，等用户点头再灌。
+
+**部署** (三站一致)：jar `5aea1a3e2cf88ed7eb44f3dcf5e42141` (101,592,434 B) — `.32` `docker cp /opt/app/app.jar` + `docker commit erp-system-backend:1.1.142` (compose 第 66/73 行同改)、`.150` 把 `industrial-erp-1.1.141.jar` 改名 `.bak_v1142_*` 使 `COPY industrial-erp-*.jar` 只匹配一个再 `compose build/up -d backend`、阿里云 `.env ERP_VERSION=1.1.142` + `compose build erp-backend` → **三站都 `docker run --rm --entrypoint md5sum <image:tag> /opt/app/app.jar` 核镜像本体** (不核运行中容器)。`ERP_VERSION` 三站 1.1.142，`sys_config.SYSTEM_VERSION_INFO` 已回写 `{"version":"1.1.142"}` (PC「系统参数」页显示的版本号来自这里，故本次**不重打 PC dist**)。App H5 `index.html` md5 `c650e0deae6191cb94f461516c0579a1` (v1.1.141 是 `ccefa8fe…`)，`.32:18090` 与阿里云 `127.0.0.1:18090` 逐字节一致且 `assets/pages-scan-finished-in.C1snyO5a.js` 200 (`.150` 无 H5 容器)。APK `erp-app-20261031.apk` md5 `70275043d9b498f12d677d4bbac0f68b` (4,445,089 B，versionName 1.1.142 / versionCode 1142，内嵌 `pages-scan-finished-in.C1snyO5a.js` + `pages-scan-semi-in.N6H-639F.js`)，落飞牛同步盘 `erp/` 与 Desktop。七处版本 `scripts/check-version.sh 1.1.142` 全 OK。
+
+**同日第二批修补** (补完单元测试后暴露的回落链缺口，版本仍 1.1.142，零 App/PC/SQL 改动):
+- **跑全量单测** (`mvn -o test`，JDK 17) 揪出 `PrdOrderServiceTest.detail_shouldInjectColorNo` 报 `NullPointerException: … ProductDeriveService.mainUnit(Long) because "this.deriveService" is null` —— `PrdOrderService` 构造器多了 `deriveService` 依赖，`@InjectMocks` 却没有对应 `@Mock`。补 `@Mock ProductDeriveService deriveService` (LENIENT，默认桩让 `backfillDerived()` 退化成 no-op，原来的 `verify(productMapper, times(1))` 断言照旧成立)。
+- **新增** [ProductDeriveServiceTest](../backend/src/test/java/com/industrial/erp/modules/production/service/ProductDeriveServiceTest.java) 9 例：规格四级回落 (快照 → `base_product.spec` → `.model` → 工单快照)、`hasUnit()` 只认 `unit_name`、主单位名空视为没配、`mainUnits()` 一次批量 + 丢空名/null 行、商品无主单位时回落工单快照且 `unit_id=0` 脏行不回填、瘦客户端全空时六字段补齐、已有快照不被覆盖。**它当场打出一个生产代码真缺口** —— `inboundFields()` 的 `productCode`/`productName` 用嵌套三元 `快照 ?: (商品 != null ? 商品的值 : 工单快照)`，**商品行存在但 `product_code` 为空时链子断在中间层**，工单快照永远轮不到。改成 `firstNonBlank(快照, 商品, 工单)` 私有 helper (全空仍返回第一个入参=原快照，保持「原样返回」)；类头 javadoc 口径表同步补「编码/名称 = 单据快照 → base_product → 工单快照」。
+- `PrdOrderServiceTest` 另加 2 例守住纪律：`detail_shouldBackfillSpecAndUnitWhenSnapshotBlank` (空快照被派生值填上) + `detail_shouldNotOverrideExistingSnapshot` (已有快照不动)。全量 **178/178 绿** (`Tests run: 178, Failures: 0, Errors: 0`，原 167 + 新 11)。
+- **重打 jar 三站部署** (版本保持 1.1.142)：jar `140774ac8cb53ff4411b3005e640319d` (101,592,592 B) 替换上一批 `5aea1a3e…` — `.32` `docker cp /opt/app/app.jar` + `docker commit erp-system-backend:1.1.142`；`.150` 把 `industrial-erp-1.1.142.jar` 改名 `.bak_v1142a_20261031` (保证 `COPY industrial-erp-*.jar` 只匹配一个) 后 `compose build/up -d backend`；阿里云 cp + restart + `docker commit erp-backend:1.1.142`。**三站都核镜像本体** `docker run --rm --entrypoint md5sum <image:tag> /opt/app/app.jar` = `140774ac…`，captcha 200、`ERP_VERSION` 1.1.142、`sys_config.SYSTEM_VERSION_INFO` 三站一致回写 `{"version":"1.1.142","startTime":"2026-10-31 09:22:22"}`。App H5 (`c650e0de…`) / PC dist / APK (`70275043…` 1.1.142/1142) 未动 —— 本批零前端改动。
+- **修补后复测** (仍按「非超管跑全链」)：`.32` 与 `.150` 用 `gpssong1` (loginId `2101579680441774082`) 会话 —— `order/page?billNo=PD202610200001` 与 `order/{id}` 都返回 `spec=9*75*0.07` / `unitName=只` / `unitId=2089154538889621509`；`.32` 再发一张故意留空的成品入库 → `PFI202610310003` 落库 `product_code=dyd975007`、`spec=9*75*0.07`、`unit_name=只`，验完按 `id + bill_no + bill_status='DRAFT' + deleted=1` 四条件硬删，`batch_no LIKE 'E2E-V1142%'` 副本 0 行、主库 0 行；副本 `Replica_IO/SQL_Running=Yes`、`Seconds_Behind_Source=0`、`Last_Error` 空。阿里云两个非超管会话已失效 (401)，该站读路径以 `gpssong` 复核通过 (数据与主库同源)。
+- **现场佐证**：主库今天两张**真实**入库单 (仓管上午录的 长晟9*70*0.095 / 22565、长晟10*74*0.095 / 22212) 已自动带上 `spec` 与 `unit_name=只`；它们 `unit_id` 仍空 —— `base_product_unit.unit_id=0` 脏行被 `validUnitId()` 挡掉，与 v1.1.117 口径一致。⚠️ 这两张的单号 `PFI202610310001`/`PFI202610310002` 与上面 09:00 那批**已硬删**的测试草稿重号 (硬删后日序列重新计数) —— **对账请认 id 不认单号** (草稿 id `2116333747194613762`/`2116334108231913473`，真实单 id `2116339318495690754`/`2116339634511331329`)。
+
+**踩坑**:
+1. **`onLoad` 里调 async 初始化不 await，就是一条深链 100% 空跑的链路** —— 「只有某个入口坏、手工操作正常」的现象，第一嫌疑人是初始化竞态而不是接口；uni-app 页面 `onLoad` 可以直接声明 `async`。
+2. **「客户端派生字段后端必须兜底」要读、写两条路径都兜** —— 只兜读路径管显示，写路径 (入库单 → `inv_ledger`/`inv_stock`) 仍会落 NULL；反之只兜写路径，用户看到的界面依旧是空的。派生口径收敛到一个 `ProductDeriveService`，两处共用，避免以后再加入口时漏掉。
+3. **读路径回填不要顺手也回填 `update()`** —— 派生值一旦持久化，"这张单当初到底有没有填单位"就再也查不出来了 (v1.1.136「派生值不入库」同一条纪律)。
+4. **headless Chrome 实测 App 用不着过验证码** —— 鉴权是 httpOnly cookie (`token-name: Authorization`，timeout 30 天)，浏览器重启即失效；从站点自己的 Redis `Authorization:login:token:<uuid>` 挑一个**非超管**账号的 uuid，CDP `Network.setCookie` 注进去就能以真实权限账号跑 UI (`.32`/`.150`/阿里云各有独立 Redis，token 不通用)。
+5. **多级兜底别写嵌套三元** —— `A ?: (X != null ? X.val : B)` 在「X 存在但 `X.val` 为空」时就把链子断在中间层，最末一级兜底永远走不到；改成按优先级取第一个非空值的 helper (`firstNonBlank(快照, 商品, 工单)`)。**这类缺口跑一遍单测就露出来** —— 是 `ProductDeriveServiceTest` 那条「商品行存在但编码空」的断言把它打出来的，不是现场报的。
+6. **给 `@InjectMocks` 的服务加构造器依赖，必须同步补 `@Mock`** —— 否则测试里那个字段是 null，报的是 `Cannot invoke "…mainUnit(Long)" because "this.deriveService" is null`，看起来像生产代码 NPE，其实是测试没接线。**还有：`mvn … | tail` 会把 maven 的退出码吞成 0** (v1.1.136 记过一次，这次又踩)，跑测试要看 `Tests run: N, Failures/Errors` 那行或直接 `; echo EXIT=$?`。
+
 ### v1.1.141 (2026-10-30 — 工业品生产单开工**只把「生产环境合格」当必填项**：原料批号与批号照片可留空；食品级维持 XK16-204 原口径)
 
 > **需求原话**: 「工业品的生产单开工仅生产环境为必选项，其他不填也能开工。」
