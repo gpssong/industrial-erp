@@ -39,9 +39,13 @@
 
         <div class="ps-field">
           <label>业务单号</label>
-          <el-select v-model="docType" style="width:100%">
+          <el-select :model-value="docType" style="width:100%">
             <el-option :label="doc.code" :value="docType" />
           </el-select>
+        </div>
+        <div class="ps-note" style="margin-top:0">
+          <strong>样例预览</strong>
+          <p>v1.1.146 起检验组 6 类与「质量合规 → 检验记录与报告」台账同口径 (IQC/FAI/PAT/OQC/OQC_RETURN/ENV)。此处展示的是版式样例; 真实记录请在台账页查看与签署, 检验单打印可走各单据详情页的打印入口。</p>
         </div>
 
         <div class="ps-section-title">自由选择打印内容</div>
@@ -149,44 +153,44 @@ const printing = ref(false)
 const paper = ref('A4P')
 const copies = ref(1)
 
-// 13 种单据 (对齐 Figma mockup documents)
+// v1.1.146 对齐真实台账: 单据类型换成「检验记录与报告」台账真存在的 6 类检验记录
+// (Safety.vue STAGE_OPTIONS 同一口径: 5 类 qms_inspection + 1 类 xk_env_check),
+// 业务单据组保留采购/生产/设备维保三类. 检验组预览数据仍是样例 (见 documents 顶部注释),
+// 真实记录在「质量合规 → 检验记录与报告」台账里查看/签署.
 const docGroups = [
-  { label: '采购与原料', items: [
-    { value: 'purchasePlan', label: '采购计划单' },
+  { label: '检验记录与报告', items: [
+    { value: 'iqc', label: '原料进货检验记录 (IQC)' },
+    { value: 'fai', label: '半成品首检记录 (FAI)' },
+    { value: 'pat', label: '过程巡检记录 (PAT)' },
+    { value: 'oqc', label: '成品检验记录 (OQC)' },
+    { value: 'oqcReturn', label: '退货检验记录 (OQC_RETURN)' },
+    { value: 'env', label: '生产环境检查记录 (ENV)' } ] },
+  { label: '业务单据', items: [
     { value: 'purchaseOrder', label: '采购订单' },
-    { value: 'rawInspection', label: '原料进货检验记录' },
-    { value: 'rawReport', label: '原料检验报告' } ] },
-  { label: '设备维保', items: [
-    { value: 'maintenancePlan', label: '维保计划单' },
-    { value: 'maintenanceRecord', label: '维保记录单' } ] },
-  { label: '生产管理', items: [
+    { value: 'purchasePlan', label: '采购计划单' },
+    { value: 'maintenanceRecord', label: '设备维保记录单' },
+    { value: 'maintenancePlan', label: '设备维保计划单' },
     { value: 'productionOrder', label: '生产工单' },
-    { value: 'productionRecord', label: '生产记录单' } ] },
-  { label: '质量与XK', items: [
-    { value: 'filmInspection', label: 'PE膜半成品检验记录' },
-    { value: 'filmReport', label: 'PE膜半成品检验报告' },
-    { value: 'bagInspection', label: 'PE袋成品检验记录' },
-    { value: 'bagReport', label: 'PE袋成品检验报告' },
-    { value: 'environmentReport', label: '生产环境检查报告' } ] }
+    { value: 'productionRecord', label: '生产记录单' } ] }
 ]
 
+// v1.1.146: 检验组 6 项改为与台账真实字段对齐的样例 (单号/批号/结果口径同 qms_inspection / xk_env_check)
 const documents = {
-  purchasePlan: { title: '采购计划单', code: 'CGJH-20250618-006', group: '采购管理', meta: [['计划日期','2025-06-18'],['需求部门','原料仓库'],['计划人员','张伟'],['采购周期','7 天']], headers: ['物料名称','规格型号','计划数量','需求日期','用途'], row: ['LLDPE','7042','12,800 kg','2025-06-25','食品袋生产'], remark: '根据库存预警和未来 7 天生产计划自动生成。', photos: false, signatures: ['计划人：张伟','复核人：李敏','批准人：陈军'] },
+  iqc: { title: '原料进货检验记录 (IQC)', code: 'IQC202606180001', group: '质量检验', meta: [['原料名称','LLDPE 7042'],['供应商','中石化华东'],['供应商批号','RM20260618-031'],['检验依据','Q/ZPC 1-2017 第 4.3 条']], headers: ['检验项目','技术要求','检验方法','实测结果','判定'], row: ['感官 / 熔融指数 / 灰分','按标准限值','全项目 13 项','全部合格','PASS'], remark: '包装标签、感官、物理指标、供应商检验报告、采购合同及发票查验合格, 准予入库.', photos: true, signatures: ['检验员：李敏','复核人：周洁','质量负责人：陈军'] },
+  fai: { title: '半成品首检记录 (FAI)', code: 'QI202606180002', group: '质量检验', meta: [['半成品批号','BPC20260618-016'],['关联工单','PRD20260618-008'],['检验工序','吹膜'],['检验依据','Q/ZPC 1-2017 第 5.1 条']], headers: ['检验项目','技术要求','检验方法','实测结果','判定'], row: ['平均厚度 / 幅宽 / 电晕值','0.030±0.003 mm','吹膜首检 6 项','0.030 mm','PASS'], remark: '外观、厚度、幅宽、电晕值及拉伸强度检验合格, 可进入制袋工序.', photos: true, signatures: ['检验员：李敏','复核人：周洁','质量负责人：陈军'] },
+  pat: { title: '过程巡检记录 (PAT)', code: 'QI202606180003', group: '质量检验', meta: [['工序','制袋'],['车间','制袋一车间'],['关联工单','PRD20260618-008'],['巡检时间','2026-06-18 14:20']], headers: ['巡检项目','标准','实测','判定'], row: ['热合强度 / 外观 / 克重','≥15 N/15 mm','18.2 N/15 mm','PASS'], remark: '过程巡检合格, 批次放行.', photos: true, signatures: ['巡检员：王建国','班组长：刘强','质量 QA：李敏'] },
+  oqc: { title: '成品检验记录 (OQC)', code: 'QI202606180004', group: '质量检验', meta: [['成品批号','CP20260618-0088'],['关联半成品','BPC20260618-016'],['抽样数量','32 个'],['检验依据','Q/ZPC 1-2017 第 6 条']], headers: ['检验项目','技术要求','检验方法','实测结果','判定'], row: ['热合强度 / 密封性 / 感官','按标准限值','成品检 13 项','全部合格','PASS'], remark: '外观、尺寸、厚度、热合强度、密封性能及感官要求检验合格, 准予出厂.', photos: true, signatures: ['检验员：李敏','复核人：周洁','质量负责人：陈军'] },
+  oqcReturn: { title: '退货检验记录 (OQC_RETURN)', code: 'QI202606180005', group: '质量检验', meta: [['退货批号','CP20260601-0042'],['退货原因','客户投诉: 热合不良'],['抽样数量','50 个'],['检验日期','2026-06-18']], headers: ['检验项目','技术要求','检验方法','实测结果','判定'], row: ['热合强度','≥15 N/15 mm','拉力机','12.1 N/15 mm','FAIL'], remark: '热合强度不合格, 批次冻结 (FROZEN), 待质量组处置.', photos: true, signatures: ['检验员：李敏','复核人：周洁','质量负责人：陈军'] },
+  env: { title: '生产环境检查记录 (ENV)', code: 'ENV202606180001', group: '质量检验', meta: [['检查区域','吹膜洁净区'],['检查日期','2026-06-18'],['检查人员','李敏'],['整改负责人','赵海峰']], headers: ['检查项目','检查要求','检查结果','问题等级','整改状态'], row: ['现场无非生产用品及纸箱杂物','洁净区无杂物和污染风险','发现外包装纸箱','一般不符合项','整改中'], remark: '共检查 5 项, 4 项符合、1 项不符合; 不符合项已建立整改记录并上传整改前照片.', photos: true, signatures: ['检查人：李敏','整改人：赵海峰','审核人：陈军'] },
+  purchasePlan: { title: '采购计划单', code: 'CGJH-20250618-006', group: '采购管理', meta: [['计划日期','2025-06-18'],['需求部门','原料仓库'],['计划人员','张伟'],['采购周期','7 天']], headers: ['物料名称','规格型号','计划数量','需求日期','用途'], row: ['LLDPE','7042','12,800 kg','2025-06-25','食品袋生产'], remark: '根据库存预警和未来 7 天生产计划自动生成.', photos: false, signatures: ['计划人：张伟','复核人：李敏','批准人：陈军'] },
   purchaseOrder: { title: '采购订单', code: 'CG-20250618-018', group: '采购管理', meta: [['供应商','中石化华东'],['订单日期','2025-06-18'],['交货仓库','原料一库'],['采购人员','张伟']], headers: ['物料名称','规格型号','数量','含税单价','金额'], row: ['LLDPE','7042','12,800 kg','¥ 6.75','¥ 86,400.00'], remark: '供应商须随货提供检验报告及批次质量证明。', photos: false, signatures: ['采购员：张伟','财务：刘芳','批准人：陈军'] },
-  rawInspection: { title: '原料进货检验记录', code: 'YL-JY-20250618-031', group: '原料质量控制', meta: [['原料名称','LLDPE 7042'],['供应商','中石化华东'],['供应商批号','RM20250618-031'],['检验人员','李敏']], headers: ['检验项目','技术要求','检验方法','实测结果','判定'], row: ['熔体质量流动速率','2.0±0.5g/10min','熔融指数仪','2.18','合格'], remark: '包装标签、感官、物理指标、供应商检验报告、采购合同及发票查验合格。', photos: true, signatures: ['检验员：李敏','复核人：周洁','质量负责人：陈军'] },
-  rawReport: { title: '原料检验报告', code: 'BG-YL-0618-31', group: '原料质量控制', meta: [['样品名称','LLDPE 7042'],['样品批号','RM20250618-031'],['到货数量','12,800 kg'],['报告日期','2025-06-18']], headers: ['检验项目','标准要求','检验结果','单项判定','总判定'], row: ['全项目','符合采购质量标准','符合','合格','准予入库'], remark: '该批原料经进货查验和抽样检验符合要求，供应商报告核验一致，准予入库。', photos: false, signatures: ['检验：李敏','审核：周洁','批准：陈军'] },
   maintenancePlan: { title: '设备维保计划单', code: 'JH-2025-018', group: '设备维保', meta: [['设备编号','FM-02'],['设备名称','2# 三层共挤吹膜机'],['计划日期','2025-06-18'],['负责人','王建国']], headers: ['维保项目','维保周期','计划工时','所需配件','状态'], row: ['更换滤网、清理模头','每 30 天','2 小时','滤网组件 × 2','执行中'], remark: '按设备累计运行时间和预防性维护周期生成。', photos: false, signatures: ['计划人：王建国','设备主管：陈杰','批准人：陈军'] },
   maintenanceRecord: { title: '设备维保记录单', code: 'WB-20250521-008', group: '设备维保', meta: [['设备编号','FM-02'],['完成时间','2025-05-21 14:36'],['维保人员','王建国'],['来源计划','JH-2025-012']], headers: ['维保项目','处理内容','更换部件','试机结果','状态'], row: ['更换牵引辊轴承','拆除旧轴承并清洁安装位','轴承 × 2','运行平稳','已完成'], remark: '试机 30 分钟，设备温度、张力及运行噪音正常。', photos: true, signatures: ['维保人：王建国','复核人：陈杰','质量 QA：李敏'] },
   productionOrder: { title: '生产工单', code: 'WO-250618-08', group: '生产管理', meta: [['产品类别','食品袋 · XK受控'],['生产设备','FM-01'],['计划日期','2025-06-18'],['当班班组','早班 A 组']], headers: ['产品名称','计划数量','原料批次','执行标准','状态'], row: ['PE 食品保鲜袋','5,200 kg','RM20250618-031','GB 4806.7','生产中'], remark: '生产前确认原料放行状态、设备清洁状态和人员卫生要求。', photos: false, signatures: ['计划员：周明','班组长：刘强','质量 QA：李敏'] },
-  productionRecord: { title: '生产记录单', code: 'SCJL-20250618-008', group: '生产管理', meta: [['生产时间','08:12–15:46'],['设备编号','FM-01'],['当班人员','刘强、周明、徐磊'],['关联工单','WO-250618-08']], headers: ['产品名称','投入数量','产出数量','损耗','成品批号'], row: ['PE 食品保鲜袋','5,260 kg','5,200 kg','60 kg','CP20250618-0088'], remark: '过程参数稳定，首检、巡检及成品检验结果均合格。', photos: true, signatures: ['操作工：刘强','班组长：周明','质量 QA：李敏'] },
-  filmInspection: { title: 'PE膜半成品检验记录', code: 'BPC-JY-20250618-016', group: '质量检验', meta: [['半成品批号','BPC20250618-016'],['关联工单','WO-250618-08'],['检验时间','2025-06-18 14:06'],['检验人员','李敏']], headers: ['检验项目','技术要求','检验方法','实测结果','判定'], row: ['平均厚度','0.030±0.003mm','测厚仪','0.030mm','合格'], remark: '外观、厚度、幅宽、电晕值及拉伸强度检验合格，可进入制袋工序。', photos: true, signatures: ['检验员：李敏','复核人：周洁','质量负责人：陈军'] },
-  filmReport: { title: 'PE膜半成品检验报告', code: 'BG-BPC-0618-16', group: '质量检验', meta: [['样品名称','PE食品包装膜'],['样品批号','BPC20250618-016'],['检验依据','Q/HS 02'],['报告日期','2025-06-18']], headers: ['检验项目','标准要求','检验结果','单项判定','结论'], row: ['全项目','符合内控标准','符合','合格','允许转序'], remark: '该批半成品经检验符合企业内控标准要求，准予转入制袋工序。', photos: false, signatures: ['检验：李敏','审核：周洁','批准：陈军'] },
-  bagInspection: { title: 'PE袋成品检验记录', code: 'CP-JY-20250618-008', group: '质量检验', meta: [['成品批号','CP20250618-0088'],['关联半成品','BPC20250618-016'],['抽样数量','32 个'],['检验人员','李敏']], headers: ['检验项目','技术要求','检验方法','实测结果','判定'], row: ['热合强度','≥15N/15mm','拉力机','18.2N/15mm','合格'], remark: '外观、尺寸、厚度、热合强度、密封性能及感官要求检验合格。', photos: true, signatures: ['检验员：李敏','复核人：周洁','质量负责人：陈军'] },
-  bagReport: { title: 'PE袋成品检验报告', code: 'BG-CP-0618-08', group: '质量检验', meta: [['产品名称','PE食品保鲜袋'],['成品批号','CP20250618-0088'],['执行标准','GB 4806.7'],['报告日期','2025-06-18']], headers: ['检验项目','标准要求','检验结果','单项判定','总判定'], row: ['全项目','符合产品标准','符合','合格','合格'], remark: '该批产品经检验符合相应标准及 XK 质量控制要求，准予出厂。', photos: false, signatures: ['检验：李敏','审核：周洁','批准：陈军'] },
-  environmentReport: { title: '生产环境检查报告', code: 'HJ-JC-BG-20250618-006', group: 'XK生产环境检查', meta: [['检查区域','吹膜洁净区'],['检查日期','2025-06-18'],['检查人员','李敏'],['整改负责人','赵海峰']], headers: ['检查项目','检查要求','检查结果','问题等级','整改状态'], row: ['现场无非生产用品及纸箱杂物','洁净区无杂物和污染风险','发现外包装纸箱','一般不符合项','整改中'], remark: '共检查5项，4项符合、1项不符合；不符合项已建立整改记录并上传整改前照片。', photos: true, signatures: ['检查人：李敏','整改人：赵海峰','审核人：陈军'] }
+  productionRecord: { title: '生产记录单', code: 'SCJL-20250618-008', group: '生产管理', meta: [['生产时间','08:12–15:46'],['设备编号','FM-01'],['当班人员','刘强、周明、徐磊'],['关联工单','WO-250618-08']], headers: ['产品名称','投入数量','产出数量','损耗','成品批号'], row: ['PE 食品保鲜袋','5,260 kg','5,200 kg','60 kg','CP20250618-0088'], remark: '过程参数稳定，首检、巡检及成品检验结果均合格。', photos: true, signatures: ['操作工：刘强','班组长：周明','质量 QA：李敏'] }
 }
 
-const docType = ref('purchaseOrder')
+const docType = ref('iqc')
 const doc = computed(() => documents[docType.value])
 
 const sections = ref({ basic: true, details: true, photos: true, remark: true, signatures: true, audit: true })
