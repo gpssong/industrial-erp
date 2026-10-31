@@ -3,6 +3,7 @@
 //           → 原生 App 里所有跳转退化成 window.location.hash, uni.switchTab/reLaunch 全失效。
 //           统一收敛到 utils/runtime.js (先认 window.Capacitor, 再退回 plus)。
 import { isNativeApp } from './runtime.js'
+import { rememberRoute } from './routeQuery.js'
 
 export function isNative() {
   return isNativeApp()
@@ -27,6 +28,9 @@ const BACK_SKIP_PAGES = new Set([
 ])
 
 export function navigateTo(url) {
+  // v1.1.140: 跳转前先登记本次 path+query —— uni-app H5 派发目标页生命周期时, location.hash
+  //           可能还是上一页的、框架塞给 onLoad 的 query 也可能是上一趟的, 只有这里记下的才是本次的。
+  rememberRoute(url)
   if (isNative()) {
     if (TABBAR_PAGES.includes(url)) {
       uni.switchTab({ url })

@@ -3,6 +3,84 @@
 
 ## changelog (倒序)
 
+### v1.1.141 (2026-10-30 — 工业品生产单开工**只把「生产环境合格」当必填项**：原料批号与批号照片可留空；食品级维持 XK16-204 原口径)
+
+> **需求原话**: 「工业品的生产单开工仅生产环境为必选项，其他不填也能开工。」
+> 背景: v1.1.132 起 App「吹膜开工确认」强制三样齐全 —— 环境合格 + 原料批号 + 批号照片，缺一即拒。但 XK16-204 的投料留痕要求是**食品级**口径 (食品接触材料必须能溯源到具体原料批)，工业品 (吹膜厂大量非食品包装膜/袋) 现场根本拿不到批号标识照片，卡在开工这一步。
+
+**后端** (`backend/.../mes/service/MesWorkStartService.java`):
+- `confirmBlowStart()` 原来无条件 `batchNos.isEmpty()` / `photos.isEmpty()` 就抛错；现按商品等级分档 —— 新增 `isFoodGradeProduct(PrdOrder)` (查 `base_product.is_food_grade`, **查不到 / 无商品 / 非 1 一律按工业品**, 与 `PrdSemiInService` v1.1.102 的「食品级才走 XK 硬门禁, 工业品放行」豁免口径同源)，**仅食品级**继续强制批号 + 照片；工业品只校验 `envQualified=true` 即放行。
+- 工业品若仍填了批号, 照旧走 `mes_batch`(RAW) + `mes_batch_link`(ISSUE) 登记 (追溯能力不丢)；不填则该字段留空, 半成品入库的 `resolveRawBatchForOrder()` 取不到即留空 (null-safe, 不阻断入库, 报工链路本来就不强制批号)。
+- 审计行批号为空时写「投料批号=未填写(工业品选填)」, 不留空串让人以为漏填。
+- 同步改 `WorkStartConfirmDTO` 字段注释与 `PrdOrderController.blowStart` 的 javadoc (原写「缺批号/缺照片一律拒绝」)。
+- **制袋开工本来就是只有环境必填** (无批号/照片入参), 不涉及。
+
+**App** (`app/src/pages/production/order-detail.vue`):
+- 新增 `isFoodGradeOrder` computed = `Number(order.pIsFoodGrade) === 1` (后端 `PrdOrderService.detail()` 已回填 `base_product.is_food_grade`)。
+- 开工弹窗按等级分档: 食品级维持「2. 本次投入的原料批号」「3. 拍下原料批号标识 (必填, 至少 1 张)」; 工业品标注「(选填)」+ 灰底提示「工业品开工只需确认生产环境合格, 批号与照片可留空; 填写后仍会登记到批次追溯, 建议填写。」
+- `canSubmitStart`: 工业品只判 `sheet.env === true` (勾上「合格」即可提交); 食品级仍要求批号 + 照片齐全 (未填时按钮保持 disabled)。
+- 工序卡文案随等级切换 (「确认生产环境合格 (必填) → 原料批号与照片选填」/「确认生产环境合格 → 录原料批号并拍照」); 底部说明与成功提示同步 (工业品提交后提示「未登记投料批号 (工业品选填)」)。
+
+**验证 (飞牛 canary, 真·非超管账号 `zzstart1141` + 角色 `ZZSTART1141`, 授权仅 `production:order:release` 等 4 个 perm)**:
+- API 5 跳全绿: ① 工业品只带 `envQualified=true` → **200 开工成功** (`WS202610300001`, `raw_batch_nos` 空 / `photo_urls` `[]`, 自动出 2 份 `xk_env_check` CHECKED); ② 食品级只带环境 → 拒「请填写本次投入的原料批号 (XK16-204 要求食品级投料记录可追溯)」; ③ 食品级有批号无照片 → 拒「请拍摄原料批号标识照片 (至少 1 张)」; ④ 食品级批号 + 照片齐全 → 200; ⑤ `envQualified=false` → 拒「生产环境未确认合格, 禁止开工」(工业品同样拒)。
+- 落库核对: 台账 2 行 (`env_check_ids` = 2 份环境检查)、`xk_env_check` 4 行 `AUTO-BY-WORK-START`、两单 `RELEASED`、`xk_audit_log` 4 行 `XK_WORK_START` (工业品那行写「投料批号=未填写(工业品选填)」)。
+- 浏览器实测 (headless Chrome + 原生 CDP, 走真实路径 工作台 → 生产单列表 → 点行 → 详情 → 开工): 工业品单弹窗显示「(选填)」+ 提示行, 勾「合格」后 `uni-button.ws-submit` 的 `disabled` 属性消失 → 点「确认开工」→ 弹窗「开工成功 | 吹膜已开工, 未登记投料批号 (工业品选填)。已生成 2 份生产环境检查合格记录。」→ 详情页变「已开工」; 食品级单弹窗显示「(必填, 至少 1 张)」, 勾「合格」后 `disabled="true"` 仍在 → 点不动。
+- 清理: 5 张测试单 (PDTEST1141A~E) + 4 条开工台账 + 8 条环境检查 + 1 条 `mes_batch`/`mes_batch_link` (ZZTEST1141-BATCH) + 4 条 XK 审计 + 临时账号/角色/授权 + Redis 会话 + 上传目录临时文件, 残留核对全 0, 真实生产单 79 张未受影响; 副本 `Slave_IO_Running=Yes / Slave_SQL_Running=Yes / Seconds_Behind_Master=0`, `Binlog Dump` 无下游 ⇒ canary 写入不外溢。
+
+**踩坑 (值得记)**:
+1. **App H5 同路由换 query 不会重建页面实例 (页面级也中 keep-alive 的招)** —— `location.hash = '#/pages/production/order-detail?id=X'` 只改 URL, 页面 DOM/数据仍是上一张单 (uni-app H5 的页面栈复用同一 path 的实例)。**UI 实测必须开新标签页 (`Target.createTarget`, 同 profile 共享 cookie) 才能拿到干净页面栈**, 否则 `document.querySelector('.ws-submit')` 会命中旧实例的按钮 —— 本批第一次跑就因为命中旧实例而误判「食品级按钮没禁用」。同一坑的另一个面: 复测要从「列表 → 点行」进, 不能靠改 URL。
+2. **uni-button 的 `disabled` 是组件 prop, 不是原生属性** —— `el.disabled` 恒为 `undefined`, 要看 `outerHTML` 里有没有 `disabled="true"`。
+3. **图形验证码在 Redis 里存明文** (`erp:login:limit:captcha:<key>` → 明文 code) —— 先 `GET /api/auth/captcha` 拿 key, 再从 Redis 读明文即可自动登录任意账号 (不必 OCR 图片); 但**必须用页面自己那次请求的 key** (页面加载时会自己取一张, 与脚本另取的 key 不是同一个), 否则报「验证码错误」。登录失败 5 次/5 分钟会锁, 别反复试。
+
+**版本**: 七处对齐 1.1.141 (`scripts/check-version.sh` 全 OK), `app/src/manifest.json` versionCode 1141。
+
+**部署**:
+- 后端 jar md5 `7a9a97ad1a29d8b45ecc7a2c31675ef0` (101586012 B): 飞牛 `.32` (镜像 `erp-system-backend:1.1.141` + compose `ERP_VERSION` 同步, 镜像本体与运行中容器 md5 均已核对) → 群晖 `.150` 生产主站 (`backend/industrial-erp-1.1.141.jar` + `docker compose up -d --build backend`, 旧 jar 改名 `.bak_v1141_*` 避免 `COPY industrial-erp-*.jar` glob 命中两个) → 阿里云 (`.env` `ERP_VERSION=1.1.141` 驱动镜像 tag)。
+- App H5 `index.html` md5 `ccefa8febc8fb799976cfc1c55adf1c7`: 飞牛 `.32` (`/vol2/erp-system/app-h5/dist/build/h5`, bind-mount, 备份 `h5.bak_v1141_20261030_125825.tgz`) + 阿里云 (`/opt/erp-system/app-h5`, 备份 `/root/app-h5.bak_v1141_20261030_131250.tgz`); **`.150` 复核确认无 H5 容器** (8088/18080 都是 PC dist), 故不部署。
+- APK `erp-app-20261030.apk` md5 `e6eb9313707e555cbea1827dc05bc5be` (4444881 B, versionName 1.1.141 / versionCode 1141), 落到飞牛同步盘 `erp/` + `~/Desktop/`, `build-app.sh` 校验内嵌 H5 与 OS 级版本号一致。**装新 APK 后需重新登录。**
+
+**零 SQL、零 PC**。
+
+### v1.1.140 (2026-10-30 — 制袋巡检打开成吹膜巡检的**真根因**：uni-app H5 keep-alive 会保住子组件的 camelCase props；改为模块级「检验上下文」+ 三通道取参，并把 ④ 制袋巡检补齐到与 ② 对称)
+
+> **需求原话**: 「app端生产单详情的制袋巡检实际打开内容为吹膜的巡检。完善制袋巡检」
+> v1.1.139 把 ② 的按钮钉在吹膜工序上之后，**反向的坑才暴露**：④「制袋巡检」的深链 URL 明确是 `#/pages/scan/pat?orderId=2111270042198421505&stage=BAG&processId=2112787513992622082`，页面却渲染吹膜模板、`POST /qms/inspection/ensure-for-process` 请求体里发的是吹膜工序 `2112787513954873345` —— 说明「参数在路由上对、在组件里不对」，问题不在入口标签。
+
+**定位证据 (CDP 读 Vue 实例，不是猜)**: 沿 `#app.__vue_app__._instance` 向下拿到 `ProcessInspection` 实例，dump 它的 `vnode.props`：
+
+```
+{ "inspection-type": "PAT", key: "<新 routeSig>",
+  "order-id": "2111270042198421505",  orderId:   "<上一趟的旧值>",
+  "process-id": "2112787513992622082", processId: "<上一趟的旧值>",
+  stage: "<上一趟的旧值>" }
+```
+
+同一路由换 query 再次进入时，uni-app 的 keep-alive 会重建子组件，但**新值只落到模板里写的 kebab 属性键上，组件真正声明使用的 camel 键 (`orderId`/`processId`/`stage`) 仍是上一趟的**。用假值 `AAA/BBB/CCC` 复测同样复现 ⇒ `:key` 重建、`v-if` 开关、`$nextTick` 都不是解法 —— **props 不能当作工序身份的唯一来源**。另一半根因是时序：H5 派发目标页生命周期那一刻 `location.hash` 可能还是上一页的、框架塞给 `onLoad` 的 query 也可能是「上一趟」的 (列表→详情A→返回→详情B 同款命中)。
+
+**改动 (纯 App，零后端、零 SQL、零 PC)**:
+- **新增 `app/src/utils/routeQuery.js`** 三组通道：`rememberRoute` (:90) / `takePendingRoute` (:103，跳转前登记本次 path+query，5s TTL，取一次即失效)；`activeRoute`/`isRouteActive`/`activeRouteQuery` (:41–:77) / `onActiveRouteChange` (:119，URL 落地后的纠偏订阅，只在当前路由就是本页时回调)；**`setInspectionContext`/`getInspectionContext`/`onInspectionContextChange` (:139–:152，模块级检验上下文 + 订阅)**。
+- `app/src/utils/nav.js:33` `navigateTo()` 第一行 `rememberRoute(url)`；`pages/production/order-list.vue:109` 不走 nav.js 的那条 `uni.navigateTo` 也单独登记。
+- **页面统一取参优先级** `takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH) || 框架给的 query`：`scan/pat.vue:22,26,31`、`scan/fai.vue:146,150,155`、`scan/oqc.vue:162,166,171`、`production/report.vue:286,299,304`、`production/order-detail.vue:664`。
+- `scan/pat.vue:43`、`scan/fai.vue:172` 每次解析到路由都 `setInspectionContext({ inspectionType, orderId, processId, stage })` (与 Vue 的 props 合成无关)。
+- **`components/ProcessInspection.vue` 以上下文为准**：`liveCtx/liveOrderId/liveProcessId/liveStage` (:159–:162，上下文缺位才回退 props) 喂给既有 `routeKey` (:176) → 既有 watcher → `initialize()` (:206) 全量重置并重载；`mounted` 读一次 + 订阅、`beforeUnmount` 退订 (:185,:191)；`applyRecord()` 的数据一致性守卫改按 `liveStage` 校验 (:309)；订阅者只采纳 `inspectionType` 与自己一致的上下文，FAI/PAT 共用 store 也不串台。
+- **完善制袋巡检**：④ 三个按钮 (制袋首检/制袋巡检/工序报工) 与 ② 对称，全部把本工单制袋工序 `bagProcess.id` 带进深链 (`order-detail.vue:160-162`)；页头显示「实际生产工序 · 仅制袋 / 仅吹膜」自证检的是哪道工序 (:29)；制袋 PAT 门禁块新增**「去做本工序制袋首检」**按钮 (:42 → `goProcessFai()` :349，带 orderId+processId+stage 深链到 `/pages/scan/fai`，落在同一道实际工序，不会被换成吹膜模板)。
+
+**版本**: 七处对齐 1.1.140 (`scripts/check-version.sh` 全 OK)，versionCode 1140。**本批无后端改动、jar 未重建** → 三站容器仍 `ERP_VERSION=1.1.138` (jar `45bd61e5…`)，App「我的」页显示 1.1.140。
+
+**部署**:
+- App H5 `index.html` md5 `45eccc964d74b7e107ebea9343f17333`：`.32` 写 `/vol2/erp-system/app-h5/dist/build/h5`、阿里云写 `/opt/erp-system/app-h5` (原 `ff2fe93f…` = v1.1.139，备份 `/root/app-h5.bak_v1140_20261030_124322.tgz`；bind mount，原地换文件即可)；**`.150` 复核确认没有 App H5 容器** (它的 `app-h5/` 目录是死的，`8088`/`18080` 两个端口 `index.html` 都是 PC dist)。两站都从容器端口 `127.0.0.1:18090` 实取 `index.html`、`assets/ProcessInspection.IUT69qmf.js` (`ff8e1e55…`)、`assets/pages-scan-pat.BtbSqc8N.js` 与本地构建逐字节一致。
+- APK `erp-app-20261030-1140.apk` md5 `e48d37e15a9b39f0c89da52732638579` (4444577 B，versionName 1.1.140 / versionCode 1140，`build-app.sh` 全流程)。解包核对内嵌 `assets/public/index.html` md5 = 已部署 H5 `45eccc96…` (二次 `uni build` 产物与部署字节完全一致，`diff -rq` 无差异)、`ProcessInspection.IUT69qmf.js` 内含 `去做本工序制袋首检` + `实际生产工序`，且已确认**没有任何 `dbg1140` 埋点残留**。**装新 APK 后需重新登录。**
+
+**验证 (飞牛 canary `.32:18090`，真·非超管账号 `zzpat1140`／角色 `zdg`，每一跳都核对 `ensure-for-process` 请求体)**:
+1. 工单 `PD202610170002` → ④「制袋巡检」→ 「XK 生产 / 制袋工序检验」+「实际生产工序 · 仅制袋」+「制袋 · 未设置车间 · #2112787513992622082」，请求体 `{"orderId":"2111270042198421505","processId":"2112787513992622082","inspectionType":"PAT"}`，命中门禁文案「该制袋工序尚无已签核 PASS 的首件检验 FAI，请先完成本工序首检」并出现「去做本工序制袋首检」。
+2. 返回 → ②「吹膜巡检」→ 「吹膜 · 巡检检验项 (7)」，请求体 `processId=2112787513954873345`。
+3. 返回 → ④「制袋巡检」(**用户报的正是这一跳**) → 仍是制袋、参数正确。
+4. 「去做本工序制袋首检」→ `#/pages/scan/fai?orderId=…&processId=2112787513992622082&stage=BAG` → 「制袋 · 首检检验项 (10)」，请求体 `"inspectionType":"FAI"`。
+5. 从制袋首检页 `history.back()` 回制袋巡检 → 依旧「仅制袋」，不漏吹膜模板。
+- **canary 清理**: 测试期在真单上被 `ensure-*` 自动建的 3 张 DRAFT (`QI202610300004` PAT 7 项 / `QI202610300005` FAI 10 项 / `QI202610300006` OQC 13 项) + 30 个检验项 + 临时账号 `zzpat1140` (id `2133001140001140`) 及其 `sys_user_role` 行 + 6 个上传 tar 全部删除；`mes_quality_inspection` 已无 10-30 的行。清理前确认 `.32` 副本 `IO=Yes SQL=Yes Seconds_Behind=0`、`log_slave_updates=1` 但**无下游** (`Binlog Dump` 线程 0) 且 `read_only=1` (root 不受限)，故本地删除不外溢。`zdg` 是 2026-07-21 就存在的生产角色「制袋工」，保留未动。
+
+**踩坑 (值得记)**: (1) **「页面 data 对、URL 对」不等于「子组件收到的 props 对」** —— uni-app H5 同路由换 query 再进入时 keep-alive 会保住子组件的 **camelCase** props (kebab 键是新值)，`:key` / `v-if` 都拦不住；这类问题要用 CDP 读组件实例的 `vnode.props` 定性，别停在「看起来是缓存」的猜测上。(2) **跳转方必须在跳转前登记本次参数** —— 首屏那一刻 `location.hash` 可能还是上一页的、框架给 `onLoad` 的 query 可能是上一趟的；`onActiveRouteChange` 只是 URL 落地后的纠偏通道，**不能替代 `onLoad` 的取参**，两者互补。(3) 共用一个模块级 store 时**必须按 `inspectionType` 隔离订阅**并在 `beforeUnmount` 退订。(4) **浏览器标签会一直跑旧 bundle** —— `location.href='…?cb=x#…'` 再 `location.reload()` 实测 reload 的是**上一个 URL** (用 `performance.getEntriesByType('navigation')` 验)，换 bundle 验证要走完整 pathname。(5) **冷启动深链会被重定向到工作台**，并留下一个报「生产单不存在」的缓存详情实例 —— 端到端复测要走 工作台 → 生产加工单列表 → 点行。(6) `.150` 至今不托管 App H5，别再往它的 `/volume3/docker/erp-system/app-h5` 写产物当「已部署」。
+
 ### v1.1.139 (2026-10-30 — App 生产单详情 ② 的按钮点名「吹膜首检 / 吹膜巡检」，深链钉在本工单吹膜工序上，打开即吹膜工艺检验项)
 
 > **需求原话**: 「app端画红框的做首检该为吹膜首检，并将内容改为吹膜工艺的首检。」(红框 = 生产单详情 XK 流程卡 ② 的「做首检」按钮)

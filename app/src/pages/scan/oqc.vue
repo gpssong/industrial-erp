@@ -107,11 +107,16 @@ import api from '../../api/index.js'
 import { pickAndUploadImage } from '../../utils/upload.js'
 import { getApiBaseOverride } from '../../utils/apiBase.js'
 import { getAppPermissions, isAdmin } from '../../utils/permission.js'
+import { activeRouteQuery, onActiveRouteChange, takePendingRoute } from '../../utils/routeQuery.js'
+
+const PAGE_PATH = '/pages/scan/oqc'
 
 export default {
   data() {
     return {
       orderId: '',
+      routeApplied: false,
+      stopRouteWatch: null,
       loading: true,
       loadError: '',
       requestSeq: 0,
@@ -152,11 +157,40 @@ export default {
     }
   },
   onLoad(query = {}) {
-    this.orderId = query.orderId == null ? '' : String(query.orderId)
-    this.bootstrap()
+    // v1.1.140 实测: 同路由再次进入时, 框架塞给 onLoad 的 query 可能是「上一趟」的, 且那一刻
+    //   location.hash 可能还没落到本次 —— 先取 nav.js 跳转前登记的参数, 其次当前 URL, 最后框架给的。
+    this.applyRoute(takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH) || query)
+  },
+  onShow() {
+    // 原生 App 端 (无 hashchange) 的兜底; applyRoute 有 orderId 守卫, 重复触发不会重载
+    const query = takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH)
+    if (query) this.applyRoute(query)
+  },
+  mounted() {
+    // 兜底: 容器差异导致实例被复用不重建时, onLoad 不会再跑, 只剩 hashchange/popstate 这个信号
+    this.stopRouteWatch = onActiveRouteChange(PAGE_PATH, (query) => this.applyRoute(query))
+  },
+  beforeUnmount() {
+    if (this.stopRouteWatch) this.stopRouteWatch()
+    this.stopRouteWatch = null
   },
   onUnload() { this.requestSeq += 1 },
   methods: {
+    applyRoute(query = {}) {
+      const orderId = query.orderId == null ? '' : String(query.orderId)
+      if (this.routeApplied && orderId === this.orderId) return
+      this.routeApplied = true
+      const changed = !!this.orderId && orderId !== this.orderId
+      this.orderId = orderId
+      if (changed) {
+        this.requestSeq += 1
+        this.head = {}; this.items = []; this.attachments = []; this.photos = []
+        this.orderNo = ''; this.stage = ''; this.batchNo = ''
+        this.sampleQty = ''; this.qualifiedQty = ''; this.unqualifiedQty = ''; this.failReason = ''
+        this.loadError = ''
+      }
+      this.bootstrap()
+    },
     base(p) {
       const url = (p && p.fileUrl) || ''
       return url.startsWith('http') ? url : (this.apiBase().replace(/\/api$/, '') + '/' + url.replace(/^\//, ''))

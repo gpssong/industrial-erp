@@ -4,6 +4,8 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.mes.dto.WorkStartConfirmDTO;
 import com.industrial.erp.modules.mes.entity.MesBatchLink;
 import com.industrial.erp.modules.mes.entity.MesWorkStartConfirm;
@@ -63,6 +65,9 @@ import java.util.stream.Collectors;
  * (DRAFT, 扣除已被历史领料单领过的批次; 领料单开在**半成品入库所在仓**, 跨仓拆单).
  * 与 {@code release()} 同口径 —— 开工不替仓管做库存账,
  * 库存移动仍需「领料管理」审核, 避免把 制袋工 无权出库的库存动作塞进开工事务.
+ *
+ * <p>v1.1.141: 吹膜开工的必填项按商品等级分档 —— **工业品只强制「生产环境合格」**,
+ * 投料批号与批号照片留空即可开工; 食品级维持 XK16-204 原口径 (批号 + 照片都必填).
  */
 @Service
 public class MesWorkStartService {
@@ -88,6 +93,7 @@ public class MesWorkStartService {
     private final PrdRequisitionDetailMapper reqDetailMapper;
     private final MesReportService mesReportService;
     private final PrdOrderService prdOrderService;
+    private final BaseProductMapper productMapper;
     private final XkAuditService auditService;
     private final BillNoGenerator billNoGenerator;
     private final PermissionService permService;
@@ -97,6 +103,7 @@ public class MesWorkStartService {
                                XkEnvCheckMapper envMapper, PrdSemiInMapper semiInMapper,
                                PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper,
                                MesReportService mesReportService, PrdOrderService prdOrderService,
+                               BaseProductMapper productMapper,
                                XkAuditService auditService, BillNoGenerator billNoGenerator,
                                PermissionService permService) {
         this.orderMapper = orderMapper;
@@ -109,6 +116,7 @@ public class MesWorkStartService {
         this.reqDetailMapper = reqDetailMapper;
         this.mesReportService = mesReportService;
         this.prdOrderService = prdOrderService;
+        this.productMapper = productMapper;
         this.auditService = auditService;
         this.billNoGenerator = billNoGenerator;
         this.permService = permService;
@@ -121,18 +129,21 @@ public class MesWorkStartService {
     /**
      * 吹膜开工: 环境确认 → 2 份环境检查记录 → 投料批号+照片落库 → 生产单开工 (release).
      *
-     * <p>批号/照片缺失或环境不合格一律抛错 (整事务回滚, 不留半成品状态).
+     * <p>v1.1.141: **工业品只把「生产环境合格」当必填项** —— 原料批号与批号照片可留空;
+     * 食品级商品仍强制两者 (XK16-204 要求食品级投料记录可追溯), 缺任一即拒.
+     * 环境不合格一律拒绝 (整事务回滚, 不留半成品状态).
      */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> confirmBlowStart(Long orderId, WorkStartConfirmDTO dto) {
         PrdOrder order = requireOrder(orderId);
         requireEnvQualified(dto);
+        boolean foodGrade = isFoodGradeProduct(order);
         List<String> batchNos = normalize(dto.getRawBatchNos());
-        if (batchNos.isEmpty()) {
-            throw BizException.of("请填写本次投入的原料批号 (XK16-204 要求投料记录可追溯)");
+        if (foodGrade && batchNos.isEmpty()) {
+            throw BizException.of("请填写本次投入的原料批号 (XK16-204 要求食品级投料记录可追溯)");
         }
         List<String> photos = normalize(dto.getPhotoUrls());
-        if (photos.isEmpty()) {
+        if (foodGrade && photos.isEmpty()) {
             throw BizException.of("请拍摄原料批号标识照片 (至少 1 张)");
         }
 
@@ -162,7 +173,7 @@ public class MesWorkStartService {
 
         auditService.writeAudit("XK_WORK_START", rec.getConfirmNo(), "BLOW_START",
                 "生产单=" + order.getBillNo() + " 车间=" + rec.getWorkshop()
-                        + " 投料批号=" + rec.getRawBatchNos()
+                        + " 投料批号=" + (batchNos.isEmpty() ? "未填写(工业品选填)" : String.join(",", batchNos))
                         + " 照片=" + photos.size() + " 张"
                         + " 环境检查=" + rec.getEnvCheckIds(),
                 null, null, null);
@@ -246,6 +257,18 @@ public class MesWorkStartService {
         PrdOrder order = orderMapper.selectById(orderId);
         if (order == null) throw BizException.of("生产单不存在: " + orderId);
         return order;
+    }
+
+    /**
+     * 该生产单商品是否食品级 (base_product.is_food_grade=1).
+     *
+     * <p>查不到 / 无商品 / 非 1 一律按工业品处理 —— 与 {@code PrdSemiInService} 的
+     * 「食品级才走 XK 硬门禁, 工业品放行」豁免口径一致 (v1.1.102 起)。
+     */
+    private boolean isFoodGradeProduct(PrdOrder order) {
+        if (order == null || order.getProductId() == null) return false;
+        BaseProduct p = productMapper.selectById(order.getProductId());
+        return p != null && p.getIsFoodGrade() != null && p.getIsFoodGrade() == 1;
     }
 
     private void requireEnvQualified(WorkStartConfirmDTO dto) {

@@ -12,9 +12,9 @@ public class WorkStartConfirmDTO {
     private Long processId;
     /** 生产环境是否合格 — 必须显式 true, 否则拒绝开工 */
     private Boolean envQualified;
-    /** 吹膜投料原料批号 (BLOW 必填, 至少 1 个) */
+    /** 吹膜投料原料批号 — 食品级商品必填 (至少 1 个); 工业品选填 (v1.1.141) */
     private List<String> rawBatchNos;
-    /** 原料批号照片 URL (BLOW 必填, 至少 1 张) */
+    /** 原料批号照片 URL — 食品级商品必填 (至少 1 张); 工业品选填 (v1.1.141) */
     private List<String> photoUrls;
     private String remark;
 
