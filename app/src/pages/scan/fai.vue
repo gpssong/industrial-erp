@@ -1,6 +1,6 @@
 <template>
-  <ProcessInspection v-if="processMode" :order-id="processOrderId" :process-id="processId" :stage="processStage" inspection-type="FAI" />
-  <view v-else class="container">
+  <ProcessInspection v-if="processMode && processReady" :key="processSig" :order-id="processOrderId" :process-id="processId" :stage="processStage" inspection-type="FAI" />
+  <view v-else-if="!processMode" class="container">
     <view class="xk-strip">
       <view class="strip-bread">XK 生产 / 首检·半成品检验</view>
       <view class="strip-title">首检 (FAI) 现场检验</view>
@@ -96,12 +96,17 @@ import { pickAndUploadImage } from '../../utils/upload.js'
 import { getApiBaseOverride } from '../../utils/apiBase.js'
 import { getAppPermissions, isAdmin } from '../../utils/permission.js'
 import ProcessInspection from '../../components/ProcessInspection.vue'
+import { activeRouteQuery, onActiveRouteChange, setInspectionContext, takePendingRoute } from '../../utils/routeQuery.js'
+
+const PAGE_PATH = '/pages/scan/fai'
+const str = v => (v == null ? '' : String(v))
 
 export default {
   components: { ProcessInspection },
   data() {
     return {
-      processMode: false, processOrderId: '', processId: '', processStage: '',
+      processMode: false, processReady: false, processOrderId: '', processId: '', processStage: '',
+      routeApplied: false, routeSemiInId: '', stopRouteWatch: null,
       recordLoading: false, loadError: '', requestSeq: 0, uploading: false,
       loading: true,
       semiInList: [],
@@ -118,6 +123,8 @@ export default {
     }
   },
   computed: {
+    // v1.1.140: 参数就是子组件的身份 —— 同路由换工序时页面实例会被复用, 光靠 v-if 开关不足以保证重建
+    processSig() { return [this.processOrderId, this.processId, this.processStage].join('|') },
     // v1.1.131: 单号后带商品名称, 选单时不用再回查是哪个半成品
     semiInOptions() {
       return this.semiInList.map((x) => {
@@ -134,19 +141,61 @@ export default {
     ready() { return !this.formReadOnly && this.items.length > 0 && this.itemsFail === 0 }
   },
   onLoad(query = {}) {
-    this.processOrderId = query.orderId == null ? '' : String(query.orderId)
-    this.processId = query.processId == null ? '' : String(query.processId)
-    this.processStage = query.stage == null ? '' : String(query.stage).toUpperCase()
-    // v1.1.138: 吹膜首检也不再选半成品入库单 —— 现场顺序是 开工→首检→入库, 入库单那时还不存在,
-    // 首检按「工单 + 实际工序」做 (与巡检/制袋首检同一组件), 挂在 PRD_PROCESS 上。
-    this.processMode = this.processStage === 'BAG' || this.processStage === 'BLOW' || !!this.processId
-    if (this.processMode) return
-    try { this.apiBase = getApiBaseOverride() || (typeof window !== 'undefined' ? window.location.origin + '/api' : '') } catch (e) {}
-    this.loadSemiIn()
-    if (query.semiInId) { this.semiInId = String(query.semiInId); this.bootstrap() }
+    // v1.1.140 实测: 同路由再次进入时, 框架塞给 onLoad 的 query 可能是「上一趟」的, 且那一刻
+    //   location.hash 可能还没落到本次 —— 先取 nav.js 跳转前登记的参数, 其次当前 URL, 最后框架给的。
+    this.applyRoute(takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH) || query)
+  },
+  onShow() {
+    // 原生 App 端 (无 hashchange) 的兜底; applyRoute 有签名守卫, 重复触发不会重建子组件
+    const query = takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH)
+    if (query) this.applyRoute(query)
+  },
+  mounted() {
+    // 兜底: 容器差异导致实例被复用不重建时, onLoad 不会再跑, 只剩 hashchange/popstate 这个信号
+    this.stopRouteWatch = onActiveRouteChange(PAGE_PATH, (query) => this.applyRoute(query))
+  },
+  beforeUnmount() {
+    if (this.stopRouteWatch) this.stopRouteWatch()
+    this.stopRouteWatch = null
   },
   onUnload() { this.requestSeq += 1 },
   methods: {
+    applyRoute(query = {}) {
+      const orderId = str(query.orderId)
+      const processId = str(query.processId)
+      const stage = query.stage == null ? '' : str(query.stage).toUpperCase()
+      const semiInId = str(query.semiInId)
+      // v1.1.138: 吹膜首检也不再选半成品入库单 —— 现场顺序是 开工→首检→入库, 入库单那时还不存在,
+      // 首检按「工单 + 实际工序」做 (与巡检/制袋首检同一组件), 挂在 PRD_PROCESS 上。
+      const mode = ['BAG', 'BLOW'].includes(stage) || !!processId
+      // 每次都登记: 页面实例被复用时子组件 props 会被保住, 组件以这份上下文为准认工序 (见 utils/routeQuery.js)
+      if (mode) setInspectionContext({ inspectionType: 'FAI', orderId, processId, stage })
+      const unchanged = this.routeApplied && orderId === this.processOrderId && processId === this.processId
+        && stage === this.processStage && semiInId === this.routeSemiInId
+      if (unchanged) return
+      this.routeApplied = true
+      this.processOrderId = orderId
+      this.processId = processId
+      this.processStage = stage
+      this.routeSemiInId = semiInId
+      this.processMode = mode
+      if (mode) {
+        // 换工单/工序就重建子组件, 别把上一道工序的检验单带过来
+        this.processReady = false
+        this.$nextTick(() => { this.processReady = true })
+        return
+      }
+      this.resetLegacy()
+      try { this.apiBase = getApiBaseOverride() || (typeof window !== 'undefined' ? window.location.origin + '/api' : '') } catch (e) {}
+      this.loadSemiIn()
+      if (semiInId) { this.semiInId = semiInId; this.bootstrap() }
+    },
+    resetLegacy() {
+      this.requestSeq += 1
+      this.semiInId = null; this.faiId = null; this.fai = {}; this.items = []; this.attachments = []
+      this.photos = []; this.pendingPhotoUrls = null; this.faiSigned = false
+      this.loadError = ''; this.recordLoading = false; this.loading = true
+    },
     base(p) { return p && p.fileUrl && p.fileUrl.startsWith('http') ? p.fileUrl : (this.apiBase.replace(/\/api$/, '') + '/' + (p.fileUrl || '')) },
     async loadSemiIn() {
       try {

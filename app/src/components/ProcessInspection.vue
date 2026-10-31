@@ -26,7 +26,7 @@
       </view>
 
       <view v-if="selectedOrderId" class="card">
-        <view class="section-title">实际生产工序{{ stage ? ' · 仅' + stageLabel : '' }}</view>
+        <view class="section-title">实际生产工序{{ liveStage ? ' · 仅' + stageLabel : '' }}</view>
         <picker :range="processOptions" :disabled="selectionLocked || loading || !filteredProcesses.length" @change="onPickProcess">
           <view class="picker-box" :class="{ active: selectedProcessId }">
             {{ selectedProcess ? processLabel(selectedProcess) : (loading ? '加载工序中…' : '请选择实际工序') }}
@@ -37,7 +37,10 @@
           该工单尚未配置或展开{{ stageLabel }}工序，请联系生产管理人员检查工序配置；不会改用其他工序模板。
           <button class="small-btn retry" :disabled="selectionLocked" @click="retry">重新加载工序</button>
         </view>
-        <view v-if="stageLabel === '制袋' && inspectionType === 'PAT'" class="notice">制袋巡检须先完成同一实际工序的首检并签合格。</view>
+        <view v-if="stageLabel === '制袋' && inspectionType === 'PAT'" class="notice">
+          制袋巡检须先完成同一实际工序的首检并签合格。
+          <button v-if="canWrite && selectedProcessId" class="small-btn retry" :disabled="selectionLocked" @click="goProcessFai">去做本工序制袋首检</button>
+        </view>
         <view v-if="inspectionType === 'FAI'" class="muted hint">已下达或生产中的工单可首件试制，工序未开工不影响首检。</view>
       </view>
 
@@ -119,6 +122,8 @@ import { getAppPermissions, isAdmin } from '../utils/permission.js'
 import { pickAndUploadImage } from '../utils/upload.js'
 import { getApiBaseOverride } from '../utils/apiBase.js'
 import { isH5Runtime } from '../utils/runtime.js'
+import { navigateTo } from '../utils/nav.js'
+import { getInspectionContext, onInspectionContextChange } from '../utils/routeQuery.js'
 
 const emptyForm = () => ({ sampleQty: '', qualifiedQty: '', unqualifiedQty: '', batchNo: '' })
 const stringId = value => value == null ? '' : String(value)
@@ -141,16 +146,23 @@ export default {
       selectedOrderId: '', selectedOrder: null, processes: [], selectedProcessId: '', selectedProcess: null,
       inspectionId: '', head: {}, items: [], photos: [], form: emptyForm(),
       loading: false, submitting: false, uploading: false, error: '', submitError: '', requestSeq: 0,
-      retryProcessId: '', checkedRecords: {}, initialized: false,
+      retryProcessId: '', checkedRecords: {}, initialized: false, stopCtxWatch: null, routeCtx: null,
       judgmentOptions: [{ value: -1, label: '待检', className: 'pending' }, { value: 1, label: '合格', className: 'pass' }, { value: 0, label: '不合格', className: 'fail' }]
     }
   },
   computed: {
     canWrite() { return isAdmin() || getAppPermissions().includes('quality:inspection:check') },
     canRead() { return this.canWrite || getAppPermissions().includes('quality:inspection:list') },
+    // v1.1.140 实测: 同路由再次进入时 uni-app 的 keep-alive 会把子组件 props「保住」——模板里 kebab 属性
+    //   拿到新值, 组件声明使用的 camel 属性仍是上一道工序那份 (见 utils/routeQuery.js 底部)。
+    //   所以本工序身份一律以页面登记的上下文为准, props 只作上下文缺位时的兜底。
+    liveCtx() { return this.routeCtx && this.routeCtx.inspectionType === this.inspectionType ? this.routeCtx : null },
+    liveOrderId() { return (this.liveCtx && this.liveCtx.orderId) || this.orderId },
+    liveProcessId() { return (this.liveCtx && this.liveCtx.processId) || this.processId },
+    liveStage() { return (this.liveCtx && this.liveCtx.stage) || this.stage },
     typeLabel() { return this.inspectionType === 'FAI' ? '首检' : '巡检' },
-    stageLabel() { return ({ BAG: '制袋', BLOW: '吹膜' })[this.stage || stageOf(this.selectedProcess)] || '制袋 / 吹膜' },
-    filteredProcesses() { return this.processes.filter(process => stageOf(process) && (!this.stage || stageOf(process) === this.stage)) },
+    stageLabel() { return ({ BAG: '制袋', BLOW: '吹膜' })[this.liveStage || stageOf(this.selectedProcess)] || '制袋 / 吹膜' },
+    filteredProcesses() { return this.processes.filter(process => stageOf(process) && (!this.liveStage || stageOf(process) === this.liveStage)) },
     orderOptions() { return this.orderList.map(this.orderLabel) },
     processOptions() { return this.filteredProcesses.map(this.processLabel) },
     selectionLocked() { return this.submitting || this.uploading },
@@ -161,16 +173,23 @@ export default {
     passCount() { return this.items.filter(item => item.passFlag === 1).length },
     failCount() { return this.items.filter(item => item.passFlag === 0).length },
     verdictLabel() { return this.checked ? (this.head.result === 'PASS' ? '已签合格 PASS' : '已签核 ' + (this.head.result || '')) : '草稿 · 待签核' },
-    routeKey() { return [this.orderId, this.processId, this.stage, this.inspectionType].join('|') }
+    routeKey() { return [this.liveOrderId, this.liveProcessId, this.liveStage, this.inspectionType].join('|') }
   },
   watch: {
     routeKey() { if (this.initialized && !this.selectionLocked) this.initialize() }
   },
   mounted() {
     this.initialized = true
+    const ctx = getInspectionContext()
+    if (ctx && ctx.inspectionType === this.inspectionType) this.routeCtx = ctx
+    this.stopCtxWatch = onInspectionContextChange((next) => {
+      if (next && next.inspectionType === this.inspectionType) this.routeCtx = next
+    })
     this.initialize()
   },
   beforeUnmount() {
+    if (this.stopCtxWatch) this.stopCtxWatch()
+    this.stopCtxWatch = null
     this.requestSeq += 1
     this.orderRequestSeq += 1
   },
@@ -187,12 +206,12 @@ export default {
       this.clearRecord()
       this.selectedOrderId = ''; this.selectedOrder = null; this.processes = []; this.selectedProcessId = ''; this.selectedProcess = null; this.error = ''; this.loading = false
       if (!this.canRead) return
-      if (!['FAI', 'PAT'].includes(this.inspectionType) || (this.stage && !['BAG', 'BLOW'].includes(this.stage))) {
+      if (!['FAI', 'PAT'].includes(this.inspectionType) || (this.liveStage && !['BAG', 'BLOW'].includes(this.liveStage))) {
         this.error = '不支持的检验类型或工序阶段，请从正确入口进入。'
         return
       }
       this.loadOrders(1)
-      if (this.orderId) this.selectOrder(this.orderId, this.processId)
+      if (this.liveOrderId) this.selectOrder(this.liveOrderId, this.liveProcessId)
     },
     async loadOrders(page) {
       if (this.selectionLocked || !this.canRead) return
@@ -287,7 +306,7 @@ export default {
       throw new Error('该实际工序尚无检验记录；当前仅可查看，请有签核权限的检验员创建。')
     },
     applyRecord(result, process) {
-      if (!result || !result.head || !result.head.id || !Array.isArray(result.items) || !result.process || stringId(result.process.id) !== stringId(process.id) || !result.order || stringId(result.order.id) !== this.selectedOrderId || result.stage !== stageOf(process) || (this.stage && result.stage !== this.stage)) {
+      if (!result || !result.head || !result.head.id || !Array.isArray(result.items) || !result.process || stringId(result.process.id) !== stringId(process.id) || !result.order || stringId(result.order.id) !== this.selectedOrderId || result.stage !== stageOf(process) || (this.liveStage && result.stage !== this.liveStage)) {
         throw new Error('检验数据与所选工单 / 工序不一致，已阻止保存，请重新加载')
       }
       if (result.head.inspectionType && result.head.inspectionType !== this.inspectionType) throw new Error('检验类型不匹配，已阻止保存')
@@ -327,6 +346,13 @@ export default {
       else this.selectOrder(this.selectedOrderId, this.retryProcessId)
     },
     setJudgment(item, value) { if (!this.readOnly) item.passFlag = value },
+    goProcessFai() {
+      // v1.1.140: 制袋巡检被「同工序 FAI 未签合格」门禁挡住时, 直接带去本工序的首检页 (带 processId, 落在同一道实际工序)。
+      if (!this.selectedOrderId || !this.selectedProcessId) return
+      navigateTo('/pages/scan/fai?orderId=' + encodeURIComponent(this.selectedOrderId)
+        + '&processId=' + encodeURIComponent(this.selectedProcessId)
+        + '&stage=' + encodeURIComponent(this.liveStage || stageOf(this.selectedProcess) || 'BAG'))
+    },
     photoUrl(url) {
       if (/^(https?:|data:|blob:)/i.test(url)) return url
       const base = getApiBaseOverride() || (isH5Runtime() ? window.location.origin + '/api' : 'http://home.93gushi.com:8088/api')

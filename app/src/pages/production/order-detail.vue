@@ -109,7 +109,7 @@
             <view class="step-no">{{ stepDone(1) ? '✓' : '①' }}</view>
             <view class="step-body">
               <text class="step-name">开工 · 吹膜</text>
-              <text class="step-desc">确认生产环境合格 → 录原料批号并拍照 → 展开领料 + 工序链</text>
+              <text class="step-desc">{{ isFoodGradeOrder ? '确认生产环境合格 → 录原料批号并拍照 → 展开领料 + 工序链' : '确认生产环境合格 (必填) → 原料批号与照片选填 → 展开领料 + 工序链' }}</text>
               <view v-if="order.releaseName" class="release-who">👤 开工: <text class="release-val">{{ order.releaseName }}</text></view>
               <view v-if="blowConfirm" class="start-facts">
                 <text class="start-fact">原料批号: {{ blowConfirm.rawBatchNos || '-' }}</text>
@@ -155,9 +155,11 @@
               </view>
               <view class="step-btns">
                 <button v-if="canBagStart()" class="step-btn" @click="openStartSheet('BAG')">开工</button>
-                <button v-if="canInspect()" class="step-btn small" @click="goScan('/pages/scan/fai', 'BAG')">制袋首检</button>
-                <button v-if="canInspect()" class="step-btn small" @click="goScan('/pages/scan/pat', 'BAG')">制袋巡检</button>
-                <button v-if="canReport()" class="step-btn" @click="goScan('/pages/production/report', 'BAG')">工序报工</button>
+                <!-- v1.1.140: 与 ② 同样钉住本工单的制袋工序 id —— 同路由再次进入时 uni-app H5 新建实例
+                     却把「上一趟」的 query 交给 onLoad, 光靠 stage 会被上一趟吹膜的参数渲染。 -->
+                <button v-if="canInspect()" class="step-btn small" @click="goScan('/pages/scan/fai', 'BAG', bagProcess && bagProcess.id)">制袋首检</button>
+                <button v-if="canInspect()" class="step-btn small" @click="goScan('/pages/scan/pat', 'BAG', bagProcess && bagProcess.id)">制袋巡检</button>
+                <button v-if="canReport()" class="step-btn" @click="goScan('/pages/production/report', 'BAG', bagProcess && bagProcess.id)">工序报工</button>
               </view>
               <view v-if="bagProcess && !bagStarted" class="gate-hint">未开工工序不能报工, 请先点「开工」确认生产环境</view>
             </view>
@@ -250,14 +252,14 @@
           <view v-if="sheet.env === false" class="ws-warn">生产环境不合格禁止开工。请先整理整改, 再重新确认。</view>
 
           <template v-if="sheet.stage === 'BLOW'">
-            <text class="ws-label">2. 本次投入的原料批号</text>
+            <text class="ws-label">2. 本次投入的原料批号{{ isFoodGradeOrder ? '' : ' (选填)' }}</text>
             <view v-for="(b, i) in sheet.batches" :key="'b' + i" class="ws-batch-row">
               <input v-model="sheet.batches[i]" class="ws-input" placeholder="如 L20261028-03 / 原料袋上批号" />
               <text v-if="sheet.batches.length > 1" class="ws-del" @click="sheet.batches.splice(i, 1)">删除</text>
             </view>
             <view class="ws-add" @click="sheet.batches.push('')">＋ 添加批号</view>
 
-            <text class="ws-label">3. 拍下原料批号标识 (至少 1 张)</text>
+            <text class="ws-label">3. 拍下原料批号标识{{ isFoodGradeOrder ? ' (必填, 至少 1 张)' : ' (选填)' }}</text>
             <view class="ws-photo-row">
               <view v-for="(u, i) in sheet.photos" :key="'p' + i" class="ws-thumb">
                 <image :src="u" mode="aspectFill" class="ws-photo" @click="previewPhotos(sheet.photos, i)" />
@@ -265,13 +267,16 @@
               </view>
               <view v-if="sheet.photos.length < 3" class="ws-shoot" @click="onShoot">📷 拍照 / 相册</view>
             </view>
+            <view v-if="!isFoodGradeOrder" class="ws-tip">
+              工业品开工只需确认生产环境合格, 批号与照片可留空; 填写后仍会登记到批次追溯, 建议填写。
+            </view>
           </template>
 
           <text class="ws-label">{{ sheet.stage === 'BAG' ? '2' : '4' }}. 备注 (选填)</text>
           <input v-model="sheet.remark" class="ws-input" placeholder="如 2# 吹膜机, 换网后开工" />
 
           <view class="ws-note">
-            确认开工后自动生成{{ sheet.stage === 'BAG' ? '「制袋车间」' : '「吹膜车间」' }} 2 份生产环境检查合格记录{{ sheet.stage === 'BAG' ? ', 并按该单已入库半成品生成领料单' : ', 投料批号同步登记到批次追溯' }}。
+            确认开工后自动生成{{ sheet.stage === 'BAG' ? '「制袋车间」' : '「吹膜车间」' }} 2 份生产环境检查合格记录{{ sheet.stage === 'BAG' ? ', 并按该单已入库半成品生成领料单' : (isFoodGradeOrder ? ', 投料批号同步登记到批次追溯' : ', 投料批号如填写将同步登记到批次追溯') }}。
           </view>
           <view class="ws-actions">
             <text class="ws-cancel" @click="closeStartSheet">取消</text>
@@ -298,6 +303,9 @@ import api from '../../api/index.js'
 import { pickAndUploadImage } from '../../utils/upload.js'
 import { applyTabBar, isAdmin, getPermissions, getAppPermissions } from '../../utils/permission.js'
 import { navigateTo } from '../../utils/nav.js'
+import { activeRouteQuery, takePendingRoute } from '../../utils/routeQuery.js'
+
+const PAGE_PATH = '/pages/production/order-detail'
 
 const STATUS_MAP = {
   DRAFT: '草稿', RELEASED: '已开工', PRODUCING: '生产中',
@@ -336,9 +344,13 @@ const bagConfirm = computed(() => startRecords.value.find(r => r.stage === 'BAG'
 // 制袋「已开工」= 有过开工确认台账 或 工序状态已脱离未开工 (1 进行中 / 2 完成)
 const bagStarted = computed(() => !!bagConfirm.value
   || (!!bagProcess.value && Number(bagProcess.value.status || 0) >= 1))
+// v1.1.141: 该生产单商品是否食品级 (base_product.is_food_grade=1, 由后端 detail 接口回填 pIsFoodGrade)
+const isFoodGradeOrder = computed(() => Number((order.value || {}).pIsFoodGrade) === 1)
 const canSubmitStart = computed(() => {
   if (sheet.env !== true) return false
   if (sheet.stage !== 'BLOW') return true
+  // v1.1.141: 工业品开工只把「生产环境合格」当必填项; 食品级仍要求投料批号 + 批号照片 (XK16-204)
+  if (!isFoodGradeOrder.value) return true
   const batches = (sheet.batches || []).map(s => String(s || '').trim()).filter(s => s)
   return batches.length > 0 && (sheet.photos || []).length > 0
 })
@@ -572,7 +584,9 @@ async function onStartSubmit() {
     const reqNo = r && r.requisitionNo
     const msg = isBag
       ? ('制袋已开工' + (reqNo ? ', 领料单 ' + reqNo + ' 待仓管审核' : ''))
-      : ('吹膜已开工' + (unknown.length ? ', 批号 ' + unknown.join('/') + ' 系统暂无来料记录' : ''))
+      : ('吹膜已开工' + (batches.length
+          ? (unknown.length ? ', 批号 ' + unknown.join('/') + ' 系统暂无来料记录' : '')
+          : ', 未登记投料批号 (工业品选填)'))
     if (typeof uni !== 'undefined' && uni.showModal) {
       uni.showModal({
         title: '开工成功',
@@ -586,7 +600,7 @@ async function onStartSubmit() {
     console.warn('[order-detail.onStartSubmit] 失败:', e)
     if (e && e.code === 401) return
     if (typeof uni !== 'undefined' && uni.showModal) {
-      uni.showModal({ title: '开工失败', content: e.message || '请检查生产环境与原料批号', showCancel: false })
+      uni.showModal({ title: '开工失败', content: e.message || '请检查生产环境与必填项', showCancel: false })
     }
   } finally {
     sheet.submitting = false
@@ -654,8 +668,11 @@ async function onShare() {
 onLoad((options) => {
   // v1.1.11+: id 是 JS Number 会丢精度 (Long > 2^53), 保留原始字符串传给后端
   // v1.1.11+ 修: onLoad 直接调 loadOrder(id), 不靠 onMounted, 避免 module-scope let 跨 reLaunch 缓存
-  if (options && options.id) {
-    orderId.value = String(options.id)
+  // v1.1.140 实测: 列表→详情A→返回→详情B 时框架塞给 onLoad 的 query 可能是「上一趟」的,
+  //   那一刻 location.hash 也可能还没落地 —— 先取跳转前登记的参数, 其次当前 URL, 最后 options。
+  const query = takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH) || options || {}
+  if (query.id) {
+    orderId.value = String(query.id)
     loadOrder(orderId.value)
   }
 })
@@ -786,6 +803,7 @@ onMounted(() => { applyTabBar() })
 .ws-radio.ok.on { background: #f0f9eb; border-color: #67c23a; color: #67c23a; font-weight: 600; }
 .ws-radio.bad.on { background: #fef0f0; border-color: #f56c6c; color: #f56c6c; font-weight: 600; }
 .ws-warn { margin-top: 8px; font-size: 12px; color: #f56c6c; background: #fef0f0; border-radius: 6px; padding: 8px 10px; }
+.ws-tip { margin-top: 8px; font-size: 12px; color: #909399; background: #f4f4f5; border-radius: 6px; padding: 8px 10px; line-height: 1.6; }
 .ws-batch-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .ws-input { flex: 1; border: 1px solid #dcdfe6; border-radius: 6px; padding: 8px 10px; font-size: 14px; background: #fff; }
 .ws-del { font-size: 12px; color: #f56c6c; padding: 0 6px; }

@@ -21,7 +21,7 @@
             <view class="bill-no">{{ order.billNo }} · {{ order.productName || '—' }}</view>
             <view class="muted">× {{ order.planQty || 0 }}</view>
           </view>
-          <view class="muted" @click="reset">重扫</view>
+          <view class="muted" @click="reset()">重扫</view>
         </view>
       </view>
 
@@ -86,17 +86,22 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { api } from '@/api/index.js'
 import { doScan } from '../../utils/scan.js'
 import { guardPage } from '../../utils/appModuleEnabled.js'
 import { getAppPermissions, isAdmin } from '../../utils/permission.js'
 import { navigateTo } from '../../utils/nav.js'
+import { activeRouteQuery, onActiveRouteChange, takePendingRoute } from '../../utils/routeQuery.js'
+
+const PAGE_PATH = '/pages/production/report'
 
 const loading = ref(false)
 const stage = ref('')
 const processId = ref('')
+const routeSig = ref('')
+let loadSeq = 0
 const loaded = ref(false)
 const order = ref({})
 const processes = ref([])
@@ -163,10 +168,11 @@ async function refreshProcesses(operator = '') {
   await Promise.all(ps.map(loadParams))
 }
 
-async function loadOrder(ord) {
+async function loadOrder(ord, seq = loadSeq) {
   order.value = ord
   billNo.value = ord.billNo || ''
   await refreshProcesses()
+  if (seq !== loadSeq) return
   loaded.value = true
   scanMsg.value = ''
 }
@@ -226,32 +232,80 @@ async function onReport(p) {
   }
 }
 
-function reset() {
+function reset(keepRoute = false) {
   if (submitting.value || loading.value) return
   loaded.value = false
   order.value = {}
   processes.value = []
-  processId.value = ''
+  if (!keepRoute) processId.value = ''
   billNo.value = ''
   scanMsg.value = ''
   Object.keys(forms).forEach(key => delete forms[key])
   Object.keys(params).forEach(key => delete params[key])
 }
 
-onLoad(async (options = {}) => {
-  if (!guardPage('production')) return
-  stage.value = ['BAG', 'BLOW'].includes(options.stage) ? options.stage : ''
-  processId.value = options.processId ? String(options.processId) : ''
-  if (!options.orderId) return
+// v1.1.140: 深链参数只读一次不够 —— uni-app H5 (含 APK) 同路由换 query 时, 实测 (`.32` + zzpat1140 +
+//           XHR 埋点) 会销毁旧实例、新建实例, 但交给 onLoad 的是「上一趟」的 query; 首屏只能靠
+//           直接读当前 URL 拿准参数, hashchange/popstate 是实例被复用不重建时的兜底。
+//           旧 stage 留着 BLOW 时, refreshProcesses
+//           按「制袋/吹膜」过滤工序, 「制袋报工」打开的是吹膜工序行, 工人会把数报给吹膜。
+//           只认「URL 明确带 orderId」的激活; 无参数的激活保留现场 (扫码/切后台回来不能打断填写)。
+function applyRoute(options = {}) {
+  const orderId = options.orderId == null ? '' : String(options.orderId)
+  const nextStage = ['BAG', 'BLOW'].includes(options.stage) ? options.stage : ''
+  const nextProcessId = options.processId == null ? '' : String(options.processId)
+  const sig = [orderId, nextStage, nextProcessId].join('|')
+  if (routeSig.value === sig) return ''
+  routeSig.value = sig
+  stage.value = nextStage
+  processId.value = nextProcessId
+  return orderId
+}
+
+async function loadByOrderId(orderId) {
+  // 连续切深链 (A 单 → B 单) 时两个请求会并存; 只有最后一次发起的响应才允许写页面
+  const seq = ++loadSeq
   loading.value = true
   scanMsg.value = '加载中...'
   try {
-    await loadOrder(await api.prdOrderDetail(String(options.orderId)))
+    const ord = await api.prdOrderDetail(orderId)
+    if (seq !== loadSeq) return
+    await loadOrder(ord, seq)
   } catch (e) {
+    if (seq !== loadSeq) return
     scanMsg.value = '加载失败: ' + (e?.msg || e?.message || '请重新选择生产单')
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
+}
+
+onLoad(async (options = {}) => {
+  if (!guardPage('production')) return
+  // v1.1.140 实测: 同路由再次进入时, 框架塞给 onLoad 的 query 可能是「上一趟」的, 且那一刻
+  //   location.hash 可能还没落到本次 —— 先取 nav.js 跳转前登记的参数, 其次当前 URL, 最后框架给的。
+  const orderId = applyRoute(takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH) || options)
+  if (!orderId) return
+  await loadByOrderId(orderId)
+})
+
+function syncFromUrl(query) {
+  if (!query || !query.orderId) return
+  const orderId = applyRoute(query)
+  if (!orderId) return
+  reset(true)
+  loadByOrderId(orderId)
+}
+
+onShow(() => syncFromUrl(takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH)))
+
+let stopRouteWatch = null
+onMounted(() => {
+  // v1.1.140: 容器差异导致实例被复用不重建时的兜底信号 (首屏靠 onLoad 直接读 URL, 见 utils/routeQuery.js)
+  stopRouteWatch = onActiveRouteChange(PAGE_PATH, syncFromUrl)
+})
+onBeforeUnmount(() => {
+  if (stopRouteWatch) stopRouteWatch()
+  stopRouteWatch = null
 })
 </script>
 

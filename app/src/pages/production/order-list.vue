@@ -53,6 +53,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
 import { applyTabBar } from '../../utils/permission.js'
 import { guardPage } from '../../utils/appModuleEnabled.js'
+import { rememberRoute } from '../../utils/routeQuery.js'
 
 const STATUS_OPTIONS = [
   { value: '',        label: '全部' },
@@ -104,7 +105,9 @@ async function loadData() {
 function goDetail(item) {
   // v1.1.11+: 用 uni.navigateTo 显式 push 详情页 (而非 reLaunch)
   // 避免详情页 reLaunch 后 Vue setup 模块级 ref/闭包状态污染导致第二次进入仍显示 a
-  uni.navigateTo({ url: '/pages/production/order-detail?id=' + String(item.id) })
+  const url = '/pages/production/order-detail?id=' + String(item.id)
+  rememberRoute(url)  // v1.1.140: 详情页 onLoad 先取这份, 不信框架/URL 的时序
+  uni.navigateTo({ url })
 }
 
 function goAdd() {
