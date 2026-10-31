@@ -130,12 +130,28 @@ export default {
       return perms.includes('production:semi-in:uncheck') || perms.includes('admin') || this.isMyAdmin()
     }
   },
-  onLoad(query) {
-    this.loadAll()
+  async onLoad(query) {
     this.loadInList()
-    if (query && query.orderId) { this.orderId = String(query.orderId); this.onOrderPicked() }
+    // v1.1.142: 等列表加载完再应用深链 orderId (与 scan/finished-in 同病: 同步调 onOrderPicked 时
+    // orderList 还是空的, pickedOrder 取不到 → 数量/批号一个都没带出来).
+    await this.loadAll()
+    if (query && query.orderId) await this.applyOrder(query.orderId)
   },
   methods: {
+    // v1.1.142: 深链带入工单 (列表里找不到就按 id 单独补拉)
+    async applyOrder(id) {
+      this.orderId = String(id)
+      if (!this.orderList.some((x) => String(x.id) === String(id))) {
+        try {
+          const r = await api.prdOrderDetail(id)
+          const o = (r && (r.data || r)) || null
+          if (o && o.id != null) this.orderList.push(o)
+        } catch (e) {
+          console.warn('[semi-in.applyOrder] 按 id 补拉工单失败:', e)
+        }
+      }
+      this.onOrderPicked()
+    },
     // v1.1.102 hotfix-3: 读 App 端 perm 集合 (erp_menus 派生, 兼容 erp_permissions 兜底)
     getMyAppPerms() {
       try {

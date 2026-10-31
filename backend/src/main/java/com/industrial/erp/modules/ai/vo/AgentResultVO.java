@@ -17,6 +17,12 @@ public class AgentResultVO {
     private String model;
     /** v1.1.77 新增: 实际命中的 provider name (供运维日志/前端可选展示). */
     private String llmProvider;
+    /**
+     * v1.1.144 新增: 只读工具产出的结构化表格, 原样透传 (后端算出来的那份, 不经模型转述)。
+     * 元素形如 {@code {title, fileName, columns:[{key,label}], rows:[...], totals:{...}, note, params}},
+     * 前端直接渲染成表并提供「下载 CSV」。
+     */
+    private List<Object> tables = new ArrayList<>();
 
     public AgentResultVO() {}
 
@@ -37,4 +43,6 @@ public class AgentResultVO {
     public void setModel(String model) { this.model = model; }
     public String getLlmProvider() { return llmProvider; }
     public void setLlmProvider(String llmProvider) { this.llmProvider = llmProvider; }
+    public List<Object> getTables() { return tables; }
+    public void setTables(List<Object> tables) { this.tables = tables == null ? new ArrayList<>() : tables; }
 }

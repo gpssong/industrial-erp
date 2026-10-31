@@ -11,10 +11,15 @@ import com.industrial.erp.modules.ai.replenish.ReplenishService;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseSupplier;
+import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
+import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.inventory.mapper.InvStockPageQueryMapper;
+import com.industrial.erp.modules.production.entity.PrdFinishedIn;
+import com.industrial.erp.modules.production.service.PrdFinishedInService;
+import com.industrial.erp.modules.report.service.SalesSummaryService;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalOrder;
 import com.industrial.erp.modules.sales.service.SalDeliveryService;
@@ -29,13 +34,14 @@ import java.util.List;
  *
  * <p>设计红线:
  * <ul>
- *   <li><b>只读</b>: 只暴露 SELECT 类查询 (库存/客户/产品/出库单), agent 无法直接改数据。</li>
+ *   <li><b>只读</b>: 只暴露 SELECT 类查询 (库存/客户/产品/供应商/仓库/出库单/成品入库单), agent 无法直接改数据。</li>
  *   <li><b>写类不走这里</b>: 增删改/审核不进注册表; agent 只能"建议"写操作,
- *       由前端弹确认框 → 用户点确认后走真实写端点 (见 {@code AiAgentController})。</li>
+ *       由前端弹确认框 → 用户点确认后走真实写端点 (见 {@code AiAgentController})。
+ *       v1.1.143 起白名单含成品入账 (建草稿单 + 审核入库), 依然只由前端确认后执行。</li>
  * </ul>
  *
  * <p>每个工具 = OpenAI function schema (喂 LlmClient.chatWithTools) + {@link #execute} 里的 case。
- * 新增只读工具: {@link #tools()} 加一行 schema + {@link #execute} 加一个 case。
+ * 新增只读工具: {@link #tools()}/{@link #toolsEnabled} 各加一行 schema + {@link #execute} 加一个 case。
  */
 @Component
 public class ErpToolRegistry {
@@ -44,8 +50,14 @@ public class ErpToolRegistry {
     private final BaseCustomerMapper customerMapper;
     private final BaseProductMapper productMapper;
     private final BaseSupplierMapper supplierMapper;
+    /** v1.1.143: 成品入库提议需要真实仓库 id, 给模型一个只读仓库查询工具. */
+    private final BaseWarehouseMapper warehouseMapper;
     private final SalDeliveryService salDeliveryService;
     private final SalOrderService salOrderService;
+    /** v1.1.143: 只读查成品入库单 (拿到草稿 id 才能提议审核). */
+    private final PrdFinishedInService finishedInService;
+    /** v1.1.144: 按客户/时间段查销售汇总 (唯一口径出口, 同时供表格展示与 CSV 下载). */
+    private final SalesSummaryService salesSummaryService;
     private final RagService ragService;
     private final ReplenishService replenishService;
 
@@ -53,16 +65,22 @@ public class ErpToolRegistry {
                            BaseCustomerMapper customerMapper,
                            BaseProductMapper productMapper,
                            BaseSupplierMapper supplierMapper,
+                           BaseWarehouseMapper warehouseMapper,
                            SalDeliveryService salDeliveryService,
                            SalOrderService salOrderService,
+                           PrdFinishedInService finishedInService,
+                           SalesSummaryService salesSummaryService,
                            RagService ragService,
                            ReplenishService replenishService) {
         this.stockPageQueryMapper = stockPageQueryMapper;
         this.customerMapper = customerMapper;
         this.productMapper = productMapper;
         this.supplierMapper = supplierMapper;
+        this.warehouseMapper = warehouseMapper;
         this.salDeliveryService = salDeliveryService;
         this.salOrderService = salOrderService;
+        this.finishedInService = finishedInService;
+        this.salesSummaryService = salesSummaryService;
         this.ragService = ragService;
         this.replenishService = replenishService;
     }
@@ -92,6 +110,11 @@ public class ErpToolRegistry {
         arr.add(fn("getOrderByBillNo",
                 "按单号查一张销售订单 (状态/客户/金额/明细行, 含每行 productId/qty/price)。billNo=订单号 (必填)。用于补货/采购入库前先确认订单明细。",
                 map("billNo", "string", "销售订单号", true)));
+        // v1.1.143: 成品入账 (AI 提议 addPrdFinishedIn/checkPrdFinishedIn) 所需只读查询
+        arr.add(warehouseToolSchema());
+        arr.add(finishedInToolSchema());
+        // v1.1.144: 按客户/时间段查销售汇总 (结果同时作为可下载表格透传给前端)
+        arr.add(salesSummaryToolSchema());
         // v1.1.75 任务3: RAG 文档问答 + 补货预测
         arr.add(fn("searchDocs",
                 "在 ERP 使用手册/部署文档/业务说明里检索关键词, 回答 这个功能怎么用/流程怎么走 类问题。keyword=问题或关键词 (必填), limit=最多片段数 (默认 5)。",
@@ -108,6 +131,14 @@ public class ErpToolRegistry {
     /** 能力组常量 (对应 AiProperties.Caps). */
     public static final String GROUP_BUSINESS = "business";
     public static final String GROUP_QUALITY = "quality";
+
+    /**
+     * v1.1.144 — 返回体本身就是一张「可在对话里展示、可下载成 CSV 的表」的只读工具名.
+     *
+     * <p>模型给的文本答案靠不住 (它可能自己拼一张 markdown 表, 数字还会抄错), 所以这些工具
+     * 的原始返回体由 {@code AgentService} 直接透传给前端渲染, 用户看到的就是后端算出来的数。
+     */
+    public static final java.util.Set<String> TABLE_TOOLS = java.util.Set.of("getSalesSummary");
 
     /**
      * 按启用能力组裁剪工具集 (v1.1.117).
@@ -150,6 +181,11 @@ public class ErpToolRegistry {
                     "补货预测: 基于近30天出库流水 + 当前库存 + 安全库存, 给出每个商品的日均消耗/预计可售天数/是否建议补货/建议补货量。keyword=商品名或编码过滤 (可选, 不传则给全部), limit=返回条数 (默认 10)。",
                     map("keyword", "string", "商品名或编码过滤, 可选", false,
                         "limit", "number", "返回条数", false)));
+            // v1.1.143: 成品入账需要真实 仓库 id / 入库单 id, 与 tools() 同款
+            arr.add(warehouseToolSchema());
+            arr.add(finishedInToolSchema());
+            // v1.1.144: 销售汇总 (客户 + 时间段), 与 tools() 同款
+            arr.add(salesSummaryToolSchema());
         }
         if (quality) {
             arr.add(fn("searchDocs",
@@ -218,6 +254,21 @@ public class ErpToolRegistry {
                     SalOrder o = salOrderService.detail(recs.get(0).getId());
                     return JSONLite.obj(o);
                 }
+                case "listWarehouses": {
+                    String kw = args.getStr("keyword", "");
+                    LambdaQueryWrapper<BaseWarehouse> w = new LambdaQueryWrapper<>();
+                    w.eq(BaseWarehouse::getStatus, 1);
+                    if (kw != null && !kw.trim().isEmpty()) w.like(BaseWarehouse::getWarehouseName, kw);
+                    w.last("LIMIT 30");
+                    return JSONLite.list(warehouseMapper.selectList(w));
+                }
+                case "listFinishedInBills": {
+                    String kw = args.getStr("keyword", "");
+                    int limit = args.getInt("limit", 10);
+                    IPage<PrdFinishedIn> p = finishedInService.page(1, Math.min(limit, 30),
+                            kw == null || kw.trim().isEmpty() ? null : kw);
+                    return JSONLite.list(p == null ? null : p.getRecords());
+                }
                 case "searchDocs": {
                     String kw = args.getStr("keyword", "");
                     int limit = args.getInt("limit", 5);
@@ -234,6 +285,13 @@ public class ErpToolRegistry {
                     List<ReplenishService.Suggestion> recs =
                             replenishService.suggest(kw == null || kw.trim().isEmpty() ? null : kw, Math.min(limit, 30));
                     return JSONLite.list(recs);
+                }
+                case "getSalesSummary": {
+                    SalesSummaryService.Table table = salesSummaryService.query(
+                            args.getStr("startDate", ""), args.getStr("endDate", ""),
+                            args.getStr("customer", ""), args.getStr("groupBy", ""),
+                            args.getInt("limit", SalesSummaryService.DEFAULT_LIMIT));
+                    return salesSummaryService.toToolJson(table);
                 }
                 default:
                     return "{\"error\":\"未知工具: " + call.name + "\"}";
@@ -252,6 +310,41 @@ public class ErpToolRegistry {
     }
 
     // ---------- schema builders ----------
+    /** v1.1.143 — 仓库查询 (成品入库提议必须带真实 warehouseId, 不能让模型臆造). */
+    private JSONObject warehouseToolSchema() {
+        return fn("listWarehouses",
+                "查询仓库列表 (成品入库/领料需要仓库 id)。keyword=仓库名模糊 (可选)。"
+                        + "返回含 id/warehouseCode/warehouseName/warehouseType/isDefault (1=默认仓), 只返回启用中的仓库。",
+                map("keyword", "string", "仓库名关键字", false));
+    }
+
+    /** v1.1.143 — 成品入库单查询 (拿到草稿 id 才能提议审核). */
+    private JSONObject finishedInToolSchema() {
+        return fn("listFinishedInBills",
+                "查询成品入库单 (生产入库的单据)。keyword=入库单号模糊 (可选, 不传按最新在前返回), limit=最多条数 (默认 10)。"
+                        + "返回含 id/billNo/billStatus(DRAFT=草稿, CHECKED=已审核)/productId/productName/qty/unitName/warehouseId/batchNo/price。"
+                        + "提议审核成品入库单前必须先调本工具拿真实 id。",
+                map("keyword", "string", "入库单号关键字", false,
+                    "limit", "number", "最多返回条数", false));
+    }
+
+    /** v1.1.144 — 销售汇总 (按客户/时间段), 返回体本身就是一张可展示/下载的表. */
+    private JSONObject salesSummaryToolSchema() {
+        return fn("getSalesSummary",
+                "销售汇总查询: 按客户和时间段统计已审核/完成的销售出库单 (金额=含税销售额, 草稿单不计入)。"
+                        + "customer=客户名关键字 (可选, 模糊匹配, 如「长晟」; 不传=全部客户), "
+                        + "startDate/endDate=起止日期 YYYY-MM-DD (必填, 用户说「9月」就换算成本年 2026-09-01 ~ 2026-09-30; 也可直接写 2026-09 会展开成整月), "
+                        + "groupBy=customer(默认, 整段每客户一行) 或 month (每客户每月一行, 用于「各月/按月」类问题), "
+                        + "limit=最多行数 (默认 100)。"
+                        + "返回含 title/columns/rows/totals/fileName, rows 里每行是 客户/出库单数/数量/销售额(元)。"
+                        + "回答「某客户某段时间一共卖了多少」「哪个客户卖得最多」这类问题【必须】用本工具, 不要说没有销售汇总接口。",
+                map("startDate", "string", "开始日期 YYYY-MM-DD (或 YYYY-MM)", true,
+                    "endDate", "string", "结束日期 YYYY-MM-DD (或 YYYY-MM)", true,
+                    "customer", "string", "客户名关键字, 模糊匹配, 可选", false,
+                    "groupBy", "string", "customer 或 month, 默认 customer", false,
+                    "limit", "number", "最多返回行数, 默认 100, 上限 300", false));
+    }
+
     private static JSONObject fn(String name, String desc, JSONObject params) {
         JSONObject tool = new JSONObject();
         tool.put("type", "function");

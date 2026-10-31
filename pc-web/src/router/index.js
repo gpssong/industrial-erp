@@ -56,10 +56,15 @@ const routes = [
       { path: 'finance/invoice', name: 'FinInvoice', component: () => import('@/views/finance/Invoice.vue'), meta: { title: '发票管理', icon: 'Tickets', perm: 'finance:invoice:list' } },
       { path: 'finance/invoice/create', name: 'FinInvoiceCreate', component: () => import('@/views/finance/InvoiceCreate.vue'), meta: { title: '申请开票', icon: 'Plus', perm: 'finance:invoice:add' } },
       // 报表
-      { path: 'report/sales', name: 'ReportSales', component: () => import('@/views/report/Sales.vue'), meta: { title: '销售报表', icon: 'TrendCharts', perm: 'report:sales:view' } },
+      // v1.1.145: perm 由 report:sales:view 改 report:view —— 前者在 sys_menu 里根本没有对应行
+      // (角色权限树勾不到), 结果这张页只有超管进得去。report:view 是真实存在的报表中心权限。
+      { path: 'report/sales', name: 'ReportSales', component: () => import('@/views/report/Sales.vue'), meta: { title: '销售报表', icon: 'TrendCharts', perm: 'report:view' } },
       // v1.1.98: 采购建议 (基于库存预警, 一键生成采购单草稿; 复用 purchase:order:add perm)
       { path: 'purchase/suggest', name: 'PurchaseSuggest', component: () => import('@/views/dashboard/PurchaseSuggest.vue'), meta: { title: '采购建议', icon: 'ShoppingCart', perm: 'purchase:order:add' } },
-      { path: 'report/inventory', name: 'ReportInventory', component: () => import('@/views/report/Inventory.vue'), meta: { title: '库存报表', icon: 'PieChart', perm: 'report:inventory:view' } },
+      // v1.1.145 同日第二批: perm 由 report:inventory:view 改 report:view —— 同 report/sales,
+      // 前者在 sys_menu 里没有对应行 (角色权限树勾不到), 结果这张页只有超管进得去.
+      // 后端 /report/inventory/summary + /aging 本来就挂 report:view, 这里只改前端路由守卫.
+      { path: 'report/inventory', name: 'ReportInventory', component: () => import('@/views/report/Inventory.vue'), meta: { title: '库存报表', icon: 'PieChart', perm: 'report:view' } },
       // v1.1.68 回收站 (被软删单据分类/恢复/彻底删); v1.1.72 门禁改独立 report:recycle
       { path: 'report/recycle', name: 'ReportRecycle', component: () => import('@/views/report/Recycle.vue'), meta: { title: '回收站', icon: 'Delete', perm: 'report:recycle' } },
       // v1.1.75 AI 助手 (agent 问答 + 只读查询 + 写操作提议/确认); v1.1.76 门禁改独立 report:ai

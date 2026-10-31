@@ -2,6 +2,7 @@ package com.industrial.erp.modules.production.service;
 
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.modules.base.entity.BaseProduct;
+import com.industrial.erp.modules.base.entity.BaseProductUnit;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
@@ -72,6 +73,8 @@ class PrdOrderServiceTest {
     @Mock private PermissionService permService;
     @Mock private OperLogPublisher operLogPublisher;
     @Mock private MesReportService mesReportService;
+    /** v1.1.142: 工单多了派生字段兜底回填, 默认 mock 让 backfillDerived 退化成 no-op. */
+    @Mock private ProductDeriveService deriveService;
 
     @InjectMocks private PrdOrderService prdOrderService;
 
@@ -234,6 +237,50 @@ class PrdOrderServiceTest {
         assertThat(result.getColorNo()).isEqualTo("红色");
         // 验证: 只调用了一次 selectById (N+1 优化生效)
         verify(productMapper, times(1)).selectById(PRODUCT_ID);
+    }
+
+    @Test
+    @DisplayName("详情: 规格/单位快照为空时按商品主数据兜底回填 (v1.1.142)")
+    void detail_shouldBackfillSpecAndUnitWhenSnapshotBlank() {
+        PrdOrder order = buildReleasedOrder();
+        order.setProductId(PRODUCT_ID);
+        order.setSpec("");
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(order);
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(new BaseProduct());
+        when(deriveService.hasUnit(any())).thenReturn(false);
+        when(deriveService.spec(any(), any())).thenReturn("9*75*0.07");
+        BaseProductUnit mainUnit = new BaseProductUnit();
+        mainUnit.setUnitId(11L);
+        mainUnit.setUnitName("只");
+        when(deriveService.mainUnit(PRODUCT_ID)).thenReturn(mainUnit);
+
+        PrdOrder result = prdOrderService.detail(ORDER_ID);
+
+        assertThat(result.getSpec()).isEqualTo("9*75*0.07");
+        assertThat(result.getUnitName()).isEqualTo("只");
+        assertThat(result.getUnitId()).isEqualTo(11L);
+    }
+
+    @Test
+    @DisplayName("详情: 工单已有规格/单位快照时不被派生值覆盖 (v1.1.142)")
+    void detail_shouldNotOverrideExistingSnapshot() {
+        PrdOrder order = buildReleasedOrder();
+        order.setProductId(PRODUCT_ID);
+        order.setSpec("10*80*0.08");
+        order.setUnitName("千克");
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(order);
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(new BaseProduct());
+        when(deriveService.hasUnit("千克")).thenReturn(true);
+        when(deriveService.spec(any(), any())).thenReturn("9*75*0.07");
+        BaseProductUnit mainUnit = new BaseProductUnit();
+        mainUnit.setUnitId(11L);
+        mainUnit.setUnitName("只");
+        when(deriveService.mainUnit(PRODUCT_ID)).thenReturn(mainUnit);
+
+        PrdOrder result = prdOrderService.detail(ORDER_ID);
+
+        assertThat(result.getSpec()).isEqualTo("10*80*0.08");
+        assertThat(result.getUnitName()).isEqualTo("千克");
     }
 
     // ===== helpers =====

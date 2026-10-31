@@ -26,6 +26,93 @@
         ORDER BY totalAmount DESC LIMIT #{limit}
     </select>
 
+    <!-- v1.1.144 AI 助手「按客户/时间段查销售汇总」; v1.1.145 起报表中心销售汇总也用这一条
+         (口径只写一处, AI 里的数与报表页里的数必然一致).
+         口径与 salesSummary/salesRanking 完全一致: 只算已审核(CHECKED)/完成(FINISHED)的销售出库单,
+         金额取含税销售额 total_amount_tax (与报表中心、工作台 KPI 同一个数).
+         groupBy=month 时按 客户+月份 出行, 否则整段按客户出行.
+         customerId (v1.1.145) = 报表页客户下拉的精确过滤; AI 只认识客户名, 传 null 走 customer LIKE。 -->
+    <select id="aiSalesSummary" resultType="java.util.Map">
+        SELECT
+        <if test='groupBy == "month"'>DATE_FORMAT(bill_date, '%Y-%m') AS period,
+        </if>
+               customer_name AS customerName,
+               COUNT(*) AS billCount,
+               IFNULL(SUM(total_qty), 0) AS totalQty,
+               IFNULL(SUM(total_amount_tax), 0) AS totalAmount
+        FROM sal_delivery
+        WHERE bill_status IN ('CHECKED','FINISHED') AND deleted = 0
+          AND bill_date BETWEEN #{startDate} AND #{endDate}
+        <if test="customerId != null">AND customer_id = #{customerId}</if>
+        <if test="customer != null and customer != ''">
+            AND customer_name LIKE CONCAT('%', #{customer}, '%')
+        </if>
+        GROUP BY customer_name
+        <if test='groupBy == "month"'>, DATE_FORMAT(bill_date, '%Y-%m')</if>
+        ORDER BY
+        <if test='groupBy == "month"'>period ASC, </if>
+        totalAmount DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- v1.1.145 报表中心「按客户/时间段查销售明细」的公共过滤段。
+         口径必须与 aiSalesSummary / salesSummary / profitAnalysis 逐字一致:
+         已审核(CHECKED)/完成(FINISHED) + deleted=0 + bill_date 落窗口, 金额=含税。 -->
+    <sql id="salesDetailWhere">
+        WHERE h.bill_status IN ('CHECKED','FINISHED') AND h.deleted = 0 AND d.deleted = 0
+          AND h.bill_date BETWEEN #{startDate} AND #{endDate}
+        <if test="customerId != null">AND h.customer_id = #{customerId}</if>
+        <if test="customer != null and customer != ''">
+            AND h.customer_name LIKE CONCAT('%', #{customer}, '%')
+        </if>
+        <if test="product != null and product != ''">
+            AND (d.product_name LIKE CONCAT('%', #{product}, '%')
+                 OR d.product_code LIKE CONCAT('%', #{product}, '%'))
+        </if>
+    </sql>
+
+    <!-- 单据行级明细: 一行 = 一张出库单的一个商品行。数量/金额取明细行本身,
+         单头 (sal_delivery) 只出日期/单号/客户/业务员。 -->
+    <select id="salesDetailLines" resultType="java.util.Map">
+        SELECT DATE_FORMAT(h.bill_date, '%Y-%m-%d') AS billDate,
+               h.bill_no AS billNo,
+               h.customer_name AS customerName,
+               h.salesman_name AS salesmanName,
+               d.line_no AS lineNo,
+               d.product_code AS productCode,
+               d.product_name AS productName,
+               COALESCE(NULLIF(d.spec, ''), p.model) AS spec,
+               d.unit_name AS unitName,
+               d.qty AS qty,
+               d.price AS price,
+               d.amount AS amount,
+               d.tax_amount AS taxAmount,
+               d.amount_tax AS amountTax,
+               d.cost_amount AS costAmount,
+               d.batch_no AS batchNo
+        FROM sal_delivery h
+        JOIN sal_delivery_detail d ON d.delivery_id = h.id AND d.deleted = 0
+        LEFT JOIN base_product p ON p.id = d.product_id
+        <include refid="salesDetailWhere"/>
+        ORDER BY h.bill_date DESC, h.bill_no DESC, d.line_no ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 合计走独立聚合, 不能拿当前页明细在前端累加 (翻页数字会变 = 假合计)。 -->
+    <select id="salesDetailTotals" resultType="java.util.Map">
+        SELECT COUNT(*) AS lineCount,
+               COUNT(DISTINCT h.id) AS billCount,
+               COUNT(DISTINCT h.customer_id) AS customerCount,
+               IFNULL(SUM(d.qty), 0) AS totalQty,
+               IFNULL(SUM(d.amount), 0) AS totalAmount,
+               IFNULL(SUM(d.tax_amount), 0) AS totalTaxAmount,
+               IFNULL(SUM(d.amount_tax), 0) AS totalAmountTax,
+               IFNULL(SUM(d.cost_amount), 0) AS totalCost
+        FROM sal_delivery h
+        JOIN sal_delivery_detail d ON d.delivery_id = h.id AND d.deleted = 0
+        <include refid="salesDetailWhere"/>
+    </select>
+
     <select id="inventorySummary" resultType="java.util.Map">
         SELECT product_id AS productId, product_code AS productCode, product_name AS productName,
                spec, unit_name AS unitName,

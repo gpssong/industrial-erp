@@ -339,6 +339,18 @@ export const api = {
     ].filter(Boolean).join('&')
     return request({ url: '/ai/replenish/suggest' + (qs ? '?' + qs : '') })
   },
+  // v1.1.144: AI 销售汇总表的 CSV 下载地址 (参数就是表里 params 那几个)。
+  // H5 用 <a download> 直连 (同源带 cookie); 原生走 NativeShare.shareFile, 由原生层注入 cookie。
+  // 回后端重查而不是前端拼 CSV: 口径与"能不能看销售金额"的权限判定都只在后端一处。
+  aiSalesSummaryCsvUrl: (p) => {
+    let base = getApiBaseOverride()
+    if (!base) base = isH5Runtime() ? window.location.origin + '/api' : getNativeBase()
+    const qs = ['startDate', 'endDate', 'customer', 'groupBy', 'limit']
+      .filter(k => p && p[k] != null && p[k] !== '')
+      .map(k => k + '=' + encodeURIComponent(p[k]))
+      .join('&')
+    return base + '/ai/sales-summary/csv' + (qs ? '?' + qs : '')
+  },
   // v1.1.78: AI 语音输入 (原生 App 端录音上传后端 ASR). 走 uni.uploadFile (multipart).
   // H5 端走 Web Speech API 端侧识别, 不调本方法. filePath = uni.getRecorderManager 产出的 tempPath.
   // 未配 ERP_AI_ASR_KEY 时后端返回非 200 (code != 200), reject 给前端 toast.

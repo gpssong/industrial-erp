@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
  *   - plus.io 转换也不稳定 (有时返回 file://localhost/UUID)
  *
  *  调用: NativeShare.sharePdf({ url, title, text })
+ *        NativeShare.shareFile({ url, fileName, mimeType, title })  (v1.1.144, AI 表格 CSV 下载)
  */
 @CapacitorPlugin(name = "NativeShare")
 public class NativeSharePlugin extends Plugin {
@@ -38,32 +39,50 @@ public class NativeSharePlugin extends Plugin {
 
     @PluginMethod
     public void sharePdf(PluginCall call) {
+        share(call, "application/pdf", ".pdf");
+    }
+
+    /**
+     * v1.1.144 — 通用文件分享 (AI 销售汇总表 CSV).
+     *
+     * <p>CSV 走这条路而不是前端 Blob: 原生 WebView 里 {@code <a download>} 与 blob URL 不可靠,
+     * 而下载动作要带 Sa-Token cookie (cookie 只存在于原生 WebView 层), 只能交给原生 HttpURLConnection。
+     */
+    @PluginMethod
+    public void shareFile(PluginCall call) {
+        String mime = call.getString("mimeType", "text/csv");
+        share(call, mime, ".csv");
+    }
+
+    private void share(PluginCall call, String mimeType, String defaultSuffix) {
         String url = call.getString("url");
         String title = call.getString("title", "");
         String text = call.getString("text", "");
+        String fileName = call.getString("fileName", "");
         if (url == null || url.isEmpty()) {
             call.reject("url is required");
             return;
         }
         // v1.1.29+: 用 saveCall 保持 call 引用, 在 AsyncTask 完成后 resolve
         saveCall(call);
-        // 后台线程下载 PDF
+        final String suffix = (fileName.contains(".") ? fileName.substring(fileName.lastIndexOf('.')) : defaultSuffix);
+        // 后台线程下载文件
         exec.submit(() -> {
             try {
-                File pdfFile = downloadPdf(url);
-                if (pdfFile == null || !pdfFile.exists()) {
+                File file = download(url, suffix);
+                if (file == null || !file.exists()) {
                     PluginCall saved = getSavedCall();
                     if (saved != null) {
                         saved.reject("download failed: " + url);
                     }
                     return;
                 }
-                shareIntent(pdfFile, title, text);
+                shareIntent(file, mimeType, title, text);
                 PluginCall saved = getSavedCall();
                 if (saved != null) {
                     JSObject ret = new JSObject();
                     ret.put("shared", true);
-                    ret.put("path", pdfFile.getAbsolutePath());
+                    ret.put("path", file.getAbsolutePath());
                     saved.resolve(ret);
                 }
             } catch (Exception ex) {
@@ -75,10 +94,10 @@ public class NativeSharePlugin extends Plugin {
         });
     }
 
-    private File downloadPdf(String urlStr) throws Exception {
+    private File download(String urlStr, String suffix) throws Exception {
         File shareDir = new File(getContext().getFilesDir(), "share");
         if (!shareDir.exists()) shareDir.mkdirs();
-        File pdfFile = new File(shareDir, "share-" + System.currentTimeMillis() + ".pdf");
+        File target = new File(shareDir, "share-" + System.currentTimeMillis() + (suffix == null ? ".dat" : suffix));
 
         HttpURLConnection conn = (HttpURLConnection) new URL(urlStr).openConnection();
         conn.setConnectTimeout(15000);
@@ -95,7 +114,7 @@ public class NativeSharePlugin extends Plugin {
             throw new RuntimeException("HTTP " + code);
         }
         try (InputStream in = conn.getInputStream();
-             FileOutputStream out = new FileOutputStream(pdfFile)) {
+             FileOutputStream out = new FileOutputStream(target)) {
             byte[] buf = new byte[8192];
             int n;
             while ((n = in.read(buf)) > 0) {
@@ -103,10 +122,10 @@ public class NativeSharePlugin extends Plugin {
             }
         }
         conn.disconnect();
-        return pdfFile;
+        return target;
     }
 
-    private void shareIntent(File file, String title, String text) {
+    private void shareIntent(File file, String mimeType, String title, String text) {
         // v1.1.29+: FileProvider.getUriForFile 需要 files-path/external-path 等 root 已声明
         // (见 res/xml/file_paths.xml: external-path / cache-path / files-path / external-cache-path)
         Uri fileUri = FileProvider.getUriForFile(
@@ -116,7 +135,7 @@ public class NativeSharePlugin extends Plugin {
         );
 
         Intent intent = new Intent(Intent.ACTION_SEND);
-        intent.setType("application/pdf");
+        intent.setType(mimeType);
         intent.putExtra(Intent.EXTRA_STREAM, fileUri);
         if (title != null && !title.isEmpty()) {
             intent.putExtra(Intent.EXTRA_SUBJECT, title);
@@ -126,7 +145,7 @@ public class NativeSharePlugin extends Plugin {
         }
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-        Intent chooser = Intent.createChooser(intent, title != null && !title.isEmpty() ? title : "分享 PDF");
+        Intent chooser = Intent.createChooser(intent, title != null && !title.isEmpty() ? title : "分享文件");
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         getActivity().startActivity(chooser);
     }

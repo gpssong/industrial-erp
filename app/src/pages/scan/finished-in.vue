@@ -163,12 +163,29 @@ export default {
       return perms.includes('production:finished-in:uncheck') || perms.includes('admin') || this.isMyAdmin()
     }
   },
-  onLoad(query) {
-    this.loadAll()
+  async onLoad(query) {
     this.loadInList()
-    if (query && query.orderId) { this.orderId = String(query.orderId); this.onOrderPicked() }
+    // v1.1.142: 必须等 loadAll() 回来后再应用深链的 orderId —— 之前是同步调 onOrderPicked(),
+    // 那一刻 orderList 还是空的, pickedOrder 取不到 → 整个「带出单位/数量/批号」的链路直接 return,
+    // 单位就恒显示兜底文案「该商品未配置单位」(工单详情 → 建成品入库 这条深链 100% 命中).
+    await this.loadAll()
+    if (query && query.orderId) await this.applyOrder(query.orderId)
   },
   methods: {
+    // v1.1.142: 深链/扫码带入工单 (列表里找不到就按 id 单独补拉, 别让用户白选一次)
+    async applyOrder(id) {
+      this.orderId = String(id)
+      if (!this.orderList.some((x) => String(x.id) === String(id))) {
+        try {
+          const r = await api.prdOrderDetail(id)
+          const o = (r && (r.data || r)) || null
+          if (o && o.id != null) this.orderList.push(o)
+        } catch (e) {
+          console.warn('[finished-in.applyOrder] 按 id 补拉工单失败:', e)
+        }
+      }
+      this.onOrderPicked()
+    },
     // v1.1.102 hotfix-3: 读 App 端 perm 集合 (erp_menus 派生, 兼容 erp_permissions 兜底)
     getMyAppPerms() {
       try {
