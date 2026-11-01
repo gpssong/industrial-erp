@@ -125,6 +125,24 @@ erp-app-h5      Up (healthy)  18090:80   (H5 dist bind-mount: /volume3/docker/er
 
 **部署顺序**: 飞牛 canary 先行 24h+, 验证无问题再同步 home (canary-first 原则).
 
+## 故障接管 (阿里云待命站)
+
+`.150` 故障时阿里云 `47.96.188.129` 自动接管 (约 2 分钟判定, 用户需重新登录); `.150` 恢复后**人工**确认回切, 期间阿里云新增数据覆盖式同步回 `.150`。详见 [docs/28_故障接管与回切手册.md](docs/28_故障接管与回切手册.md)。
+
+| 位置 | 脚本 (均在 `/usr/local/bin/`) | 触发 |
+|---|---|---|
+| 阿里云 | `erp-failover.sh` | systemd `erp-failover.timer` 每 30s (`tick`) |
+| 阿里云 | `erp-dns-switch.sh` | 由 failover 调用, AK 在 `/etc/erp-dns.env` |
+| `.150` | `erp-failover-guard.sh` | root cron `*/2` — 接管期间冻结本机写入 |
+| `.150` | `erp-upload-pull.sh` | root cron `*/10` — 拉回接管期间上传附件 |
+| `.150` | `erp-failback.sh --yes` | **人工**执行, 冻结→导出→覆盖→重建复制→切回 |
+
+**铁律**
+- 探测/建连必须用非 SUPER 账号 (`erp_failover`), root 会绕过 `read_only` 导致误判"主库还活着"。
+- 回切是覆盖式恢复, 前提是 `.150` 已被守卫冻结; 动手前先 `erp-failover.sh status` 确认 `state=failed_over`。
+- Sa-Token 会话不跨站迁移, 接管与回切后**所有人需重新登录**。
+- 阿里云 `.env` 的 `ERP_DB_*` 只在接管时被脚本改写, 平时必须指向 `172.18.0.1:13306` (隧道)。
+
 ---
 
 ## 历史变更日志
