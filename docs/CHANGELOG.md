@@ -3,6 +3,92 @@
 
 ## changelog (倒序)
 
+### 运维/灾备 (2026-11-01 第二批 — 隧道僵尸会话导致二次误接管，事后加固 + `.32` 恢复；不改版本号)
+
+回切完成 5 分钟后阿里云**又自动接管了一次**（08:54:47），`.150` 08:56 被守卫冻结。根因不在数据库，而在隧道。
+
+**事故链**
+- `.150` 的隧道客户端在回切期间重连过，阿里云 sshd 留下一个 **CLOSE-WAIT 的 `sshd: erp-tunnel` 会话**，继续占着 `172.18.0.1:13306`；新隧道带 `ExitOnForwardFailure` 绑不上 → 每 5s 重试全失败 → 隧道永远回不来。
+- 探测只有"隧道 → `.150`"这一条路径，隧道断 = 看起来像主站挂了 → 08:53:26 起 3 次失败 → 自动 promote。
+- 回切后 `erp-dns-switch.sh home` 又把解析写成**已失效的旧家庭 IP** `115.209.189.247`（`DNS_TARGET_HOME` 写死），外网入口一度打不开；同值更新还会被阿里云拒（400 `DomainRecordDuplicate`）。
+
+**修复（均已部署阿里云）**
+- `/etc/ssh/sshd_config` 加 `ClientAliveInterval 15` / `ClientAliveCountMax 3`：客户端掉线后 ≤45s 回收转发端口，僵尸会话不再永久占位。
+- `erp-failover.sh` 新增 `heal_tunnel`：判定故障前先 kill 掉无 ESTAB 连接的 `sshd: erp-tunnel` 会话，再给 **30s 重连窗口**，期间探测恢复就取消接管（检测时间 ~75s → ~135s）。
+- `erp-failover.sh` 新增 `refresh_home_ip`：切 DNS 前用**隧道 SSH 连接的对端 IP**（即家宽当前公网 IP）刷新 `/var/lib/erp-failover/dns-home-ip`。
+- `erp-dns-switch.sh`：`home` 模式优先级改为 `命令行 ip > 落盘文件 > 静态 DNS_TARGET_HOME`；目标值与现记录相同时直接返回 `[未变更]`，不再 400。
+- 脚本 `sha256`：`erp-failover.sh a8a932d0…` / `erp-dns-switch.sh b0178b81…`（部署后校验一致）。
+
+**二次回切（08:59）**
+- dump `aliyun-20261101-085907.sql.gz`（`sha256 a9fedf0b…`），`.150` 自备份 `pre-failback-20261101-085924.sql.gz`；**138 表行数一致**；新位点 `mysql-bin.000006:157`；这次 `finish` 直接通过（上一批的 `\G` 解析修复生效）。
+- 该段接管期间 `sys_oper_log` 新增 **0 条**、业务表行数与 `.150` 完全一致 → 覆盖式回切无风险。
+- 公网验证：`home.93gushi.com:8088` 验证码 → 登录 → `base/product/page` **139 条**。
+
+**`.32` 飞牛（原计划整库 resync，实际不需要）**
+- 解冻后检查：复制 `Source_Host 192.168.0.150`、位点 `mysql-bin.000006`、`IO/SQL=Yes`、`Seconds_Behind_Source=0`、`Last_Errno=0`；138 表、行数与 `.150` 全一致，`prd_finished_in` 无重复单号。
+- 它一直以 `.150` 为源（故障期间 `.150` 只是外部不可达、库活着），所以**自动追平**。处置只做了 `super_read_only=0` 并回落 `read_only=1`（容器参数 `--read-only=ON` 的常态），backend healthy、`captcha=200`、`18080=200`。
+
+**经验**
+- 家宽当天公网 IP 变了三次（`115.209.189.247` → `115.209.48.113` → `183.152.23.59`），**写死家庭 IP 的配置必然过期**，唯一可靠来源是隧道连接对端地址。
+- 验证公网入口要用 `curl --resolve home.93gushi.com:8088:<ip>` 之类绕过本机 DNS 缓存（macOS `dscacheutil` 比公网解析滞后）。
+- 文档：手册新增 §6.3（本事故）+ §7 第 4/8/9 条重写 + §8 加隧道/DNS 排查命令；完整故障报告见 [`29_故障报告_20261101_两次接管事件.md`](29_故障报告_20261101_两次接管事件.md)。
+
+---
+
+### 运维/灾备 (2026-11-01 — 首次真实回切完成 + `finish` 解析 bug 修复，不改版本号)
+
+承接 10-31 的真实接管。`.150` 是**家庭宽带断线约 14 小时**（NAS 未重启，uptime 连续），11-01 08:22 网络恢复后完成人工回切。
+
+**过程**
+- 08:24 守卫自动冻结 `.150`（`read_only=1` + 停 backend）。
+- 回切前体检：138 表逐表**行数**仅 `sys_login_log` 差 4 行（阿里云侧登录），再做**全库 `CHECKSUM TABLE`**，4 处差异全部可解释（`sys_config.SYSTEM_VERSION_INFO` 启动时间、`sys_backup_record` 各自 03:00 定时备份记录、`sys_user.last_login_time`、登录日志）→ 确认断网期间 `.150` **无业务写入**，覆盖回切安全。
+- 08:44:59 `erp-failback.sh --yes` 起跑；覆盖导入 + 138 表指纹一致；新主库位点 `mysql-bin.000005:157`；`.150` backend 恢复 healthy。
+- Step 9 误报失败 → 手工收尾后 08:52 公网入口全链路验证通过（验证码 → 登录 → `base/product/page` 139 条）。
+
+**修复的 bug（回切时才暴露）**
+- `finish` 用 `q()`（`mysql -N -B`）解析 `SHOW REPLICA STATUS\G`。**批处理模式会忽略 `\G`**，输出退化成制表符横表 → `Replica_IO_Running:` 匹配不到 → `io= sql=` 全空 → 误判「从库未恢复」，其实复制已 Yes/Yes。新增 `qv()`（不带 `-N/-B`）专供 `\G` 纵向解析，并把启动后单次 4s 读取改为**轮询最多 30s**。
+- 新增子命令 `erp-failover.sh finish-tail`：复制已恢复但 `finish` 中断时，只补做收尾（`read_only=1` → 数据源回隧道 → 重建 backend → DNS 切回 → `state=normal`），避免重跑 `finish` 把位点倒回造成重复应用。
+- 已部署阿里云（`sha256 10f3fecf…`），仓库 `scripts/erp-failover.sh` 为同源。
+
+**新的运维认知**
+- 家庭公网 IP 在断线后变了（`115.209.189.247` → `115.209.48.113`），**路由器的 DDNS 会自动把 `home.93gushi.com` 改回家庭 IP**——回切时 DNS 无需人工切，反而接管期间若家里只是 NAS 坏而路由器在，要留意 DDNS 不能覆盖阿里云解析。
+- 飞牛 `.32` 的 SSH(22) 在回切后表现为 `Connection refused`（18080 正常），仍处 `super_read_only=1`、复制位点停在故障前；恢复 SSH 后需用 `.150` 全量 dump 重同步（它接管期间有重复入库行，不能按位点追）。
+
+---
+
+### 运维/灾备 (2026-10-31 — 主站故障自动接管 + 写保护守卫 + 人工回切，不改版本号)
+
+> **需求原话**: 「当150故障时，阿里云的备接替上，使系统能不间断使用，故障时阿里云新增的数据待150恢复时同步到150。」
+
+不新增业务代码，只加**运维脚本 + 参数化数据源 + 定时器**。完整拓扑/状态机/演练结果见 [docs/28_故障接管与回切手册.md](28_故障接管与回切手册.md)。
+
+**架构**
+- 阿里云 `47.96.188.129` 从"只读灾备展示"升级为**自动待命站**：数据源改 `SPRING_DATASOURCE_HOST=${ERP_DB_HOST:-172.18.0.1}` / `PORT=${ERP_DB_PORT:-13306}` / `USER=${ERP_DB_USER:-erp_aliyun}`（走 `.150` 反向隧道，生产期间仍只读复制）。
+- `.150` 通过 `erp-tunnel` 容器保持 `-R 172.18.0.1:13306`（MySQL）/ `-R 172.18.0.1:12222`（SSH），阿里云访问主库不依赖公网。
+- 新增 `erp_failover@'localhost'/'127.0.0.1'/'172.%'` 业务账号（**必须是非 SUPER 用户**，否则 `read_only` 无效，探测永远"可写"）。
+
+**新增脚本**（`scripts/` → 各站 `/usr/local/bin/`）
+- `erp-failover.sh`（阿里云，`tick/promote/enforce/freeze/dump/finish/status`）：30s 探测 `.150` 可写性（用 `erp_failover` 账号 `CREATE/DROP TABLE`），连续 3 次失败 + 15s 复检 → `STOP REPLICA` → `super_read_only=0, read_only=0` → 改 `.env` 指向本地 MySQL → 重建 backend → 探活 + 8088 验证码 → 切 DNS → 告警。`enforce` 兜住"MySQL 容器重启后 `--read-only=ON` 复活"，把写入中断窗口压到 ≤30s。
+- `erp-failover-guard.sh`（`.150`，root cron `*/2`）：轮询阿里云状态，`failed_over` → 立即 `super_read_only=1` + 停 backend，保证回切时阿里云数据是**严格超集**。
+- `erp-failback.sh`（`.150`，root，`--yes`）：冻结 → 阿里云 `mysqldump --default-character-set=utf8mb4 --databases industrial_erp` → rsync+sha256 → `.150` 先自备份 → 覆盖导入 → 138 表逐表行数比对 → `FLUSH BINARY LOGS` → 阿里云 `CHANGE REPLICATION SOURCE TO` 重建复制 → 切回 DNS。
+- `erp-dns-switch.sh`（阿里云，`show/aliyun/home/ttl-low`）：alidns RPC HMAC-SHA1 自签，AK 存 `/etc/erp-dns.env`(600)。当日 19:4x 已配好 AK（**仅 DNS 权限，不能改 ECS 安全组**）并完成切换验证；阿里云云解析免费版 TTL 下限 **600s**，填 60 会被 API 拒（`InvalidTTL`）。
+- `erp-upload-pull.sh`（`.150`，root cron `*/10`）：接管期间阿里云上的上传附件按 `--ignore-existing` 拉回 `.150`。
+
+**顺带修**
+- 阿里云 `/opt/erp-system/.env` `ERP_CORS_ALLOWED_ORIGINS` 补 home/n150 双域名与阿里云 IP 端口（否则接管后浏览器 403）。
+- 阿里云 `/root/erp-upload-sync.sh` 去掉推送分支（`.150` upload 目录属 `999:999`，gpssong 写不进），改由 `.150` root 拉取。
+- `docs/00_文档索引.md` 收录手册。
+
+**已知限制**
+- Sa-Token 是 UUID 会话（无 JWT），会话在各站 Redis 里 **不迁移** → 接管后所有用户需**重新登录**；回切同理。
+- 用户 URL 带端口，ECS 安全组必须放行 `8088` + `18080`（本机 firewalld 18080 已 DNAT 到 8088）。只放 22/80/443 时 DNS 切了用户也打不开 —— 2026-10-31 首次真实接管就卡在这里。
+- 阿里云云解析免费版 TTL 下限 600s，切解析最长约 10 分钟生效。
+- 回切是**覆盖式**恢复，前提是 `.150` 在接管期间被守卫冻结（若守卫失效、期间有人往 `.150` 写了数据，会被覆盖掉）。
+- 飞牛 `.32` 不参与接管；它的 backend 用 root 连副本会绕过 `read_only` 写入真实单据，接管期间必须 `super_read_only=1` 冻住（2026-10-31 发现 4 张销售出库在副本上重复过账，属副本脏数据，回切时不得回灌）。
+- 2026-10-31 18:37 `.150` 整机失联，阿里云 18:39 自动接管成功；当日 19:5x 完成 DNS 切换与外部入口验证，服务恢复。
+
+---
+
 ### v1.1.147 (2026-10-31 — 「单据与打印」「XK 批次溯源」「XK 单据打印」三张页全部接真实台账 + 真打印留痕)
 
 > **需求原话**: 「根据项目实际情况完善pc端端单据与打印及app端xk记录-xk批次溯源和xk单据打印。」
