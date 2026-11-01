@@ -3,6 +3,270 @@
 
 ## changelog (倒序)
 
+### v1.1.155 (2026-11-01 — App「检验设备校准」：设备清单 + 检定到期提醒 + 校准记录/报告上传与查看）
+
+> **需求原话**: 「APP端添加检验设备清单和鉴定提醒及记录和报告的上传和查看。」
+
+**后端：零改动** — 校准域在 v1.1.97 就已落地：表 `qa_calibration_equipment` / `qa_calibration_record`、端点 `/api/qa/calibration-equipment/*`、`/api/qa/calibration-record/*`（含 `POST /{id}/check` 审核）、权限码 `qa:calibration-equipment:list|add|edit|delete`、`qa:calibration-record:list|add|edit|delete`、`qa:calibration:check` 全部来自 sql/105。状态语义服务端派生（`PASSED` 回写设备 `last_cal_date/next_cal_date/last_org/last_cert_no`；`FAILED` 把设备置 `EXPIRED`；`PENDING` 才可删），App 只做展示与提交。
+
+**App（新增 2 页 + 3 个工具）**
+- `api/index.js` 新增 `qaCalEqPage / qaCalEqList / qaCalEqDetail / qaCalEqSave / qaCalRecPage / qaCalRecSave / qaCalRecCheck`；GET 一律走 `toQuery()` 拼查询串（H5 `fetchRequest` 对 GET 不带 body）。
+- [pages/equipment/calibration.vue](../app/src/pages/equipment/calibration.vue)：检验设备清单 —— 顶部统计（总数 / 有效 / 即将到期 / 已过期，**SCRAP 不计入有效**）、到期提醒条、状态筛选 chip、设备卡（编码 / 名称 / 到期日 / 距到期天数）、「＋ 新增检验设备」浮层（名称 / 规格 / 厂家 / 车间 / 位置 / 量程精度 / 上次校准日期 / 校准周期月 / 备注）。
+- [pages/equipment/calibration-detail.vue](../app/src/pages/equipment/calibration-detail.vue)：设备档案 + 校准记录列表；「＋ 上传校准记录」浮层（校准日期必填，有效期至留空=校准日期+周期由服务端推算；校准机构 / 证书编号；**校准证书 + 校准报告**两个附件位，拍照或选 PDF/文档）；记录行按 `待审核 / 合格 / 不合格` 着色，有证书/报告时给「📎 查看证书」「📄 查看报告」；`PENDING` 记录带「判合格 / 判不合格」（`qa:calibration:check`）。
+- [utils/upload.js](../app/src/utils/upload.js) `pickAndUploadDocument`：`chooseFile` + `window focus` 兜底识别「取消选择」，取消时静默结束不再卡「上传中」；[utils/openFile.js](../app/src/utils/openFile.js) `openAttachment`：图片走 `uni.previewImage`，原生走 `NativeShare.openFile`，H5 走 `window.open`。
+- 工作台 [pages/dashboard/index.vue](../app/src/pages/dashboard/index.vue)：① 快捷功能卡「📏 检验设备校准」（挂「现场填报」组，`qa:calibration-equipment:list` 是 F 型 perm 载体 `path=''`，只能 perm-only 兜底）；② 现场待办 ②b「检定到期」——取 `nextCalDate ≤ 今天+30天` 的前 3 台，点进清单页。
+- [utils/permission.js](../app/src/utils/permission.js)：两页登记 `SENSITIVE_PAGES` + `PAGE_PERMS`（perm `qa:calibration-equipment:list`，模块 `em`）。
+
+**APK（需重出）**
+- `NativeSharePlugin.java` 新增 `openFile`：下载到 cacheDir → `FileProvider` `ACTION_VIEW`，无应用可打开时回落浏览器；`androidx.core.content.FileProvider` + `file_paths.xml` 已配。
+
+**权限下发**
+- PC [system/Role.vue](../pc-web/src/views/system/Role.vue) `APP_MENU_WHITELIST` 补「检验设备清单 / 检验设备新增 / 校准记录查看 / 校准记录新增 / 校准记录审核」（`app-qa-cal-eq*` 系列）；[system/AppModules.vue](../pc-web/src/views/system/AppModules.vue) `em` 模块 `permList` + 描述同步。
+- [sql/149_v11155_app_qa_calibration_perm.sql](../sql/149_v11155_app_qa_calibration_perm.sql)（幂等，`information_schema` 探测 `client_type`，两分支都带 `m.status = 1`）：给「PC 已有该 perm」且「APP 端已用设备模块（`equipment:master:list|add` / `equipment:maintain:list` 任一有 APP 行）」的角色补 5 个 perm 的 APP 授权。**只在主库跑**：`.150` 命中 `WAREHOUSE_MGR / PRODUCTION_MGR / FINANCE / cmg` 4 个角色 × 5 perm = 20 行；`.32` 与阿里云由复制/同步拿到。
+
+**实测（canary `.32` App H5，真·非超管 罗飞 / WAREHOUSE_MGR）**
+- 工作台「现场填报」出现「检验设备校准」卡；现场待办出现「📏 检定到期 ZZ到期提醒测试仪 · 9 天到期 11-10」。
+- 清单页统计 2/1/1/0、提醒条、状态筛选、设备卡正常；UI 新增设备 `CE202611010002`（到期日派生 `EXPIRING_SOON`）。
+- 详情页上传 **校准证书 + 校准报告** 两个 PDF → 提交 → 记录 `CR202611010002` 落 `PENDING`、有效期自动推算 `2027-11-01`；「判合格」后记录转 `合格`（审核人 罗飞）、设备转 `有效`，`上次校准 2026-11-01 / 到期日 2027-11-01 / 最近机构 舟山市计量检定所 / 最近证书号 ZS2026-0099` 全部回写，到期提醒消失。
+- 负例：临时角色 `ZZ_NOP_CAL` + 用户 `zz_nop_cal`（零菜单行）→ 设备页 / 记录页 / 审核接口 **403 ×3**；验证后用户、角色、授权行全删（0 遗留）。
+- 测试数据已清：`.32` 删除 `qa_calibration_equipment` 2 行 + `qa_calibration_record` 2 行 + `upload/202611/01` 下 3 个 PDF（含空目录）+ 本脚本在 canary 造的 APP 授权行。
+- 主库 `.150`：灌 sql/149 后 `罗飞` 直接登录调 `/qa/calibration-equipment/page`、`/qa/calibration-record/page` 均 `200`（空表），复制 `Seconds_Behind_Master: 0`。
+
+**部署**
+- 后端 jar **未变**（`1413b90a5a58ee7aee01bb2ef0c16486`，v1.1.154 那个）；三站只把 `ERP_VERSION` 抬到 1.1.155：`.150` compose 第 93 行 + `docker compose up -d --no-deps --no-build backend`（`sys_config.SYSTEM_VERSION_INFO` 已是 `1.1.155`）；阿里云 `docker tag erp-backend:1.1.154 erp-backend:1.1.155` + `.env ERP_VERSION=1.1.155` + `compose up -d --no-deps --no-build erp-backend`；`.32` `docker tag erp-system-backend:1.1.154 → 1.1.155` + 用 `docker inspect .Config.Env` 导出 env-file（剔除镜像自带 `PATH/JAVA_HOME/LANG/…`，改 `ERP_VERSION`）重建容器。
+- PC dist `3dae8c286da751bc6b4fd154d6858fe4`（新 `Role-Di4w2XvX.js` / `System-zjuVRNzz.js`）三站：`.32` `/vol2/erp-system/pc-web/dist-new`、`.150` `/volume3/docker/erp-system/pc-web/dist`（bind mount，清空原地解压）、阿里云 `/opt/erp-system/pc-web`（换内容后 `docker restart`）。
+- App H5 `e4d5a5f78e6569f9b4a594df01d7e15d`（主包 `index-th7TvBHO.js`）：`.32` 18090 + 阿里云 18090（`.150` 无 H5 容器）。
+- APK `app-debug.apk` `186de528897d1b9b14c47d41b36867f6`（4.3 MB，versionCode 1155 / versionName 1.1.155）。
+- 版本七处 1.1.155 / 1155，`scripts/check-version.sh` 全 OK。
+
+⚠️ 三个操作陷阱：① **sql/149 灌主库前必须先删 canary 上的 APP 授权行**，否则主库 INSERT 复制到 `.32` 撞 1062 → 复制停（本次先删后灌，复制全程 0 延迟）；② `.32` **不能**用 compose 重建 backend —— `docker-compose.failover.yml` 缺 `ERP_AI_*` / `SA_TOKEN_JWT_SECRET_KEY` 等一长串 env，重建会丢配置，走「inspect 导 env-file + 同参数 `docker run`」；③ 阿里云 compose 的服务名是 `erp-backend`（不是 `backend`），`compose up -d backend` 会报 `no such service`。
+
+### v1.1.154 (2026-11-01 — App「现场填报 · 设备台账」支持新增设备)
+
+> **需求原话**: 「APP端现场填报-设备台账，需要能添加设备」
+
+**后端：零改动** — `POST /api/base/equipment` 早已存在（`@SaCheckPermission(value={"equipment:master:add","equipment:master:edit"}, orRole="admin")`，服务层做编码/名称必填校验、`status` 默认 `ACTIVE`、写 `sys_oper_log` 审计），本次只是 App 端没有入口。
+
+**App**
+- [pages/equipment/my.vue](../app/src/pages/equipment/my.vue) 重写：
+  - 顶部按钮行 ← 「查询设备」+「＋ 新增设备」并排（`canAdd` 为真才渲染）。
+  - 底部浮层表单（`.sheet-mask` / `.sheet` / 可滚动 `.sheet-body` / 固定 `.sheet-foot`）：设备编码\*、设备名称\*、设备类型\*(picker)、车间、规格型号、生产厂家、安装位置、安装日期(date)、设备状态(picker)、责任人、下次维保(date)、备注(≤200)。
+  - 提交：三必填校验 → 客户端重码校验（列表内同编码 → 「设备编码已存在」）→ `api.equipmentAdd()` → 成功关浮层、重置表单、若车间筛选与新设备车间不一致则清筛选、`await onQuery()` 刷新列表；失败 `uni.showModal`。
+  - 顺带修列表显示：此前 `FILM_BLOWING` / `ACTIVE` 等英文码直接上屏，现补 `typeLabel()` 与 `stLabel/stKey` 映射（吹膜/侧封/制袋/印刷/复合/分切；在用/维保中/闲置/报废），新加的设备不会再显示成乱码状态。
+- **权限门禁**：`canAdd = (isAdmin() || getAppPermissions().includes('equipment:master:add')) && isPermEnabled('em', 'equipment:master:add')` —— 走 App 端 `appMenus` 派生口径（不能用 `getPermissions()` 混合口径，v1.1.55 已明令禁止）。
+- [api/index.js](../app/src/api/index.js) 新增 `equipmentAdd(data)` → `POST /base/equipment`。
+
+**权限下发**
+- PC [system/Role.vue](../pc-web/src/views/system/Role.vue) 的 `APP_MENU_WHITELIST` 在「设备 / 现场」下补 `设备台账新增`（`equipment:master:add`，`idApp: app-em-master-add`）—— 白名单缺项时非超管根本没法勾选这项授权。
+- PC [system/AppModules.vue](../pc-web/src/views/system/AppModules.vue)：`em` 模块 `permList` 补 `equipment:master:add`，`PERM_DESCRIPTIONS` 补「设备台账新增」。
+- [sql/148_v11154_app_equipment_add_perm.sql](../sql/148_v11154_app_equipment_add_perm.sql)（幂等，`NOT EXISTS` 双保险）：按「PC 端已有 add 授权」且「APP 端已有 list 授权」的角色补一行 `client_type='APP'` 的 `equipment:master:add`。`.150` 主库实测命中 **WAREHOUSE_MGR / PRODUCTION_MGR / FINANCE** 各 1 行（`SUPER_ADMIN` 只有 PC 行，超管走 `orRole=admin` 不受影响）。**只在主库灌**，由复制带到 `.32` / 阿里云（canary 先跑会撞 1062 停复制）。
+
+**实测（canary `.32`，真·非超管 罗飞 / WAREHOUSE_MGR）**
+- App H5 → 现场填报 → 设备台账：看到「＋ 新增设备」→ 打开浮层填 `E2E-EQ-20261101 / e2e测试吹膜机 / 吹膜 / 吹膜车间 / SJ-65 / e2e厂家` → 保存成功，浮层关闭、列表立即出现 `E2E-EQ-20261101 · 在用 · 吹膜 · 吹膜车间`（中文字段正常）。
+- 落库 `base_equipment`：`equipment_type=FILM_BLOWING`、`status=ACTIVE`、`create_by=2079172898061877249`（罗飞）；审计 `sys_oper_log` 同日同秒一条 `设备管理 / 罗飞 / status=1`。
+- 负例：**秦运桂（zdg，无 APP add）** 直接 `POST /api/base/equipment` → `http=403 无权限访问`。
+- 测试数据已清（`.32` 副本精确删 1 行设备 + 1 行审计，`base_equipment` 回到 0 行）；**主库本来就没有该行**（canary 写入只落副本）。
+
+**部署**
+- 三站 jar `1413b90a5a58ee7aee01bb2ef0c16486`（101,643,549 B，258 单测全绿）：`.32` `docker cp → restart → commit erp-system-backend:1.1.154` + compose 66/73 行改 1.1.154 后 `compose --profile failover up -d` 重建（否则容器 env 仍是旧版本号）；`.150` 旧 jar 改名 `.bak_v1154_20261101` 保证 `COPY industrial-erp-*.jar` glob 唯一 + `compose build/up backend` + compose `ERP_VERSION: "1.1.154"`；阿里云 `industrial-erp-1.1.154.jar` + `.env ERP_VERSION=1.1.154` + `compose build/up erp-backend`。三站镜像本体逐站核 md5。
+- PC dist `8cc9eeb06a17ef9c38fe11adbf9c113b`（主包 `assets/index-D5wlRvUT.js`）：`.32` `dist-new` / `.150` `pc-web/dist`（`/tmp` 只读，走 `upload/` 中转 + `sudo cp -a`）/ 阿里云 `pc-web`，换目录后均 `docker restart`（bind mount 换 inode）。
+- App H5 `328d7d0b712f16f5c9d9e966f4252ed5`（主包 `assets/index-DqoJ1R46.js`）：`.32` + 阿里云（`.150` 无 H5 容器）。
+- APK `erp-app-20261101-1154.apk`（`e728f7de0d51884a6511bc86abc96138`，4,459,546 B，versionCode 1154）。
+- 版本七处 1.1.154 / 1154，`scripts/check-version.sh` 全 OK。
+
+⚠️ 两个操作陷阱：① 远端解压**不能**写成 `tar xzf … | head -3`，`head` 提前关闭管道会让 tar 收 SIGPIPE 中断，只解出 7/159 个 assets（本次 `pc-web/dist` 先踩到，重解后 159 个才对）；② `.32` compose 的 `erp-backend-failover` 带 `profiles: ["failover"]`，改 compose 后必须 `--profile failover up -d` 才会按新镜像 + 新 env 重建容器。
+
+### v1.1.153 (2026-11-01 — App「XK 记录 · XK 单据打印」接真实台账，9 类单据统一版式 + Android 系统原生打印)
+
+> **需求原话**: 「完善APP端的xk记录-xk单据打印功能」
+
+**两项拍板**
+- **单据范围**：「检验记录 + 环境 + 入库单」共 **9 类** —— 原料进货检验(IQC) / 吹膜首检 / 制袋首检 / 吹膜巡检 / 制袋巡检 / 成品检验(OQC) / 退货检验(OQC_RETURN) / 生产环境检查(ENV) / 采购入库单。App 端只需「XK 单据打印」**一个**权限。
+- **打印方式**：新增**原生打印** —— Capacitor 自定义插件走 Android `PrintManager`，可直连打印机或「另存为 PDF」；H5 仍走浏览器 `window.print()`。需重出 APK。
+
+**后端（两端点，零 SQL）**
+- 新增 `GET /api/xk/print/docs?docType=&pageNum=&pageSize=`（[XkController](../backend/src/main/java/com/industrial/erp/modules/xk/controller/XkController.java)）：按 `docType` 返回 `{docType,title,group,total,records[{id,docType,billNo,billDate,status,result,productName,batchNo,processName,label}]}`，`label` 由 `printLabel(...)` 统一拼（跳过 null/空/`-`，`T` 换空格，` · ` 连接）。
+- 新增 `GET /api/xk/print/docs/{docType}/{id}`：检验类走 `QmsInspectionService.detailForPrint`（head + items + defects + attachments，**首检/巡检也带检验项**），并校验 `inspectionType`/`stage` 与 docType 匹配（不匹配抛「单据类型不匹配…」）；环境走 `XkEnvCheckService.findByIdForPrint`；入库单走 `purReceiptService.detail` + `CreateByNameInjector` 回填制单人。
+- **权限只认 `report:print`**（`orRole=admin`）。此前 OR 了 `purchase:receipt:list` 等源模块 list 权限，导致只有采购查看权的账号（秦运桂/zdg）也能读到环境/检验单 —— 已收口，实测该账号三类全部 403。
+- 服务层二次鉴权绕开：`QmsInspectionService.detailForPrint`（`detail()` 对首检/巡检不回 items）；`XkEnvCheckService` 拆 `pageForPrint` / `findByIdForPrint` 无鉴权读，`page`/`findById` 保留 `requirePerm` 后委托。
+- 环境单标签**车间去重**：标题本身常带车间（如「吹膜车间 吹膜开工前检查」），`checkTitle` 已含车间时不再二次拼接。
+
+**App**
+- [api/xk.js](../app/src/api/xk.js) 新增 `printDocs(docType, pageNum, pageSize)` / `printDocDetail(docType, id)`。
+- [pages/xk/print.vue](../app/src/pages/xk/print.vue) 重写：XK 合规条 → 选单（单据类型 + 单号两个 picker）→ 打印设置（含现场照片 / 显示签署栏 / 页脚服务器时间戳）→ A4 纸张预览（品牌头、状态戳「草稿/待审核/已审核」、两列 meta、明细表、照片、备注、签署栏、留存 2 年 + 服务器时间页脚）→ 固定「打印单据」。`onPrint()` 先 `printAudit(code)` 再 `isNativeApp() ? NativePrint.printPage({jobName}) : window.print()`；审计失败不挡打印。
+- 中文化映射：`ENV_TYPE_TEXT`（TEMP_HUMIDITY 温湿度 / CLEANLINESS 洁净度 / FIRE_SAFETY 消防安全 / EMERGENCY_LIGHT 应急照明 / SAFETY_DOOR 安全门 / POWER 供电系统 / COMPRESSED_AIR 压缩空气）、`LEVEL_TEXT`（HIGH 重大 / MEDIUM 一般 / LOW 轻微）。
+
+**APK（原生打印插件）**
+- 新增 [NativePrintPlugin.java](../app/android/app/src/main/java/com/pengcheng/erp/NativePrintPlugin.java)：`@CapacitorPlugin(name="NativePrint")`，`printPage` 在 UI 线程用 `webView.createPrintDocumentAdapter(jobName)` + `PrintManager.print(... MediaSize.ISO_A4 ...)`；`MainActivity.onCreate` 里 `registerPlugin(NativePrintPlugin.class)`（早于 `super.onCreate`）。
+
+**单测（258 全绿）**
+- [QmsInspectionServiceTest](../backend/src/test/java/com/industrial/erp/modules/qms/service/QmsInspectionServiceTest.java) 新增 `detailForPrintIncludesItemsForFaiWhileDetailDoesNot`：`detailForPrint` 含 head/items/defects/attachments 且 items 非空、`detail()` 对 FAI 不含 items、不存在 id 抛含「检验单不存在」。
+
+**实测（canary 真·非超管 罗飞/WAREHOUSE_MGR，只有 `report:print` + 浏览器 + API）**
+- 9 类清单/详情全 200（明细项数：IQC 4 / 吹膜首检 6 / 成品检 13 / 环境 0 / 入库单 0），单据类型不匹配返回正确文案；秦运桂(zdg) 三类 403 负例通过。
+- 浏览器点「打印单据」→ `xk_audit_log` 新增一行（`biz_type=PDF`、`biz_bill_no=EC202610310005`、操作人 罗飞）；测试审计行已删（16 → 14，`.150` 主库原本 13 行未受影响）。
+- 环境单实测：环境类型显示「洁净度」（此前为 `CLEANLINESS`）、标签无重复车间（「吹膜车间 吹膜开工前检查 · 洁净度 / 环境卫生 · 已审核」）。
+
+**部署（三站）**
+- jar `a76ed04dd9b189f2a8828cb251a49f9b`（101,643,549 B）：`.32` `docker cp` + restart + `docker commit erp-system-backend:1.1.153`、`.150` compose build + `ERP_VERSION: "1.1.153"`（旧 jar 已无名匹配 glob，新 jar 直接放 `industrial-erp-1.0.4.jar`）、阿里云 `docker cp /opt/app/app.jar` + `docker commit erp-backend:1.1.153` + `.env ERP_VERSION=1.1.153`；三站镜像本体逐站核 md5、captcha 200。
+- PC dist `c9659cdbb5292ff3b6d77e6d2384d21c`（主包 `assets/index-B07YiwoP.js`）三站一致；`.150` 公共入口 `n150.93gushi.com:8088` 页面与 `/api/auth/captcha` 均 200，阿里云 `47.96.188.129` 页面 200、`/api` 200。
+- App H5 `493a9426f43832cc443ce6a36d6396ba`（主包 `index-CIQGtcW4.js`，打印页 `pages-xk-print.CtmfCcKg.js`）上 `.32`（bind mount `/vol2/erp-system/app-h5/dist/build/h5`）与阿里云；`.150` 无 H5 容器。
+- APK `/Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20261101.apk`（`f9c16a4245079c2006207fafdef0fe27`，4,488,752 B，versionCode 1153）；**真机原生打印需现场确认一次**（Android 打印对话框 → 选打印机或另存 PDF）。
+- ⚠️ 踩坑：① 浏览器会缓存旧 `index.html` → 仍加载旧 chunk（`pages-xk-print.C5TUlqEB.js`），换 URL 参数/新标签页强刷才对；② 阿里云 PC/H5 是 bind mount，`mv` 换新目录后容器仍挂旧 inode，**必须 `docker restart`**（本次已踩）。
+
+### v1.1.152 (2026-11-01 — 销售出库审核时可逐行选择出库批次与数量；顺修「重复审核→反审核」库存翻倍与同批次多行互锁)
+
+> **需求原话**: 「销售出库时单一批号库存不足审核时提示库存不足，现要求审核时选择出库批号及对应数量。」
+
+**口径（拍板）**
+- **审核即分配**：PC 点「审核」不再只是二次确认，而是先弹「审核出库单 · 选择出库批次」：每行明细列出该仓库、该商品**有库存的批次**（单据上已选但已无库存的批次也列出并灰显，让用户看清为什么不足），自动按「单据已选批次优先、再按库存从大到小」预分好，可手工改成任意组合。
+- **前端只管填，后端严格校验**：分配合计必须等于该行出库数量（允许 0.0001 浮点尾差、并入最后一笔），逐批不超过可用库存，**所有校验在扣库前一次性做完**，不过则一笔库存都不动。
+- **不传分配仍走旧逻辑**：App / 旧客户端（`POST /check` 无 body）沿用按 `batch_no` 勾选顺序自动拆分，存量单零回归。
+- **实际出库批次回写明细**：审核后 `sal_delivery_detail.batch_no` 改写为本次实际出库的批次串，打印/追溯/反审核都按它走；无批次按既有习惯放末尾（`PD001|`），只有无批次时存空串。
+
+**后端**
+- 新增 [SalDeliveryCheckDTO](../backend/src/main/java/com/industrial/erp/modules/sales/dto/SalDeliveryCheckDTO.java)：`details[{detailId, allocations[{batchNo, qty}]}]`；`batchNo=""` 表示「无批次」（`inv_stock.batch_no IS NULL` 那行）。
+- [SalDeliveryController](../backend/src/main/java/com/industrial/erp/modules/sales/controller/SalDeliveryController.java) `POST /api/sales/delivery/{id}/check` body 改为 `@RequestBody(required = false)`；[SalDeliveryService](../backend/src/main/java/com/industrial/erp/modules/sales/service/SalDeliveryService.java) 拆 `doCheck(id, req)`，新增 `resolveExplicitAllocations` / `outStockByAllocation` / `loadBatchStockMap` / `joinBatchNoForDisplay`。可用量按「仓库+商品」缓存，**同一商品跨多行累计扣减**（同一批次被两行分配也能正确判足）。
+- 出库返回值改为 `LineOut{cost, byBatch}`：`byBatch` 直接供 **MES 批次流向登记** 用 —— 旧版多批次时整行 `qty` 只记到首个批次，现在按各批**实际出库量**分别 `registerFgOutToCustomer`。
+- **RedisLock 事务内重入修复** [RedisLock](../backend/src/main/java/com/industrial/erp/utils/RedisLock.java)：锁要等事务提交才释放（P1-4 防超卖），同一事务内同一 key 再取锁会等**自己持有的锁**直到超时报「操作过于频繁」—— 一张出库单两行共用同一批次时必现。改为 `ThreadLocal<Map<lockKey, token>> HELD_IN_TX` 记录本事务已持锁的 key，同 key 重入直接执行，释放仍由外层同步回调负责。
+- **反审核回补改「净额」**：原 `ledgerOutQtyByBatch` 只对 `biz_direction=OUT` 求和，同一张单「审核→反审核→再审核→再反审核」会把上一轮已回补的量再入一次库。改为 `ledgerNetOutQtyByBatch`（OUT 计正、反审核的 IN 计负），只回补净额 > 0 的批次，查不到台账仍退回整行回补。
+
+**PC**
+- [sales/Delivery.vue](../pc-web/src/views/sales/Delivery.vue)（+241 行）：审核弹窗按行渲染批次表（批次号 / 入库日期 / 可用库存 / 本次出库数量），行头实时显示「需出库 N | 已分配 M（差 K）」，未分配足的行给出「可用库存合计仅 X…请先入库或调整单据数量」提示；「自动分配」（全局/单行）会避开其他行已占用的量；页脚「尚有明细行未分配足数量, 暂不能审核」并禁用「确认审核」。[api/sales.js](../pc-web/src/api/sales.js) `check(id, data)` 支持透传分配。
+
+**单测（257 条全绿）**
+- 新增 [SalDeliveryBatchAllocationTest](../backend/src/test/java/com/industrial/erp/modules/sales/service/SalDeliveryBatchAllocationTest.java) 7 条：显式分配逐批出库并回写明细批次串 / 合计不符 / 超可用 / 指定不存在的批次（均不扣库存）/ 不传分配走自动拆分 / 浮点尾差并入最后一笔 / `A|` 末尾空段写法。
+- [SalDeliveryUncheckTest](../backend/src/test/java/com/industrial/erp/modules/sales/service/SalDeliveryUncheckTest.java) +2 条：OUT 与 IN 相抵净额 0 时不重复入库、只回补尚未回补的净出库量。
+
+**实测（canary 真·非超管 罗飞 + 浏览器 + API）**
+- 非超管点「审核」：弹窗自动预分配，`POST /check` 带 `details` 返回 200；混合批次单明细回写为 `PD202608180001|`（含无批次尾段），纯无批次单为空串。
+- 反复「审核→反审核」两轮：库存回到 4950 / 4300（修复前第二轮反审核会多出整行，实测 6650 / 8600），与 `.150` 主库一致。
+- 自测单据（出库单/明细/台账/AR）已删净，canary `inv_stock` 与主库逐批一致。
+
+**部署（三站）**
+- jar `d937af3ddb11467d67900c6f0e5f9964`：`.32` 容器 + 镜像 `erp-system-backend:1.1.152`、`.150` compose `ERP_VERSION: "1.1.152"` + 重打镜像（旧 jar 改名 `industrial-erp-1.0.4.jar.bak_v1151_20261101` 避免 glob 双匹配）、阿里云 `/opt/app/app.jar` + `erp-backend:1.1.152` + `.env 1.1.152`；三站逐站核 md5。
+- PC dist `e7f0e52ede705e694c382851ccdcd7e0`（主包 `assets/index-D_LE2fsk.js`，出库页 `assets/Delivery-ZyAsz7kn.js` `fef0750ca52802730984fa929db099a0`）三站一致；`.150` 公共入口 `n150.93gushi.com:8088` 页面与 `/api/auth/captcha` 均 200。
+- App H5 `bca510592e043966ab6b4f87525e3791`（主包 `assets/index-vmNPvebq.js`，版本 1.1.152）上 `.32`（bind mount + restart）与阿里云；`.150` 无 H5 容器。
+- **App 业务代码本版未改**，H5 重建仅为版本号对齐；APK 未重出（仍是 v1.1.151 `erp-app-20261101-1151.apk`）。
+
+### v1.1.151 (2026-11-01 — 生产环境检查按 GB 31603-2015 逐项落地，App 开工确认与 PC XK 环境检查同源)
+
+> **需求原话**: 「生产环境检查具体项目根据xk要求来完善。」
+
+**三项拍板口径**
+- **入口**: App「开工确认」弹窗 + PC「XK 质量管控 → 生产环境检查」两个入口，**共用一份后端清单**（替换 PC 原来 5 条 mock、App 原来 3 条静态文案）。
+- **颗粒度**: GB 31603-2015 **逐条 10 项通用 + 1 项工序专项**（吹膜 / 制袋各一条），每项带条款号与现场判定要点。
+- **不符合**: **禁止开工**，逐项登记不合格 + 现场说明 → 落一张 DRAFT/PENDING 整改单，整改合格后全项复确认才可开工。
+
+**后端（零 SQL、零新表）**
+- 新增 [XkEnvCheckTemplate](../backend/src/main/java/com/industrial/erp/modules/xk/service/XkEnvCheckTemplate.java)：清单唯一出处，`ENV_01..ENV_10` 通用 + `BLOW_SPECIAL` / `BAG_SPECIAL`，每项含 `requirement` / `basis`（GB 31603 条款）/ `env_type`（`ENV_09` 走 `TEMP_HUMIDITY`，其余 `CLEANLINESS`）；`formatLine` / `header` 统一落库文本。
+- 新增 `GET /api/xk/env-check/template?stage=BLOW|BAG`（[XkEnvCheckController](../backend/src/main/java/com/industrial/erp/modules/xk/controller/XkEnvCheckController.java)），权限 OR：`xk:env:list` / `production:order:release` / `production:report:add` / `production:report:list`，`orRole=admin`。
+- [MesWorkStartService](../backend/src/main/java/com/industrial/erp/modules/mes/service/MesWorkStartService.java)：开工前 `validateEnvItems` 逐项门禁 —— 缺项提示「请逐项确认生产环境检查 (GB 31603, 共 N 项), 未确认: …」，有不符合提示「生产环境不合格: …。请先整改, 整改合格后再开工」；合格后在开工事务内写 2 张 `xk_env_check`（`CLEANLINESS` + `TEMP_HUMIDITY`，`status=CHECKED`，`remark=AUTO-BY-WORK-START <单号>`）。
+- 新增 `POST /api/production/order/{id}/work-start-env-fail`（[PrdOrderController](../backend/src/main/java/com/industrial/erp/modules/production/controller/PrdOrderController.java)）：登记不合格 → `recordEnvFailure` 校验「每项不符合必须带说明」，落 `DRAFT + rectifyStatus=PENDING` 整改单（`remark=AUTO-BY-WORK-START-FAIL <单号>`），审计 `CHECK_FAIL`，返回 `{checkNo, failedCount, failedItems}`。
+- 单测 [XkEnvCheckTemplateTest](../backend/src/test/java/com/industrial/erp/modules/xk/service/XkEnvCheckTemplateTest.java)：清单条数/条款号/工序专项/落库文本/文案校验，8 条全绿。
+
+**PC**
+- [xk/Safety.vue](../pc-web/src/views/xk/Safety.vue) Tab 3：顶部「吹膜 / 制袋」切换同一接口换清单；逐项「符合 / 发现问题」；有不符合时必须填该项说明 + 整改负责人/期限才能「保存整改记录」，否则提示「存在不符合项, 请填写整改记录后提交, 不能按「全部合格」归档」；全项符合才出「保存合格检查记录」；`envSnapshotText()` 生成带条款的口径留痕文本。
+
+**App**
+- [pages/production/order-detail.vue](../app/src/pages/production/order-detail.vue)：开工弹窗「1. 生产环境检查 (GB 31603-2015, 共 11 项)」逐项「符合 / 不符合」，点「不符合」出「不符合情况说明 (必填)」并把主按钮换成「登记不合格并整改」；未确认项提示「还有 N 项未确认, 逐项确认后才能开工。」；全部确认才可「确认开工」，提交带 `{stage, envQualified:true, envItems}`。
+
+**实测（canary 真·非超管 罗飞 + 浏览器 + API）**
+- 接口：`template?stage=BLOW/BAG` 各 11 项、条款号正确；缺项 / 有不符合两类负例均被拒；合格路径写 2 张 CHECKED 记录并释放工单；不合格登记生成 `EC202611010001`（DRAFT/PENDING + 3 个审计动作链）。
+- PC `.150`：Tab 3 渲染 10+1 项带条款号，吹膜项 11「吹膜风环与冷却风/压缩空气洁净」、制袋项 11「热封刀、成型器、切刀清洁」，切「发现问题」出「卫生问题整改记录」卡与「第 1 项发现问题, 请填写情况说明与整改记录」。
+- App `.32`：弹窗 11 项 + 条款号渲染正确，「不符合」切说明必填与按钮切换、`还有 10 项未确认` 门禁生效（点击未发请求），取消后无落库。
+- 自测数据已清：canary `xk_env_check` 3 行、`mes_work_start_confirm` 1 行、`prd_requisition`(+4 明细) 1 单、`prd_process` 2 行、`xk_audit_log` 4 行；`prd_order PD202610170003` 恢复 `DRAFT`（`release_by/release_name/update_by` 置空），`mes_batch_link` 0 行。
+
+**部署**
+- 三站 jar `c763b2955f43df0be1b58719dc60f3b5`（101,631,682 B；`.32` 容器 / `.150` 容器与镜像本体 / 阿里云 `erp-backend:1.1.151` 逐站核 md5）。
+- PC dist `0a8a526ca8557ef98d810bea232ff0eb`（index.html，主包 `assets/index-DwQ9S5A5.js`）三站一致。
+- App H5 `f5c78cbb4dcc8734e0e6bc6813c6eef3`（index.html，主包 `assets/index-CSkGor3d.js`），`.32` + 阿里云（`.150` 无 H5 容器）。
+- `.32` 容器 env / `.150` compose / 阿里云 `.env` 均 `ERP_VERSION=1.1.151`；复制 `.32` `IO/SQL=Yes Behind=0`（Master_Log_Pos 与主库对齐）。
+- APK `erp-app-20261101-1151.apk`（versionCode 1151，4,453,008 B，md5 `653a96e056ab9c80d360fb97e1cca82c`），已落飞牛同步盘与桌面。
+- 文档：新增 [docs/30_生产环境检查项GB31603对照.md](30_生产环境检查项GB31603对照.md)（清单唯一真值来源，改项顺序：先改文档 → 改模板类 → 补单测）。
+
+### v1.1.150 (2026-11-01 — 工业品（非食品级）不再产生首检/巡检/成品检验记录与报告)
+
+> **需求原话**: 「工业级的商品不产生检验记录和检验报告。」
+
+**口径（拍板）**
+- 判定沿用 `base_product.is_food_grade = 1`：**只有 1 算食品级**；查不到 / 为空 / 非 1 一律按工业品处理（不新增字段、不改数据）。
+- 停建范围 = **FAI（吹膜首检 / 制袋首检）+ PAT（吹膜巡检 / 制袋巡检）+ OQC（成品出厂检）**。**IQC 来料检验不动**（它有既有的「全非食品行整单豁免」口径），**OQC_RETURN 退货检不动**。
+- **存量记录保留**：历史检验单照常可查、可打开、可续签，只是今后不再新增。
+
+**后端（零 SQL、零新表）**
+- [QmsInspectionService](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionService.java)：新增 `FOOD_GRADE_ONLY_TYPES = {FAI, PAT, OQC}`、`isFoodGradeProduct(productId)`、`isFoodGradeOrder(prdOrderId)`、`requireFoodGradeForInspection(productId)`（工业品抛「该商品为工业品（非食品级）…」）。
+- 建单入口全部先过判定：手工 `create()`、自动 `createOnFinish/createOnSemiIn/createOnReport`、三个 `ensure*`（`ensureFaiForSemiIn` / `ensureOqcForOrder` / `ensureOqcForFinishedIn`）—— 工业品**返回 null**（不打断主流程）或抛业务错；**复用已有草稿的路径不受影响**（存量单仍能签核）。
+- [MesReportService](../backend/src/main/java/com/industrial/erp/modules/mes/service/MesReportService.java)：**制袋首检门禁只对食品级生效**，工业品制袋报工不再被首检卡住。
+- [PrdSemiIn](../backend/src/main/java/com/industrial/erp/modules/production/entity/PrdSemiIn.java) 增 `@TableField(exist=false) @JsonProperty("pIsFoodGrade")` 派生字段；[PrdSemiInService](../backend/src/main/java/com/industrial/erp/modules/production/service/PrdSemiInService.java) `page()` 用 `BaseProductMapper` 批量回填（查不到按工业品 0）—— 否则 PC/App 半成品入库「审核」对工业品永远灰（前端按 `inspectionResult=PASS` 卡门禁）。`check()` 对工业品直接放行，**且不再把工单上历史遗留的 FAI（可能是 HOLD）抄成快照**，避免工业品单据莫名挂一张不合格报告。
+- [PrdFinishedInService](../backend/src/main/java/com/industrial/erp/modules/production/service/PrdFinishedInService.java) 成品入库同样按食品级分流门禁。
+
+**PC**
+- 半成品入库 [production/SemiFinishedIn.vue](../pc-web/src/views/production/SemiFinishedIn.vue)：FAI 列对工业品显示「工业品免检」、`faiPassed()` 直接放行、审核确认文案区分「工业品不产生首检记录, 直接放行」。
+- 成品入库 [production/FinishedIn.vue](../pc-web/src/views/production/FinishedIn.vue)：食品级合规提示保持原样（工业品本就不出现该提示）。
+- 质量检验台账 [quality/Inspection.vue](../pc-web/src/views/quality/Inspection.vue)：新增弹窗选 FAI/PAT/OQC 时提示「首检/巡检/成品检只对食品级商品建单（商品档案 is_food_grade=1），工业品不产生检验记录。」；台账对历史记录照常展示。
+
+**App**
+- 生产单详情 [pages/production/order-detail.vue](../app/src/pages/production/order-detail.vue)：② 吹膜首检/巡检、④ 制袋首检/巡检、⑤ 成品检验 OQC 三个入口按 `pIsFoodGrade` 隐藏并改文案；③ 半成品入库说明、⑥ 成品入库门禁说明同步（⑥ 工业品显示「工序全完工后即可入成品仓 (工业品免 OQC)」）。
+- 质量检验页 [pages/quality/inspect.vue](../app/src/pages/quality/inspect.vue) 三类说明加「工业品不产生…」；首检扫码页 [pages/scan/fai.vue](../app/src/pages/scan/fai.vue) 待检列表过滤工业品（`pIsFoodGrade` 为 null 视为食品级，兼容旧接口）；半成品入库 [pages/scan/semi-in.vue](../app/src/pages/scan/semi-in.vue) 审核提示区分。
+
+**实测（真·非超管 罗飞 + 浏览器 + API）**
+- canary：工业品半成品入库 PSI202611010003（关联 PD202610290003，该工单吹膜工序挂着历史 HOLD 首检 QI202610310002）审核通过，`inspection_result / inspection_report_no / inspector_name` 全空 —— 既没被卡门禁，也没抄进不合格快照。
+- PC：半成品入库行显示「工业品免检」+ 检验状态「—」；质量检验新增弹窗选「FAI 首件」出现上述提示。
+- App：工业品订单 ②④⑤ 无按钮且文案为「工业品 (非食品级) 按现行口径不产生…」，⑥ 显示「工业品免 OQC」；食品级订单 PD202610160001 仍显示吹膜首检/巡检、制袋首检/巡检、成品检验与「FAI 首检合格后入半成品仓」。
+- `.150` 主站只读复核（罗飞）：PC 弹窗提示一致；`/api/production/order/{id}` 工业品 `pIsFoodGrade=0`、食品级（金博系列）`pIsFoodGrade=1`。
+- canary 自测产生的 3 张检验单（含明细/附件/缺陷）+ 2 行 `inv_ledger` + 2 张半成品入库单已删净（计数全 0，库存归零）。
+
+**部署（三站）**
+- jar `ed5ab39d449025059567b0bfca357438`（101,622,899 B）：`.32` 容器 env + 镜像 `erp-system-backend:1.1.150`、`.150` compose `ERP_VERSION: "1.1.150"` + 重建镜像、阿里云 `.env 1.1.150` + `erp-backend:1.1.150`；**三站容器与镜像本体分别核 md5**。
+- PC dist index `c03c8538e279b26547d2c8e3bbe5dddd`：`.32` dist-new、`.150` dist、阿里云 pc-web。
+- App H5 index `39fb821d2efabba11d722dade41653cc`（首批）→ **同日第二批 `eab270ede12eeb71077f0225cad7175c`**（补 ⑥ 文案）已上 `.32`（bind mount + restart）与阿里云 app-h5；`.150` 无 H5 容器。
+- APK `erp-app-20261101-1150b.apk` `af79ac78d40e665379388bf6da14a03f`（4,484,385 B，versionCode 1150）；首批 `7a87254e…` 作废（仅 ⑥ 文案差异）。
+- 版本 `ERP_VERSION=1.1.150` 三处 env 对齐；复制 `.32`（源 `.150:13306`）与阿里云（源 `172.18.0.1:13306`）均 `IO/SQL = Yes`、`Behind = 0`。
+
+### v1.1.149 (2026-11-01 — 达因/印刷质量检验项加「不适用」并作默认，其余检验项默认「合格」)
+
+> **需求原话**: 「我们公司不做印刷，所以检验记录和报告中达因和印刷质量全部多一个不适用的选项并作为默认。其他检验记录都以合格作为默认值」
+
+**口径（拍板）**
+- `pass_flag` 四态：`-1` 待检 / `0` 不合格 / `1` 合格 / `2` 不适用。
+- **只有 4 个核心项允许「不适用」**：`PAT_CORONA`（吹膜巡检·润湿张力/电晕处理）、`OQC_FILM_CORONA`（吹膜出厂·电晕处理面）、`BAG_PRINT`（制袋首检·印刷质量）、`OQC_BAG_PRINT`（制袋出厂·印刷质量）。清单集中在 [QmsItemCodes](../backend/src/main/java/com/industrial/erp/modules/qms/QmsItemCodes.java)。
+- **默认只默认「判定」，不默认「实测值」**：新开检验单时上述 4 项 `pass_flag=2`、其余项 `pass_flag=1`；`result_value` 仍必须逐项填写（不适用项除外），空实测照样拦签核。
+- 存量只回填**未签核草稿里仍为待检且实测/判定依据皆空**的模板项，已填值、已判不合格、已签核一律不碰。
+
+**后端**
+- `QmsInspectionService.insertTemplateItem`：新草稿按上述规则写默认判定；IQC 路径本来就默认合格，不动。
+- `QmsInspectionService.requireNaOnlyForPrintOrCorona`：保存（`saveProcessRecord`）与签核两条路径都校验 —— 非 4 项核心项传 `pass_flag=2` 直接拒绝（「该项不支持不适用判定」）。
+- `QmsIqcItemService.validateItem`：同一口径兜底（页面/接口/App 任一路径提交都会被拦）。
+- 签核门禁改为「`pass_flag ∈ {0,1,2}` 且（`pass_flag=2` 或 `result_value` 非空）」，`-1` 待检与空实测均不能签核。
+
+**PC**
+- 质量检验台账 [quality/Inspection.vue](../pc-web/src/views/quality/Inspection.vue)：判定下拉对 4 项核心项多出「不适用」；`judgedCount` 按 `[0,1,2]` 计已判；「缺实测值」提示只针对合格/不合格（不适用项不要求填值）；台账「判定」列显示「不适用」。
+- XK 质量管控 [xk/Safety.vue](../pc-web/src/views/xk/Safety.vue) 与 单据与打印 [xk/Print.vue](../pc-web/src/views/xk/Print.vue)：三处判定选择器同款加「不适用」，打印预览按「不适用」输出。
+
+**App**
+- [ProcessInspection.vue](../app/src/components/ProcessInspection.vue)（首检/巡检共用）、[scan/oqc.vue](../app/src/pages/scan/oqc.vue)（产品检）、[scan/fai.vue](../app/src/pages/scan/fai.vue)（半成品入库侧首检）：4 项核心项判定多「不适用」，模板默认值原样展示。
+- **关键修补**：这三个页面原先有一条「DRAFT 状态下 `pass_flag=1` 且实测值为空 → 回落成待检(-1)」的兜底（v1.1.135/136 为防「空项签合格」加的）。新口径下模板默认就是合格，这条兜底会把默认值全部吃掉、页面仍显示待检。改为**按库值原样展示**，把「空实测不能签核」交给统一的 `validation()/unjudged()` 拦签核按钮。实测值依然逐项必填，安全性没有下降。
+
+**SQL** [sql/147_v1149_pass_flag_na_default.sql](../sql/147_v1149_pass_flag_na_default.sql)（幂等）
+- 备份表 `qms_iqc_item_bak_v1149` + 临时表 `tmp_untouched_item_v1149` 锁定回填范围（DRAFT / `source='TEMPLATE'` / `pass_flag=-1` / `result_value` 与判定依据皆空）。
+- `.150` 主库执行：候选 **66 行 → 6 行改「不适用」+ 60 行改「合格」，0 行残留**；备份 66 行。
+- 三站最终分布一致：`pass_flag=1` 78 行、`pass_flag=2` 6 行（`BAG_PRINT` 2 / `OQC_BAG_PRINT` 1 / `PAT_CORONA` 3）。
+
+**实测**（飞牛 canary 真·非超管 罗飞 / WAREHOUSE_MGR + 浏览器 + API）
+- 服务端负例：空实测签核被拦（「检验项 BLOW_MATERIAL_CHECK 未完成实测及判定，不能签核」）；`BAG_PRINT=2` 且实测为空的单子可以签 PASS；把非核心项（`BAG_APPEARANCE`）改成 `pass_flag=2`，保存与签核两条路径都被拒。
+- PC：检验单详情判定下拉，印刷质量行 4 个选项且默认「不适用」，其余行 3 个选项默认「合格」。
+- App H5：产品检页非不适用项默认「合格」、印刷质量默认「不适用」；实测值与数量未填时签核按钮灰；不适用项的下拉 4 个选项、其他项 3 个。
+- canary 自测草稿 6 张（含明细/附件/`mes_batch_link`/`sys_oper_log`）全部删净，当日 0 残留。
+
+**部署（三站一致）**
+- jar `c87beb8844250a51a0058ba08af3dcd1`（101,621,520 B）：`.32` 容器 env + 镜像 `erp-system-backend:1.1.149`、`.150` compose `ERP_VERSION: "1.1.149"` + 重建镜像、阿里云 `.env 1.1.149` + `erp-backend:1.1.149`；**三站容器与镜像本体分别核 md5**。
+- PC dist `index.html` `17e757990dccc32550b396e2067f5959`（三站）。
+- App H5 `index.html` `d1a0c998f84dad9a1323091c14bfa565`（`.32` + 阿里云；`.150` 无 H5 容器）。
+- APK `erp-app-20261101-1149.apk` `df85013b2dca7992e64c465850ea4d9c`（4,451,719 B，versionCode 1149），`build-app.sh` 的 `[6/6]` / `[6.5/6]` 双校验通过（内嵌 1.1.149 + OS 级 1149）。
+- ⚠️ 同批修补：`SystemVersionInitializer` 的 `@Value("${erp.version:…}")` 兜底还停在 1.1.147（v1.1.148 漏改），`scripts/check-version.sh` 报不一致 → 改为 1.1.149 后**重新打了 jar**（首版 `78dad60c…` 作废，最终 `c87beb88…`，大小同为 101,621,520 B）并三站重部署、逐站核镜像本体 md5。
+- 阿里云：`docker compose build erp-backend && up -d erp-backend`（该站服务名不是 `backend`），旧 jar 改名 `.bak_v1148_20261101` 保证 Dockerfile 的 `industrial-erp-*.jar` glob 只命中一个；复制 `Slave_IO/SQL_Running=Yes`、`Seconds_Behind_Master=0`、captcha 200。
+
 ### 运维/灾备 (2026-11-01 第二批 — 隧道僵尸会话导致二次误接管，事后加固 + `.32` 恢复；不改版本号)
 
 回切完成 5 分钟后阿里云**又自动接管了一次**（08:54:47），`.150` 08:56 被守卫冻结。根因不在数据库，而在隧道。
@@ -86,6 +350,45 @@
 - 回切是**覆盖式**恢复，前提是 `.150` 在接管期间被守卫冻结（若守卫失效、期间有人往 `.150` 写了数据，会被覆盖掉）。
 - 飞牛 `.32` 不参与接管；它的 backend 用 root 连副本会绕过 `read_only` 写入真实单据，接管期间必须 `super_read_only=1` 冻住（2026-10-31 发现 4 张销售出库在副本上重复过账，属副本脏数据，回切时不得回灌）。
 - 2026-10-31 18:37 `.150` 整机失联，阿里云 18:39 自动接管成功；当日 19:5x 完成 DNS 切换与外部入口验证，服务恢复。
+
+---
+
+### v1.1.148 (2026-11-01 — 首检/巡检按「吹膜 / 制袋」拆成四个入口，各自带自己那套 Q/ZPC 检验项)
+
+> **需求原话**: 「首检记录分为吹膜首检和制袋首检，过程巡检分为吹膜巡检和制袋巡检，并完善对应的项目。」
+
+**口径**：四个模板 v1.1.134 起就已经分家（吹膜首检 6 项 / 制袋首检 10 项 / 吹膜巡检 7 项 / 制袋巡检 8 项，食品级各再追加 2/3/4/3 项），缺的是**入口与归属**——台账只显示「FAI/PAT」，XK 质量管控页首检/巡检各只有一个 tab，车间分不清手里这张是吹膜还是制袋。本轮零 SQL、零新表，把「阶段」显式化并铺到全部入口。
+
+**后端**
+- `MesQualityInspection` 新增三个 `@TableField(exist=false)` 派生字段：`stage`（`BLOW`/`BAG`）、`stageLabel`（吹膜/制袋）、`processName`（源工序名）。**阶段不落库**——检验单表只存 `inspection_type`(FAI/PAT) 与 `source_bill_id`，阶段永远由 `QmsInspectionService.stampStage()` 按 `source_bill_id → prd_process.process_name` 现算，与既有的 `processStage(PrdProcess)` 同口径（先认「制袋」再认「吹膜」）。
+- `/api/qms/inspection/page` 增加 `stage` 过滤参数：过滤在**服务层**用 `in_sql` 子查询完成（先分页再按派生阶段筛会少数据）；`BLOW` 额外并入旧口径挂在 `PRD_SEMI_IN` 上的 FAI（v1.1.138 之前半成品入库开首检留下的存量单）。
+- `/api/qms/inspection/{id}` 与 `/{id}/items` 的返回都带上 `stage`/`stageLabel`/`processName`，PC 详情与 App 现场页不再自己猜工序名。
+- 单测：`QmsInspectionServiceTest` 补四套模板归属 + 阶段过滤口径（BLOW 含 `PRD_SEMI_IN` 存量、BAG 只认制袋工序）。
+
+**PC**
+- 质量检验台账（`quality/Inspection.vue`）：类型筛选拆成「吹膜首检 / 制袋首检 / 吹膜巡检 / 制袋巡检」四类（映射到 `FAI|PAT + stage`），列表「类型」列按派生阶段显示，来源单号列显示真实工序名（原写死「工序巡检」）；手工建单仍只选基础类型 IQC/FAI/PAT/OQC/OQC_RETURN。
+- XK 质量管控（`xk/Safety.vue`）：首检 tab 与巡检 tab 各加 `el-radio-button` 吹膜/制袋切换，记录列表按阶段拉取、空列表给「暂无制袋首检记录」提示，右侧检验项标题/表单随阶段变。
+- 单据与打印（`xk/Print.vue`）：检验记录 4 类（吹膜首检 / 制袋首检 / 吹膜巡检 / 制袋巡检）各自按 `stage` 查真实台账。
+
+**App**
+- `pages/quality/inspect.vue`：首检/巡检两页各拆成「吹膜 / 制袋」两条入口，并带项数说明；`components/ProcessInspection.vue` 按阶段显示标题与空态；`pages/scan/fai.vue` 面包屑/标题按阶段命名；`pages/production/order-detail.vue` 步骤名与快捷入口同步；工作台快捷入口文案对齐。
+
+**实测**（canary `.32` 真·非超管 罗飞 / WAREHOUSE_MGR，浏览器 + API）
+- PC：制袋首检 10 项、吹膜首检 6 项、吹膜巡检 7 项逐项渲染；制袋巡检无记录时给空态提示，8 项模板从 `BAG_PAT_ITEMS` 源码核对。
+- App H5：`#/pages/quality/inspect` 首检/巡检各出现两条入口（吹膜首检/制袋首检、吹膜巡检/制袋巡检）与项数提示。
+- API 四类计数：`FAI BLOW 3 / FAI BAG 2 / PAT BLOW 3 / PAT BAG 0`（三站同值）。
+- canary 自测草稿 `QI202611010001`（制袋 FAI DRAFT，10 项未填）连同附件/明细已删净，复测 0 残留。
+
+**部署（三站一致）**
+- jar `f7170dd0c071dc41026f665e5eebcbbd`（101,620,230 B）：`.32` 容器 env + 镜像 `erp-system-backend:1.1.148`、`.150` compose `ERP_VERSION: "1.1.148"` + 重建镜像、阿里云 `.env 1.1.148` + `erp-backend:1.1.148`；**三站镜像本体 `docker run --entrypoint md5sum` 逐站核对**。
+- PC dist `index.html` `2fbf794334611726b8d5fdd2dddc75e4`（三站，`.150` 实际挂载 `/volume3/docker/erp-system/pc-web/dist`）。
+- App H5 `index.html` `23aaf1d73251a2d8f8d06de6076db847`（`.32` + 阿里云；`.150` 无 H5 容器）——首批 H5 漏改 `pages/profile/index.vue` 的 `APP_VERSION`（仍显示 1.1.147），重打后重新部署。
+- APK `a1e7f863d40966bae4ce08d3ceeb5e06`（4,451,209 B，versionCode 1148），`build-app.sh` 的 `[6/6]` / `[6.5/6]` 双校验通过（内嵌 1.1.148 + OS 级 1148）。
+- `.32` 复制健康：`Replica_IO_Running=Yes`、`Replica_SQL_Running=Yes`、`Seconds_Behind_Source=0`、`Last_Errno=0`。
+
+**注意**
+- 阶段是**派生值**：改 `prd_process.process_name`（把「制袋」去掉）会让历史检验单改归属；工序被软删时 `stage` 为 null，列表不拦截但四类筛选会漏掉该单。
+- XK 检验留痕不可改写；本轮没有任何数据迁移脚本。
 
 ---
 
