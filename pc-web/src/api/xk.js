@@ -283,6 +283,8 @@ function mapMaterial(raw) {
 
 // v1.1.97+ XK 生产环境检查 (Safety.vue Tab 3) — 直接走真后端
 export const envCheckApi = {
+  // v1.1.151 生产环境检查项模板 (GB 31603-2015), 与 App 开工确认共用后端唯一口径
+  template: (stage)  => request.get('/xk/env-check/template', { params: { stage } }),
   page:   (params) => request.get('/xk/env-check/page', { params }),
   detail: (id)     => request.get(`/xk/env-check/${id}`),
   save:   (data)   => request.post('/xk/env-check', data),

@@ -18,8 +18,8 @@
 
       <el-form :model="query" inline style="margin-bottom:12px">
         <el-form-item label="类型">
-          <el-select v-model="query.type" clearable placeholder="全部" style="width:160px">
-            <el-option v-for="t in TYPE_OPTIONS" :key="t.value" :label="t.label" :value="t.value" />
+          <el-select v-model="query.type" clearable placeholder="全部" style="width:170px">
+            <el-option v-for="t in FILTER_TYPES" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="结果">
@@ -52,9 +52,9 @@
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="110" align="center">
+        <el-table-column label="类型" width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="typeTag(row.inspectionType)" size="small">{{ typeLabel(row.inspectionType) }}</el-tag>
+            <el-tag :type="recordTag(row)" size="small">{{ recordLabel(row) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="产品" min-width="150">
@@ -68,7 +68,7 @@
         <el-table-column label="来源单号" width="150">
           <template #default="{ row }">
             <span v-if="row.sourceBillType === 'PRD_PROCESS'">
-              <el-tag size="small" type="primary">工序巡检</el-tag>
+              <el-tag size="small" type="primary">{{ row.processName || '工序' }}</el-tag>
               <span style="margin-left:4px">{{ row.sourceBillNo || '-' }}</span>
             </span>
             <span v-else>{{ row.sourceBillNo || '-' }}</span>
@@ -130,8 +130,11 @@
           <el-col :span="12">
             <el-form-item label="检验类型" required>
               <el-select v-model="form.inspectionType" style="width:100%">
-                <el-option v-for="t in TYPE_OPTIONS" :key="t.value" :label="t.label" :value="t.value" />
+                <el-option v-for="t in BASE_TYPES" :key="t.value" :label="t.label" :value="t.value" />
               </el-select>
+              <div v-if="FOOD_ONLY_TYPES.includes(form.inspectionType)" class="muted-tip" style="line-height:1.4">
+                首检/巡检/成品检只对食品级商品建单（商品档案 is_food_grade=1），工业品不产生检验记录。
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -233,13 +236,15 @@
     <el-dialog v-model="viewVisible" title="检验单详情" width="760px" destroy-on-close>
       <el-descriptions :column="2" border v-if="view" style="margin-bottom:12px">
         <el-descriptions-item label="单号">{{ view.billNo }}</el-descriptions-item>
-        <el-descriptions-item label="类型">{{ typeLabel(view.inspectionType) }}</el-descriptions-item>
+        <el-descriptions-item label="类型">{{ recordLabel(view) }}</el-descriptions-item>
         <el-descriptions-item label="产品名称">{{ view.productName || '-' }}</el-descriptions-item>
         <el-descriptions-item label="规格/型号">{{ [view.spec, view.model].filter(Boolean).join(' / ') || '-' }}</el-descriptions-item>
         <el-descriptions-item label="批次">{{ view.batchNo || '-' }}</el-descriptions-item>
         <el-descriptions-item label="来源单据">{{ view.sourceBillNo || '-' }}</el-descriptions-item>
         <el-descriptions-item label="车间">{{ view.workshop || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="来源类型">{{ sourceLabel(view.sourceBillType) }}</el-descriptions-item>
+        <el-descriptions-item label="来源类型">
+          {{ sourceLabel(view.sourceBillType) }}<span v-if="view.processName"> · {{ view.processName }}</span>
+        </el-descriptions-item>
         <el-descriptions-item label="抽检数量">{{ num(view.sampleQty) }}</el-descriptions-item>
         <el-descriptions-item label="合格/不良">{{ num(view.qualifiedQty) }} / {{ num(view.unqualifiedQty) }}</el-descriptions-item>
         <el-descriptions-item label="结果">{{ view.result ? resultLabel(view.result) : '-' }}</el-descriptions-item>
@@ -320,6 +325,7 @@
                 <el-option label="待检" :value="-1" />
                 <el-option label="合格" :value="1" />
                 <el-option label="不合格" :value="0" />
+                <el-option v-if="isNaItem(row.itemCode)" label="不适用" :value="2" />
               </el-select>
             </template>
           </el-table-column>
@@ -387,10 +393,23 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { inspectionApi } from '@/api/quality'
 
-const TYPE_OPTIONS = [
+// 检验单表只存 inspectionType(FAI/PAT) + 源工序 id, 阶段由后端派生 (stage=BLOW/BAG):
+// 筛选拆成「吹膜首检 / 制袋首检 / 吹膜巡检 / 制袋巡检」四类, 手工建单仍只填基础类型
+const BASE_TYPES = [
   { value: 'IQC', label: 'IQC 来料' },
   { value: 'FAI', label: 'FAI 首件' },
   { value: 'PAT', label: 'PAT 过程' },
+  { value: 'OQC', label: 'OQC 出货' },
+  { value: 'OQC_RETURN', label: 'OQC_RETURN 退货' }
+]
+// v1.1.150: 这三类只对食品级商品产生记录, 工业品由后端拒绝 (建单前先提示)
+const FOOD_ONLY_TYPES = ['FAI', 'PAT', 'OQC']
+const FILTER_TYPES = [
+  { value: 'IQC', label: 'IQC 来料' },
+  { value: 'FAI_BLOW', label: '吹膜首检' },
+  { value: 'FAI_BAG', label: '制袋首检' },
+  { value: 'PAT_BLOW', label: '吹膜巡检' },
+  { value: 'PAT_BAG', label: '制袋巡检' },
   { value: 'OQC', label: 'OQC 出货' },
   { value: 'OQC_RETURN', label: 'OQC_RETURN 退货' }
 ]
@@ -422,18 +441,27 @@ const viewItems = ref([])
 const checkItems = ref([])
 const itemsSaving = ref(false)
 const TEMPLATE_TYPES = ['FAI', 'PAT', 'OQC', 'OQC_RETURN']
+// v1.1.149 本公司不做印刷: 达因/印刷质量 4 项才有「不适用」
+const NA_ITEM_CODES = ['PAT_CORONA', 'OQC_FILM_CORONA', 'BAG_PRINT', 'OQC_BAG_PRINT']
+function isNaItem(code) { return NA_ITEM_CODES.includes(String(code || '')) }
 const itemLocked = computed(() => checkRow.value?.status === 'CHECKED')
 // 数量录入区仅成品检 (OQC/OQC_RETURN) 展开: 工序检数量由 App 报工链路写入, PC 不回改
 const showQty = computed(() => checkItems.value.length
   && ['OQC', 'OQC_RETURN'].includes(checkRow.value?.inspectionType))
 const judgedCount = computed(() =>
-  checkItems.value.filter(it => Number(it.passFlag) === 1 || Number(it.passFlag) === 0).length)
+  checkItems.value.filter(it => [0, 1, 2].includes(Number(it.passFlag))).length)
 const checkTitle = computed(() => checkRow.value
-  ? `审核检验单 ${checkRow.value.billNo || ''} (${typeLabel(checkRow.value.inspectionType)})`
+  ? `审核检验单 ${checkRow.value.billNo || ''} (${recordLabel(checkRow.value)})`
   : '审核检验单')
 
-function judgeLabel(f) { return Number(f) === 1 ? '合格' : Number(f) === 0 ? '不合格' : '待检' }
-function judgeTag(f) { return Number(f) === 1 ? 'success' : Number(f) === 0 ? 'danger' : 'info' }
+function judgeLabel(f) {
+  const n = Number(f)
+  return n === 1 ? '合格' : n === 0 ? '不合格' : n === 2 ? '不适用' : '待检'
+}
+function judgeTag(f) {
+  const n = Number(f)
+  return n === 1 ? 'success' : n === 0 ? 'danger' : 'info'
+}
 
 // 审核
 const checkVisible = ref(false)
@@ -455,8 +483,18 @@ function typeTag(t) {
   return { IQC: 'info', FAI: 'warning', PAT: 'primary', OQC: 'success', OQC_RETURN: 'danger' }[t] || 'info'
 }
 function typeLabel(t) {
-  const found = TYPE_OPTIONS.find(x => x.value === t)
+  const found = BASE_TYPES.find(x => x.value === t)
   return found ? found.label : (t || '-')
+}
+// 首检/巡检按后端派生 stage 显示「吹膜/制袋」; 工序被删或名字识别不出时退回通用叫法
+function recordLabel(row) {
+  const t = row?.inspectionType
+  if (t === 'FAI') return row.stage === 'BLOW' ? '吹膜首检' : row.stage === 'BAG' ? '制袋首检' : '首检'
+  if (t === 'PAT') return row.stage === 'BLOW' ? '吹膜巡检' : row.stage === 'BAG' ? '制袋巡检' : '巡检'
+  return typeLabel(t)
+}
+function recordTag(row) {
+  return typeTag(row?.inspectionType)
 }
 // v1.1.x PAT 补齐: 来源单据类型中文 (PRD_PROCESS=工序巡检报工)
 function sourceLabel(t) {
@@ -486,10 +524,14 @@ function copy(text) {
   document.body.removeChild(el)
 }
 
-// 后端 page 参数: inspectionType / result / status
+// 后端 page 参数: inspectionType / stage / result / status
+// 筛选里的 FAI_BLOW 这类复合值是「类型 + 阶段」, 拆成两个参数传给后端
 function buildParams() {
   const p = { pageNum: query.pageNum, pageSize: query.pageSize }
-  if (query.type) p.inspectionType = query.type
+  if (query.type) {
+    const m = String(query.type).match(/^(FAI|PAT)_(BLOW|BAG)$/)
+    if (m) { p.inspectionType = m[1]; p.stage = m[2] } else { p.inspectionType = query.type }
+  }
   if (query.result) p.result = query.result
   if (query.status) p.status = query.status
   return p
@@ -596,7 +638,7 @@ async function openCheck(row) {
 /** v1.1.131 — 回填检验项: 整表提交 (后端只认服务器模板项, 删项/改定义/手工替代一律拒绝). */
 async function saveItems(silent = false) {
   if (!checkItems.value.length || itemLocked.value) return true
-  const pending = checkItems.value.filter(it => Number(it.passFlag) !== 1 && Number(it.passFlag) !== 0)
+  const pending = checkItems.value.filter(it => ![0, 1, 2].includes(Number(it.passFlag)))
   if (pending.length && checkForm.result !== 'HOLD') {
     if (!silent) ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName} 等`)
     if (!silent) return false

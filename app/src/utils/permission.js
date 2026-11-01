@@ -61,6 +61,9 @@ const SENSITIVE_PAGES = new Set([
   '/pages/quality/inspect',
   '/pages/process/sop',
   '/pages/equipment/my',
+  // v1.1.155: QA 检验设备校准 (清单 / 校准记录+证书报告)
+  '/pages/equipment/calibration',
+  '/pages/equipment/calibration-detail',
   // v1.1.100+: XK 7 页 (PUSH 访问, dashboard 全部功能 XK 记录分类入口) —
   //   走 perm 集合 perm-only 兜底 (前 perm 来自 controller 多 perm 端点)
   '/pages/xk/dashboard',
@@ -93,6 +96,10 @@ const PAGE_PERMS = {
   '/pages/quality/inspect':           { perm: 'quality:inspection:list', module: 'qms' },
   '/pages/process/sop':               { perm: 'pdm:sop:list',           module: 'pdm' },
   '/pages/equipment/my':              { perm: 'equipment:master:list',  module: 'em' },
+  // v1.1.155: 检验设备校准 — 两页同属 QA 校准台账, 读权限 qa:calibration-equipment:list
+  //   (记录列表单独由 qa:calibration-record:list 卡, 页面内 403 时按"无权限"提示, 不整页拒绝)
+  '/pages/equipment/calibration':          { perm: 'qa:calibration-equipment:list', module: 'em' },
+  '/pages/equipment/calibration-detail':   { perm: 'qa:calibration-equipment:list', module: 'em' },
   '/pages/product-add':               { perm: 'base:product:add',        module: 'base' },
   '/pages/base/product-add':          { perm: 'base:product:add',        module: 'base' },
   '/pages/base/products':             { perm: 'base:product:list',       module: 'base' },

@@ -89,6 +89,19 @@ public class MesQualityInspection {
     private String remark;
     /** DRAFT / CHECKED */
     private String status;
+    /**
+     * 派生字段 (不入库): 工序阶段 BLOW=吹膜 / BAG=制袋, 无法识别时 null.
+     * 由 QmsInspectionService 按 sourceBillId → prd_process.process_name 现算,
+     * 供 PC/App 把首检、巡检拆成「吹膜/制袋」四类展示与筛选.
+     */
+    @TableField(exist = false)
+    private String stage;
+    /** 派生字段 (不入库): 阶段中文 (吹膜/制袋) */
+    @TableField(exist = false)
+    private String stageLabel;
+    /** 派生字段 (不入库): 关联工序名 (如「吹膜」「制袋」) */
+    @TableField(exist = false)
+    private String processName;
     @Version
     private Integer version;
     @TableField(fill = FieldFill.INSERT)
@@ -172,6 +185,12 @@ public class MesQualityInspection {
     public void setRemark(String remark) { this.remark = remark; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getStage() { return stage; }
+    public void setStage(String stage) { this.stage = stage; }
+    public String getStageLabel() { return stageLabel; }
+    public void setStageLabel(String stageLabel) { this.stageLabel = stageLabel; }
+    public String getProcessName() { return processName; }
+    public void setProcessName(String processName) { this.processName = processName; }
     public Integer getVersion() { return version; }
     public void setVersion(Integer version) { this.version = version; }
     public Long getCreateBy() { return createBy; }

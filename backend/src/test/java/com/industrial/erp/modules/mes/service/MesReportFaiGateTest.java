@@ -55,6 +55,7 @@ class MesReportFaiGateTest {
     @Test
     void rejectsBagProductionWithoutItsOwnPassedFai() {
         when(qmsInspectionService.isBagProcess(process)).thenReturn(true);
+        when(qmsInspectionService.isFoodGradeOrder(10L)).thenReturn(true);
         assertThatThrownBy(() -> service.reportWork(10L, 20L, BigDecimal.ONE, BigDecimal.ZERO, "tester"))
                 .isInstanceOf(BizException.class).hasMessageContaining("制袋工序首检尚未合格");
         verify(procMapper, never()).updateById(any(PrdProcess.class));
@@ -64,6 +65,7 @@ class MesReportFaiGateTest {
     @Test
     void rejectsDefectOnlyBagProductionWithoutFai() {
         when(qmsInspectionService.isBagProcess(process)).thenReturn(true);
+        when(qmsInspectionService.isFoodGradeOrder(10L)).thenReturn(true);
         assertThatThrownBy(() -> service.reportWork(10L, 20L, BigDecimal.ZERO, BigDecimal.ONE, "tester"))
                 .isInstanceOf(BizException.class).hasMessageContaining("首检");
         verify(procMapper, never()).updateById(any(PrdProcess.class));
@@ -72,6 +74,7 @@ class MesReportFaiGateTest {
     @Test
     void allowsBagProductionAfterSameProcessFaiPassed() {
         when(qmsInspectionService.isBagProcess(process)).thenReturn(true);
+        when(qmsInspectionService.isFoodGradeOrder(10L)).thenReturn(true);
         when(qmsInspectionService.hasPassedFaiForProcess(20L)).thenReturn(true);
         when(procMapper.selectList(any())).thenReturn(List.of(process));
         service.reportWork(10L, 20L, BigDecimal.ONE, BigDecimal.ZERO, "tester");
@@ -79,6 +82,17 @@ class MesReportFaiGateTest {
         verify(procMapper).updateById(captor.capture());
         assertThat(captor.getValue().getGoodQty()).isEqualByComparingTo(BigDecimal.ONE);
         assertThat(captor.getValue().getStatus()).isEqualTo(1);
+    }
+
+    /** v1.1.150: 工业品不建首检, 制袋报工不能再被「先做首检」卡死. */
+    @Test
+    void industrialBagProductionNeedsNoFai() {
+        when(qmsInspectionService.isBagProcess(process)).thenReturn(true);
+        when(qmsInspectionService.isFoodGradeOrder(10L)).thenReturn(false);
+        when(procMapper.selectList(any())).thenReturn(List.of(process));
+        service.reportWork(10L, 20L, BigDecimal.ONE, BigDecimal.ZERO, "tester");
+        verify(qmsInspectionService, never()).hasPassedFaiForProcess(any());
+        verify(procMapper).updateById(any(PrdProcess.class));
     }
 
     @Test

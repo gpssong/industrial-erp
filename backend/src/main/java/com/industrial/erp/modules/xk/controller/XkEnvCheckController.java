@@ -1,10 +1,12 @@
 package com.industrial.erp.modules.xk.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.xk.entity.XkEnvCheck;
 import com.industrial.erp.modules.xk.service.XkEnvCheckService;
+import com.industrial.erp.modules.xk.service.XkEnvCheckTemplate;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,6 +21,20 @@ public class XkEnvCheckController {
 
     public XkEnvCheckController(XkEnvCheckService svc) {
         this.svc = svc;
+    }
+
+    /**
+     * v1.1.151 生产环境检查项模板 (GB 31603-2015): PC XK 页与 App 开工确认共用一份清单.
+     * 车间操作工没有 xk:env:* 权限, 所以 OR 上开工/报工权限, 与开工接口同权即可读取.
+     */
+    @SaCheckPermission(value = {"xk:env:list", "production:order:release",
+            "production:report:add", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
+    @GetMapping("/template")
+    public R<Map<String, Object>> template(@RequestParam(required = false) String stage) {
+        String normalized = XkEnvCheckTemplate.normalizeStage(stage);
+        return R.ok(Map.of(
+                "stage", normalized,
+                "items", XkEnvCheckTemplate.items(normalized)));
     }
 
     @SaCheckPermission(value = {"xk:env:list"}, orRole = "admin")

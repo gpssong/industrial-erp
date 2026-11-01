@@ -25,10 +25,18 @@
     <!-- 5 个 tab -->
     <el-tabs v-model="tab" class="xk-tabs">
       <!-- 1. PE膜半成品检验 (默认, 对齐 image #1) -->
-      <el-tab-pane label="PE膜半成品检验" name="semi">
+      <el-tab-pane label="首检 (吹膜/制袋)" name="semi">
         <div class="semi-layout">
           <div class="semi-main">
-            <!-- 记录选择列表 (从 inspectionApi.page FAI 拉取; 点击填充右侧表单) -->
+            <!-- 首检分吹膜/制袋两套模板: 阶段由后端按源工序名派生 (BLOW/BAG) -->
+            <div class="stage-switch">
+              <el-radio-group v-model="semiStage" size="small" @change="onSwitchSemiStage">
+                <el-radio-button value="BLOW">吹膜首检</el-radio-button>
+                <el-radio-button value="BAG">制袋首检</el-radio-button>
+              </el-radio-group>
+              <small>{{ semiStage === 'BAG' ? '制袋工序首件检验 (Q/ZPC 表1~表5 · 10 项, 食品级 +3)' : '吹膜工序首件检验 (Q/ZPC 表1~表3 · 6 项, 食品级 +2)' }}</small>
+            </div>
+            <!-- 记录选择列表 (从 inspectionApi.page FAI + stage 拉取; 点击填充右侧表单) -->
             <div class="rec-list-card">
               <div class="rec-list-head"><b>待检 / 已检记录</b><small>点击记录查看并判定</small></div>
               <div class="rec-list" v-loading="false">
@@ -40,16 +48,16 @@
                   </div>
                   <div class="rli-sub">{{ row.productName || row.batchNo || '—' }}<span v-if="row.batchNo"> · 批号 {{ row.batchNo }}</span></div>
                 </div>
-                <div v-if="!semiList.length" class="rec-list-empty">暂无半成品检验记录</div>
+                <div v-if="!semiList.length" class="rec-list-empty">暂无{{ semiStage === 'BAG' ? '制袋首检' : '吹膜首检' }}记录</div>
               </div>
             </div>
 
             <!-- 记录头卡 -->
             <div class="rec-head">
               <div class="rec-head-l">
-                <el-tag size="small" effect="plain" round>半成品检验</el-tag>
-                <h2>{{ semiSel ? semiSel.productName : 'PE 吹膜半成品检验' }}</h2>
-                <small>记录编号 · {{ semiSel?.billNo || '未选择' }}</small>
+                <el-tag size="small" effect="plain" round>{{ semiStage === 'BAG' ? '制袋首检' : '吹膜首检' }}</el-tag>
+                <h2>{{ semiSel ? semiSel.productName : 'PE 半成品首件检验' }}</h2>
+                <small>记录编号 · {{ semiSel?.billNo || '未选择' }} · 工序 {{ semiSel?.processName || '—' }}</small>
               </div>
               <el-tag :type="semiSel?.result === 'PASS' ? 'success' : semiSel?.result === 'FAIL' ? 'danger' : 'info'" size="small" effect="light">
                 {{ semiSel?.result || '待选' }}
@@ -78,16 +86,27 @@
                 <div class="ct-col c-verdict">判定</div>
               </div>
               <div class="ct-body">
-                <div v-for="r in semiItems" :key="r.item || r.name" class="ct-row">
-                  <div class="ct-col c-item">{{ r.item || r.name }}</div>
-                  <div class="ct-col c-req">{{ r.req || r.std }}</div>
+                <div v-for="r in semiItems" :key="r.id || r.itemCode" class="ct-row">
+                  <div class="ct-col c-item">
+                    {{ r.itemName }}
+                    <small v-if="Number(r.isFoodGradeItem) === 1" class="fg-mark">食品级</small>
+                  </div>
+                  <div class="ct-col c-req">{{ r.requirement }}</div>
                   <div class="ct-col c-method">{{ r.method }}</div>
-                  <div class="ct-col c-result">{{ r.result || '-' }}</div>
+                  <div class="ct-col c-result">
+                    <el-input v-model="r.resultValue" size="small" :disabled="semiLocked"
+                      :placeholder="r.unit ? ('如 ' + r.unit) : '实测/观察'" />
+                  </div>
                   <div class="ct-col c-verdict">
-                    <el-tag :type="r.ok === false ? 'danger' : 'success'" size="small" effect="light">{{ r.ok === false ? '不合格' : '合格' }}</el-tag>
+                    <el-select v-model="r.passFlag" size="small" :disabled="semiLocked" style="width:92px">
+                      <el-option label="待检" :value="-1" />
+                      <el-option label="合格" :value="1" />
+                      <el-option label="不合格" :value="0" />
+                      <el-option v-if="isNaItem(r.itemCode)" label="不适用" :value="2" />
+                    </el-select>
                   </div>
                 </div>
-                <div v-if="!semiItems.length" class="empty-row">无检验项目数据, 请新建检验</div>
+                <div v-if="!semiItems.length" class="empty-row">无检验项目数据, 请先在 App 现场开首检</div>
               </div>
             </div>
 
@@ -116,7 +135,8 @@
 
             <!-- 底部动作 -->
             <div class="semi-foot">
-              <el-button type="primary" :loading="semiSubmitting" @click="onSaveSemi" :disabled="!semiSel"><el-icon><Check /></el-icon>保存检验记录 (PASS)</el-button>
+              <el-button type="primary" :loading="semiSubmitting" @click="onSaveSemi('PASS')" :disabled="!semiSel || semiLocked"><el-icon><Check /></el-icon>逐项判定合格 (PASS)</el-button>
+              <el-button type="danger" :loading="semiSubmitting" @click="onSaveSemi('FAIL')" :disabled="!semiSel || semiLocked"><el-icon><CircleClose /></el-icon>不合格 · 冻结批次</el-button>
               <el-button @click="onOpenReport(semiSel)" :disabled="!semiSel"><el-icon><Document /></el-icon>查看详情</el-button>
             </div>
           </div>
@@ -213,6 +233,7 @@
                       <el-option label="待检" :value="-1" />
                       <el-option label="合格" :value="1" />
                       <el-option label="不合格" :value="0" />
+                      <el-option v-if="isNaItem(r.itemCode)" label="不适用" :value="2" />
                     </el-select>
                   </div>
                 </div>
@@ -276,11 +297,18 @@
       </el-tab-pane>
 
       <!-- 2.5 过程巡检 (PAT) — 工序报工自动生成的巡检草稿, 展示工单/工序/车间/合格不良 + 审核冻结 -->
-      <el-tab-pane label="过程巡检 (PAT)" name="pat">
+      <el-tab-pane label="过程巡检 (吹膜/制袋)" name="pat">
         <div class="semi-layout">
           <div class="semi-main">
+            <div class="stage-switch">
+              <el-radio-group v-model="patStage" size="small" @change="onSwitchPatStage">
+                <el-radio-button value="BLOW">吹膜巡检</el-radio-button>
+                <el-radio-button value="BAG">制袋巡检</el-radio-button>
+              </el-radio-group>
+              <small>{{ patStage === 'BAG' ? '制袋工序过程巡检 (Q/ZPC 表1~表5 · 8 项, 食品级 +3)' : '吹膜工序过程巡检 (Q/ZPC 表1~表3 · 7 项, 食品级 +4)' }}</small>
+            </div>
             <div class="rec-list-card">
-              <div class="rec-list-head"><b>工序巡检记录</b><small>报工自动生成 · 点击判定/冻结</small></div>
+              <div class="rec-list-head"><b>{{ patStage === 'BAG' ? '制袋巡检' : '吹膜巡检' }}记录</b><small>报工自动生成 · 点击判定/冻结</small></div>
               <div class="rec-list">
                 <div v-for="row in patList" :key="row.id" class="rec-list-item"
                   :class="{ active: patSel?.id === row.id }" @click="onSelectPat(row)">
@@ -295,15 +323,15 @@
                     <span v-if="num(row.unqualifiedQty) > 0" style="color:#f56c6c"> · 不良 {{ num(row.unqualifiedQty) }}</span>
                   </div>
                 </div>
-                <div v-if="!patList.length" class="rec-list-empty">暂无过程巡检记录 (工单报工后自动生成)</div>
+                <div v-if="!patList.length" class="rec-list-empty">暂无{{ patStage === 'BAG' ? '制袋巡检' : '吹膜巡检' }}记录 (工单报工后自动生成)</div>
               </div>
             </div>
 
             <div class="rec-head">
               <div class="rec-head-l">
-                <el-tag size="small" effect="plain" round>工序过程巡检</el-tag>
+                <el-tag size="small" effect="plain" round>{{ patStage === 'BAG' ? '制袋巡检' : '吹膜巡检' }}</el-tag>
                 <h2>{{ patSel ? (patSel.productName || patSel.productCode || '过程巡检') : '工序过程巡检' }}</h2>
-                <small>工单 · {{ patSel?.sourceBillNo || '未选择' }} · 车间 {{ patSel?.workshop || '—' }}</small>
+                <small>工单 · {{ patSel?.sourceBillNo || '未选择' }} · 车间 {{ patSel?.workshop || '—' }} · 工序 {{ patSel?.processName || '—' }}</small>
               </div>
               <el-tag :type="patSel?.result === 'PASS' ? 'success' : patSel?.result === 'FAIL' || patSel?.result === 'FAIL_REJECT' ? 'danger' : 'info'" size="small" effect="light">
                 {{ patSel ? patResultLabel(patSel.result) : '待选' }}
@@ -327,16 +355,50 @@
               </div>
             </div>
 
+            <!-- 巡检检验项 (服务器模板: 吹膜 7+食品4 / 制袋 8+食品3, 逐项实测才能判定) -->
+            <div class="check-table-card">
+              <div class="ct-head">
+                <div class="ct-col c-item">检验项目</div>
+                <div class="ct-col c-req">技术要求</div>
+                <div class="ct-col c-method">检验方法</div>
+                <div class="ct-col c-result">实测结果</div>
+                <div class="ct-col c-verdict">判定</div>
+              </div>
+              <div class="ct-body">
+                <div v-for="r in patItems" :key="r.id || r.itemCode" class="ct-row">
+                  <div class="ct-col c-item">
+                    {{ r.itemName }}
+                    <small v-if="Number(r.isFoodGradeItem) === 1" class="fg-mark">食品级</small>
+                  </div>
+                  <div class="ct-col c-req">{{ r.requirement }}</div>
+                  <div class="ct-col c-method">{{ r.method }}</div>
+                  <div class="ct-col c-result">
+                    <el-input v-model="r.resultValue" size="small" :disabled="patLocked"
+                      :placeholder="r.unit ? ('如 ' + r.unit) : '实测/观察'" />
+                  </div>
+                  <div class="ct-col c-verdict">
+                    <el-select v-model="r.passFlag" size="small" :disabled="patLocked" style="width:92px">
+                      <el-option label="待检" :value="-1" />
+                      <el-option label="合格" :value="1" />
+                      <el-option label="不合格" :value="0" />
+                      <el-option v-if="isNaItem(r.itemCode)" label="不适用" :value="2" />
+                    </el-select>
+                  </div>
+                </div>
+                <div v-if="!patItems.length" class="empty-row">无检验项目数据, 请先在 App 现场开巡检</div>
+              </div>
+            </div>
+
             <div class="semi-foot">
-              <el-button type="primary" :loading="patSubmitting" @click="onSavePat('PASS')" :disabled="!patSel"><el-icon><Check /></el-icon>判定合格 (PASS)</el-button>
-              <el-button type="danger" :loading="patSubmitting" @click="onSavePat('FAIL')" :disabled="!patSel"><el-icon><CircleClose /></el-icon>不合格 · 冻结批次</el-button>
+              <el-button type="primary" :loading="patSubmitting" @click="onSavePat('PASS')" :disabled="!patSel || patLocked"><el-icon><Check /></el-icon>逐项判定合格 (PASS)</el-button>
+              <el-button type="danger" :loading="patSubmitting" @click="onSavePat('FAIL')" :disabled="!patSel || patLocked"><el-icon><CircleClose /></el-icon>不合格 · 冻结批次</el-button>
               <el-button @click="loadPat"><el-icon><Refresh /></el-icon>刷新</el-button>
             </div>
           </div>
         </div>
       </el-tab-pane>
 
-      <!-- 3. 生产环境检查 (xk_env_check + 检查清单 V1.2 固定模板, 对齐 image #6) -->
+      <!-- 3. 生产环境检查 (xk_env_check + GB 31603-2015 逐项清单, 与 App 开工确认同源) -->
       <el-tab-pane label="生产环境检查" name="env">
         <div class="env-layout" v-loading="envLoading">
           <!-- 顶部: 发现安全隐患 banner (有 HIGH/MEDIUM 风险时显示) -->
@@ -346,28 +408,40 @@
               <b>发现 {{ envAlertCount }} 项安全隐患</b>
               <small>请针对发现的隐患上传整改前后照片，形成检查闭环</small>
             </div>
-            <span class="env-banner-no">{{ envSel?.checkNo || 'AJ-' + todayStr() + '-006' }}</span>
+            <span class="env-banner-no">{{ envSel?.checkNo || '未保存' }}</span>
           </div>
 
-          <!-- 单卡: 检查清单 (V1.2 固定模板 5 项) + 卫生问题记录 + 保存动作 -->
+          <!-- 单卡: 检查清单 (GB 31603 逐项 + 工序专项) + 卫生问题记录 + 保存动作 -->
           <div class="env-card">
             <!-- 检查项目 head -->
             <div class="env-checklist-head">
               <div>
                 <b>XK · 生产环境检查项目</b>
-                <small>吹膜法生产、食品塑料袋生产许可可检查表 V1.2</small>
+                <small>GB 31603-2015 食品接触材料生产通用卫生规范 · 10 项通用 + 1 项工序专项</small>
               </div>
-              <span class="env-checklist-score">完成 {{ envCheckedCount }}/{{ envItems.length }}</span>
+              <div class="env-head-right">
+                <el-radio-group v-model="envStage" size="small" @change="onEnvStageChange">
+                  <el-radio-button value="BLOW">吹膜</el-radio-button>
+                  <el-radio-button value="BAG">制袋</el-radio-button>
+                </el-radio-group>
+                <span class="env-checklist-score">完成 {{ envCheckedCount }}/{{ envItems.length }}</span>
+              </div>
             </div>
 
-            <!-- 5 项逐条 (mock 固定, 第 4 项发现问题 → 触发下方整改表单) -->
-            <div class="env-items">
-              <div v-for="(it, i) in envItems" :key="i" :class="['env-row', it.status === 'ISSUE' ? 'issue' : 'pass']">
+            <!-- 逐项检查 (清单来自后端 /xk/env-check/template, 与 App 开工确认同一份) -->
+            <div v-loading="envTemplateLoading" class="env-items">
+              <div v-for="(it, i) in envItems" :key="it.code" :class="['env-row', it.status === 'ISSUE' ? 'issue' : 'pass']">
                 <span class="env-no">{{ String(i + 1).padStart(2, '0') }}</span>
-                <span class="env-text">{{ it.text }}</span>
+                <span class="env-text">
+                  {{ it.name }}
+                  <small class="env-req">{{ it.requirement }}</small>
+                  <small class="env-basis">{{ it.basis }}</small>
+                  <el-input v-if="it.status === 'ISSUE'" v-model="it.note" size="small" class="env-item-note"
+                            placeholder="不符合情况说明 (必填)" />
+                </span>
                 <span class="env-verdict">
                   <span class="env-v-label" :class="it.status === 'PASS' ? 'ok' : 'bad'">{{ it.status === 'PASS' ? '符合' : '发现问题' }}</span>
-                  <!-- v1.1.108: 检查项右侧改开关 — 开=符合(PASS), 关=发现问题(ISSUE). 任意项关 → 触发下方整改表单; 全开 → 隐藏 -->
+                  <!-- 开=符合(PASS), 关=发现问题(ISSUE). 任意项关 → 触发下方整改表单; 全开 → 隐藏 -->
                   <el-switch
                     v-model="it.status"
                     active-value="PASS"
@@ -384,7 +458,7 @@
                 <span class="env-rectify-num">!</span>
                 <div>
                   <b>卫生问题整改记录</b>
-                  <small>{{ envSel?.checkContent || '洁净区物料下发现外包装破损, 存在异物与虫害风险' }}</small>
+                  <small>{{ envIssueSummary }}</small>
                 </div>
               </div>
 
@@ -535,7 +609,7 @@
             <div class="rec-table-body" v-loading="recLoading">
               <div v-for="r in filteredReportRows" :key="r.id" class="rec-table-row">
                 <div class="tc c-no"><span class="mono">{{ r.billNo }}</span></div>
-                <div class="tc c-type"><el-tag :type="stageTag(r.inspectionType)" size="small" effect="light" round>{{ stageLabel(r.inspectionType) }}</el-tag></div>
+                <div class="tc c-type"><el-tag :type="stageTag(r)" size="small" effect="light" round>{{ stageLabel(r) }}</el-tag></div>
                 <div class="tc c-obj">{{ r.productName || '-' }} / {{ r.batchNo || '-' }}</div>
                 <div class="tc c-time mono">{{ r.billDate || '-' }}</div>
                 <div class="tc c-who">{{ r.inspectorName || '-' }}</div>
@@ -937,46 +1011,75 @@ import { inspectionApi } from '@/api/quality'
 import { envCheckApi } from '@/api/xk'
 import { calibrationEquipmentApi, calibrationRecordApi } from '@/api/qa'
 import { uploadFile } from '@/api/workflow'
+import { useUserStore } from '@/store/user'
+
+const userStore = useUserStore()
+const currentUserName = () => userStore.userInfo?.nickname || userStore.userInfo?.username || ''
 
 // ===== 通用 =====
 const tab = ref('semi')
 const inspector = ref('李敏')
+// v1.1.149 本公司不做印刷: 达因/印刷质量 4 项才有「不适用」
+const NA_ITEM_CODES = ['PAT_CORONA', 'OQC_FILM_CORONA', 'BAG_PRINT', 'OQC_BAG_PRINT']
+function isNaItem(code) { return NA_ITEM_CODES.includes(String(code || '')) }
 
-// ============== Tab 1: PE膜半成品检验 (FAI) ==============
+// ============== Tab 1: 首检 (FAI) — 吹膜首检 / 制袋首检 ==============
+// 阶段不入库, 由后端按源工序名派生 (prd_process.process_name 含制袋 → BAG, 含吹膜 → BLOW)
+const semiStage = ref('BLOW')
 const semiList = ref([])
 const semiSel = ref(null)
-const semiItems = ref([])  // 从 head.items JSON 解析
+const semiItems = ref([])  // 服务器模板项 (Q/ZPC 1-2017 吹膜 6 / 制袋 10, 食品级再追加)
 const semiPhotos = ref([])
+const semiLocked = computed(() => semiSel.value?.status === 'CHECKED')
 
 async function loadSemi() {
-  const r = await inspectionApi.page({ pageNum: 1, pageSize: 20, inspectionType: 'FAI' })
+  const r = await inspectionApi.page({ pageNum: 1, pageSize: 20, inspectionType: 'FAI', stage: semiStage.value })
   if (r.code === 200) {
     semiList.value = r.data?.records || []
-    if (!semiSel.value && semiList.value.length) {
-      await onSelectSemi(semiList.value[0])
-    }
+    semiSel.value = null
+    semiItems.value = []
+    semiPhotos.value = []
+    if (semiList.value.length) await onSelectSemi(semiList.value[0])
   }
+}
+async function onSwitchSemiStage() {
+  await loadSemi()
 }
 async function onSelectSemi(row) {
   semiSel.value = row
-  const r = await inspectionApi.detail(row.id)
-  if (r.code === 200 && r.data) {
-    const head = r.data.head || r.data
-    try { semiItems.value = typeof head.items === 'string' ? JSON.parse(head.items) : (head.items || []) }
-    catch (e) { semiItems.value = [] }
+  semiItems.value = []
+  semiPhotos.value = []
+  try {
+    // 服务器模板灌入 (幂等): 吹膜首检/制袋首检各回传自己那套检验项, 不再读 head.items 快照
+    const r = await inspectionApi.ensureTemplate(row.id)
+    const head = r?.data?.head || row
+    semiSel.value = { ...row, ...head }
+    semiItems.value = (r?.data?.items || []).map(x => ({ ...x }))
     try { semiPhotos.value = typeof head.photoUrls === 'string' ? JSON.parse(head.photoUrls) : (head.photoUrls || []) }
     catch (e) { semiPhotos.value = [] }
+  } catch (e) {
+    ElMessage.error((e && (e.msg || e.message)) || '加载首检模板失败')
   }
 }
 const semiSubmitting = ref(false)
-async function onSaveSemi() {
+async function onSaveSemi(result) {
   if (!semiSel.value) { ElMessage.warning('请先选择一条记录'); return }
+  if (semiLocked.value) { ElMessage.warning('该检验单已签发, 记录只读'); return }
+  if (!semiItems.value.length) { ElMessage.warning('无检验模板项, 不能签核首检记录'); return }
+  const pending = semiItems.value.filter(it => ![0, 1, 2].includes(Number(it.passFlag)))
+  if (pending.length) { ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName}`); return }
+  const noValue = semiItems.value.filter(it => Number(it.passFlag) !== 2 && !String(it.resultValue || '').trim())
+  if (noValue.length) { ElMessage.warning(`${noValue[0].itemName} 缺实测/观察记录`); return }
+  const failed = semiItems.value.filter(it => Number(it.passFlag) === 0)
+  if (result === 'PASS' && failed.length) { ElMessage.warning('存在不合格项, 请点「不合格 · 冻结批次」'); return }
   semiSubmitting.value = true
   try {
-    const r = await inspectionApi.check(semiSel.value.id, {
-      result: 'PASS', disposition: 'NONE', reason: ''
-    })
-    if (r.code === 200) { ElMessage.success('已保存 PASS'); await loadSemi() }
+    await inspectionApi.iqcSaveItems(semiSel.value.id, semiItems.value.map(it => ({ ...it })))
+    const body = result === 'FAIL'
+      ? { result: 'FAIL', disposition: 'FROZEN', reason: '首检不合格项: ' + (failed.map(f => f.itemName).join('、') || '现场判定不合格') }
+      : { result: 'PASS', disposition: 'NONE', reason: '首检逐项合格, 放行下道工序' }
+    const r = await inspectionApi.check(semiSel.value.id, body)
+    if (r.code === 200) { ElMessage.success(result === 'FAIL' ? '已判定不合格并冻结批次' : '已签发首检合格记录'); await loadSemi() }
     else ElMessage.error(r.msg || '保存失败')
   } catch (e) { ElMessage.error((e && (e.msg || e.message)) || '保存失败') }
   finally { semiSubmitting.value = false }
@@ -1017,9 +1120,9 @@ async function onSaveFin() {
   if (!finSel.value) { ElMessage.warning('请先选择一条记录'); return }
   if (finLocked.value) { ElMessage.warning('该检验单已签发, 记录只读'); return }
   if (!finItems.value.length) { ElMessage.warning('无检验模板项, 不能签发出厂检验记录'); return }
-  const pending = finItems.value.filter(it => Number(it.passFlag) !== 1 && Number(it.passFlag) !== 0)
+  const pending = finItems.value.filter(it => ![0, 1, 2].includes(Number(it.passFlag)))
   if (pending.length) { ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName}`); return }
-  const noValue = finItems.value.filter(it => !String(it.resultValue || '').trim())
+  const noValue = finItems.value.filter(it => Number(it.passFlag) !== 2 && !String(it.resultValue || '').trim())
   if (noValue.length) { ElMessage.warning(`${noValue[0].itemName} 缺实测/核验记录`); return }
   const failed = finItems.value.filter(it => Number(it.passFlag) === 0)
   finSubmitting.value = true
@@ -1039,34 +1142,61 @@ async function onSaveFin() {
   finally { finSubmitting.value = false }
 }
 
-// ============== Tab 2.5: 过程巡检 (PAT) — 工序报工自动生成的巡检草稿 ==============
+// ============== Tab 2.5: 过程巡检 (PAT) — 吹膜巡检 / 制袋巡检 ==============
+const patStage = ref('BLOW')
 const patList = ref([])
 const patSel = ref(null)
+const patItems = ref([])  // 服务器模板项 (吹膜 7 / 制袋 8, 食品级再追加)
 const patReason = ref('')
 const patSubmitting = ref(false)
+const patLocked = computed(() => patSel.value?.status === 'CHECKED')
 // 数值归一 (PAT 各量字段可能为字符串/null)
 function num(v) { const n = Number(v || 0); return isFinite(n) ? n : 0 }
 function patResultLabel(r) {
   return { PASS: '合格', PASS_DISPOSITION: '合格(处置)', FAIL: '不合格', FAIL_REJECT: '拒收', HOLD: '待判定' }[r] || (r || '待判定')
 }
 async function loadPat() {
-  const r = await inspectionApi.page({ pageNum: 1, pageSize: 50, inspectionType: 'PAT' })
+  const r = await inspectionApi.page({ pageNum: 1, pageSize: 50, inspectionType: 'PAT', stage: patStage.value })
   if (r.code === 200) {
     patList.value = r.data?.records || []
-    if (!patSel.value && patList.value.length) onSelectPat(patList.value[0])
+    patSel.value = null
+    patItems.value = []
+    if (patList.value.length) await onSelectPat(patList.value[0])
   }
+}
+async function onSwitchPatStage() {
+  await loadPat()
 }
 async function onSelectPat(row) {
   patSel.value = row
   patReason.value = ''
+  patItems.value = []
+  try {
+    const r = await inspectionApi.ensureTemplate(row.id)
+    const head = r?.data?.head || row
+    patSel.value = { ...row, ...head }
+    patItems.value = (r?.data?.items || []).map(x => ({ ...x }))
+  } catch (e) {
+    ElMessage.error((e && (e.msg || e.message)) || '加载巡检模板失败')
+  }
 }
 async function onSavePat(result) {
   if (!patSel.value) { ElMessage.warning('请先选择一条巡检记录'); return }
+  if (patLocked.value) { ElMessage.warning('该巡检单已签发, 记录只读'); return }
+  if (!patItems.value.length) { ElMessage.warning('无检验模板项, 不能签核巡检记录'); return }
+  const pending = patItems.value.filter(it => ![0, 1, 2].includes(Number(it.passFlag)))
+  if (pending.length) { ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName}`); return }
+  const noValue = patItems.value.filter(it => Number(it.passFlag) !== 2 && !String(it.resultValue || '').trim())
+  if (noValue.length) { ElMessage.warning(`${noValue[0].itemName} 缺实测/观察记录`); return }
+  const failed = patItems.value.filter(it => Number(it.passFlag) === 0)
+  if (result === 'PASS' && failed.length) { ElMessage.warning('存在不合格项, 请点「不合格 · 冻结批次」'); return }
   patSubmitting.value = true
   try {
-    const disposition = result === 'FAIL' ? 'FROZEN' : 'NONE'
+    await inspectionApi.iqcSaveItems(patSel.value.id, patItems.value.map(it => ({ ...it })))
+    const reason = patReason.value
+      || (result === 'FAIL' ? '巡检不合格项: ' + (failed.map(f => f.itemName).join('、') || '现场判定不合格') : '')
     const r = await inspectionApi.check(patSel.value.id, {
-      result, disposition, reason: patReason.value || ''
+      result, disposition: result === 'FAIL' ? 'FROZEN' : 'NONE', reason
     })
     if (r.code === 200) {
       ElMessage.success(result === 'PASS' ? '已判定合格' : '已判定不合格并冻结批次')
@@ -1076,37 +1206,57 @@ async function onSavePat(result) {
   finally { patSubmitting.value = false }
 }
 
-// ============== Tab 3: 生产环境检查 (xk_env_check, V1.2 固定 5 项模板) ==============
+// ============== Tab 3: 生产环境检查 (xk_env_check, GB 31603-2015 逐项清单) ==============
 const envLoading = ref(false)
 const envSel = ref(null)         // 当前正在编辑的检查单 (DRAFT) 或 null (新建未保存)
 const envSaving = ref(false)
 
-// 5 项检查项目 (V1.2 固定模板, mock 数据; 第 4 项默认"发现问题"触发整改表单)
-// 实际生产可替换为从后端 xk_env_check_template 拉取
-const envItems = ref([
-  { text: '人员工作服、发帽及手部清洁符合要求', status: 'PASS' },
-  { text: '原料与半成品无破损分装发放', status: 'PASS' },
-  { text: '设备转轮清洗、无油无异味', status: 'PASS' },
-  { text: '现场无生产产品或异物', status: 'ISSUE' },
-  { text: '蚊、蚂蚁及鼠虫防治运行正常', status: 'PASS' }
-])
-const hasIssue = computed(() => envItems.value.some(i => i.status === 'ISSUE'))
-const envCheckedCount = computed(() => envItems.value.filter(i => i.status === 'PASS').length)
-// v1.1.108: 隐患数 = 发现问题的检查项数 (多项都开"问题"时累加, 不再写死 1)
-const envAlertCount = computed(() => envItems.value.filter(i => i.status === 'ISSUE').length)
+// v1.1.151: 清单来自后端唯一模板 (与 App 开工确认同一份), 按工序区分吹膜/制袋专项项.
+// 每项: { code, name, requirement, basis, envType, status: 'PASS'|'ISSUE', note }
+const envStage = ref('BLOW')
+const envTemplateLoading = ref(false)
+const envItems = ref([])
+const STAGE_LABEL = { BLOW: '吹膜', BAG: '制袋' }
 
-// v1.1.108: 检查项开关切换 — 关掉某项(设为"发现问题")自动弹整改表单; 全符合时由 hasIssue 收敛表单
+async function loadEnvTemplate(stage = envStage.value) {
+  envTemplateLoading.value = true
+  try {
+    const r = await envCheckApi.template(stage)
+    if (r.code === 200) {
+      envItems.value = (r.data?.items || []).map(it => ({ ...it, status: 'PASS', note: '' }))
+    } else {
+      ElMessage.error(r.msg || '检查项加载失败')
+    }
+  } catch (e) {
+    ElMessage.error((e && (e.msg || e.message)) || '检查项加载失败')
+  } finally { envTemplateLoading.value = false }
+}
+function onEnvStageChange() { loadEnvTemplate(envStage.value) }
+
+const hasIssue = computed(() => envItems.value.some(i => i.status === 'ISSUE'))
+const issues = computed(() => envItems.value.filter(i => i.status === 'ISSUE'))
+const envCheckedCount = computed(() => envItems.value.filter(i => i.status === 'PASS').length)
+// 隐患数 = 发现问题的检查项数
+const envAlertCount = computed(() => issues.value.length)
+// 整改卡片摘要: 逐条列出本次不符合项 + 现场说明 (无 mock 兜底文案)
+const envIssueSummary = computed(() => issues.value.length
+  ? issues.value.map((i, n) => (n + 1) + '. ' + i.name + (String(i.note || '').trim() ? '：' + i.note.trim() : '')).join('；')
+  : '')
+
+// 检查项开关切换 — 关掉某项(设为"发现问题")自动弹整改表单; 全符合时由 hasIssue 收敛表单
 function onEnvItemToggle(it) {
-  // 开关 v-model 已改 it.status, 这里只是切到"发现问题"时提示用户填整改记录
   if (it.status === 'ISSUE') {
-    ElMessage.warning('第 ' + (envItems.value.indexOf(it) + 1) + ' 项发现问题, 请在下方填写卫生问题整改记录')
+    ElMessage.warning('第 ' + (envItems.value.indexOf(it) + 1) + ' 项发现问题, 请填写情况说明与整改记录')
   }
 }
 
-function todayStr() {
-  const d = new Date()
-  const p = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}`
+// 台账快照: 表头 + 逐项结论 (逐项留痕, XK 现场核查直接对表)
+function envSnapshotText() {
+  const head = 'GB 31603-2015 生产环境检查（' + (STAGE_LABEL[envStage.value] || '吹膜')
+    + '开工前, 本记录 ' + envItems.value.length + ' 项）'
+  const lines = envItems.value.map((it, n) => (n + 1) + '. ' + it.name + ' — '
+    + (it.status === 'PASS' ? '符合' : '不符合' + (String(it.note || '').trim() ? '（' + it.note.trim() + '）' : '')))
+  return head + '\n' + lines.join('\n')
 }
 
 // 整改表单 (与 image #6 对齐, 数据走 xk_env_check 整改字段)
@@ -1160,16 +1310,21 @@ const EMPTY_JSON_ARR = '[]'
 async function onSaveEnvRecord() {
   if (!rectifyForm.value.owner) { ElMessage.warning('请填写整改负责人'); return }
   if (!rectifyForm.value.deadline) { ElMessage.warning('请选择整改期限'); return }
+  const noNote = issues.value.filter(i => !String(i.note || '').trim())
+  if (noNote.length) {
+    ElMessage.warning('请填写不符合情况说明: ' + noNote.map(i => i.name).join('、'))
+    return
+  }
   envSaving.value = true
   try {
     const payload = {
       ...rectifyForm.value,
       beforePhotos: JSON.stringify(rectifyForm.value.beforePhotos || []),
       afterPhotos: JSON.stringify(rectifyForm.value.afterPhotos || []),
-      workshop: '一车间',
+      workshop: STAGE_LABEL[envStage.value] + '车间',
       envType: 'CLEANLINESS',
-      checkTitle: '生产环境检查 · V1.2',
-      checkContent: '洁净区物料下发现外包装破损, 存在异物与虫害风险',
+      checkTitle: STAGE_LABEL[envStage.value] + '车间 生产环境检查 · 不合格待整改',
+      checkContent: envSnapshotText(),
       // v1.1.108 hotfix-3: plannedAt 用 nowBeijingStr() 输出 'YYYY-MM-DD HH:mm:ss' 匹配 @JsonFormat
       plannedAt: nowBeijingStr()
     }
@@ -1204,26 +1359,25 @@ function onGenReport() {
   ElMessage.success('检查报告已生成 (占位)')
 }
 
-// v1.1.108: 全合格场景保存检查记录.
-// 5 项全 PASS (hasIssue=false) 时也要能生成并归档一条 xk_env_check 记录,
-// 而不是只有"发现问题"才落库. 走 save(建 DRAFT) → check(level=null, rectifyStatus=DONE):
-//   level 留空 = 全合格, 后端 X6 门禁只对 MEDIUM/HIGH 强制照片, 全合格 0 照片合法.
-// 检查项快照 (5 项文本 + 全部"符合") 写进 checkContent, 台账里那条记录能看到本次查了什么.
+// 全合格场景保存检查记录: 11 项全 PASS 时归档一条 xk_env_check,
+// 走 save(建 DRAFT) → check(level=null, rectifyStatus=DONE); level 留空 = 全合格.
+// 检查项快照 (表头 + 逐项"符合") 写进 checkContent, 台账里能看到本次查了哪些项.
 async function onSaveEnvPass() {
-  const passItems = envItems.value.filter(i => i.status === 'PASS')
-  const snapshot = (passItems.length
-    ? passItems.map((i, n) => (n + 1) + '. ' + i.text + ' — 符合').join('\n')
-    : '生产环境检查 (V1.2)')
+  if (hasIssue.value) {
+    ElMessage.warning('存在不符合项, 请填写整改记录后提交, 不能按「全部合格」归档')
+    return
+  }
+  const snapshot = envSnapshotText()
   envSaving.value = true
   try {
     const payload = {
       level: null,                          // 全合格, 无问题等级
       rectifyOwner: '', deadline: '', rectifyDesc: '',
       rectifyStatus: 'DONE',
-      workshop: '一车间',
+      workshop: STAGE_LABEL[envStage.value] + '车间',
       envType: 'CLEANLINESS',
-      checkTitle: '生产环境检查 · V1.2 (全部合格)',
-      checkContent: '5 项检查全部符合, 无需整改. 检查项:\n' + snapshot,
+      checkTitle: STAGE_LABEL[envStage.value] + '车间 生产环境检查 · 全部合格',
+      checkContent: snapshot + '\n检查人=' + (currentUserName() || '-') + ', ' + envItems.value.length + ' 项逐项合格, 无需整改。',
       // v1.1.108 hotfix-3: plannedAt 匹配 @JsonFormat 格式
       plannedAt: nowBeijingStr(),
       // v1.1.108 hotfix-4: MySQL JSON 列不接受 '' — 发空数组 '[]' (合法的 JSON 文档)
@@ -1258,6 +1412,8 @@ async function loadEnv() {
       // 选第一条 DRAFT 作为当前编辑对象; 没有则 null (新建未保存)
       envSel.value = list.find(e => e.status === 'DRAFT') || null
     }
+    // v1.1.151: 检查清单首次进入时从后端拉取 (切工序时由 onEnvStageChange 重拉)
+    if (!envItems.value.length) await loadEnvTemplate()
   } finally { envLoading.value = false }
 }
 
@@ -1267,11 +1423,14 @@ const stageFilter = ref('all')
 const reportList = ref([])
 const recLoading = ref(false)
 const recDetailIsEnv = ref(false)  // v1.1.98 弹窗分支路由: env 行 → 调 envCheckApi.detail
+// 首检/巡检按工序阶段拆四类; 复合值是「类型_阶段」, 取数时拆成 inspectionType + stage
 const STAGE_OPTIONS = [
   { value: 'all',       label: '全部' },
   { value: 'IQC',       label: '原料 IQC' },
-  { value: 'FAI',       label: '半成品 FAI' },
-  { value: 'PAT',       label: '巡检 PAT' },
+  { value: 'FAI_BLOW',  label: '吹膜首检' },
+  { value: 'FAI_BAG',   label: '制袋首检' },
+  { value: 'PAT_BLOW',  label: '吹膜巡检' },
+  { value: 'PAT_BAG',   label: '制袋巡检' },
   { value: 'OQC',       label: '成品 OQC' },
   { value: 'OQC_RETURN',label: '退货 OQC_RETURN' },
   { value: 'ENV',       label: '环境 ENV' }
@@ -1282,6 +1441,8 @@ function normalizeRow(rec, type) {
     return {
       billNo:         rec.billNo || '',
       inspectionType: rec.inspectionType || '',
+      stage:          rec.stage || '',
+      processName:    rec.processName || '',
       productName:    rec.productName || '',
       batchNo:        rec.batchNo || '',
       billDate:       rec.billDate || '',
@@ -1300,6 +1461,8 @@ function normalizeRow(rec, type) {
   return {
     billNo:         rec.checkNo || '',
     inspectionType: 'ENV',
+    stage:          '',
+    processName:    '',
     productName:    (rec.workshop || '生产环境') + ' · ' + (rec.checkTitle || rec.envType || '环境检查'),
     batchNo:        '—',
     billDate:       rec.plannedAt || rec.createTime || '',
@@ -1330,7 +1493,10 @@ async function loadReport() {
       ? Promise.resolve({ code: 200, data: { records: [] } })
       : (() => {
           const p = { pageNum: 1, pageSize: 50 }
-          if (stageFilter.value !== 'all') p.inspectionType = stageFilter.value
+          if (stageFilter.value !== 'all') {
+            const m = String(stageFilter.value).match(/^(FAI|PAT)_(BLOW|BAG)$/)
+            if (m) { p.inspectionType = m[1]; p.stage = m[2] } else { p.inspectionType = stageFilter.value }
+          }
           return inspectionApi.page(p)
         })()
     const envP = (stageFilter.value === 'all' || stageFilter.value === 'ENV')
@@ -1359,12 +1525,16 @@ const filteredReportRows = computed(() => {
   )
   return list
 })
-function stageLabel(type) {
-  const m = { IQC: '原料', FAI: '半成品', PAT: '巡检', OQC: '成品', OQC_RETURN: '退货', ENV: '环境' }
-  return m[type] || type
+// 台账行 → 中文类型: 首检/巡检再按 stage 分成吹膜/制袋
+function stageLabel(row) {
+  const t = row?.inspectionType
+  const st = row?.stage
+  if (t === 'FAI') return st === 'BAG' ? '制袋首检' : st === 'BLOW' ? '吹膜首检' : '首检'
+  if (t === 'PAT') return st === 'BAG' ? '制袋巡检' : st === 'BLOW' ? '吹膜巡检' : '巡检'
+  return ({ IQC: '原料', OQC: '成品', OQC_RETURN: '退货', ENV: '环境' })[t] || t
 }
-function stageTag(type) {
-  return ({ IQC: 'warning', FAI: 'primary', PAT: 'success', OQC: 'info', OQC_RETURN: 'danger', ENV: 'warning' })[type] || 'info'
+function stageTag(row) {
+  return ({ IQC: 'warning', FAI: 'primary', PAT: 'success', OQC: 'info', OQC_RETURN: 'danger', ENV: 'warning' })[row?.inspectionType] || 'info'
 }
 const recDetailVisible = ref(false)
 const recDetail = ref(null)
@@ -1529,7 +1699,7 @@ async function onExport() {
   if (!rows.length) { ElMessage.warning('暂无可导出的检验记录'); return }
   const head = ['单号', '检验类型', '产品', '批号', '抽样量', '合格量', '结果', '判定', '检验时间']
   const lines = rows.map(r => [
-    r.billNo, stageLabel(r.inspectionType), r.productName, r.batchNo,
+    r.billNo, stageLabel(r), r.productName, r.batchNo,
     r.sampleQty ?? '', r.qualifiedQty ?? '', r.result || '', r.disposition || '',
     (r.checkTime || r.createTime || '').toString().slice(0, 16)
   ].join('\t'))
@@ -1609,7 +1779,16 @@ watch(tab, async (t) => {
 .xk-tabs :deep(.el-tabs__item) { font-size: 14px; }
 .xk-tabs :deep(.el-tabs__active-bar) { height: 3px; border-radius: 3px; }
 
-/* ===== 1. 半成品检验 ===== */
+/* ===== 1. 首检 / 巡检 (吹膜 · 制袋) ===== */
+.stage-switch {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 10px 16px;
+}
+.stage-switch small { font-size: 12px; color: var(--muted); }
+.fg-mark {
+  display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px;
+  background: #fff4e6; color: #d97706; font-size: 10px; font-weight: 600;
+}
 .semi-layout { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; }
 @media (max-width: 1200px) { .semi-layout { grid-template-columns: 1fr; } }
 .semi-main { display: flex; flex-direction: column; gap: 16px; }
@@ -1753,6 +1932,11 @@ watch(tab, async (t) => {
 .env-checklist-head b { font-size: 15px; font-weight: 730; color: var(--text); display: block; }
 .env-checklist-head small { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
 .env-checklist-score { color: var(--success); font-size: 12px; font-weight: 700; white-space: nowrap; }
+// v1.1.151: 工序切换 (吹膜/制袋) + 逐项判定要点与条款号
+.env-head-right { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.env-req { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+.env-basis { display: block; font-size: 11px; color: #b1b3b8; margin-top: 1px; }
+.env-item-note { margin-top: 6px; max-width: 460px; }
 .env-items { display: flex; flex-direction: column; }
 
 .env-row {

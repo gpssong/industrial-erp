@@ -192,6 +192,17 @@ function fetchRequest(url, method, data) {
   })
 }
 
+// v1.1.155: GET 查询串构造 — H5 的 fetchRequest 只有非 GET 才带 body (见下方 fetchRequest),
+//   GET 传 data 会静默丢掉所有筛选参数, 所以查询接口一律自己拼 URL.
+function toQuery(params) {
+  if (!params) return ''
+  const qs = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([k, v]) => k + '=' + encodeURIComponent(v))
+    .join('&')
+  return qs ? '?' + qs : ''
+}
+
 export const api = {
   login: (data) => request({ url: '/auth/login', method: 'POST', data }),
   getCaptcha: () => request({ url: '/auth/captcha' }),
@@ -260,6 +271,10 @@ export const api = {
   prdOrderBlowStart: (id, data) => request({ url: '/production/order/' + id + '/blow-start', method: 'POST', data, contentType: 'json' }),
   prdOrderBagStart: (id, data) => request({ url: '/production/order/' + id + '/bag-start', method: 'POST', data, contentType: 'json' }),
   prdOrderStartRecords: (id) => request({ url: '/production/order/' + id + '/work-start-records', silent: true }),
+  // v1.1.151 生产环境检查逐项清单 (GB 31603-2015), 与 PC XK 页共用后端唯一模板
+  envCheckTemplate: (stage) => request({ url: '/xk/env-check/template', data: { stage }, silent: true }),
+  // 环境不合格登记: 落一张 DRAFT 整改单 (EC 单号), 整改合格后再重新确认开工
+  prdOrderEnvFail: (id, data) => request({ url: '/production/order/' + id + '/work-start-env-fail', method: 'POST', data, contentType: 'json' }),
   // v1.1.101 App XK 吹膜生产全流程 — 半成品入库 / 成品入库 (仓管现场建单 + 过门禁审核)
   // 复用 PC 端已有后端端点, App 端只补前端调用入口
   prdSemiInPage:    (params) => request({ url: '/production/semi-in/page', data: params }),
@@ -298,6 +313,19 @@ export const api = {
   mesProcessDefList: (productId) => request({ url: '/mes/process-def/list', data: productId != null ? { productId } : {} }),
   // v1.1.90 Phase 2 — 设备台账 + 维保 (EM)
   equipmentPage: (params) => request({ url: '/base/equipment/page', data: params }),
+  // v1.1.154: App 现场填报直接新增设备 (POST /base/equipment, perm equipment:master:add)
+  equipmentAdd: (data) => request({ url: '/base/equipment', method: 'POST', data, contentType: 'json' }),
+  // v1.1.155 QA 检验设备校准 — App 现场填报 (清单/到期提醒/校准记录+证书报告).
+  //   全部复用 PC 已有端点 (QaCalibrationEquipmentController / QaCalibrationRecordController), 后端零改动.
+  //   读: qa:calibration-equipment:list + qa:calibration-record:list
+  //   写: 同名 :add / 审核 qa:calibration:check (后端 PermissionService 认 :list 覆盖 :add)
+  qaCalEqPage:    (params) => request({ url: '/qa/calibration-equipment/page' + toQuery(params) }),
+  qaCalEqList:    () => request({ url: '/qa/calibration-equipment/list' }),
+  qaCalEqDetail:  (id) => request({ url: '/qa/calibration-equipment/' + id }),
+  qaCalEqSave:    (data) => request({ url: '/qa/calibration-equipment', method: 'POST', data, contentType: 'json' }),
+  qaCalRecPage:   (params) => request({ url: '/qa/calibration-record/page' + toQuery(params) }),
+  qaCalRecSave:   (data) => request({ url: '/qa/calibration-record', method: 'POST', data, contentType: 'json' }),
+  qaCalRecCheck:  (id, data) => request({ url: '/qa/calibration-record/' + id + '/check', method: 'POST', data, contentType: 'json' }),
   equipmentProcessList: (equipmentId) => request({ url: '/base/equipment/process/list', data: { equipmentId } }),
   maintainPage: (params) => request({ url: '/workflow/maintain/page', data: params }),
   maintainAdd: (data) => request({ url: '/workflow/maintain', method: 'POST', data, contentType: 'json' }),

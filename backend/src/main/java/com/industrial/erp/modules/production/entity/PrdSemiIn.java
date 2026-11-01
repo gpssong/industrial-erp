@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -52,6 +53,10 @@ public class PrdSemiIn {
     private LocalDateTime updateTime;
     @TableLogic
     private Integer deleted = 0;
+    // v1.1.150 商品是否食品级 (JOIN base_product 注入): PC 半成品入库按它决定要不要 FAI 门禁
+    @TableField(exist = false)
+    @JsonProperty("pIsFoodGrade")
+    private transient Integer pIsFoodGrade;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -109,4 +114,6 @@ public class PrdSemiIn {
     public void setUpdateTime(LocalDateTime updateTime) { this.updateTime = updateTime; }
     public Integer getDeleted() { return deleted; }
     public void setDeleted(Integer deleted) { this.deleted = deleted; }
+    public Integer getPIsFoodGrade() { return pIsFoodGrade; }
+    public void setPIsFoodGrade(Integer pIsFoodGrade) { this.pIsFoodGrade = pIsFoodGrade; }
 }

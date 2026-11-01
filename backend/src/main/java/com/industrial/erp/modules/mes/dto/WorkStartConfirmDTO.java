@@ -10,8 +10,12 @@ import java.util.List;
 public class WorkStartConfirmDTO {
     /** BAG 开工时指定工序实例 (prd_process.id); BLOW 可空 */
     private Long processId;
+    /** BLOW / BAG — 仅 v1.1.151 环境不合格登记接口使用 */
+    private String stage;
     /** 生产环境是否合格 — 必须显式 true, 否则拒绝开工 */
     private Boolean envQualified;
+    /** 逐项环境检查结果 (v1.1.151, GB 31603 清单, 11 项必答且全部合格才可开工) */
+    private List<WorkStartEnvItem> envItems;
     /** 吹膜投料原料批号 — 食品级商品必填 (至少 1 个); 工业品选填 (v1.1.141) */
     private List<String> rawBatchNos;
     /** 原料批号照片 URL — 食品级商品必填 (至少 1 张); 工业品选填 (v1.1.141) */
@@ -20,8 +24,12 @@ public class WorkStartConfirmDTO {
 
     public Long getProcessId() { return processId; }
     public void setProcessId(Long processId) { this.processId = processId; }
+    public String getStage() { return stage; }
+    public void setStage(String stage) { this.stage = stage; }
     public Boolean getEnvQualified() { return envQualified; }
     public void setEnvQualified(Boolean envQualified) { this.envQualified = envQualified; }
+    public List<WorkStartEnvItem> getEnvItems() { return envItems; }
+    public void setEnvItems(List<WorkStartEnvItem> envItems) { this.envItems = envItems; }
     public List<String> getRawBatchNos() { return rawBatchNos; }
     public void setRawBatchNos(List<String> rawBatchNos) { this.rawBatchNos = rawBatchNos; }
     public List<String> getPhotoUrls() { return photoUrls; }

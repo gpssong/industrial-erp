@@ -54,6 +54,18 @@ public class XkEnvCheckService {
     public IPage<XkEnvCheck> page(String workshop, String envType, String status,
                                   Integer pageNum, Integer pageSize) {
         permService.requirePerm("xk:env:list");
+        return pageForPrint(workshop, envType, status, pageNum, pageSize);
+    }
+
+    /**
+     * v1.1.153 XK 单据打印 (App): 无二次鉴权的读取.
+     *
+     * <p>App「XK 单据打印」只授 report:print, 没有 xk:env:list; 权限由 controller 的
+     * OR 组合统一裁决 (report:print 或 xk:env:list 等), 服务层不能再拦.
+     */
+    @Transactional(readOnly = true)
+    public IPage<XkEnvCheck> pageForPrint(String workshop, String envType, String status,
+                                         Integer pageNum, Integer pageSize) {
         Page<XkEnvCheck> p = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<XkEnvCheck> w = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(workshop)) w.eq(XkEnvCheck::getWorkshop, workshop);
@@ -66,6 +78,12 @@ public class XkEnvCheckService {
     @Transactional(readOnly = true)
     public XkEnvCheck findById(Long id) {
         permService.requirePerm("xk:env:list");
+        return mapper.selectById(id);
+    }
+
+    /** v1.1.153 XK 单据打印 (App): 同上, 鉴权交 controller. */
+    @Transactional(readOnly = true)
+    public XkEnvCheck findByIdForPrint(Long id) {
         return mapper.selectById(id);
     }
 

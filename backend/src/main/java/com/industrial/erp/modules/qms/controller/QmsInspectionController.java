@@ -83,8 +83,9 @@ public class QmsInspectionController {
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) String inspectionType,
             @RequestParam(required = false) String result,
-            @RequestParam(required = false) String status) {
-        return R.ok(qms.page(pageNum, pageSize, inspectionType, result, status));
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String stage) {
+        return R.ok(qms.page(pageNum, pageSize, inspectionType, result, status, stage));
     }
 
     @Operation(summary = "检验单详情 (head + defects)")

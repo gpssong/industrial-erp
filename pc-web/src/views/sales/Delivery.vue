@@ -238,6 +238,66 @@
         <el-button type="primary" @click="onSave" :loading="submitting">保存为草稿</el-button>
       </template>
     </el-dialog>
+    <!-- v1.1.152 审核: 逐行选择出库批次及数量 -->
+    <el-dialog v-model="batchDialogVisible" title="审核出库单 · 选择出库批次"
+      width="1020px" top="6vh" destroy-on-close :close-on-click-modal="false">
+      <div v-loading="batchLoading" class="batch-body">
+        <div class="batch-meta" v-if="batchHead.billNo">
+          <span>单号 <b>{{ batchHead.billNo }}</b></span>
+          <span>客户 <b>{{ batchHead.customerName || '-' }}</b></span>
+          <span>仓库 <b>{{ batchHead.warehouseName || '-' }}</b></span>
+          <el-button size="small" type="primary" plain @click="autoAllocateAll">全部自动分配</el-button>
+        </div>
+        <div class="batch-tip">请为每行明细选择出库批次并填写数量; 各行分配合计必须等于该行出库数量, 全部满足后才能审核。</div>
+
+        <div v-for="(line, li) in batchLines" :key="line.detailId" class="batch-line">
+          <div class="batch-line-head">
+            <div class="batch-line-title">
+              <span class="batch-idx">第 {{ li + 1 }} 行</span>
+              <span class="batch-pname">{{ line.productName }}</span>
+              <span class="batch-muted">{{ line.productCode }}</span>
+              <span class="batch-muted" v-if="line.spec">规格 {{ line.spec }}</span>
+            </div>
+            <div class="batch-line-sum">
+              <span>需出库 <b>{{ stripTrailingZero4(line.qty) }} {{ line.unitName || '' }}</b></span>
+              <span class="batch-sep">|</span>
+              <span :class="lineReady(line) ? 'batch-ok' : 'batch-bad'">
+                已分配 {{ stripTrailingZero4(lineAllocated(line)) }}<template v-if="!lineReady(line)"> (差 {{ stripTrailingZero4(+(line.qty - lineAllocated(line)).toFixed(4)) }})</template>
+              </span>
+              <el-button size="small" link type="primary" @click="autoAllocateLine(line)">自动分配</el-button>
+            </div>
+          </div>
+          <el-table :data="line.options" size="small" border
+            :empty-text="`该商品在 ${batchHead.warehouseName || '当前仓库'} 没有可用库存批次`">
+            <el-table-column label="批次号" min-width="200">
+              <template #default="{ row }">{{ row.batchNo || '<无批次>' }}</template>
+            </el-table-column>
+            <el-table-column label="入库日期" width="120">
+              <template #default="{ row }">{{ row.lastInDate || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="可用库存" width="150" align="right">
+              <template #default="{ row }">
+                <span :class="Number(row.qty) > 0 ? '' : 'batch-muted'">{{ stripTrailingZero4(row.qty) }} {{ row.unitName || '' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="本次出库数量" width="180">
+              <template #default="{ row }">
+                <el-input v-model="row.allocQty" size="small" type="text" inputmode="decimal"
+                  :disabled="!(Number(row.qty) > 0)"
+                  @blur="row.allocQty = normNum(row.allocQty)" placeholder="0" />
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-if="lineHint(line)" class="batch-line-hint">{{ lineHint(line) }}</div>
+        </div>
+        <el-empty v-if="!batchLoading && !batchLines.length" description="该单据没有明细行" />
+      </div>
+      <template #footer>
+        <span class="batch-footer-tip" :class="batchAllReady ? 'batch-ok' : 'batch-bad'">{{ batchFooterTip }}</span>
+        <el-button @click="batchDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchSubmitting" :disabled="!batchAllReady" @click="confirmCheck">确认审核</el-button>
+      </template>
+    </el-dialog>
     <!-- v1.1.75 AI 解读弹窗 -->
     <el-dialog v-model="aiDialogVisible" title="🤖 AI 单据解读" width="720px" destroy-on-close>
       <div class="ai-meta" v-if="aiBillNo || aiModel">
@@ -357,6 +417,12 @@ const aiLoading = ref(false)
 const aiContent = ref('')
 const aiModel = ref('')
 const aiBillNo = ref('')
+// v1.1.152 审核批次分配弹窗
+const batchDialogVisible = ref(false)
+const batchLoading = ref(false)
+const batchSubmitting = ref(false)
+const batchHead = ref({})
+const batchLines = ref([])
 const formRef = ref()
 const customers = ref([])
 const warehouses = ref([])
@@ -745,25 +811,168 @@ async function onDelete(row) {
   ElMessage.success('删除成功'); loadData()
 }
 
+/**
+ * v1.1.152: 审核前必须逐行指定出库批次与数量.
+ * 旧版只按单据上的 batch_no 自动按库存拆分, 单批库存不足时直接报「库存不足」无从调整;
+ * 现在弹出批次分配对话框: 默认按可用库存自动分好, 可手工改成任意批次组合, 合计对得上才放行.
+ */
 async function onCheck(row) {
-  // P1-6: 审核会扣减库存并生成应收, 关键操作必须二次确认
+  batchHead.value = { id: row.id, billNo: row.billNo, customerName: row.customerName, warehouseName: row.warehouseName }
+  batchLines.value = []
+  batchDialogVisible.value = true
+  batchLoading.value = true
   try {
-    await ElMessageBox.confirm(
-      `确认审核出库单 ${row.billNo}?\n\n审核后将:\n• 扣减库存\n• 生成应收 (AP → 客户)\n• 单据不可再修改\n`,
-      '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消', alignCenter: true }
-    )
-  } catch { return }  // 用户取消
+    const d = (await salDeliveryApi.detail(row.id)).data || {}
+    batchHead.value = {
+      id: d.id || row.id,
+      billNo: d.billNo || row.billNo,
+      customerName: d.customerName || row.customerName,
+      warehouseName: d.warehouseName || row.warehouseName,
+      warehouseId: d.warehouseId
+    }
+    // 同一商品多行只查一次批次库存
+    const stockCache = {}
+    const lines = []
+    for (const det of (d.details || [])) {
+      const pid = det.productId
+      if (!(pid in stockCache)) {
+        try {
+          const r = await stockApi.batches(d.warehouseId, pid)
+          stockCache[pid] = (r.data || [])
+        } catch (e) {
+          stockCache[pid] = []
+        }
+      }
+      const saved = det.batchNo ? String(det.batchNo).split('|').filter(x => x !== '') : []
+      const rows = stockCache[pid] || []
+      // 只列有库存的批次; 单据上已选但已无库存的批次也列出来 (灰显 0), 让用户看清为什么不足
+      const options = rows
+        .filter(b => Number(b.qty) > 0 || saved.includes(b.batchNo || ''))
+        .map(b => ({
+          batchNo: b.batchNo || '',
+          qty: Number(b.qty || 0),
+          unitName: b.unitName || '',
+          lastInDate: b.lastInDate || '',
+          allocQty: 0
+        }))
+      lines.push({
+        detailId: det.id,
+        productId: pid,
+        productName: det.productName || det.productCode || String(pid),
+        productCode: det.productCode || '',
+        spec: det.spec || '',
+        unitName: det.unitName || '',
+        qty: Number(det.qty || 0),
+        savedBatches: saved,
+        options
+      })
+    }
+    batchLines.value = lines
+    autoAllocateAll()
+  } catch (e) {
+    batchDialogVisible.value = false
+    await ElMessageBox.alert((e && (e.msg || e.message)) || '加载出库单失败', '审核失败', { type: 'error', alignCenter: true })
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+const lineAllocated = (line) => (line.options || []).reduce((s, o) => s + (Number(o.allocQty) || 0), 0)
+const lineReady = (line) => Math.abs(lineAllocated(line) - Number(line.qty || 0)) <= 0.0001
+const lineAvailable = (line) => (line.options || []).reduce((s, o) => s + (Number(o.qty) || 0), 0)
+
+const batchAllReady = computed(() => batchLines.value.length > 0 && batchLines.value.every(l => lineReady(l)))
+
+const batchFooterTip = computed(() => {
+  if (!batchLines.value.length) return '该单据没有明细行, 无法审核'
+  if (!batchAllReady.value) return '尚有明细行未分配足数量, 暂不能审核'
+  return '审核后将按上表批次扣减库存、生成应收、计算成本与毛利, 单据不可再修改'
+})
+
+function lineHint(line) {
+  const need = Number(line.qty || 0)
+  const avail = lineAvailable(line)
+  const unit = line.unitName ? ' ' + line.unitName : ''
+  if (avail <= 0) return `该商品在此仓库无可用库存, 请先入库或调整本行数量 (需 ${stripTrailingZero4(need)}${unit})`
+  if (!lineReady(line)) {
+    return avail + 0.0001 < need
+      ? `可用库存合计仅 ${stripTrailingZero4(avail)}${unit}, 不足本行需出库的 ${stripTrailingZero4(need)}${unit}, 请先入库或调整单据数量`
+      : `已分配 ${stripTrailingZero4(lineAllocated(line))}${unit}, 与需出库 ${stripTrailingZero4(need)}${unit} 不一致`
+  }
+  // 库存记录单位与单据单位不同时提醒 (inv_stock 按主单位存)
+  const mixed = (line.options || []).some(o => o.unitName && line.unitName && o.unitName !== line.unitName)
+  return mixed ? `注意: 库存按主单位 (${line.options.find(o => o.unitName)?.unitName}) 记账, 请核对单位换算` : ''
+}
+
+/** 先把单据上已选的批次按顺序扣, 再按库存从大到小补齐 (与后端自动拆分口径一致). */
+function fillLine(line, used) {
+  const need = Number(line.qty || 0)
+  ;(line.options || []).forEach(o => { o.allocQty = 0 })
+  const pref = line.savedBatches || []
+  const order = [...(line.options || [])].sort((a, b) => {
+    const ai = pref.indexOf(a.batchNo)
+    const bi = pref.indexOf(b.batchNo)
+    return (ai < 0 ? 9999 : ai) - (bi < 0 ? 9999 : bi)
+  })
+  let remaining = need
+  for (const o of order) {
+    if (remaining <= 0) break
+    const k = line.productId + '|' + (o.batchNo || '')
+    const left = +((Number(o.qty) || 0) - (used[k] || 0)).toFixed(4)
+    if (left <= 0) continue
+    const take = +Math.min(remaining, left).toFixed(4)
+    o.allocQty = take
+    used[k] = +((used[k] || 0) + take).toFixed(4)
+    remaining = +(remaining - take).toFixed(4)
+  }
+}
+
+/** 其他行已占用的批次数量, 避免同一批次被多行重复分配. */
+function usedByOtherLines(skipLine) {
+  const used = {}
+  for (const l of batchLines.value) {
+    if (l === skipLine) continue
+    for (const o of (l.options || [])) {
+      const q = Number(o.allocQty) || 0
+      if (q <= 0) continue
+      const k = l.productId + '|' + (o.batchNo || '')
+      used[k] = +((used[k] || 0) + q).toFixed(4)
+    }
+  }
+  return used
+}
+
+function autoAllocateAll() {
+  const used = {}
+  batchLines.value.forEach(l => fillLine(l, used))
+}
+
+function autoAllocateLine(line) {
+  fillLine(line, usedByOtherLines(line))
+}
+
+async function confirmCheck() {
+  if (!batchAllReady.value) return ElMessage.warning('请先完成每行的批次分配')
+  batchSubmitting.value = true
   try {
-    await salDeliveryApi.check(row.id)
-    ElMessage.success('审核成功, 已扣减库存 / 生成应收')
+    const payload = {
+      details: batchLines.value.map(l => ({
+        detailId: l.detailId,
+        allocations: (l.options || [])
+          .filter(o => (Number(o.allocQty) || 0) > 0)
+          .map(o => ({ batchNo: o.batchNo || '', qty: Number(o.allocQty) }))
+      }))
+    }
+    await salDeliveryApi.check(batchHead.value.id, payload)
+    ElMessage.success('审核成功, 已按所选批次扣减库存 / 生成应收')
+    batchDialogVisible.value = false
     loadData()
   } catch (e) {
-    // v1.1.31: 用 ElMessageBox.alert (modal 风格, 强制可见) 替代 ElMessage.error (toast 容易被遮挡)
     const errMsg = (e && e.msg) || (e && e.message) || '审核失败'
-    console.error('[onCheck] 审核失败:', e)
+    console.error('[confirmCheck] 审核失败:', e)
     await ElMessageBox.alert(errMsg, '审核失败', { type: 'error', confirmButtonText: '知道了', alignCenter: true })
     loadData()
-  }
+  } finally { batchSubmitting.value = false }
 }
 
 // v1.1.11+ 反审核 (status-only, 不回退库存/账务)
@@ -942,6 +1151,27 @@ onMounted(async () => {
 .pager { margin-top: 12px; text-align: right; }
 .summary { padding: 8px 16px; background: #f8f8f8; border-radius: 4px;
   p { margin: 4px 0; font-size: 13px; } .total { font-size: 16px; color: #c0392b; } }
+/* v1.1.152 审核批次分配弹窗 */
+.batch-body { min-height: 120px; max-height: 66vh; overflow: auto; }
+.batch-meta { display: flex; gap: 18px; align-items: center; background: #f5f7fa;
+  border-radius: 4px; padding: 8px 12px; font-size: 13px; color: #606266; }
+.batch-meta b { color: #303133; }
+.batch-meta .el-button { margin-left: auto; }
+.batch-tip { font-size: 12px; color: #909399; margin: 8px 0; }
+.batch-line { border: 1px solid #ebeef5; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; }
+.batch-line-head { display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.batch-idx { display: inline-block; background: #ecf5ff; color: #409eff; border-radius: 3px;
+  padding: 1px 6px; font-size: 12px; margin-right: 8px; }
+.batch-pname { font-weight: 600; color: #303133; margin-right: 6px; }
+.batch-muted { color: #909399; font-size: 12px; margin-right: 8px; }
+.batch-line-sum { font-size: 13px; color: #606266; display: flex; align-items: center; gap: 8px; }
+.batch-line-sum b { color: #303133; }
+.batch-sep { color: #dcdfe6; }
+.batch-ok { color: #67c23a; }
+.batch-bad { color: #f56c6c; }
+.batch-line-hint { margin-top: 6px; font-size: 12px; color: #e6a23c; }
+.batch-footer-tip { float: left; font-size: 12px; line-height: 32px; max-width: 640px; text-align: left; }
 /* v1.1.75 AI 解读弹窗 */
 .ai-meta { padding: 8px 12px; background: #f5f7fa; border-radius: 4px; font-size: 13px;
   color: #606266; margin-bottom: 10px; display: flex; gap: 16px; }

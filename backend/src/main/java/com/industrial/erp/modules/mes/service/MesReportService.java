@@ -177,6 +177,7 @@ public class MesReportService {
         }
         if ((g.signum() > 0 || b.signum() > 0)
                 && qmsInspectionService.isBagProcess(p)
+                && qmsInspectionService.isFoodGradeOrder(p.getPrdOrderId())
                 && !qmsInspectionService.hasPassedFaiForProcess(processId)) {
             throw BizException.of("制袋工序首检尚未合格，请先完成该工序首检");
         }

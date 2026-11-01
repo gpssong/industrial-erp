@@ -115,6 +115,21 @@ public class PrdOrderController {
         return R.ok(workStartService.confirmBagStart(id, body));
     }
 
+    /**
+     * v1.1.151 环境检查不合格登记: 开工被拦下时把不合格项 + 现场说明落成 xk_env_check 整改单 (DRAFT/PENDING),
+     * 供 XK 现场核查追溯; 独立事务提交, 不影响开工失败回滚.
+     */
+    @SaCheckPermission(value = {"production:order:release", "production:report:add", "production:report:list"},
+            mode = SaMode.OR, orRole = "admin")
+    @PostMapping("/{id}/work-start-env-fail")
+    public R<java.util.Map<String, Object>> envFail(@PathVariable Long id,
+                                                    @RequestBody com.industrial.erp.modules.mes.dto.WorkStartConfirmDTO body) {
+        if (body == null || body.getStage() == null) {
+            throw com.industrial.erp.exception.BizException.of("stage 必填 (BLOW/BAG)");
+        }
+        return R.ok(workStartService.recordEnvFailure(id, body.getStage(), body));
+    }
+
     /** 开工确认台账回显 (批号 + 照片 + 自动生成的环境检查单号). */
     @SaCheckPermission(value = {"production:order:list", "production:report:list"},
             mode = SaMode.OR, orRole = "admin")

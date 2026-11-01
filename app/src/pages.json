@@ -26,6 +26,9 @@
     { "path": "pages/quality/inspect", "style": { "navigationBarTitleText": "质量检验" } },
     { "path": "pages/process/sop", "style": { "navigationBarTitleText": "工艺 SOP" } },
     { "path": "pages/equipment/my", "style": { "navigationBarTitleText": "设备台账" } },
+    // v1.1.155 QA 检验设备校准 (清单 + 检定提醒 + 校准记录/证书报告)
+    { "path": "pages/equipment/calibration", "style": { "navigationBarTitleText": "检验设备校准" } },
+    { "path": "pages/equipment/calibration-detail", "style": { "navigationBarTitleText": "校准记录" } },
     { "path": "pages/sales/delivery-list", "style": { "navigationBarTitleText": "销售出库单" } },
     { "path": "pages/sales/delivery-add", "style": { "navigationBarTitleText": "新建销售出库单" } },
     { "path": "pages/sales/delivery-detail", "style": { "navigationBarTitleText": "出库单详情" } },

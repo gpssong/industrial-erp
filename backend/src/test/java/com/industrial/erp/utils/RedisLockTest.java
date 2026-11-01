@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -67,6 +68,56 @@ class RedisLockTest {
             syncs.get(0).afterCompletion(TransactionSynchronization.STATUS_COMMITTED);
 
             verify(redis).execute(any(RedisScript.class), anyList(), anyString());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    @DisplayName("同一事务内同 key 重入: 不重复取锁, 提交后只解一次")
+    void reentrantOnSameKeyWithinTransaction() {
+        when(redis.opsForValue()).thenReturn(valueOps);
+        when(valueOps.setIfAbsent(anyString(), anyString(), anyLong(), any(TimeUnit.class)))
+                .thenReturn(true);
+
+        RedisLock lock = new RedisLock(redis);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            // 一张出库单多行共用同一批次: 外层行扣完后, 内层行再扣同一批次应直接放行,
+            // 否则会等自己持有的锁直到超时报"操作过于频繁"
+            String result = lock.executeWithLock("stock:3", 1, 30,
+                    () -> "outer-" + lock.executeWithLock("stock:3", 1, 30, () -> "inner"));
+
+            assertThat(result).isEqualTo("outer-inner");
+            verify(valueOps, times(1)).setIfAbsent(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+
+            List<TransactionSynchronization> syncs = TransactionSynchronizationManager.getSynchronizations();
+            assertThat(syncs).hasSize(1);
+            syncs.get(0).afterCompletion(TransactionSynchronization.STATUS_COMMITTED);
+            verify(redis, times(1)).execute(any(RedisScript.class), anyList(), anyString());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    @DisplayName("同一事务内不同 key: 各自取锁, 提交后各自解锁")
+    void differentKeysLockedSeparatelyWithinTransaction() {
+        when(redis.opsForValue()).thenReturn(valueOps);
+        when(valueOps.setIfAbsent(anyString(), anyString(), anyLong(), any(TimeUnit.class)))
+                .thenReturn(true);
+
+        RedisLock lock = new RedisLock(redis);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            lock.executeWithLock("stock:4:a", 1, 30,
+                    () -> lock.executeWithLock("stock:4:b", 1, 30, () -> "ok"));
+
+            verify(valueOps, times(2)).setIfAbsent(anyString(), anyString(), anyLong(), any(TimeUnit.class));
+            List<TransactionSynchronization> syncs = TransactionSynchronizationManager.getSynchronizations();
+            assertThat(syncs).hasSize(2);
+            syncs.forEach(s -> s.afterCompletion(TransactionSynchronization.STATUS_COMMITTED));
+            verify(redis, times(2)).execute(any(RedisScript.class), anyList(), anyString());
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }

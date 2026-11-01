@@ -304,6 +304,12 @@ const visibleMenus = computed(() => {
       seen.add('/pages/equipment/my')
       result.push({ path: '/pages/equipment/my', title: '设备台账', icon: '⚙' })
     }
+    // v1.1.155: 检验设备校准 (qa:calibration-equipment:list 为 F 型 perm 载体, path='' → 只能 perm-only)
+    if (Array.isArray(perms) && perms.includes('qa:calibration-equipment:list') && !seen.has('/pages/equipment/calibration')
+        && isModuleEnabled('em') && isPermEnabled('em', 'qa:calibration-equipment:list')) {
+      seen.add('/pages/equipment/calibration')
+      result.push({ path: '/pages/equipment/calibration', title: '检验设备校准', icon: '📏' })
+    }
   } catch (e) {}
   // v1.1.100+: 飞牛/老库没跑 v1.1.24+ perm seed, 用户 perm 数组中包含的 perm
   // 在 sys_menu 里没对应 path → (perms,path) 双匹配永远 false. 这里加 perm-only 兜底:
@@ -449,8 +455,8 @@ const visibleMenus = computed(() => {
         result.push({ path: '/pages/production/weight', title: '吹膜米重采集', icon: '⚖' })
       }
       if (perms.includes('quality:inspection:check') && isPermEnabled('production', 'quality:inspection:check')) {
-        if (!seen.has('/pages/scan/fai')) { seen.add('/pages/scan/fai'); result.push({ path: '/pages/scan/fai', title: '首检验', icon: '🔬' }) }
-        if (!seen.has('/pages/scan/pat')) { seen.add('/pages/scan/pat'); result.push({ path: '/pages/scan/pat', title: '工序巡检', icon: '📑' }) }
+        if (!seen.has('/pages/scan/fai')) { seen.add('/pages/scan/fai'); result.push({ path: '/pages/scan/fai', title: '吹膜/制袋首检', icon: '🔬' }) }
+        if (!seen.has('/pages/scan/pat')) { seen.add('/pages/scan/pat'); result.push({ path: '/pages/scan/pat', title: '吹膜/制袋巡检', icon: '📑' }) }
       }
       if (perms.includes('production:semi-in:add') && isPermEnabled('production', 'production:semi-in:add')) {
         if (!seen.has('/pages/scan/semi-in')) { seen.add('/pages/scan/semi-in'); result.push({ path: '/pages/scan/semi-in', title: '半成品入库', icon: '📗' }) }
@@ -602,6 +608,34 @@ async function loadTodoItems() {
           time: (x.planDate || '').toString().substring(5, 10) || '',
           target: '/pages/equipment/my',
           extra: x.id ? { id: x.id } : {}
+        })
+      }
+    } catch (e) { /* 静默 R13 */ }
+  }
+
+  // ②b 检定到期 (v1.1.155 检验设备校准) — 跳校准清单页, 顶部有到期提醒条.
+  //   注意: 库里 status 可能停在旧值 (服务端只在读接口内存里重算), 不能按 status 过滤;
+  //   改为按 next_cal_date 升序取前 50 条, 客户端筛「已到期 / 30 天内到期」.
+  if (isModuleEnabled('em') && isPermEnabled('em', 'qa:calibration-equipment:list')) {
+    try {
+      const r = await api.qaCalEqPage({ pageNum: 1, pageSize: 50 })
+      const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
+      const t0 = new Date(); t0.setHours(0, 0, 0, 0)
+      const due = (Array.isArray(recs) ? recs : []).filter(x => {
+        if (!x.nextCalDate) return false
+        const d = new Date(String(x.nextCalDate).substring(0, 10) + 'T00:00:00')
+        if (isNaN(d.getTime())) return false
+        return (d.getTime() - t0.getTime()) / 86400000 <= 30
+      }).slice(0, 3)
+      for (const x of due) {
+        const d = new Date(String(x.nextCalDate).substring(0, 10) + 'T00:00:00')
+        const n = Math.round((d.getTime() - t0.getTime()) / 86400000)
+        todos.push({
+          key: 'cal-' + x.id,
+          icon: '📏', cat: '检定到期',
+          title: (x.name || x.code || '检验设备') + (n < 0 ? ' · 已逾期 ' + Math.abs(n) + ' 天' : ' · ' + n + ' 天到期'),
+          time: (x.nextCalDate || '').toString().substring(5, 10),
+          target: '/pages/equipment/calibration'
         })
       }
     } catch (e) { /* 静默 R13 */ }
