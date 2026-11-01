@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.qms.QmsItemCodes;
 import com.industrial.erp.modules.qms.entity.MesQualityInspection;
 import com.industrial.erp.modules.qms.entity.QmsIqcItem;
 import com.industrial.erp.modules.qms.mapper.MesQualityInspectionMapper;
@@ -133,8 +134,12 @@ public class QmsIqcItemService {
         requireLength(item.getSource(), 32, "检验项来源");
         requireLength(item.getResultValue(), 128, "实测值");
         requireLength(item.getJudgmentBasis(), 255, "判定依据");
-        if (item.getPassFlag() != null && item.getPassFlag() != -1 && item.getPassFlag() != 0 && item.getPassFlag() != 1) {
-            throw BizException.of("检验项判定仅支持 -1待检、0不合格、1合格");
+        if (item.getPassFlag() != null && item.getPassFlag() != -1 && item.getPassFlag() != 0
+                && item.getPassFlag() != 1 && item.getPassFlag() != 2) {
+            throw BizException.of("检验项判定仅支持 -1待检、0不合格、1合格、2不适用");
+        }
+        if (Integer.valueOf(2).equals(item.getPassFlag()) && !QmsItemCodes.isNaAllowed(item.getItemCode())) {
+            throw BizException.of("检验项 " + item.getItemCode() + " 不属于达因/印刷质量项，不能判不适用");
         }
     }
 

@@ -65,6 +65,95 @@ export function uploadFile(filePath, opts = {}) {
 }
 
 /**
+ * v1.1.155: 上传浏览器 File 对象 (校准证书 / 报告 PDF).
+ *
+ * 为何不用 uni.uploadFile: 它只认 filePath (原生磁盘路径 / blob URL), 而文档选择拿到的是 File;
+ * 且 blob URL 丢失原文件名 → 后端按扩展名白名单校验会拒。
+ * fetch + FormData 保留真实文件名: H5 同源直传; APK 里 CapacitorHttp 已接管 fetch (与 uni.uploadFile 同一层),
+ * 失败再退回 uni.uploadFile (blob URL) 兜底。
+ */
+export async function uploadFileObject(file) {
+  if (!file) throw new Error('未选择文件')
+  if (file.size && file.size > 10 * 1024 * 1024) throw new Error('文件超过 10MB 上限')
+  const base = getUploadBase()
+  const fd = new FormData()
+  fd.append('file', file, file.name || ('upload-' + Date.now()))
+  try {
+    const res = await fetch(base + '/system/upload/file', {
+      method: 'POST',
+      body: fd,
+      credentials: 'include',
+      headers: { 'X-Client-Type': 'APP' }
+    })
+    const j = await res.json().catch(() => null)
+    if (j && (j.code === 200 || j.code === 0)) {
+      const d = j.data || {}
+      return {
+        url: d.url,
+        filename: d.filename || file.name,
+        size: d.size || file.size || 0,
+        contentType: d.contentType || file.type || ''
+      }
+    }
+    throw new Error((j && j.msg) || '上传失败')
+  } catch (e) {
+    // fetch 层失败 (原生 WebView 不支持 FormData 直传时) → 退回 uni.uploadFile
+    if (typeof e === 'object' && e && e.message && e.message.indexOf('上传失败') < 0 && typeof URL !== 'undefined') {
+      const objUrl = URL.createObjectURL(file)
+      try { return await uploadFile(objUrl, { name: 'file' }) } finally {
+        try { URL.revokeObjectURL(objUrl) } catch (e2) {}
+      }
+    }
+    throw e
+  }
+}
+
+/**
+ * v1.1.155: 选文档 (PDF / 图片 / Office) 并上传 — 校准证书、校准报告.
+ * 用隐藏 <input type=file>: H5 与 Capacitor WebView 都原生支持文件选择;
+ * uni.chooseFile 在 App 端不存在, 所以不能走它。
+ * @param {string} [accept] accept 属性, 默认证书/报告常见格式
+ */
+export function pickAndUploadDocument(accept = '.pdf,image/*,.doc,.docx,.xls,.xlsx') {
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') {
+      reject(new Error('当前环境不支持选择文档'))
+      return
+    }
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = accept
+    input.style.display = 'none'
+    document.body.appendChild(input)
+    let settled = false
+    const cleanup = () => {
+      settled = true
+      try { window.removeEventListener('focus', onFocus) } catch (e) { /* ignore */ }
+      try { document.body.removeChild(input) } catch (e) { /* ignore */ }
+    }
+    // 取消选择时浏览器只触发 window focus 不触发 change, 不兜底会让调用方的 loading 永远不消失
+    const onFocus = () => {
+      setTimeout(() => {
+        if (settled) return
+        if (!input.files || !input.files.length) {
+          cleanup()
+          reject(new Error('取消选择'))
+        }
+      }, 400)
+    }
+    window.addEventListener('focus', onFocus)
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0]
+      if (settled) return
+      cleanup()
+      if (!file) { reject(new Error('未选择文件')); return }
+      try { resolve(await uploadFileObject(file)) } catch (e) { reject(e) }
+    })
+    input.click()
+  })
+}
+
+/**
  * 一站式选图 + 上传 (扫码入库附件/照片用).
  * @param {object} [opts] chooseImage 选项, 默认 count=1 sourceType=['camera','album']
  * @returns {Promise<{url, filename, size, contentType}>}

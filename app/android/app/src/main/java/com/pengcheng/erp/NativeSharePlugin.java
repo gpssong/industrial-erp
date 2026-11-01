@@ -54,6 +54,61 @@ public class NativeSharePlugin extends Plugin {
         share(call, mime, ".csv");
     }
 
+    /**
+     * v1.1.155 — 打开附件 (检验设备校准证书 / 校准报告).
+     *
+     * <p>与 share() 共用下载逻辑 (原生 HttpURLConnection + WebView cookie), 只是最后一步改成
+     * ACTION_VIEW 交给系统 PDF/Office 阅读器; 手机没装对应应用时回落浏览器打开原 URL.
+     */
+    @PluginMethod
+    public void openFile(PluginCall call) {
+        String url = call.getString("url");
+        String fileName = call.getString("fileName", "");
+        String mime = call.getString("mimeType", "application/octet-stream");
+        if (url == null || url.isEmpty()) {
+            call.reject("url is required");
+            return;
+        }
+        saveCall(call);
+        String cleanUrl = url.contains("?") ? url.substring(0, url.indexOf('?')) : url;
+        final String suffix = fileName.contains(".")
+                ? fileName.substring(fileName.lastIndexOf('.'))
+                : (cleanUrl.contains(".") ? cleanUrl.substring(cleanUrl.lastIndexOf('.')) : ".dat");
+        exec.submit(() -> {
+            try {
+                File file = download(url, suffix);
+                Uri fileUri = FileProvider.getUriForFile(
+                        getContext(),
+                        getContext().getPackageName() + ".fileprovider",
+                        file
+                );
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(fileUri, mime);
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    getActivity().startActivity(intent);
+                } catch (android.content.ActivityNotFoundException noApp) {
+                    Intent web = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    web.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    getActivity().startActivity(web);
+                }
+                PluginCall saved = getSavedCall();
+                if (saved != null) {
+                    JSObject ret = new JSObject();
+                    ret.put("opened", true);
+                    ret.put("path", file.getAbsolutePath());
+                    saved.resolve(ret);
+                }
+            } catch (Exception ex) {
+                PluginCall saved = getSavedCall();
+                if (saved != null) {
+                    saved.reject("open failed: " + ex.getMessage(), ex);
+                }
+            }
+        });
+    }
+
     private void share(PluginCall call, String mimeType, String defaultSuffix) {
         String url = call.getString("url");
         String title = call.getString("title", "");

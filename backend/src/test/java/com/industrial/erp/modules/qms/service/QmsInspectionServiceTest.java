@@ -2,6 +2,7 @@ package com.industrial.erp.modules.qms.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
@@ -43,6 +44,10 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class QmsInspectionServiceTest {
+    /** v1.1.149 默认判「不适用」的 4 项 (本公司不做印刷). */
+    private static final Set<String> NA_CODES = Set.of(
+            "PAT_CORONA", "OQC_FILM_CORONA", "BAG_PRINT", "OQC_BAG_PRINT");
+
     private final MesQualityInspectionMapper inspections = mock(MesQualityInspectionMapper.class);
     private final QmsIqcItemMapper items = mock(QmsIqcItemMapper.class);
     private final PrdProcessMapper processes = mock(PrdProcessMapper.class);
@@ -91,7 +96,8 @@ class QmsInspectionServiceTest {
         bag = process(100L, "制袋一工序");
         product = new BaseProduct();
         product.setId(20L);
-        product.setIsFoodGrade(0);
+        // v1.1.150: 首检/巡检/成品检只对食品级商品建单, 默认夹具按食品级; 工业品用例显式置 0.
+        product.setIsFoodGrade(1);
         when(orders.selectById(10L)).thenAnswer(inv -> order);
         when(products.selectById(20L)).thenAnswer(inv -> product);
         when(processes.selectById(anyLong())).thenAnswer(inv -> processRows.get(inv.getArgument(0)));
@@ -103,6 +109,11 @@ class QmsInspectionServiceTest {
             return processRows.values().stream().filter(p -> values.contains(p.getId())).findFirst().orElse(null);
         });
         when(processes.selectList(any())).thenAnswer(inv -> new ArrayList<>(processRows.values()));
+        when(processes.selectBatchIds(anyCollection())).thenAnswer(inv -> {
+            Collection<?> ids = inv.getArgument(0);
+            return processRows.values().stream()
+                    .filter(p -> ids.contains(p.getId())).collect(Collectors.toList());
+        });
         when(finishedIns.selectById(anyLong())).thenAnswer(inv -> finishedInRows.get(inv.getArgument(0)));
         when(finishedIns.selectList(any())).thenAnswer(inv -> new ArrayList<>(finishedInRows.values()));
         when(numbers.generate(anyString())).thenAnswer(inv -> "QI-" + sequence.incrementAndGet());
@@ -153,17 +164,16 @@ class QmsInspectionServiceTest {
     void cleanUp() { SecurityContext.clearForTest(); }
 
     @ParameterizedTest
-    @CsvSource({"制袋,FAI,0,10,BAG", "制袋,FAI,1,13,BAG", "制袋,PAT,0,8,BAG", "制袋,PAT,1,11,BAG",
-            "吹膜,FAI,0,6,BLOW", "吹膜,FAI,1,8,BLOW", "吹膜,PAT,0,7,BLOW", "吹膜,PAT,1,11,BLOW"})
-    void createsIndependentTemplatesWithUntestedItems(String name, String type, int food, int count, String stage) {
+    @CsvSource({"制袋,FAI,13,BAG", "制袋,PAT,11,BAG", "吹膜,FAI,8,BLOW", "吹膜,PAT,11,BLOW"})
+    void createsIndependentTemplatesWithUntestedItems(String name, String type, int count, String stage) {
         bag.setProcessName(name);
-        product.setIsFoodGrade(food);
         if (name.equals("制袋") && type.equals("PAT")) signFai();
         Map<String, Object> detail = service.ensureForProcess(10L, 100L, type);
         MesQualityInspection head = (MesQualityInspection) detail.get("head");
         assertThat(detail).containsEntry("stage", stage).containsEntry("order", order).containsEntry("process", bag);
         assertThat(rows.get(head.getId())).hasSize(count).allSatisfy(it -> {
-            assertThat(it.getPassFlag()).isEqualTo(-1);
+            // v1.1.149: 达因/印刷质量 4 项默认不适用, 其余默认合格; 实测值仍空着手填
+            assertThat(it.getPassFlag()).isEqualTo(NA_CODES.contains(it.getItemCode()) ? 2 : 1);
             assertThat(it.getResultValue()).isNull();
             assertThat(it.getSource()).isEqualTo("TEMPLATE");
             assertThat(it.getItemCode().startsWith("BAG_")).isEqualTo(stage.equals("BAG"));
@@ -177,7 +187,7 @@ class QmsInspectionServiceTest {
             if (it.getRequirement().contains("蒸发残渣")) assertThat(it.getRequirement()).contains("报告");
         });
         assertThat(rows.get(head.getId()).stream().filter(it -> it.getIsFoodGradeItem() == 1).count())
-                .isEqualTo(food == 0 ? 0 : stage.equals("BAG") ? 3 : type.equals("FAI") ? 2 : 4);
+                .isEqualTo(stage.equals("BAG") ? 3 : type.equals("FAI") ? 2 : 4);
         if (stage.equals("BLOW") && type.equals("FAI")) {
             assertThat(rows.get(head.getId())).extracting(QmsIqcItem::getItemCode).doesNotContain(
                     "BLOW_ELONGATION", "BLOW_HAZE", "EVAP_RESIDUE", "KMnO4_CONSUMPTION",
@@ -200,15 +210,14 @@ class QmsInspectionServiceTest {
     @Test
     void reSeedsEmptyDraftThroughEnsureForProcess() {
         bag.setProcessName("吹膜");
-        product.setIsFoodGrade(0);
         Long headId = ((MesQualityInspection) service.ensureForProcess(10L, 100L, "FAI").get("head")).getId();
-        assertThat(rows.get(headId)).hasSize(6);
+        assertThat(rows.get(headId)).hasSize(8);
         rows.get(headId).clear();
         Map<String, Object> again = service.ensureForProcess(10L, 100L, "FAI");
         assertThat(((MesQualityInspection) again.get("head")).getId()).isEqualTo(headId);
         assertThat((List<QmsIqcItem>) again.get("items")).extracting(QmsIqcItem::getItemCode).containsExactlyInAnyOrder(
                 "BLOW_MATERIAL_CHECK", "BLOW_APPEARANCE", "BLOW_THICKNESS", "BLOW_WIDTH",
-                "BLOW_TENSILE", "BLOW_ODOR");
+                "BLOW_TENSILE", "BLOW_ODOR", "FOOD_COMPLIANCE_DOC", "FOOD_HYGIENE");
     }
 
     @Test
@@ -320,7 +329,8 @@ class QmsInspectionServiceTest {
         assertThat(next.getId()).isNotEqualTo(pat.getId());
         assertThat(heads.get(pat.getId()).getStatus()).isEqualTo("CHECKED");
         assertThat(rows.get(pat.getId())).allSatisfy(it -> assertThat(it.getPassFlag()).isEqualTo(1));
-        assertThat(rows.get(next.getId())).allSatisfy(it -> assertThat(it.getPassFlag()).isEqualTo(-1));
+        assertThat(rows.get(next.getId())).allSatisfy(it -> assertThat(it.getPassFlag())
+                .isEqualTo(NA_CODES.contains(it.getItemCode()) ? 2 : 1));
         verify(items, never()).deleteByIqcId(anyLong());
     }
 
@@ -338,7 +348,7 @@ class QmsInspectionServiceTest {
         caller.setId(100L);
         caller.setProcessName("制袋伪造");
         Long id = service.createOnReport(caller, order, BigDecimal.TEN, BigDecimal.ONE);
-        assertThat(rows.get(id)).hasSize(7).noneSatisfy(it -> assertThat(it.getItemCode()).startsWith("BAG_"));
+        assertThat(rows.get(id)).hasSize(11).noneSatisfy(it -> assertThat(it.getItemCode()).startsWith("BAG_"));
         service.saveProcessRecord(id, record(id, null));
         service.createOnReport(caller, order, new BigDecimal("1000"), BigDecimal.ZERO);
         assertThat(heads.get(id).getSampleQty()).isEqualByComparingTo("5");
@@ -370,6 +380,88 @@ class QmsInspectionServiceTest {
         assertThatThrownBy(() -> service.check(id, "PASS", "NONE", "")).hasMessageContaining("未完成实测");
     }
 
+    // ==================================================================
+    // v1.1.149 本公司不做印刷: 达因/印刷质量 4 项默认「不适用」, 其余默认「合格」
+    // ==================================================================
+
+    @Test
+    void templatesDefaultNaOnlyForCoronaAndPrintItems() {
+        Long bagFai = ensure("FAI").getId();
+        assertThat(rows.get(bagFai)).filteredOn(it -> NA_CODES.contains(it.getItemCode()))
+                .singleElement().satisfies(it -> {
+                    assertThat(it.getItemCode()).isEqualTo("BAG_PRINT");
+                    assertThat(it.getPassFlag()).isEqualTo(2);
+                });
+        assertThat(rows.get(bagFai)).filteredOn(it -> !NA_CODES.contains(it.getItemCode()))
+                .allSatisfy(it -> assertThat(it.getPassFlag()).isEqualTo(1));
+
+        bag.setProcessName("吹膜");
+        Long blowPat = ensure("PAT").getId();
+        assertThat(rows.get(blowPat)).filteredOn(it -> "PAT_CORONA".equals(it.getItemCode()))
+                .singleElement().satisfies(it -> assertThat(it.getPassFlag()).isEqualTo(2));
+
+        Long filmOqc = ((MesQualityInspection) service.ensureOqcForOrder(10L).get("head")).getId();
+        assertThat(rows.get(filmOqc)).filteredOn(it -> "OQC_FILM_CORONA".equals(it.getItemCode()))
+                .singleElement().satisfies(it -> assertThat(it.getPassFlag()).isEqualTo(2));
+        assertThat(rows.get(filmOqc)).filteredOn(it -> !NA_CODES.contains(it.getItemCode()))
+                .allSatisfy(it -> assertThat(it.getPassFlag()).isEqualTo(1));
+    }
+
+    @Test
+    void naItemSignsWithoutActualValueWhileOtherItemsStillNeedIt() {
+        bag.setProcessName("吹膜");
+        signFai();
+        Long id = ensure("PAT").getId();
+        ProcessInspectionRecordDTO dto = record(id, "PASS");
+        dto.getItems().forEach(it -> {
+            if ("PAT_CORONA".equals(it.getItemCode())) {
+                it.setPassFlag(2);
+                it.setResultValue(null);
+            }
+        });
+        service.saveProcessRecord(id, dto);
+        assertThat(heads.get(id).getStatus()).isEqualTo("CHECKED");
+    }
+
+    @Test
+    void onlyCoronaAndPrintItemsMayBeMarkedNotApplicable() {
+        bag.setProcessName("吹膜");
+        signFai();
+        Long id = ensure("PAT").getId();
+        ProcessInspectionRecordDTO dto = record(id, "PASS");
+        dto.getItems().forEach(it -> {
+            if ("PAT_CORONA".equals(it.getItemCode())) {
+                it.setPassFlag(2);
+                it.setResultValue(null);
+            }
+            if ("PAT_APPEARANCE".equals(it.getItemCode())) it.setPassFlag(2);
+        });
+        assertThatThrownBy(() -> service.saveProcessRecord(id, dto)).hasMessageContaining("不能判不适用");
+    }
+
+    @Test
+    void oqcReleaseAcceptsNaPrintItemWithoutMeasuredValue() {
+        Long id = ((MesQualityInspection) service.ensureOqcForOrder(10L).get("head")).getId();
+        MesQualityInspection head = heads.get(id);
+        head.setSampleQty(new BigDecimal("5"));
+        head.setQualifiedQty(new BigDecimal("5"));
+        head.setUnqualifiedQty(BigDecimal.ZERO);
+        rows.get(id).forEach(it -> {
+            if (!"OQC_BAG_PRINT".equals(it.getItemCode())) {
+                it.setPassFlag(1);
+                it.setResultValue("实测记录");
+            }
+        });
+        assertThat(rows.get(id)).filteredOn(it -> "OQC_BAG_PRINT".equals(it.getItemCode()))
+                .singleElement().satisfies(it -> {
+                    assertThat(it.getPassFlag()).isEqualTo(2);
+                    assertThat(it.getResultValue()).isNull();
+                });
+        service.check(id, "PASS", "NONE", "非印刷袋按5.2.1.3注略去印刷质量", null, null, null, null, null,
+                null, null, null, null);
+        assertThat(heads.get(id).getStatus()).isEqualTo("CHECKED");
+    }
+
     @Test
     void missingEmptyDuplicateAndManualItemsCannotBypassTemplate() {
         Long id = ensure("FAI").getId();
@@ -390,7 +482,7 @@ class QmsInspectionServiceTest {
         assertThatThrownBy(() -> service.check(id, "PASS", "NONE", "")).hasMessageContaining("手工项替代");
         rows.put(id, new ArrayList<>());
         assertThatThrownBy(() -> service.check(id, "PASS", "NONE", "")).hasMessageContaining("无模板项");
-        verify(items, times(10)).insert(any(QmsIqcItem.class));
+        verify(items, times(13)).insert(any(QmsIqcItem.class));
     }
 
     @Test
@@ -655,13 +747,13 @@ class QmsInspectionServiceTest {
         semi.setBillNo("SEMI-500");
         semi.setQty(BigDecimal.TEN);
         Long id = service.createOnSemiIn(semi);
-        assertThat(rows.get(id)).hasSize(6).allSatisfy(it -> assertThat(it.getPassFlag()).isEqualTo(-1));
+        assertThat(rows.get(id)).hasSize(8).allSatisfy(it -> assertThat(it.getPassFlag()).isEqualTo(1));
         assertThatThrownBy(() -> service.signPassedFaiForSemiIn(500L, id, null, BigDecimal.TEN, "假签名", null))
                 .hasMessageContaining("未完成实测");
         rows.get(id).clear();
         assertThatThrownBy(() -> service.signPassedFaiForSemiIn(500L, id, null, BigDecimal.TEN, "假签名", null))
                 .hasMessageContaining("无模板项");
-        verify(items, times(6)).insert(any(QmsIqcItem.class));
+        verify(items, times(8)).insert(any(QmsIqcItem.class));
     }
 
     @Test
@@ -670,13 +762,13 @@ class QmsInspectionServiceTest {
         rows.get(id).get(0).setRequirement("历史要求");
         rows.get(id).remove(1);
         ensure("FAI");
-        assertThat(rows.get(id)).hasSize(9);
+        assertThat(rows.get(id)).hasSize(12);
         assertThat(rows.get(id).get(0).getRequirement()).isEqualTo("历史要求");
         heads.get(id).setStatus("CHECKED");
         rows.get(id).clear();
         ensure("FAI");
         assertThat(rows.get(id)).isEmpty();
-        verify(items, times(10)).insert(any(QmsIqcItem.class));
+        verify(items, times(13)).insert(any(QmsIqcItem.class));
         verify(items, never()).deleteByIqcId(anyLong());
     }
 
@@ -686,7 +778,11 @@ class QmsInspectionServiceTest {
                 .hasMessageContaining("本工序首检");
         signFai();
         Long id = service.createOnReport(bag, order, BigDecimal.TEN, BigDecimal.ZERO);
-        assertThat(rows.get(id)).hasSize(8).allSatisfy(item -> assertThat(item.getItemCode()).startsWith("BAG_PAT_"));
+        assertThat(rows.get(id)).hasSize(11);
+        assertThat(rows.get(id)).filteredOn(item -> !Integer.valueOf(1).equals(item.getIsFoodGradeItem()))
+                .allSatisfy(item -> assertThat(item.getItemCode()).startsWith("BAG_PAT_"));
+        assertThat(rows.get(id)).filteredOn(item -> Integer.valueOf(1).equals(item.getIsFoodGradeItem()))
+                .extracting(QmsIqcItem::getItemCode).containsExactlyInAnyOrder("BAG_FOOD_HYGIENE", "BAG_FOOD_REPORT", "BAG_FOOD_TRACE");
         assertThat(service.createOnReport(bag, order, BigDecimal.TEN, BigDecimal.ONE)).isEqualTo(id);
         assertThat(heads.get(id).getSampleQty()).isNull();
     }
@@ -721,6 +817,119 @@ class QmsInspectionServiceTest {
         assertThat(heads.get(id).getStatus()).isEqualTo("DRAFT");
     }
 
+    // ==================================================================
+    // v1.1.148 首检/巡检按工序阶段拆「吹膜 / 制袋」四类:
+    //   检验单表只存 FAI/PAT + 源工序 id, 阶段是派生的, 列表过滤与详情都要能分开
+    // ==================================================================
+
+    private AbstractWrapper<?, ?, ?> lastPageWrapper;
+
+    @Test
+    void pageNarrowsBlowToBlowProcessesAndLegacySemiInFai() {
+        stubPage();
+        service.page(1, 20, "FAI", null, null, "BLOW");
+        String sql = lastPageWrapper.getSqlSegment();
+        assertThat(sql).contains("IN (SELECT id FROM prd_process WHERE deleted = 0")
+                .contains("process_name LIKE '%吹膜%'")
+                .contains("process_name NOT LIKE '%制袋%'");
+        assertThat(lastPageWrapper.getParamNameValuePairs().values())
+                .contains("PRD_PROCESS", "PRD_SEMI_IN", "FAI");
+    }
+
+    @Test
+    void pageNarrowsBagToBagProcessesOnly() {
+        stubPage();
+        service.page(1, 20, "PAT", null, null, "bag");
+        String sql = lastPageWrapper.getSqlSegment();
+        assertThat(sql).contains("process_name LIKE '%制袋%'").doesNotContain("吹膜");
+        assertThat(lastPageWrapper.getParamNameValuePairs().values()).contains("PRD_PROCESS", "PAT");
+    }
+
+    @Test
+    void pageWithoutStageKeepsSingleConditionAndIgnoresUnknownStage() {
+        stubPage();
+        service.page(1, 20, null, null, null, "分切");
+        assertThat(lastPageWrapper.getSqlSegment()).doesNotContain("prd_process");
+        service.page(1, 20, null, null, null, null);
+        assertThat(lastPageWrapper.getSqlSegment()).doesNotContain("prd_process");
+    }
+
+    @Test
+    void pageStampsStageLabelAndProcessNameForEachRow() {
+        bag.setProcessName("制袋一工序");
+        process(101L, "吹膜");
+        MesQualityInspection bagRow = headRow(801L, "PRD_PROCESS", 100L, "FAI");
+        MesQualityInspection blowRow = headRow(802L, "PRD_PROCESS", 101L, "PAT");
+        MesQualityInspection legacySemi = headRow(803L, "PRD_SEMI_IN", 500L, "FAI");
+        MesQualityInspection unknown = headRow(804L, "PRD_PROCESS", 999L, "PAT");
+        stubPage(bagRow, blowRow, legacySemi, unknown);
+
+        IPage<MesQualityInspection> page = service.page(1, 20, null, null, null, null);
+
+        assertThat(page.getRecords()).extracting(MesQualityInspection::getStage)
+                .containsExactly("BAG", "BLOW", "BLOW", null);
+        assertThat(page.getRecords()).extracting(MesQualityInspection::getStageLabel)
+                .containsExactly("制袋", "吹膜", "吹膜", null);
+        assertThat(page.getRecords()).extracting(MesQualityInspection::getProcessName)
+                .containsExactly("制袋一工序", "吹膜", null, null);
+    }
+
+    @Test
+    void detailReturnsStageSoClientCanLabelRecord() {
+        bag.setProcessName("吹膜");
+        Long id = ensure("FAI").getId();
+        Map<String, Object> detail = service.detail(id);
+        assertThat(detail).containsEntry("stage", "BLOW").containsEntry("stageLabel", "吹膜")
+                .containsEntry("processName", "吹膜");
+        assertThat(((MesQualityInspection) detail.get("head")).getStage()).isEqualTo("BLOW");
+    }
+
+    @Test
+    void legacySemiInFaiDetailIsLabelledBlow() {
+        MesQualityInspection semi = headRow(999L, "PRD_SEMI_IN", 500L, "FAI");
+        heads.put(999L, semi);
+        Map<String, Object> detail = service.detail(999L);
+        assertThat(detail).containsEntry("stage", "BLOW").containsEntry("stageLabel", "吹膜");
+    }
+
+    /**
+     * v1.1.153 打印口径: 首检/巡检也要逐项列出技术要求/实测值/单项判定,
+     * 而 detail() 只对成品检 (OQC/OQC_RETURN) 回传 items —— 打印必须走 detailForPrint.
+     */
+    @Test
+    void detailForPrintIncludesItemsForFaiWhileDetailDoesNot() {
+        MesQualityInspection fai = ensure("FAI");
+        Map<String, Object> detail = service.detailForPrint(fai.getId());
+
+        assertThat(detail).containsKeys("head", "items", "defects", "attachments");
+        assertThat((List<?>) detail.get("items")).isNotEmpty();
+        assertThat(service.detail(fai.getId())).doesNotContainKey("items");
+
+        assertThatThrownBy(() -> service.detailForPrint(999999L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("检验单不存在");
+    }
+
+    private MesQualityInspection headRow(Long id, String sourceBillType, Long sourceBillId, String type) {
+        MesQualityInspection head = new MesQualityInspection();
+        head.setId(id);
+        head.setBillNo("QI-" + id);
+        head.setSourceBillType(sourceBillType);
+        head.setSourceBillId(sourceBillId);
+        head.setInspectionType(type);
+        head.setStatus("DRAFT");
+        return head;
+    }
+
+    private void stubPage(MesQualityInspection... records) {
+        doAnswer(inv -> {
+            IPage<MesQualityInspection> page = inv.getArgument(0);
+            lastPageWrapper = inv.getArgument(1);
+            page.setRecords(new ArrayList<>(List.of(records)));
+            return page;
+        }).when(inspections).selectPage(any(), any());
+    }
+
     private QmsIqcItem row(Long iqcId, int lineNo, String itemCode) {
         QmsIqcItem item = new QmsIqcItem();
         item.setId(sequence.incrementAndGet());
@@ -749,7 +958,6 @@ class QmsInspectionServiceTest {
 
     @Test
     void ensureOqcForOrderSeedsBagTemplateFromProcessChainAndStaysIdempotent() {
-        product.setIsFoodGrade(0);
         Map<String, Object> detail = service.ensureOqcForOrder(10L);
         MesQualityInspection head = (MesQualityInspection) detail.get("head");
         assertThat(detail).containsEntry("stage", "BAG").containsEntry("order", order);
@@ -759,18 +967,18 @@ class QmsInspectionServiceTest {
         assertThat(head.getBatchNo()).isEqualTo("BATCH-10");
         assertThat(head.getStatus()).isEqualTo("DRAFT");
         List<QmsIqcItem> lines = rows.get(head.getId());
-        assertThat(lines).hasSize(13).allSatisfy(it -> {
-            assertThat(it.getItemCode()).startsWith("OQC_BAG_");
-            assertThat(it.getPassFlag()).isEqualTo(-1);
+        assertThat(lines).hasSize(19).allSatisfy(it -> {
+            assertThat(it.getItemCode()).startsWith(Integer.valueOf(1).equals(it.getIsFoodGradeItem()) ? "OQC_FOOD_" : "OQC_BAG_");
+            assertThat(it.getPassFlag()).isEqualTo("OQC_BAG_PRINT".equals(it.getItemCode()) ? 2 : 1);
             assertThat(it.getSource()).isEqualTo("TEMPLATE");
         });
         assertThat(lines).extracting(QmsIqcItem::getItemCode)
                 .contains("OQC_BAG_PRINT", "OQC_BAG_SEAL_STRENGTH");
 
         assertThat(((MesQualityInspection) service.ensureOqcForOrder(10L).get("head")).getId()).isEqualTo(head.getId());
-        assertThat(rows.get(head.getId())).hasSize(13);
+        assertThat(rows.get(head.getId())).hasSize(19);
         verify(inspections, times(1)).insert(any(MesQualityInspection.class));
-        verify(items, times(13)).insert(any(QmsIqcItem.class));
+        verify(items, times(19)).insert(any(QmsIqcItem.class));
     }
 
     @Test
@@ -803,7 +1011,7 @@ class QmsInspectionServiceTest {
         Long existing = service.createOnFinish(finishedIn(600L));
         Map<String, Object> detail = service.ensureOqcForOrder(10L);
         assertThat(((MesQualityInspection) detail.get("head")).getId()).isEqualTo(existing);
-        assertThat((List<QmsIqcItem>) detail.get("items")).hasSize(13);
+        assertThat((List<QmsIqcItem>) detail.get("items")).hasSize(19);
         verify(inspections, times(1)).insert(any(MesQualityInspection.class));
     }
 
@@ -871,6 +1079,64 @@ class QmsInspectionServiceTest {
         assertThatThrownBy(() -> service.ensureOqcForOrder(10L)).hasMessageContaining("未关联产品");
         assertThatThrownBy(() -> service.ensureOqcForOrder(999L)).hasMessageContaining("生产单不存在");
         verify(inspections, never()).insert(any(MesQualityInspection.class));
+    }
+
+    // ==================================================================
+    // v1.1.150 工业品 (is_food_grade != 1) 不产生首检/巡检/成品检记录
+    // ==================================================================
+
+    @ParameterizedTest
+    @CsvSource({"制袋,FAI", "制袋,PAT", "吹膜,FAI", "吹膜,PAT"})
+    void industrialProductCreatesNoProcessInspection(String name, String type) {
+        bag.setProcessName(name);
+        product.setIsFoodGrade(0);
+        assertThatThrownBy(() -> service.ensureForProcess(10L, 100L, type))
+                .hasMessageContaining("工业品");
+        verify(inspections, never()).insert(any(MesQualityInspection.class));
+        verify(items, never()).insert(any(QmsIqcItem.class));
+    }
+
+    @Test
+    void industrialProductCreatesNoOqcOrAutoTriggeredInspection() {
+        product.setIsFoodGrade(0);
+        assertThatThrownBy(() -> service.ensureOqcForOrder(10L)).hasMessageContaining("工业品");
+        assertThat(service.createOnFinish(finishedIn(600L))).isNull();
+        PrdSemiIn semi = new PrdSemiIn();
+        semi.setId(500L);
+        semi.setProductId(20L);
+        semi.setBillNo("SEMI-500");
+        assertThat(service.createOnSemiIn(semi)).isNull();
+        when(semiIns.selectById(500L)).thenReturn(semi);
+        assertThatThrownBy(() -> service.ensureFaiForSemiIn(500L)).hasMessageContaining("工业品");
+        bag.setProcessName("吹膜");
+        assertThat(service.createOnReport(bag, order, BigDecimal.TEN, BigDecimal.ZERO)).isNull();
+        verify(inspections, never()).insert(any(MesQualityInspection.class));
+    }
+
+    @Test
+    void manualCreateRejectsIndustrialInspectionTypes() {
+        product.setIsFoodGrade(0);
+        InspectionCreateDTO dto = new InspectionCreateDTO();
+        MesQualityInspection head = new MesQualityInspection();
+        head.setProductId(20L);
+        head.setSourceBillType("PRD_FINISHED_IN");
+        head.setSourceBillId(600L);
+        head.setInspectionType("OQC");
+        dto.setHead(head);
+        assertThatThrownBy(() -> service.create(dto, "tester")).hasMessageContaining("工业品");
+        head.setInspectionType("PAT");
+        assertThatThrownBy(() -> service.create(dto, "tester")).hasMessageContaining("工业品");
+        verify(inspections, never()).insert(any(MesQualityInspection.class));
+    }
+
+    /** 口径只拦新建: 改成工业品后, 历史已建的检验单仍要能打开/续签 (用户要求保留可查). */
+    @Test
+    void existingInspectionStaysOpenableAfterProductBecomesIndustrial() {
+        Long fai = signFai();
+        product.setIsFoodGrade(0);
+        assertThat(((MesQualityInspection) service.ensureForProcess(10L, 100L, "FAI").get("head")).getId())
+                .isEqualTo(fai);
+        assertThatThrownBy(() -> service.ensureForProcess(10L, 100L, "PAT")).hasMessageContaining("工业品");
     }
 
     private PrdFinishedIn finishedIn(Long id) {

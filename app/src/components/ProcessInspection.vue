@@ -2,7 +2,7 @@
   <view class="process-inspection">
     <view class="xk-strip">
       <view class="strip-bread">XK 生产 / {{ stageLabel }}工序检验</view>
-      <view class="strip-title">{{ typeLabel }} ({{ inspectionType }}) 现场检验</view>
+      <view class="strip-title">{{ fullTypeLabel }} ({{ inspectionType }}) 现场检验</view>
     </view>
 
     <view v-if="!canRead" class="card notice error">无工序检验查看权限，请联系管理员授权。</view>
@@ -44,7 +44,7 @@
         <view v-if="inspectionType === 'FAI'" class="muted hint">已下达或生产中的工单可首件试制，工序未开工不影响首检。</view>
       </view>
 
-      <view v-if="loading" class="card notice">正在加载{{ typeLabel }}及实际工序模板，请稍候…</view>
+      <view v-if="loading" class="card notice">正在加载{{ fullTypeLabel }}及实际工序模板，请稍候…</view>
       <view v-else-if="error" class="card notice error">
         <view>{{ error }}</view>
         <button class="small-btn retry" :disabled="selectionLocked" @click="retry">重试加载</button>
@@ -79,10 +79,10 @@
             <view class="qa-info">单位：{{ item.unit || '未设置' }}</view>
             <textarea v-model="item.resultValue" class="qa-input" :disabled="readOnly" :maxlength="-1" auto-height placeholder="请记录测量值 / 核验报告号 / 不适用原因" />
             <view class="judgments">
-              <button v-for="option in judgmentOptions" :key="option.value" :class="['judgment', option.className, { selected: item.passFlag === option.value }]" :disabled="readOnly" @click="setJudgment(item, option.value)">{{ option.label }}</button>
+              <button v-for="option in judgmentOptionsFor(item)" :key="option.value" :class="['judgment', option.className, { selected: Number(item.passFlag) === option.value }]" :disabled="readOnly" @click="setJudgment(item, option.value)">{{ option.label }}</button>
             </view>
           </view>
-          <view v-if="items.length" class="muted hint">待检 {{ pendingCount }} 项 · 合格 {{ passCount }} 项 · 不合格 {{ failCount }} 项</view>
+          <view v-if="items.length" class="muted hint">待检 {{ pendingCount }} 项 · 合格 {{ passCount }} 项 · 不合格 {{ failCount }} 项{{ naCount ? ' · 不适用 ' + naCount + ' 项' : '' }}</view>
         </view>
 
         <view class="card">
@@ -127,6 +127,9 @@ import { getInspectionContext, onInspectionContextChange } from '../utils/routeQ
 
 const emptyForm = () => ({ sampleQty: '', qualifiedQty: '', unqualifiedQty: '', batchNo: '' })
 const stringId = value => value == null ? '' : String(value)
+// v1.1.149 本公司不做印刷: 达因/印刷质量 4 项才有「不适用」
+const NA_ITEM_CODES = ['PAT_CORONA', 'OQC_FILM_CORONA', 'BAG_PRINT', 'OQC_BAG_PRINT']
+const isNaItem = code => NA_ITEM_CODES.includes(String(code || ''))
 const normalizeIds = object => Object.fromEntries(Object.entries(object || {}).map(([key, value]) => [key, value != null && (key === 'id' || key.endsWith('Id')) ? String(value) : value]))
 const stageOf = process => {
   const name = String((process && process.processName) || '')
@@ -161,7 +164,10 @@ export default {
     liveProcessId() { return (this.liveCtx && this.liveCtx.processId) || this.processId },
     liveStage() { return (this.liveCtx && this.liveCtx.stage) || this.stage },
     typeLabel() { return this.inspectionType === 'FAI' ? '首检' : '巡检' },
-    stageLabel() { return ({ BAG: '制袋', BLOW: '吹膜' })[this.liveStage || stageOf(this.selectedProcess)] || '制袋 / 吹膜' },
+    stageShort() { return ({ BAG: '制袋', BLOW: '吹膜' })[this.liveStage || stageOf(this.selectedProcess)] || '' },
+    // 记录类型按工序拆开: 吹膜首检 / 制袋首检 / 吹膜巡检 / 制袋巡检, 工序未定时退回「首检 / 巡检」
+    fullTypeLabel() { return (this.stageShort || '') + this.typeLabel },
+    stageLabel() { return this.stageShort || '制袋 / 吹膜' },
     filteredProcesses() { return this.processes.filter(process => stageOf(process) && (!this.liveStage || stageOf(process) === this.liveStage)) },
     orderOptions() { return this.orderList.map(this.orderLabel) },
     processOptions() { return this.filteredProcesses.map(this.processLabel) },
@@ -169,9 +175,10 @@ export default {
     checked() { return this.head.status === 'CHECKED' },
     readOnly() { return !this.canWrite || this.loading || this.selectionLocked || this.head.status !== 'DRAFT' || !this.inspectionId || !!this.error },
     canSave() { return !this.readOnly && this.items.length > 0 },
-    pendingCount() { return this.items.filter(item => item.passFlag === -1).length },
-    passCount() { return this.items.filter(item => item.passFlag === 1).length },
-    failCount() { return this.items.filter(item => item.passFlag === 0).length },
+    pendingCount() { return this.items.filter(item => Number(item.passFlag) === -1).length },
+    passCount() { return this.items.filter(item => Number(item.passFlag) === 1).length },
+    failCount() { return this.items.filter(item => Number(item.passFlag) === 0).length },
+    naCount() { return this.items.filter(item => Number(item.passFlag) === 2).length },
     verdictLabel() { return this.checked ? (this.head.result === 'PASS' ? '已签合格 PASS' : '已签核 ' + (this.head.result || '')) : '草稿 · 待签核' },
     routeKey() { return [this.liveOrderId, this.liveProcessId, this.liveStage, this.inspectionType].join('|') }
   },
@@ -318,9 +325,10 @@ export default {
       this.selectedProcess = normalizeIds(result.process)
       this.items = result.items.map(item => {
         const resultValue = item.resultValue == null ? '' : String(item.resultValue)
-        const explicitFlag = item.passFlag != null && item.passFlag !== '' && [0, 1].includes(Number(item.passFlag))
-        const pending = !explicitFlag || (result.head.status === 'DRAFT' && Number(item.passFlag) === 1 && !resultValue.trim())
-        return { ...normalizeIds(item), passFlag: pending ? -1 : Number(item.passFlag), resultValue }
+        const flag = Number(item.passFlag)
+        const explicitFlag = item.passFlag != null && item.passFlag !== '' && [0, 1, 2].includes(flag)
+        // v1.1.149: 模板默认判定(合格 / 达因印刷项不适用)直接展示; 实测值仍须逐项填, 由 validation 拦签核
+        return { ...normalizeIds(item), passFlag: explicitFlag ? flag : -1, resultValue }
       })
       this.form = {
         batchNo: result.head.batchNo || '',
@@ -346,6 +354,10 @@ export default {
       else this.selectOrder(this.selectedOrderId, this.retryProcessId)
     },
     setJudgment(item, value) { if (!this.readOnly) item.passFlag = value },
+    judgmentOptionsFor(item) {
+      if (!isNaItem(item && item.itemCode)) return this.judgmentOptions
+      return [...this.judgmentOptions, { value: 2, label: '不适用', className: 'na' }]
+    },
     goProcessFai() {
       // v1.1.140: 制袋巡检被「同工序 FAI 未签合格」门禁挡住时, 直接带去本工序的首检页 (带 processId, 落在同一道实际工序)。
       if (!this.selectedOrderId || !this.selectedProcessId) return
@@ -383,11 +395,14 @@ export default {
       const sample = this.quantity(this.form.sampleQty), qualified = this.quantity(this.form.qualifiedQty), unqualified = this.quantity(this.form.unqualifiedQty)
       if ([sample, qualified, unqualified].some(value => Number.isNaN(value))) return '抽检、合格及不良数只能填写非负数字'
       if (!result) return ''
-      if (this.items.some(item => ![0, 1].includes(item.passFlag) || !String(item.resultValue || '').trim())) return '请完成全部检验项的记录及明确判定，不能留待检或空实测'
+      if (this.items.some(item => {
+        const flag = Number(item.passFlag)
+        return ![0, 1, 2].includes(flag) || (flag !== 2 && !String(item.resultValue || '').trim())
+      })) return '请完成全部检验项的记录及明确判定，不能留待检或空实测（不适用项除外）'
       if (result === 'PASS') {
         if (sample == null || sample <= 0 || qualified == null || unqualified == null) return '签合格须填写正数样本数及合格 / 不良数'
         if (Math.abs(qualified + unqualified - sample) > Number.EPSILON * Math.max(1, sample, qualified + unqualified) * 4) return '合格数与不良数之和必须等于抽检样本数'
-        if (unqualified !== 0 || this.failCount > 0 || this.passCount !== this.items.length) return '存在不合格项或不良样本，不能签合格；可保存草稿或签不合格留痕'
+        if (unqualified !== 0 || this.failCount > 0 || this.passCount + this.naCount !== this.items.length) return '存在不合格项或不良样本，不能签合格；可保存草稿或签不合格留痕'
       }
       if (result === 'FAIL' && this.failCount === 0 && !(unqualified > 0)) return '签不合格须至少有一项不合格，或不良数大于 0'
       return ''
@@ -468,6 +483,7 @@ export default {
 .verdict.pass, .judgment.pass.selected { background: #e7f4e6; color: #347a36; }
 .verdict.fail, .judgment.fail.selected { background: #fdeaea; color: #b63838; }
 .verdict.pending, .judgment.pending.selected { background: #edf0f5; color: #596477; }
+.verdict.na, .judgment.na.selected { background: #fdf3e2; color: #8a5a12; }
 .photo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .photo-cell { position: relative; }
 .photo-img { width: 100%; height: 84px; border-radius: 6px; background: #f4f4f5; }

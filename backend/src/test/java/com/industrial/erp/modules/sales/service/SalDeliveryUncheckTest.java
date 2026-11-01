@@ -210,6 +210,53 @@ class SalDeliveryUncheckTest {
         verify(arapService, times(1)).requireCancelableAndDelete(Constants.LEDGER_SAL_DELIVERY, DELIVERY_ID);
     }
 
+    private static com.industrial.erp.modules.inventory.entity.InvLedger ledgerRow(
+            String batchNo, String qty, int direction) {
+        com.industrial.erp.modules.inventory.entity.InvLedger l = new com.industrial.erp.modules.inventory.entity.InvLedger();
+        l.setBatchNo(batchNo);
+        l.setQty(new BigDecimal(qty));
+        l.setBizDirection(direction);
+        return l;
+    }
+
+    @Test
+    @DisplayName("重复审核-反审核: 已回补过的出库行不再重复入库 (净额=0)")
+    void uncheck_repeatedCycle_doesNotRestoreTwice() {
+        when(deliveryMapper.selectById(DELIVERY_ID)).thenReturn(mockDelivery());
+        when(detailMapper.selectByDeliveryId(DELIVERY_ID)).thenReturn(Arrays.asList(mockDetail()));
+        when(warehouseMapper.selectById(WAREHOUSE_ID)).thenReturn(mockWarehouse());
+        when(ledgerMapper.selectList(any())).thenReturn(Arrays.asList(
+                ledgerRow(BATCH_NO, "1", Constants.DIRECTION_OUT),
+                ledgerRow(BATCH_NO, "1", Constants.DIRECTION_IN)));
+
+        assertThatCode(() -> service.uncheck(DELIVERY_ID)).doesNotThrowAnyException();
+
+        verify(stockService, never()).inStock(anyString(), anyLong(), anyString(), anyLong(),
+                anyLong(), anyString(), any(), any(), anyLong(), anyLong(), anyString(), any(),
+                any(), any(), anyString(), any(), anyLong(), anyString());
+    }
+
+    @Test
+    @DisplayName("重复审核-反审核: 只回补尚未回补的净出库量")
+    void uncheck_repeatedCycle_restoresNetOnly() {
+        when(deliveryMapper.selectById(DELIVERY_ID)).thenReturn(mockDelivery());
+        when(detailMapper.selectByDeliveryId(DELIVERY_ID)).thenReturn(Arrays.asList(mockDetail()));
+        when(warehouseMapper.selectById(WAREHOUSE_ID)).thenReturn(mockWarehouse());
+        when(ledgerMapper.selectList(any())).thenReturn(Arrays.asList(
+                ledgerRow(BATCH_NO, "10", Constants.DIRECTION_OUT),
+                ledgerRow(BATCH_NO, "4", Constants.DIRECTION_IN)));
+
+        assertThatCode(() -> service.uncheck(DELIVERY_ID)).doesNotThrowAnyException();
+
+        verify(stockService, times(1)).inStock(
+                eq(Constants.LEDGER_SAL_DELIVERY), eq(DELIVERY_ID), eq("OUT202608-001"), eq(1L),
+                eq(WAREHOUSE_ID), eq("主仓"), eq(null), eq(null),
+                eq(PRODUCT_ID), eq(2L), eq("箱"), eq(BATCH_NO),
+                eq(new BigDecimal("6")), eq(new BigDecimal("100")), anyString(),
+                eq(null), eq(CUSTOMER_ID), anyString()
+        );
+    }
+
     @Test
     @DisplayName("总金额为 0 - 跳过 decrCreditUsed (防负信用)")
     void uncheck_zeroAmount_skipsCredit() {

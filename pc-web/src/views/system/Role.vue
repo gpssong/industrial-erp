@@ -181,7 +181,17 @@ const APP_MENU_WHITELIST = [
   ]},
   { name: '设备 / 现场', children: [
     { name: '设备台账', perms: 'equipment:master:list', idApp: 'app-em-master' },
-    { name: '设备维保', perms: 'equipment:maintain:list', idApp: 'app-em-maintain' }
+    // v1.1.154: App 设备台账页「＋ 新增设备」由 equipment:master:add 门禁,
+    //   白名单缺该项 → 除超管外无法授予, App 端看不到新增入口
+    { name: '设备台账新增', perms: 'equipment:master:add', idApp: 'app-em-master-add' },
+    { name: '设备维保', perms: 'equipment:maintain:list', idApp: 'app-em-maintain' },
+    // v1.1.155: App「检验设备校准」— 清单/提醒 + 校准记录与证书报告上传/查看.
+    //   5 项均为 sql/105 建好的 F 型 perm 载体, 后端零改动; 只补 APP 端授权入口.
+    { name: '检验设备清单', perms: 'qa:calibration-equipment:list', idApp: 'app-qa-cal-eq' },
+    { name: '检验设备新增', perms: 'qa:calibration-equipment:add', idApp: 'app-qa-cal-eq-add' },
+    { name: '校准记录查看', perms: 'qa:calibration-record:list', idApp: 'app-qa-cal-rec' },
+    { name: '校准记录上传', perms: 'qa:calibration-record:add', idApp: 'app-qa-cal-rec-add' },
+    { name: '校准记录审核', perms: 'qa:calibration:check', idApp: 'app-qa-cal-check' }
   ]},
   { name: 'XK 记录', children: [
     { name: 'XK 工作台', perms: 'dashboard:kpi', idApp: 'app-xk-dashboard' },

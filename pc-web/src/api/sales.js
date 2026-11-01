@@ -35,7 +35,8 @@ export const salDeliveryApi = {
   add: (data) => request.post('/sales/delivery', data),
   update: (data) => request.put('/sales/delivery', data),
   delete: (id) => request.delete(`/sales/delivery/${id}`),
-  check: (id) => request.post(`/sales/delivery/${id}/check`),
+  // v1.1.152: 可传 { details: [{ detailId, allocations: [{ batchNo, qty }] }] } 指定出库批次与数量
+  check: (id, data) => request.post(`/sales/delivery/${id}/check`, data),
   uncheck: (id) => request.post(`/sales/delivery/${id}/uncheck`),
   getLastPrice: (customerId, productId) => request.get('/sales/delivery/last-price', { params: { customerId, productId } }),
   // v1.1.7+ 客户历史销售产品 (按出库日期 DESC, limit 50) — 销售出库新增弹窗底部参考用

@@ -122,9 +122,10 @@
           <view class="flow-step">
             <view class="step-no">②</view>
             <view class="step-body">
-              <text class="step-name">首检 / 巡检 · 检验员</text>
-              <text class="step-desc">逐检验项打分 + 拍照, 现场签合格放行</text>
-              <view v-if="canInspect()" class="step-btns">
+              <text class="step-name">吹膜首检 / 吹膜巡检 · 检验员</text>
+              <!-- v1.1.150: 首检/巡检只对食品级商品产生记录, 工业品隐藏入口 -->
+              <text class="step-desc">{{ isFoodGradeOrder ? '逐检验项打分 + 拍照, 现场签合格放行' : '工业品 (非食品级) 按现行口径不产生首检/巡检记录' }}</text>
+              <view v-if="isFoodGradeOrder && canInspect()" class="step-btns">
                 <!-- v1.1.139: 本卡是吹膜工序的检验节点, 按钮点名「吹膜」并把深链钉在本工单的吹膜工序上,
                      打开即是吹膜工艺检验项, 不会再落到制袋模板 (与 ④ 的制袋首检/巡检区分开)。 -->
                 <button class="step-btn small" @click="goScan('/pages/scan/fai', 'BLOW', blowProcess && blowProcess.id)">吹膜首检</button>
@@ -137,7 +138,7 @@
             <view class="step-no">③</view>
             <view class="step-body">
               <text class="step-name">半成品入库 · 仓管</text>
-              <text class="step-desc">FAI 首检合格后入半成品仓</text>
+              <text class="step-desc">{{ isFoodGradeOrder ? 'FAI 首检合格后入半成品仓' : '工序完工后入半成品仓 (工业品免首检)' }}</text>
               <button v-if="canSemiIn()" class="step-btn" @click="goScan('/pages/scan/semi-in')">建半成品入库</button>
             </view>
           </view>
@@ -145,8 +146,8 @@
           <view class="flow-step">
             <view class="step-no">④</view>
             <view class="step-body">
-              <text class="step-name">制袋 · 开工 / 首检 / 巡检 / 报工</text>
-              <text class="step-desc">先确认制袋车间生产环境合格并领用该单半成品, 首检合格后报工</text>
+              <text class="step-name">制袋 · 开工 / 制袋首检 / 制袋巡检 / 报工</text>
+              <text class="step-desc">{{ isFoodGradeOrder ? '先确认制袋车间生产环境合格并领用该单半成品, 首检合格后报工' : '先确认制袋车间生产环境合格并领用该单半成品, 开工后即可报工' }}</text>
               <view v-if="bagProcess" class="start-facts">
                 <text class="start-fact">工序: {{ bagProcess.processName }} · 状态 {{ procStatusLabel(bagProcess.status) }}</text>
               </view>
@@ -157,8 +158,8 @@
                 <button v-if="canBagStart()" class="step-btn" @click="openStartSheet('BAG')">开工</button>
                 <!-- v1.1.140: 与 ② 同样钉住本工单的制袋工序 id —— 同路由再次进入时 uni-app H5 新建实例
                      却把「上一趟」的 query 交给 onLoad, 光靠 stage 会被上一趟吹膜的参数渲染。 -->
-                <button v-if="canInspect()" class="step-btn small" @click="goScan('/pages/scan/fai', 'BAG', bagProcess && bagProcess.id)">制袋首检</button>
-                <button v-if="canInspect()" class="step-btn small" @click="goScan('/pages/scan/pat', 'BAG', bagProcess && bagProcess.id)">制袋巡检</button>
+                <button v-if="isFoodGradeOrder && canInspect()" class="step-btn small" @click="goScan('/pages/scan/fai', 'BAG', bagProcess && bagProcess.id)">制袋首检</button>
+                <button v-if="isFoodGradeOrder && canInspect()" class="step-btn small" @click="goScan('/pages/scan/pat', 'BAG', bagProcess && bagProcess.id)">制袋巡检</button>
                 <button v-if="canReport()" class="step-btn" @click="goScan('/pages/production/report', 'BAG', bagProcess && bagProcess.id)">工序报工</button>
               </view>
               <view v-if="bagProcess && !bagStarted" class="gate-hint">未开工工序不能报工, 请先点「开工」确认生产环境</view>
@@ -169,8 +170,9 @@
             <view class="step-no">⑤</view>
             <view class="step-body">
               <text class="step-name">成品检验 OQC · 检验员</text>
-              <text class="step-desc">成品检打分 + 拍照, 现场签合格</text>
-              <button v-if="canInspect()" class="step-btn" @click="goScan('/pages/scan/oqc')">做成品检</button>
+              <!-- v1.1.150: 成品检验同样只对食品级商品建单, 工业品隐藏入口 -->
+              <text class="step-desc">{{ isFoodGradeOrder ? '成品检打分 + 拍照, 现场签合格' : '工业品 (非食品级) 按现行口径不产生成品检验记录' }}</text>
+              <button v-if="isFoodGradeOrder && canInspect()" class="step-btn" @click="goScan('/pages/scan/oqc')">做成品检</button>
             </view>
           </view>
           <!-- ⑥ 成品入库 -->
@@ -178,7 +180,7 @@
             <view class="step-no">⑥</view>
             <view class="step-body">
               <text class="step-name">成品入库 · 仓管</text>
-              <text class="step-desc">工序全完工 + OQC 放行后入成品仓</text>
+              <text class="step-desc">{{ isFoodGradeOrder ? '工序全完工 + OQC 放行后入成品仓' : '工序全完工后即可入成品仓 (工业品免 OQC)' }}</text>
               <button v-if="canFinishedIn()" class="step-btn" @click="goScan('/pages/scan/finished-in')">建成品入库</button>
             </view>
           </view>
@@ -239,17 +241,31 @@
           <text class="ws-title">{{ sheet.stage === 'BAG' ? '制袋开工确认' : '吹膜开工确认' }}</text>
           <view class="ws-sub">{{ sheet.stage === 'BAG' ? '制袋车间' : '吹膜车间' }} · {{ order.billNo }} · {{ order.productName || '—' }}</view>
 
-          <text class="ws-label">1. 生产环境卫生是否合格?</text>
-          <view class="ws-checks">
-            <view class="ws-check-item">· 地面 / 设备台面清洁, 无异物与积水</view>
-            <view class="ws-check-item">· 车间温湿度符合工艺要求</view>
-            <view class="ws-check-item">· 人员穿戴洁净服, 工位无个人物品</view>
+          <text class="ws-label">1. 生产环境检查 (GB 31603-2015, 共 {{ sheet.items.length || 11 }} 项)</text>
+          <view v-if="sheet.loadingTemplate" class="ws-tip">检查项加载中...</view>
+          <view v-else class="ws-env-list">
+            <view v-for="(it, i) in sheet.items" :key="it.code" class="ws-env-item">
+              <view class="ws-env-head">
+                <text class="ws-env-name">{{ i + 1 }}. {{ it.name }}</text>
+                <view class="ws-env-btns">
+                  <text :class="['ws-env-btn', 'ok', envResult(it.code).pass === true && 'on']"
+                        @click="setEnvResult(it.code, true)">符合</text>
+                  <text :class="['ws-env-btn', 'bad', envResult(it.code).pass === false && 'on']"
+                        @click="setEnvResult(it.code, false)">不符合</text>
+                </view>
+              </view>
+              <view class="ws-env-req">{{ it.requirement }}</view>
+              <view class="ws-env-basis">{{ it.basis }}</view>
+              <input v-if="envResult(it.code).pass === false" v-model="sheet.results[it.code].note"
+                     class="ws-input ws-env-note" placeholder="不符合情况说明 (必填)" />
+            </view>
           </view>
-          <view class="ws-radio-row">
-            <view :class="['ws-radio', 'ok', sheet.env === true && 'on']" @click="sheet.env = true">✓ 合格</view>
-            <view :class="['ws-radio', 'bad', sheet.env === false && 'on']" @click="sheet.env = false">✗ 不合格</view>
+          <view v-if="envFailCount > 0" class="ws-warn">
+            有 {{ envFailCount }} 项不符合, 禁止开工。请先登记整改单, 整改合格后重新确认。
           </view>
-          <view v-if="sheet.env === false" class="ws-warn">生产环境不合格禁止开工。请先整理整改, 再重新确认。</view>
+          <view v-else-if="envUnconfirmedCount > 0" class="ws-tip">
+            还有 {{ envUnconfirmedCount }} 项未确认, 逐项确认后才能开工。
+          </view>
 
           <template v-if="sheet.stage === 'BLOW'">
             <text class="ws-label">2. 本次投入的原料批号{{ isFoodGradeOrder ? '' : ' (选填)' }}</text>
@@ -280,7 +296,11 @@
           </view>
           <view class="ws-actions">
             <text class="ws-cancel" @click="closeStartSheet">取消</text>
-            <button class="ws-submit" :disabled="!canSubmitStart || sheet.submitting" @click="onStartSubmit">
+            <button v-if="envFailCount > 0" class="ws-submit ws-submit-fail" :disabled="sheet.submitting"
+                    @click="onRecordEnvFail">
+              {{ sheet.submitting ? '提交中...' : '登记不合格并整改' }}
+            </button>
+            <button v-else class="ws-submit" :disabled="!canSubmitStart || sheet.submitting" @click="onStartSubmit">
               {{ sheet.submitting ? '提交中...' : '确认开工' }}
             </button>
           </view>
@@ -330,7 +350,10 @@ const startRecords = ref([])
 const sheet = reactive({
   visible: false,
   stage: 'BLOW',
-  env: null,
+  // v1.1.151: 逐项环境检查清单 (后端 GB 31603 模板) + 每项判定/说明
+  items: [],
+  results: {},
+  loadingTemplate: false,
   batches: [''],
   photos: [],
   remark: '',
@@ -346,14 +369,29 @@ const bagStarted = computed(() => !!bagConfirm.value
   || (!!bagProcess.value && Number(bagProcess.value.status || 0) >= 1))
 // v1.1.141: 该生产单商品是否食品级 (base_product.is_food_grade=1, 由后端 detail 接口回填 pIsFoodGrade)
 const isFoodGradeOrder = computed(() => Number((order.value || {}).pIsFoodGrade) === 1)
+// v1.1.151: 逐项环境检查 —— 全部 11 项判「符合」才允许开工; 任一项不符合只能先登记整改单
+function envResult(code) { return sheet.results[code] || { pass: null, note: '' } }
+function setEnvResult(code, pass) {
+  sheet.results[code] = { pass, note: pass ? '' : envResult(code).note }
+}
+const envFailCount = computed(() => sheet.items.filter(it => envResult(it.code).pass === false).length)
+const envUnconfirmedCount = computed(() => sheet.items.filter(it => envResult(it.code).pass == null).length)
+const envAllPass = computed(() => sheet.items.length > 0 && envFailCount.value === 0 && envUnconfirmedCount.value === 0)
 const canSubmitStart = computed(() => {
-  if (sheet.env !== true) return false
+  if (!envAllPass.value) return false
   if (sheet.stage !== 'BLOW') return true
   // v1.1.141: 工业品开工只把「生产环境合格」当必填项; 食品级仍要求投料批号 + 批号照片 (XK16-204)
   if (!isFoodGradeOrder.value) return true
   const batches = (sheet.batches || []).map(s => String(s || '').trim()).filter(s => s)
   return batches.length > 0 && (sheet.photos || []).length > 0
 })
+function envItemsPayload() {
+  return sheet.items.map(it => ({
+    code: it.code,
+    pass: envResult(it.code).pass === true,
+    note: String(envResult(it.code).note || '').trim() || null
+  }))
+}
 // v1.1.133 总重量 (kg) = 计划数量 × 克重 ÷ 1000. 以后端 order.totalWeightKg 为准
 // (PrdOrderService.totalWeightKg 唯一算法出口); 字段缺失时前端同式兜底, 不必等 jar.
 const totalWeightKg = computed(() => {
@@ -530,7 +568,7 @@ function previewPhotos(urls, i) {
   }
 }
 
-function openStartSheet(stage) {
+async function openStartSheet(stage) {
   if (stage === 'BAG' && !bagProcess.value) {
     if (typeof uni !== 'undefined' && uni.showToast) {
       uni.showToast({ title: '该单还没有制袋工序, 请先开工吹膜展开工序链', icon: 'none' })
@@ -538,12 +576,34 @@ function openStartSheet(stage) {
     return
   }
   sheet.stage = stage
-  sheet.env = null
   sheet.batches = ['']
   sheet.photos = []
   sheet.remark = ''
   sheet.submitting = false
+  sheet.items = []
+  sheet.results = {}
   sheet.visible = true
+  await loadEnvTemplate(stage)
+}
+
+// v1.1.151: 清单来自后端唯一模板 (GB 31603-2015), PC XK 页同一份, 不在前端复制
+async function loadEnvTemplate(stage) {
+  sheet.loadingTemplate = true
+  try {
+    const r = await api.envCheckTemplate(stage)
+    const items = (r && r.items) || []
+    sheet.items = items
+    const results = {}
+    items.forEach(it => { results[it.code] = { pass: null, note: '' } })
+    sheet.results = results
+  } catch (e) {
+    if (e && e.code === 401) return
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: '检查项加载失败, 请下拉刷新后重试', icon: 'none' })
+    }
+  } finally {
+    sheet.loadingTemplate = false
+  }
 }
 
 function closeStartSheet() {
@@ -570,8 +630,10 @@ async function onStartSubmit() {
   const isBag = sheet.stage === 'BAG'
   const batches = (sheet.batches || []).map(s => String(s || '').trim()).filter(s => s)
   const payload = isBag
-    ? { processId: String(bagProcess.value.id), envQualified: true, remark: sheet.remark || null }
-    : { envQualified: true, rawBatchNos: batches, photoUrls: sheet.photos.slice(), remark: sheet.remark || null }
+    ? { stage: sheet.stage, processId: String(bagProcess.value.id), envQualified: true,
+        envItems: envItemsPayload(), remark: sheet.remark || null }
+    : { stage: sheet.stage, envQualified: true, envItems: envItemsPayload(),
+        rawBatchNos: batches, photoUrls: sheet.photos.slice(), remark: sheet.remark || null }
   sheet.submitting = true
   if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '开工确认中...', mask: true })
   try {
@@ -601,6 +663,43 @@ async function onStartSubmit() {
     if (e && e.code === 401) return
     if (typeof uni !== 'undefined' && uni.showModal) {
       uni.showModal({ title: '开工失败', content: e.message || '请检查生产环境与必填项', showCancel: false })
+    }
+  } finally {
+    sheet.submitting = false
+  }
+}
+
+// v1.1.151: 有不符合项时开工被禁止, 先把不合格项 + 现场说明登记成 XK 整改单, 整改合格后重新确认
+async function onRecordEnvFail() {
+  if (sheet.submitting) return
+  const failed = sheet.items.filter(it => envResult(it.code).pass === false)
+  if (!failed.length) return
+  const noNote = failed.filter(it => !String(envResult(it.code).note || '').trim())
+  if (noNote.length) {
+    if (typeof uni !== 'undefined' && uni.showToast) {
+      uni.showToast({ title: '请填写不符合情况: ' + noNote.map(i => i.name).join('、'), icon: 'none' })
+    }
+    return
+  }
+  sheet.submitting = true
+  if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '登记整改单...', mask: true })
+  try {
+    const r = await api.prdOrderEnvFail(String(orderId.value), { stage: sheet.stage, envItems: envItemsPayload() })
+    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    sheet.visible = false
+    if (typeof uni !== 'undefined' && uni.showModal) {
+      uni.showModal({
+        title: '已登记整改单',
+        content: '整改单号 ' + ((r && r.checkNo) || '—') + ', 共 ' + failed.length
+          + ' 项不符合。请在 PC「安全与合规 → 生产环境检查」完成整改闭环, 整改合格后再重新确认开工。',
+        showCancel: false
+      })
+    }
+  } catch (e) {
+    if (typeof uni !== 'undefined' && uni.hideLoading) uni.hideLoading()
+    if (e && e.code === 401) return
+    if (typeof uni !== 'undefined' && uni.showModal) {
+      uni.showModal({ title: '登记失败', content: (e && e.message) || '请检查不合格项说明', showCancel: false })
     }
   } finally {
     sheet.submitting = false
@@ -796,12 +895,19 @@ onMounted(() => { applyTabBar() })
 .ws-title { font-size: 16px; font-weight: bold; color: #303133; display: block; }
 .ws-sub { font-size: 12px; color: #909399; margin: 4px 0 12px; }
 .ws-label { font-size: 13px; font-weight: 600; color: #303133; display: block; margin: 12px 0 6px; }
-.ws-checks { background: #f8f9fa; border-radius: 6px; padding: 8px 10px; }
-.ws-check-item { font-size: 12px; color: #606266; line-height: 1.8; }
-.ws-radio-row { display: flex; gap: 10px; margin-top: 8px; }
-.ws-radio { flex: 1; text-align: center; padding: 9px 0; border-radius: 6px; font-size: 14px; border: 1px solid #dcdfe6; color: #606266; }
-.ws-radio.ok.on { background: #f0f9eb; border-color: #67c23a; color: #67c23a; font-weight: 600; }
-.ws-radio.bad.on { background: #fef0f0; border-color: #f56c6c; color: #f56c6c; font-weight: 600; }
+/* v1.1.151 逐项环境检查清单 */
+.ws-env-list { background: #f8f9fa; border-radius: 6px; padding: 4px 8px; }
+.ws-env-item { padding: 8px 0; border-bottom: 1px solid #ebeef5; }
+.ws-env-item:last-child { border-bottom: none; }
+.ws-env-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ws-env-name { flex: 1; font-size: 13px; color: #303133; line-height: 1.5; }
+.ws-env-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.ws-env-btn { padding: 4px 10px; border-radius: 12px; border: 1px solid #dcdfe6; font-size: 12px; color: #606266; background: #fff; }
+.ws-env-btn.ok.on { background: #f0f9eb; border-color: #67c23a; color: #67c23a; font-weight: 600; }
+.ws-env-btn.bad.on { background: #fef0f0; border-color: #f56c6c; color: #f56c6c; font-weight: 600; }
+.ws-env-req { font-size: 11px; color: #909399; line-height: 1.6; margin-top: 2px; }
+.ws-env-basis { font-size: 10px; color: #b1b3b8; line-height: 1.6; }
+.ws-env-note { margin-top: 6px; }
 .ws-warn { margin-top: 8px; font-size: 12px; color: #f56c6c; background: #fef0f0; border-radius: 6px; padding: 8px 10px; }
 .ws-tip { margin-top: 8px; font-size: 12px; color: #909399; background: #f4f4f5; border-radius: 6px; padding: 8px 10px; line-height: 1.6; }
 .ws-batch-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -816,5 +922,6 @@ onMounted(() => { applyTabBar() })
 .ws-actions { display: flex; gap: 10px; margin-top: 14px; }
 .ws-cancel { flex: 1; text-align: center; padding: 10px 0; border-radius: 6px; background: #f4f4f5; color: #606266; font-size: 14px; }
 .ws-submit { flex: 2; background: #67c23a; color: #fff; border: none; border-radius: 6px; height: 42px; line-height: 42px; font-size: 15px; }
+.ws-submit-fail { background: #e6a23c; }
 .ws-submit[disabled] { background: #c8e6c1; color: #f0f0f0; }
 </style>

@@ -40,7 +40,16 @@
       <view v-else class="empty">扫单或输入单号后定位</view>
     </template>
 
-    <!-- FAI/PAT/OQC: 简单表单 -->
+    <!-- FAI/PAT: 工序首检/巡检必须挂在工单的实际工序上并逐项检验, 快捷表单建不出模板项,
+         所以这里只做入口分流 (吹膜/制袋各一类), 真正的检验在 scan/fai 与 scan/pat 完成 -->
+    <view v-else-if="type === 'FAI' || type === 'PAT'" class="card">
+      <view class="muted form-hint">{{ HINT[type] }}</view>
+      <view class="stage-links">
+        <button v-for="t in stageTargets" :key="t.key" class="btn-plain stage-link" @click="goStage(t.key)">{{ t.label }} →</button>
+      </view>
+    </view>
+
+    <!-- OQC: 简单表单 -->
     <view v-else class="card">
       <view class="muted form-hint">{{ HINT[type] }}</view>
       <view class="form-row"><text class="form-label">产品ID</text>
@@ -69,15 +78,15 @@ import { guardPage } from '../../utils/appModuleEnabled.js'
 
 const TYPES = [
   { value: 'IQC', label: '来料检验' },
-  { value: 'FAI', label: '首件检验' },
+  { value: 'FAI', label: '首检' },
   { value: 'PAT', label: '巡检' },
   { value: 'OQC', label: '成品检验' }
 ]
 const HINT = {
   IQC: '扫采购入库单定位, 逐行录入来料检验',
-  FAI: '首件检验: 录入产品/批次/抽检数, 提交草稿, PC 端审核',
-  PAT: '巡检: 录入产品/批次/抽检数, 提交草稿, PC 端审核',
-  OQC: '成品检验: 录入产品/批次/抽检数, 提交草稿, PC 端审核'
+  FAI: '首检分吹膜首检与制袋首检, 按工单的实际工序逐项检验并签核; 工业品 (非食品级) 不产生首检记录',
+  PAT: '巡检分吹膜巡检与制袋巡检, 按工单的实际工序逐项记录并签核; 工业品 (非食品级) 不产生巡检记录',
+  OQC: '成品检验: 录入产品/批次/抽检数, 提交草稿, PC 端审核; 工业品不产生成品检验记录'
 }
 
 const type = ref('IQC')
@@ -96,6 +105,15 @@ const productNames = computed(() => {
 const form = reactive({
   productId: '', batchNo: '', sampleQty: '', qualifiedQty: '', unqualifiedQty: ''
 })
+
+const stageTargets = computed(() => (type.value === 'FAI'
+  ? [{ key: 'BLOW', label: '吹膜首检' }, { key: 'BAG', label: '制袋首检' }]
+  : [{ key: 'BLOW', label: '吹膜巡检' }, { key: 'BAG', label: '制袋巡检' }]))
+
+function goStage(stage) {
+  const page = type.value === 'FAI' ? '/pages/scan/fai' : '/pages/scan/pat'
+  uni.navigateTo({ url: `${page}?stage=${stage}` })
+}
 
 function num(v) { const n = Number(v || 0); return isFinite(n) ? n : 0 }
 
@@ -250,6 +268,8 @@ onMounted(() => {
 .btn-primary { flex: 1; background: #1e6091; color: #fff; border: none; border-radius: 6px; height: 38px; font-size: 14px; }
 .btn-primary[disabled] { opacity: 0.5; }
 .btn-plain { flex: 1; background: #f4f4f5; color: #606266; border: none; border-radius: 6px; height: 38px; font-size: 14px; }
+.stage-links { display: flex; flex-direction: column; gap: 8px; }
+.stage-link { flex: none; width: 100%; }
 .muted { color: #909399; font-size: 12px; }
 .row { display: flex; justify-content: space-between; align-items: center; }
 .bill-no { font-weight: bold; font-size: 15px; color: #303133; }

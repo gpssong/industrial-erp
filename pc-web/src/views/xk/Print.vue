@@ -178,13 +178,15 @@ const paper = ref('A4P')
 const copies = ref(1)
 const printedAt = ref('—')
 
-// v1.1.147: 单据清单全部对齐系统真实单据 (检验 6 类走台账, 业务 6 类走各模块列表/详情)
-// 删掉 v1.1.146 里台账/系统都不存在的「采购计划单」「生产记录单」— 没有对应表与接口, 印不出真单据
+// v1.1.148: 首检/巡检按工序阶段拆开 — 表里只存 FAI/PAT + 源工序, 阶段由后端 stage 派生,
+// 四类模板项目不同 (吹膜首检 6+2 / 制袋首检 10+3 / 吹膜巡检 7+4 / 制袋巡检 8+3), 打印必须按类型取自己那份
 const docGroups = [
   { label: '检验记录与报告', items: [
     { value: 'iqc', label: '原料进货检验记录 (IQC)' },
-    { value: 'fai', label: '半成品首检记录 (FAI)' },
-    { value: 'pat', label: '过程巡检记录 (PAT)' },
+    { value: 'faiBlow', label: '吹膜首检记录 (FAI)' },
+    { value: 'faiBag', label: '制袋首检记录 (FAI)' },
+    { value: 'patBlow', label: '吹膜巡检记录 (PAT)' },
+    { value: 'patBag', label: '制袋巡检记录 (PAT)' },
     { value: 'oqc', label: '成品检验记录 (OQC)' },
     { value: 'oqcReturn', label: '退货检验记录 (OQC_RETURN)' },
     { value: 'env', label: '生产环境检查记录 (ENV)' } ] },
@@ -200,8 +202,10 @@ const docGroups = [
 // 每类单据的数据来源口径: kind 决定列表与详情的接口, title/group 进纸张表头
 const sources = {
   iqc: { kind: 'inspection', inspectionType: 'IQC', title: '原料进货检验记录 (IQC)', group: '质量检验', emptyHint: '台账里还没有 IQC 记录；采购入库审核会自动生成草稿，也可在「质量合规 → 检验记录与报告」手工建单。' },
-  fai: { kind: 'inspection', inspectionType: 'FAI', title: '半成品首检记录 (FAI)', group: '质量检验', emptyHint: '台账里还没有 FAI 记录；吹膜/制袋开工后按工单做首检即生成。' },
-  pat: { kind: 'inspection', inspectionType: 'PAT', title: '过程巡检记录 (PAT)', group: '质量检验', emptyHint: '台账里还没有 PAT 记录；工序报工或巡检时生成。' },
+  faiBlow: { kind: 'inspection', inspectionType: 'FAI', stage: 'BLOW', title: '吹膜首检记录 (FAI)', group: '质量检验', basis: 'Q/ZPC 1-2017 表1~表3', emptyHint: '台账里还没有吹膜首检记录；吹膜工序开工后按工单做首检即生成。' },
+  faiBag: { kind: 'inspection', inspectionType: 'FAI', stage: 'BAG', title: '制袋首检记录 (FAI)', group: '质量检验', basis: 'Q/ZPC 1-2017 表1~表5', emptyHint: '台账里还没有制袋首检记录；制袋工序开工后按工单做首检即生成。' },
+  patBlow: { kind: 'inspection', inspectionType: 'PAT', stage: 'BLOW', title: '吹膜巡检记录 (PAT)', group: '质量检验', basis: 'Q/ZPC 1-2017 表1~表3', emptyHint: '台账里还没有吹膜巡检记录；吹膜工序报工或巡检时生成。' },
+  patBag: { kind: 'inspection', inspectionType: 'PAT', stage: 'BAG', title: '制袋巡检记录 (PAT)', group: '质量检验', basis: 'Q/ZPC 1-2017 表1~表5', emptyHint: '台账里还没有制袋巡检记录；制袋工序报工或巡检时生成。' },
   oqc: { kind: 'inspection', inspectionType: 'OQC', title: '成品检验记录 (OQC)', group: '质量检验', emptyHint: '台账里还没有 OQC 记录；成品检完成后生成。' },
   oqcReturn: { kind: 'inspection', inspectionType: 'OQC_RETURN', title: '退货检验记录 (OQC_RETURN)', group: '质量检验', emptyHint: '台账里还没有退货检验记录。' },
   env: { kind: 'env', title: '生产环境检查记录 (ENV)', group: '环境卫生检查', emptyHint: '还没有环境检查单；可在「安全卫生 → 生产环境检查」新建并审核。' },
@@ -273,11 +277,13 @@ function errText(e) {
 async function fetchRecords(kind) {
   if (kind === 'inspection') {
     const s = sources[docType.value]
-    const r = await inspectionApi.page({ pageNum: 1, pageSize: 50, inspectionType: s.inspectionType })
+    const params = { pageNum: 1, pageSize: 50, inspectionType: s.inspectionType }
+    if (s.stage) params.stage = s.stage
+    const r = await inspectionApi.page(params)
     return (r.data?.records || []).map(x => ({
       id: x.id,
       raw: x,
-      label: [x.billNo, x.billDate, x.productName, x.batchNo, RESULT_TEXT[x.result] || BILL_STATUS_TEXT[x.status]].filter(Boolean).join(' · ')
+      label: [x.billNo, x.billDate, x.productName, x.batchNo, x.processName, RESULT_TEXT[x.result] || BILL_STATUS_TEXT[x.status]].filter(Boolean).join(' · ')
     }))
   }
   if (kind === 'env') {
@@ -373,7 +379,10 @@ async function loadDetail() {
           items = ir.code === 200 ? (ir.data || []) : []
         } catch (e) { items = [] }
       }
-      detail.value = { head, items, defects: r.data?.defects || [] }
+      detail.value = {
+        head, items, defects: r.data?.defects || [],
+        stage: r.data?.stage || head.stage, processName: r.data?.processName || head.processName
+      }
     } else if (s.kind === 'env') {
       const r = await envCheckApi.detail(id)
       detail.value = { head: withRow(r.data) }
@@ -415,9 +424,11 @@ function buildInspection(s, d) {
     ['抽样 / 合格', `${S(head.sampleQty)} / ${S(head.qualifiedQty)}`],
     ['检验结论', RESULT_TEXT[head.result] || S(head.result)],
     ['批次处置', DISPOSITION_TEXT[head.disposition] || S(head.disposition)],
-    ['检验依据', 'Q/ZPC 1-2017']
+    ['检验依据', s.basis || 'Q/ZPC 1-2017']
   ]
-  if (head.workshop) meta.splice(4, 0, ['车间 / 工序', S(head.workshop)])
+  if (head.workshop || d.processName) {
+    meta.splice(4, 0, ['车间 / 工序', [head.workshop, d.processName].filter(Boolean).join(' · ')])
+  }
   if (head.unqualifiedQty != null) meta[4] = ['抽样 / 合格 / 不良', `${S(head.sampleQty)} / ${S(head.qualifiedQty)} / ${S(head.unqualifiedQty)}`]
   if (head.retainNo) meta.push(['留样编号', S(head.retainNo)])
 
@@ -427,7 +438,7 @@ function buildInspection(s, d) {
     S(it.requirement),
     S(it.method),
     `${S(it.resultValue)}${it.unit ? ' ' + it.unit : ''}`,
-    it.passFlag === 0 ? '不合格' : it.passFlag === 1 ? '合格' : '—'
+    it.passFlag === 0 ? '不合格' : it.passFlag === 1 ? '合格' : Number(it.passFlag) === 2 ? '不适用' : '—'
   ])
   const defectRows = (d.defects || []).map((x, i) => [
     `缺陷 ${i + 1}`, S(x.defectType), S(x.severity), S(x.qty), S(x.disposal)

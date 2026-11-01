@@ -76,10 +76,15 @@ public class SalDeliveryController {
         return R.ok();
     }
 
+    /**
+     * v1.1.152: body 可选 — 传 {@code details:[{detailId, allocations:[{batchNo,qty}]}]} 时按指定批次出库,
+     * 不传 (App / 旧客户端) 时沿用按 batch_no 自动拆分.
+     */
     @SaCheckPermission(value = {"sales:delivery:check"}, orRole = "admin")
     @PostMapping("/{id}/check")
-    public R<Void> check(@PathVariable Long id) {
-        service.check(id);
+    public R<Void> check(@PathVariable Long id,
+                         @RequestBody(required = false) com.industrial.erp.modules.sales.dto.SalDeliveryCheckDTO req) {
+        service.check(id, req);
         return R.ok();
     }
 

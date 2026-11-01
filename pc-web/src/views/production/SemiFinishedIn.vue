@@ -46,7 +46,8 @@
       </el-table-column>
       <el-table-column label="FAI 状态" width="110" align="center">
         <template #default="{ row }">
-          <el-tag v-if="row.inspectionResult" :type="row.inspectionResult === 'PASS' || row.inspectionResult === 'PASS_DISPOSITION' ? 'success' : 'danger'" size="small" effect="light">
+          <span v-if="!isFoodGradeRow(row)" class="muted">工业品免检</span>
+          <el-tag v-else-if="row.inspectionResult" :type="row.inspectionResult === 'PASS' || row.inspectionResult === 'PASS_DISPOSITION' ? 'success' : 'danger'" size="small" effect="light">
             {{ row.inspectionResult }}
           </el-tag>
           <span v-else class="muted">未首检</span>
@@ -229,13 +230,19 @@ function resetQuery() {
 }
 
 // v1.1.100 首检门禁: 关联 FAI 是否合格 (PASS/PASS_DISPOSITION) 才放行入库
+// v1.1.150: 工业品不产生首检记录, 门禁只对食品级生效 (与后端 PrdSemiInService.check 同口径)
+function isFoodGradeRow(row) {
+  return Number(row && row.pIsFoodGrade) === 1
+}
 function faiPassed(row) {
+  if (!isFoodGradeRow(row)) return true
   return row.inspectionResult === 'PASS' || row.inspectionResult === 'PASS_DISPOSITION'
 }
 
 async function onCheck(row) {
   try {
-    await ElMessageBox.confirm(`确认审核入库单 ${row.billNo}? XK 门禁: 须已关联合格 FAI 检验单。`, '审核确认', {
+    const gate = isFoodGradeRow(row) ? ' XK 门禁: 须已关联合格 FAI 检验单。' : ' 工业品不产生首检记录, 直接放行。'
+    await ElMessageBox.confirm(`确认审核入库单 ${row.billNo}?${gate}`, '审核确认', {
       type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消'
     })
   } catch { return }

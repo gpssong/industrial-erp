@@ -7,7 +7,9 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.inventory.service.StockService;
 import com.industrial.erp.modules.production.entity.PrdSemiIn;
@@ -40,8 +42,10 @@ public class PrdSemiInService {
                             com.industrial.erp.modules.mes.service.MesReportService mesReportService,
                             QmsInspectionService qmsInspectionService,
                             com.industrial.erp.modules.production.mapper.PrdOrderMapper prdOrderMapper,
-                            ProductDeriveService deriveService) {
+                            ProductDeriveService deriveService,
+                            BaseProductMapper productMapper) {
         this.mapper = mapper;
+        this.productMapper = productMapper;
         this.warehouseMapper = warehouseMapper;
         this.billNoGenerator = billNoGenerator;
         this.stockService = stockService;
@@ -62,6 +66,7 @@ public class PrdSemiInService {
     /** v1.1.142: 规格/单位 缺失时回查工单快照 + 商品主数据兜底 */
     private final com.industrial.erp.modules.production.mapper.PrdOrderMapper prdOrderMapper;
     private final ProductDeriveService deriveService;
+    private final BaseProductMapper productMapper;
 
     public IPage<PrdSemiIn> page(Integer pageNum, Integer pageSize, String billNo) {
         permService.requirePerm("production:semi-in:list");
@@ -69,7 +74,25 @@ public class PrdSemiInService {
         LambdaQueryWrapper<PrdSemiIn> w = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(billNo)) w.like(PrdSemiIn::getBillNo, billNo);
         w.orderByDesc(PrdSemiIn::getId);
-        return mapper.selectPage(p, w);
+        IPage<PrdSemiIn> result = mapper.selectPage(p, w);
+        fillFoodGrade(result.getRecords());
+        return result;
+    }
+
+    /** v1.1.150: 半成品入库的 FAI 门禁只对食品级生效, 列表把 is_food_grade 一并带出去, 前端据此决定是否卡审核. */
+    private void fillFoodGrade(java.util.List<PrdSemiIn> rows) {
+        if (rows == null || rows.isEmpty()) return;
+        java.util.Set<Long> ids = new java.util.HashSet<>();
+        for (PrdSemiIn r : rows) if (r.getProductId() != null) ids.add(r.getProductId());
+        if (ids.isEmpty()) return;
+        java.util.Map<Long, Integer> foodGrade = new java.util.HashMap<>();
+        for (BaseProduct prod : productMapper.selectBatchIds(ids)) {
+            foodGrade.put(prod.getId(), Integer.valueOf(1).equals(prod.getIsFoodGrade()) ? 1 : 0);
+        }
+        for (PrdSemiIn r : rows) {
+            // 查不到商品按工业品处理, 与 QmsInspectionService.isFoodGradeProduct 同口径
+            r.setPIsFoodGrade(foodGrade.getOrDefault(r.getProductId(), 0));
+        }
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -125,10 +148,9 @@ public class PrdSemiInService {
             }
             // 冗余快照: 把合格 FAI 判定结果/报告号/抽样数/检验人写回入库单 (供 XK 前端展示 + 审计留痕)
             qmsInspectionService.snapshotFaiGate(in);
-        } else {
-            // 工业品 (is_food_grade != 1): 跳过 XK FAI 门禁直接放行; 若有合格 FAI 仍留痕 (null-safe, 无 FAI 时 no-op)
-            qmsInspectionService.snapshotFaiGate(in);
         }
+        // 工业品 (is_food_grade != 1) 不做 FAI 快照: 该商品今后不建首检, 若把工单上历史遗留的 FAI
+        // (可能是 HOLD) 抄进入库单, 会让「工业品免检」的单据莫名其妙挂着一张不合格报告.
 
         BaseWarehouse wh = warehouseMapper.selectById(in.getWarehouseId());
         stockService.inStock(Constants.LEDGER_PROD_IN, in.getId(), in.getBillNo(), in.getId(),

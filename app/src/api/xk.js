@@ -7,7 +7,6 @@
  * 约定形态 ({code,data} / {code,items} / 顶层字段).
  */
 import { request } from './index'
-import { photosFromJson } from '../utils/photo.js'
 
 // 统一: 成功返回 {code:200, ...}; 失败 {code:500, msg}
 function ok(data, extra = {}) { return Object.assign({ code: 200, data }, extra) }
@@ -226,53 +225,31 @@ export const printPreview = async () => {
   } catch (e) { return fail(e.msg || '加载失败') }
 }
 
-// ===== v1.1.147 单据打印: 已审核采购入库单 =====
+// ===== v1.1.153 XK 单据打印: 统一单据清单 + 详情 =====
+//
+// 旧版只有「已审核采购入库单」一种 (receiptList/receiptDetail), 现已并入统一的
+// /xk/print/docs, 后端按 docType 分派到 QMS 检验单 / 环境检查 / 采购入库单.
+// 权限: 后端用 report:print OR 各源模块 list perm, App 只需「XK 单据打印」即可.
 
-/** 可打印的入库单 (仅已审核 CHECKED, 与 PC「单据与打印」同口径). */
-export const receiptList = async () => {
+/** 可打印单据清单 docType: iqc / faiBlow / faiBag / patBlow / patBag / oqc / oqcReturn / env / purchaseReceipt */
+export const printDocs = async (docType, pageNum = 1, pageSize = 50) => {
   try {
-    const page = await request({ url: '/xk/material/page?pageNum=1&pageSize=50&billStatus=CHECKED', method: 'GET' })
-    const list = (page?.records || []).map(r => ({
-      id: r.id,
-      billNo: r.billNo,
-      supplier: r.supplierName || '-',
-      billDate: r.billDate || '',
-      warehouse: r.warehouseName || '-',
-      label: [r.billNo, r.supplierName || '-', r.billDate || ''].filter(Boolean).join(' · ')
-    }))
-    return ok(list)
-  } catch (e) { return fail(e.msg || '加载失败', []) }
+    const q = '?docType=' + encodeURIComponent(docType) + '&pageNum=' + pageNum + '&pageSize=' + pageSize
+    const d = await request({ url: '/xk/print/docs' + q, method: 'GET', silent: true })
+    return ok(d || { records: [], total: 0 })
+  } catch (e) { return fail(e.msg || '加载失败', { records: [], total: 0 }) }
 }
 
-/** 入库单详情 (含明细 + 标签照片 + 制单人/检验员). */
-export const receiptDetail = async (id) => {
-  if (id == null) return fail('未选择入库单')
+/** 单据详情: 检验单含 items/defects/attachments, 环境检查与入库单为 head 单表 */
+export const printDocDetail = async (docType, id) => {
+  if (id == null) return fail('未选择单据')
   try {
-    const r = await request({ url: '/xk/material/' + id, method: 'GET' })
-    if (!r) return fail('入库单不存在')
-    return ok({
-      id: r.id,
-      billNo: r.billNo || '',
-      supplier: r.supplierName || '-',
-      billDate: r.billDate || '',
-      warehouse: r.warehouseName || '-',
-      operator: r.createByName || '',
-      inspector: r.inspectorName || '',
-      reportNo: r.inspectionReportNo || '',
-      inspectionResult: r.inspectionResult || '',
-      remark: r.remark || '',
-      status: r.billStatus || '',
-      totalQty: r.totalQty ?? null,
-      photos: photosFromJson(r.labelPhotos),
-      details: (r.details || []).map(x => ({
-        productName: x.productName || '-',
-        batchNo: x.batchNo || '',
-        qty: x.qty ?? null,
-        unitName: x.unitName || '',
-        location: x.locationName || x.location || '',
-        productionDate: x.productionDate || ''
-      }))
+    const d = await request({
+      url: '/xk/print/docs/' + encodeURIComponent(docType) + '/' + id,
+      method: 'GET',
+      silent: true
     })
+    return ok(d || {})
   } catch (e) { return fail(e.msg || '加载失败') }
 }
 
@@ -287,5 +264,5 @@ export const printAudit = async (billNo) => {
 export default {
   dashboardKpi, materialDraft, submitMaterial, traceBatches, traceFull,
   maintenanceOrders, safetyCheck, auditLogs, archivedRecords, equipmentInfo,
-  printPreview, receiptList, receiptDetail, printAudit
+  printPreview, printDocs, printDocDetail, printAudit
 }

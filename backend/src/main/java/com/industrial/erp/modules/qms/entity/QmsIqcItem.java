@@ -37,7 +37,7 @@ public class QmsIqcItem {
     private String resultValue;
     /** 实测单位 (g/10min/g/cm³/无) */
     private String unit;
-    /** 1=合格 / 0=不合格 */
+    /** -1=待检 / 0=不合格 / 1=合格 / 2=不适用 (v1.1.149 起) */
     private Integer passFlag;
     /** 判定依据 (合格范围文字描述) */
     private String judgmentBasis;

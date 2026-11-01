@@ -17,6 +17,7 @@ import com.industrial.erp.modules.mes.mapper.PrdProcessMapper;
 import com.industrial.erp.modules.production.entity.PrdFinishedIn;
 import com.industrial.erp.modules.production.entity.PrdOrder;
 import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
+import com.industrial.erp.modules.qms.QmsItemCodes;
 import com.industrial.erp.modules.qms.dto.ProcessInspectionRecordDTO;
 import com.industrial.erp.modules.purchase.entity.PurInboundPlan;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
@@ -74,6 +75,10 @@ import java.util.stream.Collectors;
 public class QmsInspectionService {
 
     private static final Logger log = LoggerFactory.getLogger(QmsInspectionService.class);
+
+    /** v1.1.150 — 只对食品级商品产生的检验类型 (首检/巡检/成品检). IQC 与退货检不受此限. */
+    private static final Set<String> FOOD_GRADE_ONLY_TYPES = Set.of(
+            Constants.INSPECTION_FAI, Constants.INSPECTION_PAT, Constants.INSPECTION_OQC);
 
     private final MesQualityInspectionMapper inspectionMapper;
     private final MesQualityDefectMapper defectMapper;
@@ -174,6 +179,9 @@ public class QmsInspectionService {
             return ((MesQualityInspection) ensureFaiForSemiIn(head.getSourceBillId()).get("head")).getId();
         }
         if (head.getProductId() == null) throw BizException.of("产品必填");
+        if (FOOD_GRADE_ONLY_TYPES.contains(head.getInspectionType())) {
+            requireFoodGradeForInspection(head.getProductId());
+        }
         head.setId(null);
         head.setDeleted(0);
         head.setVersion(0);
@@ -380,14 +388,81 @@ public class QmsInspectionService {
     @Transactional(readOnly = true)
     public IPage<MesQualityInspection> page(int pageNum, int pageSize,
                                              String inspectionType, String result, String status) {
+        return page(pageNum, pageSize, inspectionType, result, status, null);
+    }
+
+    /**
+     * 检验单分页查询 (v1.1.148 增工序阶段过滤).
+     *
+     * <p>首检/巡检要按「吹膜 / 制袋」拆成四类, 但检验单表只存 FAI/PAT + 源工序 id,
+     * 阶段是派生的: {@code prd_process.process_name} 先认制袋再认吹膜, 与
+     * {@link #processStage(PrdProcess)} 同口径; 早期挂在半成品入库单上的 FAI 视为吹膜。
+     *
+     * @param stage 筛选 (可空): BLOW=吹膜 / BAG=制袋, 其它值忽略
+     */
+    @Transactional(readOnly = true)
+    public IPage<MesQualityInspection> page(int pageNum, int pageSize,
+                                             String inspectionType, String result, String status,
+                                             String stage) {
         Page<MesQualityInspection> p = new Page<>(pageNum, pageSize, true);
         LambdaQueryWrapper<MesQualityInspection> w = new LambdaQueryWrapper<>();
         w.eq(StrUtil.isNotBlank(inspectionType), MesQualityInspection::getInspectionType, inspectionType);
         w.eq(StrUtil.isNotBlank(result), MesQualityInspection::getResult, result);
         w.eq(StrUtil.isNotBlank(status), MesQualityInspection::getStatus, status);
+        String st = StrUtil.trimToNull(stage);
+        if ("BLOW".equalsIgnoreCase(st)) {
+            // 工序名含吹膜 (且不含制袋) 的 PRD_PROCESS 单 + 旧口径的半成品入库 FAI
+            w.and(q -> q.and(a -> a.eq(MesQualityInspection::getSourceBillType, "PRD_PROCESS")
+                            .inSql(MesQualityInspection::getSourceBillId, BLOW_PROCESS_ID_SQL))
+                    .or(b -> b.eq(MesQualityInspection::getSourceBillType, "PRD_SEMI_IN")
+                            .eq(MesQualityInspection::getInspectionType, Constants.INSPECTION_FAI)));
+        } else if ("BAG".equalsIgnoreCase(st)) {
+            w.and(q -> q.eq(MesQualityInspection::getSourceBillType, "PRD_PROCESS")
+                    .inSql(MesQualityInspection::getSourceBillId, BAG_PROCESS_ID_SQL));
+        }
         w.orderByDesc(MesQualityInspection::getBillDate)
                 .orderByDesc(MesQualityInspection::getId);
-        return inspectionMapper.selectPage(p, w);
+        IPage<MesQualityInspection> resultPage = inspectionMapper.selectPage(p, w);
+        stampStage(resultPage.getRecords());
+        return resultPage;
+    }
+
+    /** 阶段过滤子查询 (与 {@link #processStage(PrdProcess)} 同口径: 先认制袋, 再认吹膜) */
+    private static final String BAG_PROCESS_ID_SQL =
+            "SELECT id FROM prd_process WHERE deleted = 0 AND process_name LIKE '%制袋%'";
+    private static final String BLOW_PROCESS_ID_SQL =
+            "SELECT id FROM prd_process WHERE deleted = 0 AND process_name LIKE '%吹膜%' AND process_name NOT LIKE '%制袋%'";
+
+    /**
+     * 给检验单填派生阶段字段 (不入库): 列表/详情/打印/App 都靠它区分吹膜与制袋.
+     * 工序已被软删或名字无法识别时 stage 为 null, 不阻断列表.
+     */
+    private void stampStage(List<MesQualityInspection> rows) {
+        if (rows == null || rows.isEmpty()) return;
+        Set<Long> processIds = rows.stream()
+                .filter(r -> "PRD_PROCESS".equals(r.getSourceBillType()) && r.getSourceBillId() != null)
+                .map(MesQualityInspection::getSourceBillId)
+                .collect(Collectors.toSet());
+        Map<Long, PrdProcess> processes = processIds.isEmpty() ? Map.of()
+                : prdProcessMapper.selectBatchIds(processIds).stream()
+                    .collect(Collectors.toMap(PrdProcess::getId, x -> x, (a, b) -> a));
+        for (MesQualityInspection r : rows) {
+            PrdProcess proc = r.getSourceBillId() == null ? null : processes.get(r.getSourceBillId());
+            if (proc != null) {
+                r.setProcessName(proc.getProcessName());
+                r.setStage(processStage(proc));
+            } else if ("PRD_SEMI_IN".equals(r.getSourceBillType())
+                    && Constants.INSPECTION_FAI.equals(r.getInspectionType())) {
+                r.setStage("BLOW");
+            }
+            r.setStageLabel(stageLabel(r.getStage()));
+        }
+    }
+
+    private static String stageLabel(String stage) {
+        if ("BLOW".equals(stage)) return "吹膜";
+        if ("BAG".equals(stage)) return "制袋";
+        return null;
     }
 
     /**
@@ -400,11 +475,38 @@ public class QmsInspectionService {
         Map<String, Object> m = new HashMap<>();
         MesQualityInspection head = inspectionMapper.selectById(id);
         if (head == null) throw BizException.of("检验单不存在");
+        stampStage(java.util.Collections.singletonList(head));
         m.put("head", head);
+        m.put("stage", head.getStage());
+        m.put("stageLabel", head.getStageLabel());
+        m.put("processName", head.getProcessName());
         m.put("defects", defectMapper.selectByInspectionId(id));
         if (isFinishedInspection(head)) {
             m.put("items", iqcItemMapper.selectByIqcId(id));
         }
+        return m;
+    }
+
+    /**
+     * v1.1.153 XK 单据打印 (App): head + items + defects + attachments 一次取全.
+     *
+     * <p>与 {@link #detail} 的差异: 首检/巡检 (FAI/PAT) 也要检验项 — 打印记录必须逐项列出
+     * 技术要求/实测值/单项判定, 而 detail 只对 OQC 回传 items. 不带鉴权, 由 controller 统一裁决.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> detailForPrint(Long id) {
+        MesQualityInspection head = inspectionMapper.selectById(id);
+        if (head == null) throw BizException.of("检验单不存在");
+        stampStage(java.util.Collections.singletonList(head));
+        Map<String, Object> m = new HashMap<>();
+        m.put("docType", "inspection");
+        m.put("head", head);
+        m.put("stage", head.getStage());
+        m.put("stageLabel", head.getStageLabel());
+        m.put("processName", head.getProcessName());
+        m.put("items", iqcItemMapper.selectByIqcId(id));
+        m.put("defects", defectMapper.selectByInspectionId(id));
+        m.put("attachments", iqcAttachmentMapper.selectByIqcId(id));
         return m;
     }
 
@@ -469,6 +571,7 @@ public class QmsInspectionService {
     @Transactional(rollbackFor = Exception.class)
     public Long createOnFinish(PrdFinishedIn finishedIn) {
         if (finishedIn == null || finishedIn.getId() == null) return null;
+        if (!isFoodGradeProduct(finishedIn.getProductId())) return null;   // 工业品不建出厂检验
         MesQualityInspection ins = new MesQualityInspection();
         ins.setInspectionType(Constants.INSPECTION_OQC);
         ins.setSourceBillType("PRD_FINISHED_IN");
@@ -522,6 +625,7 @@ public class QmsInspectionService {
                 .eq(PrdProcess::getId, p.getId()).eq(PrdProcess::getDeleted, 0).last("FOR UPDATE"));
         if (!isExpandedProcess(process) || processStage(process) == null) return null;
         Long orderId = o == null ? process.getPrdOrderId() : o.getId();
+        if (!isFoodGradeOrder(orderId)) return null;   // 工业品不建巡检记录
         Map<String, Object> detail = ensureForProcess(orderId, process.getId(), Constants.INSPECTION_PAT);
         return ((MesQualityInspection) detail.get("head")).getId();
     }
@@ -626,12 +730,14 @@ public class QmsInspectionService {
         if (!Objects.equals(process.getPrdOrderId(), order.getId())) throw BizException.of("工序不属于所选生产单");
         MesQualityInspection head = latestForProcess(processId, inspectionType, true);
         if (head != null && (Constants.INSPECTION_FAI.equals(inspectionType) || Constants.STATUS_DRAFT.equals(head.getStatus()))) {
+            // 存量单仍可打开/续签 (v1.1.150 只拦新建, 不冻结历史记录)
             validateProcessHead(head, process, order);
             // 老草稿明细被 sql/143 软删 (换企业标准模板) 后, App 只调本接口, 必须在这里按最新模板重灌;
             // ensureProcessTemplateItems 自带「非草稿/已有明细即返回」护栏, 重复调用无副作用。
             ensureProcessTemplateItems(head);
             return processDetail(head, process, order);
         }
+        requireFoodGradeForInspection(order.getProductId());
         requirePatFai(process, inspectionType);
         head = new MesQualityInspection();
         head.setInspectionType(inspectionType);
@@ -665,6 +771,8 @@ public class QmsInspectionService {
         detail.put("process", process);
         detail.put("order", order);
         detail.put("stage", processStage(process));
+        detail.put("stageLabel", stageLabel(processStage(process)));
+        detail.put("processName", process.getProcessName());
         return detail;
     }
 
@@ -963,6 +1071,7 @@ public class QmsInspectionService {
     @Transactional(rollbackFor = Exception.class)
     public Long createOnSemiIn(com.industrial.erp.modules.production.entity.PrdSemiIn semiIn) {
         if (semiIn == null || semiIn.getId() == null) return null;
+        if (!isFoodGradeProduct(semiIn.getProductId())) return null;   // 工业品不建首检
         MesQualityInspection ins = new MesQualityInspection();
         ins.setInspectionType(Constants.INSPECTION_FAI);
         ins.setSourceBillType("PRD_SEMI_IN");
@@ -1087,6 +1196,23 @@ public class QmsInspectionService {
             log.warn("[QMS-XK] isFoodGradeProduct 查商品失败 productId={} err={}", productId, e.getMessage());
             return false;
         }
+    }
+
+    /** 该生产单的商品是否食品级 (v1.1.150: 工业品不产生首检/巡检/成品检记录, 报工门禁也随之豁免). */
+    public boolean isFoodGradeOrder(Long prdOrderId) {
+        if (prdOrderId == null) return false;
+        PrdOrder order = prdOrderMapper.selectById(prdOrderId);
+        return order != null && isFoodGradeProduct(order.getProductId());
+    }
+
+    /**
+     * v1.1.150 — 首检/巡检/成品检只对食品级商品产生记录; 工业品直接拒绝建单.
+     * 口径沿用 {@link #isFoodGradeProduct} (查不到/为空/非 1 一律工业品), 与入库 XK 门禁同源.
+     */
+    private void requireFoodGradeForInspection(Long productId) {
+        if (isFoodGradeProduct(productId)) return;
+        throw BizException.of("该商品为工业品（非食品级），按现行口径不产生首检/巡检/成品检记录; "
+                + "食品接触用包装请先在商品档案标记「食品级」");
     }
 
     /** 查某销售退货单关联的 OQC_RETURN 检验单 (最新一条). */
@@ -1477,6 +1603,7 @@ public class QmsInspectionService {
         if (ins == null) {
             PrdFinishedIn fi = prdFinishedInMapper.selectById(finishedInId);
             if (fi == null) throw BizException.of("成品入库单不存在: " + finishedInId);
+            requireFoodGradeForInspection(fi.getProductId());
             Long id = createOnFinish(fi);
             if (id == null) throw BizException.of("无法为该成品入库单建 OQC 检验单");
             ins = inspectionMapper.selectById(id);
@@ -1502,6 +1629,7 @@ public class QmsInspectionService {
         if (order.getProductId() == null) throw BizException.of("生产单未关联产品，不能开成品检验");
         MesQualityInspection ins = findLinkedOqcByOrder(order.getId());
         if (ins == null) {
+            requireFoodGradeForInspection(order.getProductId());
             ins = new MesQualityInspection();
             ins.setInspectionType(Constants.INSPECTION_OQC);
             ins.setSourceBillType("PRD_ORDER");
@@ -1612,10 +1740,38 @@ public class QmsInspectionService {
         if (ins == null) throw BizException.of("检验单不存在: " + inspectionId);
         if (isFinishedInspection(ins)) ensureOqcTemplateItems(ins);
         else ensureProcessTemplateItems(ins);
+        MesQualityInspection head = inspectionMapper.selectById(inspectionId);
+        stampStage(java.util.Collections.singletonList(head));
         Map<String, Object> m = new HashMap<>();
-        m.put("head", inspectionMapper.selectById(inspectionId));
+        m.put("head", head);
+        m.put("stage", head.getStage());
+        m.put("stageLabel", head.getStageLabel());
+        m.put("processName", head.getProcessName());
         m.put("items", iqcItemMapper.selectByIqcId(inspectionId));
         return m;
+    }
+
+    /**
+     * v1.1.149 — 本公司不做印刷, 达因/印刷质量相关的 4 项默认判「不适用」(pass_flag=2);
+     * 其余模板项默认判「合格」(pass_flag=1)。实测值不算默认值, 现场仍须逐项填写。
+     * 清单见 {@link com.industrial.erp.modules.qms.QmsItemCodes#NA_ONLY_ITEMS}。
+     */
+    private static final Set<String> NA_ITEM_CODES = QmsItemCodes.NA_ONLY_ITEMS;
+
+    /** pass_flag: -1 待检 / 0 不合格 / 1 合格 / 2 不适用 (v1.1.149 起). */
+    static boolean isJudgedFlag(Integer flag) {
+        return Integer.valueOf(0).equals(flag) || Integer.valueOf(1).equals(flag) || Integer.valueOf(2).equals(flag);
+    }
+
+    static boolean isNaFlag(Integer flag) {
+        return Integer.valueOf(2).equals(flag);
+    }
+
+    /** 「不适用」只开给达因/印刷质量 4 项, 其余项不得用不适用规避实测. */
+    private static void requireNaOnlyForPrintOrCorona(QmsIqcItem item) {
+        if (isNaFlag(item.getPassFlag()) && !NA_ITEM_CODES.contains(item.getItemCode())) {
+            throw BizException.of("检验项 " + item.getItemCode() + " 不属于达因/印刷质量项，不能判不适用");
+        }
     }
 
     private void insertTemplateItem(MesQualityInspection ins, int lineNo, String[] r, int foodItem) {
@@ -1627,7 +1783,7 @@ public class QmsInspectionService {
         it.setRequirement(r[2]);
         it.setMethod(r[3]);
         it.setUnit(r[4]);
-        it.setPassFlag(-1);
+        it.setPassFlag(NA_ITEM_CODES.contains(r[0]) ? 2 : 1);
         it.setIsFoodGradeItem(foodItem);
         it.setSource("TEMPLATE");
         iqcItemMapper.insert(it);
@@ -1644,6 +1800,7 @@ public class QmsInspectionService {
         Set<String> actual = new HashSet<>();
         for (QmsIqcItem item : items) {
             QmsIqcItemService.validateItem(item);
+            requireNaOnlyForPrintOrCorona(item);
             if (!actual.add(item.getItemCode()) || (item.getSource() != null && !"TEMPLATE".equals(item.getSource()))) {
                 throw BizException.of("模板项重复或被手工项替代，不能签核");
             }
@@ -1657,8 +1814,8 @@ public class QmsInspectionService {
         }
         validateTemplateCodes(head, items);
         for (QmsIqcItem item : items) {
-            if (StrUtil.isBlank(item.getResultValue()) || (!Integer.valueOf(0).equals(item.getPassFlag())
-                    && !Integer.valueOf(1).equals(item.getPassFlag()))) {
+            if (!isJudgedFlag(item.getPassFlag())
+                    || (!isNaFlag(item.getPassFlag()) && StrUtil.isBlank(item.getResultValue()))) {
                 throw BizException.of("检验项 " + item.getItemCode() + " 未完成实测及判定，不能签核");
             }
         }
@@ -1683,9 +1840,9 @@ public class QmsInspectionService {
         // 放行须落齐检验数量 (XK16-204 出厂检验记录含检验数量/合格数量); 待判定路径不强制
         validateQuantities(head.getSampleQty(), head.getQualifiedQty(), head.getUnqualifiedQty(), release);
         for (QmsIqcItem item : items) {
-            boolean judged = Integer.valueOf(0).equals(item.getPassFlag())
-                    || Integer.valueOf(1).equals(item.getPassFlag());
-            if (StrUtil.isBlank(item.getResultValue()) || !judged) {
+            requireNaOnlyForPrintOrCorona(item);
+            if (!isJudgedFlag(item.getPassFlag())
+                    || (!isNaFlag(item.getPassFlag()) && StrUtil.isBlank(item.getResultValue()))) {
                 if (!release) continue;  // 待判定 (HOLD) 允许部分未检
                 throw BizException.of("检验项 " + item.getItemName() + " 未完成实测及判定，不能放行");
             }
@@ -1708,6 +1865,7 @@ public class QmsInspectionService {
         if (ins == null) {
             com.industrial.erp.modules.production.entity.PrdSemiIn si = prdSemiInMapper.selectById(semiInId);
             if (si == null) throw BizException.of("半成品入库单不存在: " + semiInId);
+            requireFoodGradeForInspection(si.getProductId());
             Long id = createOnSemiIn(si);
             if (id == null) throw BizException.of("无法为该半成品入库单建 FAI 检验单");
             ins = inspectionMapper.selectById(id);
@@ -1976,6 +2134,7 @@ public class QmsInspectionService {
             com.industrial.erp.modules.production.entity.PrdFinishedIn fi =
                     prdFinishedInMapper.selectById(finishedInId);
             if (fi == null) throw BizException.of("成品入库单不存在: " + finishedInId);
+            requireFoodGradeForInspection(fi.getProductId());
             Long autoOqcId = createOnFinish(fi);
             ins = autoOqcId != null ? inspectionMapper.selectById(autoOqcId) : null;
             if (ins == null) throw BizException.of("无法为该成品入库单建 OQC 检验单");
@@ -1984,9 +2143,9 @@ public class QmsInspectionService {
         ensureOqcTemplateItems(ins);
         List<QmsIqcItem> oqcItems = iqcItemMapper.selectByIqcId(ins.getId());
         if (oqcItems.isEmpty()) throw BizException.of("OQC 成品检验模板项缺失, 不能放行");
-        if (oqcItems.stream().anyMatch(it -> StrUtil.isBlank(it.getResultValue())
-                || !Integer.valueOf(1).equals(it.getPassFlag()))) {
-            throw BizException.of("OQC 成品检验项未逐项实测判定合格, 不能现场放行");
+        if (oqcItems.stream().anyMatch(it -> !(isNaFlag(it.getPassFlag())
+                || (Integer.valueOf(1).equals(it.getPassFlag()) && StrUtil.isNotBlank(it.getResultValue()))))) {
+            throw BizException.of("OQC 成品检验项未逐项实测判定合格（不适用项除外）, 不能现场放行");
         }
         if (sampleQty != null) ins.setSampleQty(sampleQty);
         if (StrUtil.isNotBlank(inspectorName)) ins.setInspectorName(inspectorName);

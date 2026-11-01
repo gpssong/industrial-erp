@@ -144,7 +144,7 @@ class QmsIqcItemServiceTest {
         assertThatThrownBy(() -> service.batchSave(1L, List.of(input(), input()))).hasMessageContaining("重复");
         when(items.selectByIqcId(1L)).thenReturn(List.of(stored));
         QmsIqcItem input = input();
-        input.setPassFlag(2);
+        input.setPassFlag(3);
         assertThatThrownBy(() -> service.batchSave(1L, List.of(input))).hasMessageContaining("仅支持");
         input.setPassFlag(1);
         input.setResultValue("x".repeat(129));
@@ -188,6 +188,20 @@ class QmsIqcItemServiceTest {
     void failedItemUpdateIsNotReportedAsSuccessfulSave() {
         when(items.update(isNull(), any())).thenReturn(0);
         assertThatThrownBy(() -> service.batchSave(1L, List.of(input()))).isInstanceOf(BizException.class).hasMessageContaining("刷新");
+    }
+
+    @Test
+    void notApplicableOnlyForCoronaAndPrintItemsEvenOnDraftSave() {
+        QmsIqcItem input = input();
+        input.setPassFlag(2);
+        assertThatThrownBy(() -> service.batchSave(1L, List.of(input))).hasMessageContaining("不能判不适用");
+        verify(items, never()).update(isNull(), any());
+
+        stored.setItemCode("BAG_PRINT");
+        QmsIqcItem printItem = input();
+        printItem.setPassFlag(2);
+        service.batchSave(1L, List.of(printItem));
+        verify(items).update(isNull(), any());
     }
 
     private QmsIqcItem input() {

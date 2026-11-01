@@ -38,17 +38,35 @@ public class RedisLock {
             Long.class);
 
     /**
+     * 当前事务已持有的锁 key → token. 锁要等事务提交才释放, 同一事务里对同一 key 再取锁
+     * 会等自己持有的锁直到超时报"操作过于频繁" (v1.1.152 一张出库单多行共用同一批次时踩到),
+     * 因此按事务记录已持有的 key, 同 key 重入直接执行.
+     */
+    private static final ThreadLocal<java.util.Map<String, String>> HELD_IN_TX = new ThreadLocal<>();
+
+    /**
      * 执行业务并加锁
      */
     public <T> T executeWithLock(String key, int waitSeconds, int leaseSeconds, Supplier<T> action) {
+        String lockKey = "erp:lock:" + key;
+        java.util.Map<String, String> held = null;
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            held = HELD_IN_TX.get();
+            if (held == null) {
+                held = new java.util.HashMap<>();
+                HELD_IN_TX.set(held);
+            }
+            // 事务内重入: 锁已由本事务外层持有, 直接执行 (释放交给外层的同步回调)
+            if (held.containsKey(lockKey)) return action.get();
+        }
         // 16 字节熵 → 32 字符 hex, 足够安全且便于日志排查
         String token = randomToken();
-        String lockKey = "erp:lock:" + key;
         long start = System.currentTimeMillis();
         try {
             while (true) {
                 Boolean ok = redis.opsForValue().setIfAbsent(lockKey, token, leaseSeconds, TimeUnit.SECONDS);
                 if (Boolean.TRUE.equals(ok)) {
+                    if (held != null) held.put(lockKey, token);
                     return action.get();
                 }
                 if (System.currentTimeMillis() - start > waitSeconds * 1000L) {
@@ -62,20 +80,27 @@ public class RedisLock {
         } finally {
             // 锁必须在事务提交/回滚之后释放, 否则下一个线程可能在旧事务提交前
             // 拿到锁并读到未提交前的数据, 依然会超卖 (P1-4).
-            releaseAfterTransaction(lockKey, token);
+            releaseAfterTransaction(lockKey, token, held);
         }
     }
 
-    private void releaseAfterTransaction(String lockKey, String token) {
+    private void releaseAfterTransaction(String lockKey, String token, java.util.Map<String, String> held) {
+        Runnable release = () -> {
+            unlock(lockKey, token);
+            if (held != null) {
+                held.remove(lockKey);
+                if (held.isEmpty()) HELD_IN_TX.remove();
+            }
+        };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCompletion(int status) {
-                    unlock(lockKey, token);
+                    release.run();
                 }
             });
         } else {
-            unlock(lockKey, token);
+            release.run();
         }
     }
 

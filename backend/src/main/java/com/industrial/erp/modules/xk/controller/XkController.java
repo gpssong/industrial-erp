@@ -3,9 +3,11 @@ package com.industrial.erp.modules.xk.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
+import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
 import com.industrial.erp.modules.em.entity.BaseEquipment;
@@ -14,6 +16,7 @@ import com.industrial.erp.modules.mes.entity.MesBatch;
 import com.industrial.erp.modules.mes.service.MesReportService;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.service.PurReceiptService;
+import com.industrial.erp.modules.qms.entity.MesQualityInspection;
 import com.industrial.erp.modules.qms.service.QmsInspectionService;
 import com.industrial.erp.modules.report.mapper.ReportMapper;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
@@ -21,8 +24,10 @@ import com.industrial.erp.modules.system.service.SysConfigService;
 import com.industrial.erp.modules.workflow.service.WfDashboardService;
 import com.industrial.erp.modules.workflow.service.WfMaintainRecordService;
 import com.industrial.erp.modules.xk.entity.XkAuditLog;
+import com.industrial.erp.modules.xk.entity.XkEnvCheck;
 import com.industrial.erp.modules.xk.entity.XkSafetyCheck;
 import com.industrial.erp.modules.xk.service.XkAuditService;
+import com.industrial.erp.modules.xk.service.XkEnvCheckService;
 import com.industrial.erp.modules.xk.service.XkSafetyCheckService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -63,6 +68,8 @@ public class XkController {
     private final QmsInspectionService qmsInspectionService;
     private final XkSafetyCheckService xkSafetyCheckService;
     private final XkAuditService xkAuditService;
+    /** v1.1.153 App「XK 单据打印」— 生产环境检查记录 (只给打印只读口径) */
+    private final XkEnvCheckService xkEnvCheckService;
     private final SysConfigService sysConfigService;
     /** v1.1.147 XK 单据打印: 入库单要有制单人姓名 (仓库员签署), 追溯要有客户名 (流向出口). */
     private final SysUserMapper userMapper;
@@ -78,6 +85,7 @@ public class XkController {
                         QmsInspectionService qmsInspectionService,
                         XkSafetyCheckService xkSafetyCheckService,
                         XkAuditService xkAuditService,
+                        XkEnvCheckService xkEnvCheckService,
                         SysConfigService sysConfigService,
                         SysUserMapper userMapper,
                         BaseCustomerMapper customerMapper) {
@@ -91,6 +99,7 @@ public class XkController {
         this.qmsInspectionService = qmsInspectionService;
         this.xkSafetyCheckService = xkSafetyCheckService;
         this.xkAuditService = xkAuditService;
+        this.xkEnvCheckService = xkEnvCheckService;
         this.sysConfigService = sysConfigService;
         this.userMapper = userMapper;
         this.customerMapper = customerMapper;
@@ -310,6 +319,204 @@ public class XkController {
                 body.get("ossPath"),
                 body.get("sizeKb") == null ? null : Integer.parseInt(body.get("sizeKb")));
         return R.ok();
+    }
+
+    // ==================================================================
+    // 6.1 v1.1.153 App「XK 单据打印」— 统一可打印单据清单 + 详情
+    //
+    // App 端只有 report:print 一个权限, 不能要求用户同时具备各源模块 list perm,
+    // 所以端点只认「XK 单据打印」(report:print) 一个权限;
+    // 服务层一律走无鉴权读方法 (qms 本身不拦; env 用 *ForPrint).
+    // ==================================================================
+
+    /** docType → {检验类型, 工序阶段}; 不在本表里的走 env / purchaseReceipt 专用分支. */
+    private static final Map<String, String[]> PRINT_INSPECTION_TYPES = Map.of(
+            "iqc", new String[]{"IQC", null},
+            "faiBlow", new String[]{"FAI", "BLOW"},
+            "faiBag", new String[]{"FAI", "BAG"},
+            "patBlow", new String[]{"PAT", "BLOW"},
+            "patBag", new String[]{"PAT", "BAG"},
+            "oqc", new String[]{"OQC", null},
+            "oqcReturn", new String[]{"OQC_RETURN", null});
+
+    private static final Map<String, String> PRINT_DOC_TITLES = Map.of(
+            "iqc", "原料进货检验记录 (IQC)",
+            "faiBlow", "吹膜首检记录 (FAI)",
+            "faiBag", "制袋首检记录 (FAI)",
+            "patBlow", "吹膜巡检记录 (PAT)",
+            "patBag", "制袋巡检记录 (PAT)",
+            "oqc", "成品检验记录 (OQC)",
+            "oqcReturn", "退货检验记录 (OQC_RETURN)",
+            "env", "生产环境检查记录 (ENV)",
+            "purchaseReceipt", "采购入库单");
+
+    private static final Map<String, String> PRINT_DOC_GROUPS = Map.of(
+            "iqc", "质量检验",
+            "faiBlow", "质量检验",
+            "faiBag", "质量检验",
+            "patBlow", "质量检验",
+            "patBag", "质量检验",
+            "oqc", "质量检验",
+            "oqcReturn", "质量检验",
+            "env", "环境卫生检查",
+            "purchaseReceipt", "采购管理");
+
+    private static final Map<String, String> PRINT_DOC_BASIS = Map.of(
+            "iqc", "Q/ZPC 1-2017",
+            "faiBlow", "Q/ZPC 1-2017 表1~表3",
+            "faiBag", "Q/ZPC 1-2017 表1~表5",
+            "patBlow", "Q/ZPC 1-2017 表1~表3",
+            "patBag", "Q/ZPC 1-2017 表1~表5",
+            "oqc", "Q/ZPC 1-2017",
+            "oqcReturn", "Q/ZPC 1-2017",
+            "env", "GB 31603-2015",
+            "purchaseReceipt", "Q/ZPC 1-2017");
+
+    private static final Map<String, String> PRINT_STATUS_TEXT = Map.of(
+            "DRAFT", "草稿", "CHECKED", "已审核", "FINISHED", "已完成",
+            "UNCHECKED", "已弃审", "VOID", "已作废");
+
+    private static String printResultText(String result) {
+        if (StrUtil.isBlank(result)) return null;
+        return switch (result) {
+            case "PASS" -> "合格";
+            case "PASS_DISPOSITION" -> "合格(让步放行)";
+            case "FAIL" -> "不合格";
+            case "FAIL_REJECT" -> "不合格(拒收)";
+            case "HOLD" -> "待定";
+            default -> result;
+        };
+    }
+
+    private static String printLabel(Object... parts) {
+        StringBuilder sb = new StringBuilder();
+        for (Object part : parts) {
+            if (part == null) continue;
+            String s = String.valueOf(part).replace('T', ' ').trim();
+            if (s.isEmpty() || "-".equals(s)) continue;
+            if (sb.length() > 0) sb.append(" · ");
+            sb.append(s);
+        }
+        return sb.toString();
+    }
+
+    @Operation(summary = "XK 单据打印 — 可打印单据清单 (App)")
+    @SaCheckPermission(value = {"report:print"}, orRole = "admin")
+    @GetMapping("/print/docs")
+    public R<Map<String, Object>> printDocs(@RequestParam String docType,
+                                            @RequestParam(defaultValue = "1") Integer pageNum,
+                                            @RequestParam(defaultValue = "50") Integer pageSize) {
+        String type = StrUtil.blankToDefault(docType, "iqc");
+        int page = Math.max(pageNum == null ? 1 : pageNum, 1);
+        int size = Math.min(Math.max(pageSize == null ? 50 : pageSize, 1), 100);
+
+        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        long total = 0;
+        String[] insp = PRINT_INSPECTION_TYPES.get(type);
+        if (insp != null) {
+            IPage<MesQualityInspection> p = qmsInspectionService.page(page, size, insp[0], null, null, insp[1]);
+            total = p.getTotal();
+            for (MesQualityInspection x : p.getRecords()) {
+                String resultText = printResultText(x.getResult());
+                Map<String, Object> row = new java.util.LinkedHashMap<>();
+                row.put("id", x.getId());
+                row.put("docType", type);
+                row.put("billNo", x.getBillNo());
+                row.put("billDate", x.getBillDate());
+                row.put("status", x.getStatus());
+                row.put("result", x.getResult());
+                row.put("productName", x.getProductName());
+                row.put("batchNo", x.getBatchNo());
+                row.put("processName", x.getProcessName());
+                row.put("label", printLabel(x.getBillNo(), x.getBillDate(), x.getProductName(),
+                        x.getBatchNo(), x.getProcessName(),
+                        resultText != null ? resultText : PRINT_STATUS_TEXT.get(x.getStatus())));
+                rows.add(row);
+            }
+        } else if ("env".equals(type)) {
+            IPage<XkEnvCheck> p = xkEnvCheckService.pageForPrint(null, null, null, page, size);
+            total = p.getTotal();
+            for (XkEnvCheck x : p.getRecords()) {
+                Map<String, Object> row = new java.util.LinkedHashMap<>();
+                row.put("id", x.getId());
+                row.put("docType", type);
+                row.put("billNo", x.getCheckNo());
+                row.put("billDate", x.getPlannedAt());
+                row.put("status", x.getStatus());
+                row.put("productName", x.getCheckTitle());
+                row.put("processName", x.getEnvType());
+                // 标题本身常带车间 (如「吹膜车间 吹膜开工前检查」), 再拼一次车间会很啰嗦
+                String envTitle = StrUtil.blankToDefault(x.getCheckTitle(), x.getEnvType());
+                String envWorkshop = StrUtil.isNotBlank(x.getWorkshop())
+                        && !StrUtil.contains(envTitle, x.getWorkshop()) ? x.getWorkshop() : null;
+                row.put("label", printLabel(x.getCheckNo(), x.getPlannedAt(), envWorkshop,
+                        envTitle, PRINT_STATUS_TEXT.get(x.getStatus())));
+                rows.add(row);
+            }
+        } else if ("purchaseReceipt".equals(type)) {
+            PageResult<PurReceipt> pr = PageResult.of(
+                    purReceiptService.page(page, size, null, null, null, null));
+            total = pr.getTotal();
+            for (PurReceipt x : pr.getRecords()) {
+                Map<String, Object> row = new java.util.LinkedHashMap<>();
+                row.put("id", x.getId());
+                row.put("docType", type);
+                row.put("billNo", x.getBillNo());
+                row.put("billDate", x.getBillDate());
+                row.put("status", x.getBillStatus());
+                row.put("label", printLabel(x.getBillNo(), x.getBillDate(), x.getSupplierName(),
+                        PRINT_STATUS_TEXT.get(x.getBillStatus())));
+                rows.add(row);
+            }
+        } else {
+            throw BizException.of("不支持的单据类型: " + type);
+        }
+
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("docType", type);
+        data.put("title", PRINT_DOC_TITLES.getOrDefault(type, "XK 受控记录"));
+        data.put("group", PRINT_DOC_GROUPS.getOrDefault(type, "XK 合规"));
+        data.put("total", total);
+        data.put("records", rows);
+        return R.ok(data);
+    }
+
+    @Operation(summary = "XK 单据打印 — 单据详情 (App, 检验项/缺陷/照片一次取全)")
+    @SaCheckPermission(value = {"report:print"}, orRole = "admin")
+    @GetMapping("/print/docs/{docType}/{id}")
+    public R<Map<String, Object>> printDocDetail(@PathVariable String docType,
+                                                 @PathVariable Long id) {
+        Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("docType", docType);
+        data.put("title", PRINT_DOC_TITLES.getOrDefault(docType, "XK 受控记录"));
+        data.put("group", PRINT_DOC_GROUPS.getOrDefault(docType, "XK 合规"));
+        data.put("basis", PRINT_DOC_BASIS.getOrDefault(docType, "Q/ZPC 1-2017"));
+
+        String[] insp = PRINT_INSPECTION_TYPES.get(docType);
+        if (insp != null) {
+            Map<String, Object> d = qmsInspectionService.detailForPrint(id);
+            MesQualityInspection head = (MesQualityInspection) d.get("head");
+            if (!insp[0].equals(head.getInspectionType())) {
+                throw BizException.of("单据类型不匹配: 该单据不是「" + PRINT_DOC_TITLES.get(docType) + "」");
+            }
+            if (insp[1] != null && !insp[1].equals(head.getStage())) {
+                throw BizException.of("单据类型不匹配: 该单据不属于「" + PRINT_DOC_TITLES.get(docType) + "」对应工序");
+            }
+            data.putAll(d);
+        } else if ("env".equals(docType)) {
+            XkEnvCheck head = xkEnvCheckService.findByIdForPrint(id);
+            if (head == null) throw BizException.of("环境检查单不存在");
+            data.put("head", head);
+        } else if ("purchaseReceipt".equals(docType)) {
+            PurReceipt head = purReceiptService.detail(id);
+            if (head == null) throw BizException.of("采购入库单不存在");
+            CreateByNameInjector.inject(userMapper, java.util.Collections.singletonList(head),
+                    PurReceipt::getCreateBy, PurReceipt::setCreateByName);
+            data.put("head", head);
+        } else {
+            throw BizException.of("不支持的单据类型: " + docType);
+        }
+        return R.ok(data);
     }
 
     // ==================================================================

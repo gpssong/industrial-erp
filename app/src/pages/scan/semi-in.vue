@@ -185,8 +185,10 @@ export default {
     },
     // 列表行内审核 (走 prdSemiInCheck 端点, 与底部「审核入库」同后端)
     async onRowCheck(row) {
+      // v1.1.150: 工业品不产生首检记录, 审核无须 FAI (与后端 PrdSemiInService.check 同口径)
+      const gateText = Number(row.pIsFoodGrade) === 1 ? '须已关联合格 FAI 检验单。' : '工业品免首检, 直接放行。'
       const ok = await new Promise((resolve) => {
-        uni.showModal({ title: '审核确认', content: `确认审核入库单 ${row.billNo}? 须已关联合格 FAI 检验单。`, confirmText: '确认审核', cancelText: '取消',
+        uni.showModal({ title: '审核确认', content: `确认审核入库单 ${row.billNo}? ${gateText}`, confirmText: '确认审核', cancelText: '取消',
           success: (r) => resolve(r.confirm), fail: () => resolve(false) })
       })
       if (!ok) return
@@ -197,7 +199,7 @@ export default {
         this.loadInList()
       } catch (e) {
         if (e && e.code === 401) { this.rowActing = false; return }
-        uni.showModal({ title: '审核失败', content: (e && e.msg) || '请先完成合格 FAI 首检', showCancel: false })
+        uni.showModal({ title: '审核失败', content: (e && e.msg) || '审核失败', showCancel: false })
       } finally { this.rowActing = false }
     },
     // 列表行内反审核

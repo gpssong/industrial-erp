@@ -54,9 +54,9 @@
         <view v-for="it in items" :key="it.id || it.lineNo" class="qa-row">
           <view class="qa-head">
             <text class="qa-name">{{ it.itemName }}</text>
-            <picker :range="['待检', '合格', '不合格']" :value="it.passFlag === 1 ? 1 : it.passFlag === 0 ? 2 : 0" :disabled="formReadOnly" @change="setItemJudgment(it, $event)">
-              <view :class="['qa-toggle', it.passFlag === 0 ? 'qa-fail' : it.passFlag === 1 ? 'qa-pass' : 'qa-pending']">
-                {{ it.passFlag === 0 ? '不合格' : it.passFlag === 1 ? '合格' : '待检 · 请选择' }}
+            <picker :range="judgmentLabels(it)" :value="judgmentIndex(it)" :disabled="formReadOnly" @change="setItemJudgment(it, $event)">
+              <view :class="['qa-toggle', Number(it.passFlag) === 2 ? 'qa-na' : Number(it.passFlag) === 0 ? 'qa-fail' : Number(it.passFlag) === 1 ? 'qa-pass' : 'qa-pending']">
+                {{ verdictText(it) }}
               </view>
             </picker>
           </view>
@@ -111,6 +111,10 @@ import { activeRouteQuery, onActiveRouteChange, takePendingRoute } from '../../u
 
 const PAGE_PATH = '/pages/scan/oqc'
 
+// v1.1.149 本公司不做印刷: 达因/印刷质量 4 项才有「不适用」
+const NA_ITEM_CODES = ['PAT_CORONA', 'OQC_FILM_CORONA', 'BAG_PRINT', 'OQC_BAG_PRINT']
+const isNaItem = (code) => NA_ITEM_CODES.includes(String(code || ''))
+
 export default {
   data() {
     return {
@@ -145,7 +149,7 @@ export default {
     },
     stageText() { return this.stage === 'BAG' ? '包装袋（袋模板）' : this.stage === 'BLOW' ? '吹塑膜卷（膜模板）' : '未展开工序，按膜卷模板' },
     itemsFail() { return this.items.filter((x) => Number(x.passFlag) === 0).length },
-    unjudged() { return this.items.filter((x) => ![0, 1].includes(Number(x.passFlag)) || !String(x.resultValue == null ? '' : x.resultValue).trim()).length },
+    unjudged() { return this.items.filter((x) => ![0, 1, 2].includes(Number(x.passFlag)) || (Number(x.passFlag) !== 2 && !String(x.resultValue == null ? '' : x.resultValue).trim())).length },
     qtyOk() {
       const sample = Number(this.sampleQty), good = Number(this.qualifiedQty), bad = Number(this.unqualifiedQty)
       return this.sampleQty !== '' && this.qualifiedQty !== '' && this.unqualifiedQty !== ''
@@ -216,10 +220,8 @@ export default {
         this.items = r.items.map((x) => ({
           ...x,
           id: x.id == null ? null : String(x.id),
-          // 待检哨兵: 老草稿可能灌过默认 1, 没实测值一律回落到待检, 避免「空项签合格」
-          passFlag: x.passFlag == null || x.passFlag === ''
-            || (r.head.status !== 'CHECKED' && Number(x.passFlag) === 1 && !String(x.resultValue == null ? '' : x.resultValue).trim())
-            ? -1 : ([0, 1].includes(Number(x.passFlag)) ? Number(x.passFlag) : -1),
+          // v1.1.149: 模板默认判定(合格 / 达因印刷项不适用)直接展示; 实测值仍须填, unjudged 拦签核
+          passFlag: [0, 1, 2].includes(Number(x.passFlag)) ? Number(x.passFlag) : -1,
           resultValue: x.resultValue == null ? '' : String(x.resultValue)
         }))
         await this.loadPhotos(seq)
@@ -241,8 +243,22 @@ export default {
         if (seq === this.requestSeq) { this.attachments = []; this.photos = [] }
       }
     },
+    judgmentLabels(item) {
+      return isNaItem(item && item.itemCode) ? ['待检', '合格', '不合格', '不适用'] : ['待检', '合格', '不合格']
+    },
+    judgmentIndex(item) {
+      const flag = Number(item && item.passFlag)
+      return flag === 2 ? 3 : flag === 1 ? 1 : flag === 0 ? 2 : 0
+    },
+    verdictText(item) {
+      const flag = Number(item && item.passFlag)
+      return flag === 2 ? '不适用' : flag === 0 ? '不合格' : flag === 1 ? '合格' : '待检 · 请选择'
+    },
     setItemJudgment(it, event) {
-      if (!this.formReadOnly) it.passFlag = ([-1, 1, 0][Number(event.detail.value)] ?? -1)
+      if (this.formReadOnly) return
+      const index = Number(event.detail.value)
+      const flags = isNaItem(it && it.itemCode) ? [-1, 1, 0, 2] : [-1, 1, 0]
+      it.passFlag = flags[index] == null ? -1 : flags[index]
     },
     async onUploadPhoto() {
       if (this.formReadOnly) return
@@ -331,6 +347,7 @@ export default {
 .qa-pass { background: #e1f3d8; color: #398637; }
 .qa-fail { background: #fde2e2; color: #b63838; }
 .qa-pending { background: #edf0f5; color: #596477; }
+.qa-na { background: #fdf3e2; color: #8a5a12; }
 .qa-req { margin-top: 4px; }
 .qa-result { margin-top: 6px; }
 .qa-input { height: 34px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 8px; font-size: 14px; box-sizing: border-box; }

@@ -134,7 +134,7 @@ public class InvStockController {
      * App 扫码出库 (warehouse/仓管角色) 常有 sales:delivery:* 但无 inventory:stock:list,
      * 否则批次下拉 403. 纯读库存数量, 不比 inventory:stock:list 更敏感.
      */
-    @SaCheckPermission(value = {"inventory:stock:list", "sales:delivery:list"}, orRole = "admin")
+    @SaCheckPermission(value = {"inventory:stock:list", "sales:delivery:list", "sales:delivery:check"}, orRole = "admin")
     @GetMapping("/stock/batches")
     public R<List<InvStock>> listBatches(@RequestParam Long warehouseId, @RequestParam Long productId) {
         return R.ok(stockMapper.listByWarehouseAndProduct(warehouseId, productId));

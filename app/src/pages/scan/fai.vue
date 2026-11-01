@@ -2,8 +2,8 @@
   <ProcessInspection v-if="processMode && processReady" :key="processSig" :order-id="processOrderId" :process-id="processId" :stage="processStage" inspection-type="FAI" />
   <view v-else-if="!processMode" class="container">
     <view class="xk-strip">
-      <view class="strip-bread">XK 生产 / 首检·半成品检验</view>
-      <view class="strip-title">首检 (FAI) 现场检验</view>
+      <view class="strip-bread">XK 生产 / 吹膜首检 · 半成品检验</view>
+      <view class="strip-title">吹膜首检 (FAI) 现场检验</view>
     </view>
 
     <view v-if="loading" class="empty">加载中...</view>
@@ -15,7 +15,7 @@
           <view class="picker-box" :class="{ active: semiInId }">
             <text v-if="pickedSemi">{{ pickedSemi.billNo }} · {{ pickedSemi.productName || pickedSemi.spec || '半成品' }}</text>
             <text v-else-if="semiInList.length">请选择半成品入库单</text>
-            <text v-else class="muted">暂无半成品入库单 (请仓管先建单)</text>
+            <text v-else class="muted">暂无待检的食品级半成品入库单 (工业品免首检)</text>
           </view>
         </picker>
         <view v-if="pickedSemi && !faiChecked" class="muted form-hint">
@@ -48,9 +48,9 @@
         <view v-for="it in items" :key="it.id || it.lineNo" class="qa-row">
           <view class="qa-head">
             <text class="qa-name">{{ it.itemName }}</text>
-            <picker :range="['待检', '合格', '不合格']" :value="it.passFlag === 1 ? 1 : it.passFlag === 0 ? 2 : 0" :disabled="formReadOnly" @change="setItemJudgment(it, $event)">
-              <view :class="['qa-toggle', it.passFlag === 0 ? 'qa-fail' : it.passFlag === 1 ? 'qa-pass' : 'qa-pending']">
-                {{ it.passFlag === 0 ? '不合格' : it.passFlag === 1 ? '合格' : '待检 · 请选择' }}
+            <picker :range="judgmentLabels(it)" :value="judgmentIndex(it)" :disabled="formReadOnly" @change="setItemJudgment(it, $event)">
+              <view :class="['qa-toggle', Number(it.passFlag) === 2 ? 'qa-na' : Number(it.passFlag) === 0 ? 'qa-fail' : Number(it.passFlag) === 1 ? 'qa-pass' : 'qa-pending']">
+                {{ verdictText(it) }}
               </view>
             </picker>
           </view>
@@ -101,6 +101,10 @@ import { activeRouteQuery, onActiveRouteChange, setInspectionContext, takePendin
 const PAGE_PATH = '/pages/scan/fai'
 const str = v => (v == null ? '' : String(v))
 
+// v1.1.149 本公司不做印刷: 达因/印刷质量 4 项才有「不适用」
+const NA_ITEM_CODES = ['PAT_CORONA', 'OQC_FILM_CORONA', 'BAG_PRINT', 'OQC_BAG_PRINT']
+const isNaItem = (code) => NA_ITEM_CODES.includes(String(code || ''))
+
 export default {
   components: { ProcessInspection },
   data() {
@@ -137,7 +141,13 @@ export default {
     canCheck() { return isAdmin() || getAppPermissions().includes('quality:inspection:check') },
     faiChecked() { return this.fai.status === 'CHECKED' || this.faiSigned },
     formReadOnly() { return !this.canCheck || this.loading || this.recordLoading || this.submitting || this.uploading || this.faiChecked || !this.faiId || !!this.loadError },
-    itemsFail() { return this.items.filter((x) => x.passFlag !== 1 || !String(x.resultValue == null ? '' : x.resultValue).trim()).length },
+    itemsFail() {
+      return this.items.filter((x) => {
+        const flag = Number(x.passFlag)
+        if (flag === 2) return false
+        return flag !== 1 || !String(x.resultValue == null ? '' : x.resultValue).trim()
+      }).length
+    },
     ready() { return !this.formReadOnly && this.items.length > 0 && this.itemsFail === 0 }
   },
   onLoad(query = {}) {
@@ -200,7 +210,9 @@ export default {
     async loadSemiIn() {
       try {
         const r = await api.prdSemiInPage({ pageNum: 1, pageSize: 50, billStatus: 'DRAFT' })
-        this.semiInList = (r && r.records) || (r && r.data && r.data.records) || []
+        // v1.1.150: 首检只对食品级商品建单, 工业品半成品不产生首检记录, 不进待检列表
+        this.semiInList = ((r && r.records) || (r && r.data && r.data.records) || [])
+          .filter((x) => x.pIsFoodGrade == null || Number(x.pIsFoodGrade) === 1)
         this.loading = false
       } catch (e) {
         this.loading = false
@@ -234,7 +246,8 @@ export default {
         this.fai = r.head
         this.faiId = String(r.head.id)
         this.items = r.items.map((x) => ({ ...x, id: x.id == null ? null : String(x.id),
-          passFlag: x.passFlag == null || x.passFlag === '' || (r.head.status !== 'CHECKED' && Number(x.passFlag) === 1 && !String(x.resultValue == null ? '' : x.resultValue).trim()) ? -1 : ([0, 1].includes(Number(x.passFlag)) ? Number(x.passFlag) : -1),
+          // v1.1.149: 模板默认判定(合格 / 达因印刷项不适用)直接展示; 实测值仍须填, itemsFail 拦签核
+          passFlag: [0, 1, 2].includes(Number(x.passFlag)) ? Number(x.passFlag) : -1,
           resultValue: x.resultValue == null ? '' : String(x.resultValue) }))
         this.faiSigned = r.head.status === 'CHECKED' && ['PASS', 'PASS_DISPOSITION'].includes(r.head.result)
       } catch (e) {
@@ -243,8 +256,22 @@ export default {
         console.warn('[fai.bootstrap] ensure FAI 失败:', e)
       } finally { if (seq === this.requestSeq) this.recordLoading = false }
     },
+    judgmentLabels(item) {
+      return isNaItem(item && item.itemCode) ? ['待检', '合格', '不合格', '不适用'] : ['待检', '合格', '不合格']
+    },
+    judgmentIndex(item) {
+      const flag = Number(item && item.passFlag)
+      return flag === 2 ? 3 : flag === 1 ? 1 : flag === 0 ? 2 : 0
+    },
+    verdictText(item) {
+      const flag = Number(item && item.passFlag)
+      return flag === 2 ? '不适用' : flag === 0 ? '不合格' : flag === 1 ? '合格' : '待检 · 请选择'
+    },
     setItemJudgment(it, event) {
-      if (!this.formReadOnly) it.passFlag = [-1, 1, 0][Number(event.detail.value)] ?? -1
+      if (this.formReadOnly) return
+      const index = Number(event.detail.value)
+      const flags = isNaItem(it && it.itemCode) ? [-1, 1, 0, 2] : [-1, 1, 0]
+      it.passFlag = flags[index] == null ? -1 : flags[index]
     },
     async onUploadPhoto() {
       if (this.formReadOnly) return
@@ -339,6 +366,7 @@ export default {
 .qa-pass { background: #e1f3d8; color: #398637; }
 .qa-fail { background: #fde2e2; color: #b63838; }
 .qa-pending { background: #edf0f5; color: #596477; }
+.qa-na { background: #fdf3e2; color: #8a5a12; }
 .qa-req { margin-top: 4px; }
 .qa-result { margin-top: 6px; }
 .qa-input { height: 34px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 8px; font-size: 14px; box-sizing: border-box; }

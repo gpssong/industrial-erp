@@ -7,6 +7,7 @@ import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.mes.dto.WorkStartConfirmDTO;
+import com.industrial.erp.modules.mes.dto.WorkStartEnvItem;
 import com.industrial.erp.modules.mes.entity.MesBatchLink;
 import com.industrial.erp.modules.mes.entity.MesWorkStartConfirm;
 import com.industrial.erp.modules.mes.entity.PrdProcess;
@@ -25,6 +26,7 @@ import com.industrial.erp.modules.production.service.PrdOrderService;
 import com.industrial.erp.modules.xk.entity.XkEnvCheck;
 import com.industrial.erp.modules.xk.mapper.XkEnvCheckMapper;
 import com.industrial.erp.modules.xk.service.XkAuditService;
+import com.industrial.erp.modules.xk.service.XkEnvCheckTemplate;
 import com.industrial.erp.security.PermissionService;
 import com.industrial.erp.security.SecurityContext;
 import com.industrial.erp.utils.BillNoGenerator;
@@ -77,11 +79,7 @@ public class MesWorkStartService {
     public static final String STAGE_BLOW = "BLOW";
     public static final String STAGE_BAG = "BAG";
 
-    /** 开工前必查的 2 项生产环境检查 (code → 中文名), 与 PC「生产环境检查」下拉取值一致. */
-    private static final String[][] ENV_CHECKS = {
-            {"CLEANLINESS", "洁净度 / 环境卫生"},
-            {"TEMP_HUMIDITY", "温湿度"},
-    };
+    /** v1.1.151: 检查项改为 GB 31603 清单, 统一由 {@link XkEnvCheckTemplate} 提供, 此处不再维护本地副本. */
 
     private final PrdOrderMapper orderMapper;
     private final PrdProcessMapper procMapper;
@@ -136,7 +134,7 @@ public class MesWorkStartService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> confirmBlowStart(Long orderId, WorkStartConfirmDTO dto) {
         PrdOrder order = requireOrder(orderId);
-        requireEnvQualified(dto);
+        Map<String, WorkStartEnvItem> envResults = requireEnvQualified(dto, STAGE_BLOW);
         boolean foodGrade = isFoodGradeProduct(order);
         List<String> batchNos = normalize(dto.getRawBatchNos());
         if (foodGrade && batchNos.isEmpty()) {
@@ -147,7 +145,7 @@ public class MesWorkStartService {
             throw BizException.of("请拍摄原料批号标识照片 (至少 1 张)");
         }
 
-        List<Long> envIds = writeEnvChecks(order, STAGE_BLOW, photos);
+        List<Long> envIds = writeEnvChecks(order, STAGE_BLOW, photos, envResults);
         // 先开工 (展开工序链 + 领料单), 再回填批号流向 —— 工序实例此时才存在
         prdOrderService.release(orderId);
         Long processId = findProcessId(orderId, "吹膜");
@@ -196,13 +194,13 @@ public class MesWorkStartService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> confirmBagStart(Long orderId, WorkStartConfirmDTO dto) {
         PrdOrder order = requireOrder(orderId);
-        requireEnvQualified(dto);
+        Map<String, WorkStartEnvItem> envResults = requireEnvQualified(dto, STAGE_BAG);
         PrdProcess process = requireBagProcess(orderId, dto.getProcessId());
         if (process.getStatus() != null && process.getStatus() != Constants.PROC_STATUS_UNSTARTED) {
             throw BizException.of("制袋工序「" + process.getProcessName() + "」已开工, 请直接报工");
         }
 
-        List<Long> envIds = writeEnvChecks(order, STAGE_BAG, Collections.emptyList());
+        List<Long> envIds = writeEnvChecks(order, STAGE_BAG, Collections.emptyList(), envResults);
         startProcess(process.getId());
 
         MesWorkStartConfirm rec = newConfirm(order, STAGE_BAG, process.getId(), dto);
@@ -271,11 +269,49 @@ public class MesWorkStartService {
         return p != null && p.getIsFoodGrade() != null && p.getIsFoodGrade() == 1;
     }
 
-    private void requireEnvQualified(WorkStartConfirmDTO dto) {
+    private Map<String, WorkStartEnvItem> requireEnvQualified(WorkStartConfirmDTO dto, String stage) {
         if (dto == null || !Boolean.TRUE.equals(dto.getEnvQualified())) {
             throw BizException.of("生产环境未确认合格, 禁止开工 (XK16-204: 开工前须做生产环境检查)");
         }
         permService.requireAnyPerm("production:order:release", "production:report:add", "production:report:list");
+        return validateEnvItems(stage, dto.getEnvItems());
+    }
+
+    /**
+     * v1.1.151 — 逐项校验 GB 31603 检查清单: 11 项必须逐项确认且全部合格.
+     *
+     * <p>缺项/漏项不能默认合格 (XK 现场核查看的就是逐项记录), 任何一项不符合都拒绝开工,
+     * 由 App 先走 {@link #recordEnvFailure} 落整改单, 整改合格后重新确认.
+     */
+    private Map<String, WorkStartEnvItem> validateEnvItems(String stage, List<WorkStartEnvItem> items) {
+        Map<String, WorkStartEnvItem> byCode = new LinkedHashMap<>();
+        if (items != null) {
+            for (WorkStartEnvItem it : items) {
+                if (it != null && StrUtil.isNotBlank(it.getCode())) {
+                    byCode.put(it.getCode().trim(), it);
+                }
+            }
+        }
+        List<XkEnvCheckTemplate.Item> required = XkEnvCheckTemplate.items(stage);
+        List<String> missing = new ArrayList<>();
+        List<String> failed = new ArrayList<>();
+        for (XkEnvCheckTemplate.Item item : required) {
+            WorkStartEnvItem got = byCode.get(item.code());
+            if (got == null) {
+                missing.add(item.name());
+            } else if (!Boolean.TRUE.equals(got.getPass())) {
+                failed.add(item.name());
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw BizException.of("请逐项确认生产环境检查 (GB 31603, 共 " + required.size()
+                    + " 项), 未确认: " + String.join("、", missing));
+        }
+        if (!failed.isEmpty()) {
+            throw BizException.of("生产环境不合格: " + String.join("、", failed)
+                    + "。请先整改, 整改合格后再开工");
+        }
+        return byCode;
     }
 
     private PrdProcess requireBagProcess(Long orderId, Long processId) {
@@ -350,33 +386,51 @@ public class MesWorkStartService {
     }
 
     /**
-     * 生成 2 份合格的生产环境检查记录 (洁净度 + 温湿度), 直接落 CHECKED 并同步写 XK 审计.
+     * 生成 2 份合格的生产环境检查记录 (洁净度 + 温湿度), 逐项结果快照进 check_content,
+     * 直接落 CHECKED 并同步写 XK 审计.
      *
      * <p>绕开 {@code XkEnvCheckService.save/check} 的 xk:env:* 权限 —— 开工的是车间操作工,
      * 不是质量管理员; 权限门禁由开工接口自身的 production:* perm 承担.
      */
-    private List<Long> writeEnvChecks(PrdOrder order, String stage, List<String> photos) {
+    private List<Long> writeEnvChecks(PrdOrder order, String stage, List<String> photos,
+                                      Map<String, WorkStartEnvItem> envResults) {
         String workshop = workshopOf(stage);
         String action = STAGE_BAG.equals(stage) ? "制袋" : "吹膜";
         LocalDateTime now = LocalDateTime.now();
         String inspector = SecurityContext.getUsername();
+        String photosJson = photos == null || photos.isEmpty() ? "[]" : toJsonArray(photos);
         List<Long> ids = new ArrayList<>();
-        for (String[] item : ENV_CHECKS) {
+        for (String envType : new String[]{XkEnvCheckTemplate.TYPE_CLEANLINESS, XkEnvCheckTemplate.TYPE_TEMP_HUMIDITY}) {
+            List<XkEnvCheckTemplate.Item> group = XkEnvCheckTemplate.items(stage).stream()
+                    .filter(i -> envType.equals(i.envType()))
+                    .toList();
+            if (group.isEmpty()) {
+                continue;
+            }
             XkEnvCheck env = new XkEnvCheck();
             env.setCheckNo(billNoGenerator.generate("EC"));
             env.setWorkshop(workshop);
-            env.setEnvType(item[0]);
-            env.setCheckTitle(workshop + " " + action + "开工前检查 · " + item[1]);
-            env.setCheckContent("生产单 " + order.getBillNo() + " (" + StrUtil.nullToEmpty(order.getProductName())
-                    + ") " + action + "开工, 现场确认" + item[1] + "符合食品接触材料生产要求: 合格。"
-                    + "检查人=" + inspector + ", 记录由开工确认自动生成。");
+            env.setEnvType(envType);
+            env.setCheckTitle(workshop + " " + action + "开工前检查 · "
+                    + (XkEnvCheckTemplate.TYPE_TEMP_HUMIDITY.equals(envType) ? "温湿度" : "洁净度 / 环境卫生"));
+            StringBuilder content = new StringBuilder(XkEnvCheckTemplate.header(
+                    workshop, stage, order.getBillNo(), order.getProductName(), group.size()));
+            content.append('\n');
+            int no = 1;
+            for (XkEnvCheckTemplate.Item item : group) {
+                WorkStartEnvItem got = envResults.get(item.code());
+                content.append(XkEnvCheckTemplate.formatLine(no++, item, true, got == null ? null : got.getNote()))
+                        .append('\n');
+            }
+            content.append("检查人=").append(inspector).append(", 本记录由 App 开工确认自动生成。");
+            env.setCheckContent(content.toString());
             env.setPlannedAt(now);
             env.setInspector(inspector);
             env.setLevel(null);
             env.setRectifyStatus("NONE");
-            env.setRectifyDesc("开工前生产环境确认全部合格, 无需整改");
+            env.setRectifyDesc("开工前生产环境逐项确认全部合格, 无需整改");
             // MySQL JSON 列不接受空串, 必须给合法 JSON 文档
-            env.setBeforePhotos(photos == null || photos.isEmpty() ? "[]" : toJsonArray(photos));
+            env.setBeforePhotos(photosJson);
             env.setAfterPhotos("[]");
             env.setStatus(Constants.STATUS_CHECKED);
             env.setVersion(0);
@@ -385,9 +439,88 @@ public class MesWorkStartService {
             ids.add(env.getId());
             auditService.writeAudit("XK_ENV_CHECK", env.getCheckNo(), "CHECK",
                     "车间=" + env.getWorkshop() + " 类型=" + env.getEnvType()
-                            + " 等级=无 负责人=- (开工确认自动生成)", null, null, null);
+                            + " 等级=无 负责人=- (开工确认自动生成, " + group.size() + " 项逐项合格)", null, null, null);
         }
         return ids;
+    }
+
+    /**
+     * v1.1.151 — 开工前环境不合格登记: 按不合格项生成一张 DRAFT 整改单 (EC 单号),
+     * 由 PC「XK 生产环境检查」或质量员继续整改闭环, 整改合格后再重新确认开工.
+     *
+     * <p>独立于开工事务 (本方法无 @Transactional): 登记完即提交, 不随开工失败回滚.
+     */
+    public Map<String, Object> recordEnvFailure(Long orderId, String stage, WorkStartConfirmDTO dto) {
+        PrdOrder order = requireOrder(orderId);
+        String normalized = XkEnvCheckTemplate.normalizeStage(stage);
+        permService.requireAnyPerm("production:order:release", "production:report:add", "production:report:list");
+
+        Map<String, WorkStartEnvItem> results = new LinkedHashMap<>();
+        if (dto != null && dto.getEnvItems() != null) {
+            for (WorkStartEnvItem it : dto.getEnvItems()) {
+                if (it != null && StrUtil.isNotBlank(it.getCode())) {
+                    results.put(it.getCode().trim(), it);
+                }
+            }
+        }
+        List<XkEnvCheckTemplate.Item> failed = new ArrayList<>();
+        for (XkEnvCheckTemplate.Item item : XkEnvCheckTemplate.items(normalized)) {
+            WorkStartEnvItem got = results.get(item.code());
+            if (got != null && !Boolean.TRUE.equals(got.getPass())) {
+                failed.add(item);
+            }
+        }
+        if (failed.isEmpty()) {
+            throw BizException.of("没有不合格项, 无需登记整改单; 全部符合请直接确认开工");
+        }
+        List<String> noNote = failed.stream()
+                .filter(i -> StrUtil.isBlank(results.get(i.code()).getNote()))
+                .map(XkEnvCheckTemplate.Item::name)
+                .toList();
+        if (!noNote.isEmpty()) {
+            throw BizException.of("请填写不合格项现场说明: " + String.join("、", noNote));
+        }
+
+        String workshop = workshopOf(normalized);
+        String action = STAGE_BAG.equals(normalized) ? "制袋" : "吹膜";
+        XkEnvCheck env = new XkEnvCheck();
+        env.setCheckNo(billNoGenerator.generate("EC"));
+        env.setWorkshop(workshop);
+        boolean onlyHumidity = failed.stream()
+                .allMatch(i -> XkEnvCheckTemplate.TYPE_TEMP_HUMIDITY.equals(i.envType()));
+        env.setEnvType(onlyHumidity ? XkEnvCheckTemplate.TYPE_TEMP_HUMIDITY : XkEnvCheckTemplate.TYPE_CLEANLINESS);
+        env.setCheckTitle(workshop + " " + action + "开工前检查 · 不合格待整改");
+        StringBuilder content = new StringBuilder(XkEnvCheckTemplate.header(
+                workshop, normalized, order.getBillNo(), order.getProductName(), failed.size()));
+        content.append('\n');
+        int no = 1;
+        for (XkEnvCheckTemplate.Item item : failed) {
+            content.append(XkEnvCheckTemplate.formatLine(no++, item, false, results.get(item.code()).getNote()))
+                    .append('\n');
+        }
+        content.append("检查人=").append(SecurityContext.getUsername())
+                .append("; 整改合格后重新确认开工。本记录由 App 开工确认自动生成。");
+        env.setCheckContent(content.toString());
+        env.setPlannedAt(LocalDateTime.now());
+        env.setInspector(SecurityContext.getUsername());
+        env.setRectifyStatus("PENDING");
+        env.setBeforePhotos("[]");
+        env.setAfterPhotos("[]");
+        env.setStatus("DRAFT");
+        env.setVersion(0);
+        env.setRemark("AUTO-BY-WORK-START-FAIL " + order.getBillNo());
+        envMapper.insert(env);
+        auditService.writeAudit("XK_ENV_CHECK", env.getCheckNo(), "CHECK_FAIL",
+                "车间=" + env.getWorkshop() + " 类型=" + env.getEnvType()
+                        + " 不合格=" + failed.size() + " 项 (开工前环境确认未通过, 待整改)", null, null, null);
+        log.info("[XK] 环境不合格登记 checkNo={} order={} stage={} failed={}",
+                env.getCheckNo(), order.getBillNo(), normalized, failed.size());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("checkNo", env.getCheckNo());
+        result.put("failedCount", failed.size());
+        result.put("failedItems", failed.stream().map(XkEnvCheckTemplate.Item::name).toList());
+        return result;
     }
 
     /**
