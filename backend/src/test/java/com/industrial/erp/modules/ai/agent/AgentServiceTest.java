@@ -133,6 +133,70 @@ class AgentServiceTest {
                 .isEqualTo("{\"details\":[{\"productId\":\"2104473647277748226\"}]}");
     }
 
+    // ===== v1.1.157: 线上「这条提议缺少参数 (模型没按格式输出)」=====
+    // 正文太长把 PROPOSE 行挤到输出上限之外 → 旧版原样下发一段残缺 JSON, 前端渲染成点不动的死按钮。
+
+    @Test
+    @DisplayName("PROPOSE 被截断在 summary: 闭合修补后照常下发, params 里的 id 不受影响")
+    void run_shouldRepairProposalTruncatedInSummary() {
+        stubCaps(true, true);
+        // 真实线上样本: action/params 已写完, 只有末尾 summary 被切一半
+        stubAnswer("已核对完毕, 单据情况如下:\n"
+                + "PROPOSE: {\"action\":\"checkSalDelivery\",\"params\":{\"id\":\"2115302590817288193\"},\"summary\":\"审核");
+
+        AgentService.Result r = agent.run("CKP202610280002 帮我审核掉");
+
+        assertThat(r.proposedActions).hasSize(1);
+        assertThat(r.proposedActions.get(0))
+                .contains("\"action\":\"checkSalDelivery\"")
+                .contains("\"id\":\"2115302590817288193\"");
+        assertThat(r.droppedProposals).isEmpty();
+        assertThat(r.answer).doesNotContain("PROPOSE");
+    }
+
+    @Test
+    @DisplayName("PROPOSE 截断在 params 里 (id 也被切短): 宁可不给按钮, 丢弃并在答案里说明")
+    void run_shouldDropProposalTruncatedInsideParams() {
+        stubCaps(true, true);
+        stubAnswer("PROPOSE: {\"action\":\"checkSalDelivery\",\"params\":{\"id\":\"2115302590817288");
+
+        AgentService.Result r = agent.run("帮我审核掉");
+
+        assertThat(r.proposedActions).isEmpty();
+        assertThat(r.droppedProposals).hasSize(1);
+        assertThat(r.answer).contains("没生成完整").contains("已丢弃");
+    }
+
+    @Test
+    @DisplayName("PROPOSE 缺 params / 缺 action: 丢弃, 不给前端一个点不动的确认按钮")
+    void run_shouldDropProposalWithoutParams() {
+        stubCaps(true, true);
+        stubAnswer("PROPOSE: {\"action\":\"checkSalDelivery\",\"summary\":\"审核那张单\"}\n"
+                + "PROPOSE: {\"params\":{\"id\":\"123\"}}");
+
+        AgentService.Result r = agent.run("帮我审核掉");
+
+        assertThat(r.proposedActions).isEmpty();
+        assertThat(r.droppedProposals).hasSize(2);
+        assertThat(r.answer).contains("已丢弃");
+    }
+
+    @Test
+    @DisplayName("closeTruncatedJson 只补真正的截断: 完整 JSON 与结构已坏的都返回 null")
+    void closeTruncatedJson_onlyClosesRealTruncation() {
+        assertThat(AgentService.closeTruncatedJson("{\"a\":1,\"b\":\"xy"))
+                .isEqualTo("{\"a\":1,\"b\":\"xy\"}");
+        assertThat(AgentService.closeTruncatedJson("{\"a\":[1,2"))
+                .isEqualTo("{\"a\":[1,2]}");
+        assertThat(AgentService.closeTruncatedJson("{\"a\":1,"))
+                .isEqualTo("{\"a\":1}");
+        // 截断正好落在 "summary": 和它的值之间 → 连悬空键一起剪掉, 别补成 {"a":1,"summary"} 这种废 JSON
+        assertThat(AgentService.closeTruncatedJson("{\"a\":1,\"summary\":"))
+                .isEqualTo("{\"a\":1}");
+        // 括号本来就配平 → 说明坏在内容而不是截断, 不猜
+        assertThat(AgentService.closeTruncatedJson("{\"action\":\"x\"}garbage")).isNull();
+    }
+
     // ===== v1.1.144: 表格透传 (用户看到的必须是后端算的那份数, 不是模型抄的) =====
 
     /** 第一轮让模型点 getSalesSummary, 第二轮给最终文本; toolJson 就是注册表 execute 的返回. */

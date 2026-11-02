@@ -305,7 +305,11 @@ const visibleMenus = computed(() => {
       result.push({ path: '/pages/equipment/my', title: '设备台账', icon: '⚙' })
     }
     // v1.1.155: 检验设备校准 (qa:calibration-equipment:list 为 F 型 perm 载体, path='' → 只能 perm-only)
-    if (Array.isArray(perms) && perms.includes('qa:calibration-equipment:list') && !seen.has('/pages/equipment/calibration')
+    // v1.1.156: 超管兜底 — App 端 /me 带 X-Client-Type: APP, 返回的是按端过滤的 perm;
+    //   SUPER_ADMIN 历史上只有 PC 授权行 → perm 不在数组里, 卡片对超管永远不出现.
+    //   与详情页 canUpload/canCheck 的 isAdmin() 口径对齐 (模块开关仍然对超管生效).
+    if ((isAdmin() || (Array.isArray(perms) && perms.includes('qa:calibration-equipment:list')))
+        && !seen.has('/pages/equipment/calibration')
         && isModuleEnabled('em') && isPermEnabled('em', 'qa:calibration-equipment:list')) {
       seen.add('/pages/equipment/calibration')
       result.push({ path: '/pages/equipment/calibration', title: '检验设备校准', icon: '📏' })
