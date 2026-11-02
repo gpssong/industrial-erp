@@ -3,6 +3,69 @@
 
 ## changelog (倒序)
 
+### v1.1.157 (2026-11-02 — AI 助手「这条提议缺少参数」+ 第二轮不给「确认执行」按钮）
+
+> **反馈原话**: 「ai助手出现缺少参数，第二次没有确认执行的按钮」（附两张 App 截图：一张是半截 JSON 的提议卡 `{"action":"checkSalDelivery","params":{"id":"2115302590817288193"},"summary":"审核`，点下去报「这条提议缺少参数（模型没按格式输出）,请重新描述需求再试」；另一张是同一段需求的前一轮，模型只反问澄清，界面上**一个按钮都没有**）
+
+**根因（三条，互相放大）**
+1. **输出被 `max_tokens` 拦腰截断，而且系统不读 `finish_reason`**：[AgentService](../backend/src/main/java/com/industrial/erp/modules/ai/agent/AgentService.java) 两处 `chatWithTools(...)` 都写死 `2048`，`PROPOSE:` 行按旧提示词排在回复**末尾**，正文一长就被切在 `summary` 中间；`LlmClient` 非流式解析只看 `content`，`finish_reason == "length"` 与正常答复无法区分，于是截断被当成"模型就这么说的"，静默上抛。
+2. **前端把残缺 JSON 也渲染成可点卡片（死按钮）**：`parseProposal` 只判"能不能 `JSON.parse`"，`{"action":"checkSalDelivery","params":{"id":"21153…` 这种半截串被解析成一个缺 `params` 的对象后照旧渲染，用户点「确认执行」才在校验处报「缺少参数」——看起来像系统坏了。
+3. **提示词没有"PROPOSE 先行"约束**：面对「帮我审核掉 + 库存不够的部分入库」这种**复合写需求**，模型倾向反问澄清；MAX_STEPS=6 的循环里"读完工具数据就收尾"，整轮零提议 → 界面上没有任何可点的按钮，用户看到的就是"第二次没有确认执行的按钮"。另外两条旧规则也在推波助澜：缺口数量算"推算数据"不敢提议；先提 `checkSalDelivery` 还是先提补入库没有约束（提反了会因可用库存不足直接扣减失败）。
+
+**后端修复**
+- `MAX_OUTPUT_TOKENS = 4096`（:56）常量，替换两处 `2048`（:112 工具轮 / :157 收尾轮）。
+- `collectProposals(...)`（:116 :160）逐条过新校验：`usableProposal(...)`（:304）= 合法 JSON **且** `action` 非空 **且** `params` 是非空 `JSONObject`；不合法时先试 `closeTruncatedJson(...)`（:323）把截断补全 —— **安全边界**：`paramsClosed(...)`（:374）发现 `params` 自身还没闭合就**放弃修补**（那种情况下 19 位雪花 id 也被切短，补出来"看着完整"、点下去会拿错 id 去审核，比丢弃危险得多），只有截断发生在 `summary` 的才救得回来。
+- 救不回的进 `Result.droppedProposals`（:84）→ `noteDroppedProposals(...)`（:406）在答复末尾明确告知「⚠️ 有 N 条写操作提议没生成完整…系统已丢弃以免误执行」，不再留死按钮让用户猜。
+- 提示词三条硬规则：**① PROPOSE 行放回复最前面**（多条连续几行），正文 ≤3 句且不重抄工具已展示的表格；**② 缺口入库例外**——用户明说「不够的部分/缺口/差多少入多少」时，`缺口 = 出库明细需求数量 − 当前可用库存`（两个数都必须来自工具返回），可直接提议并在 `summary` 写「需求 X / 可用 Y / 补入库 Z」供核对，缺口 ≤0 不提议；**③ 顺序**——既要补入库又要审核出库时固定 ① `addPrdFinishedIn` → ② `checkPrdFinishedIn`（库存这时才真增加）→ ③ `checkSalDelivery`，先提第 ① 步，等用户确认再提下一步，**不许**一上来就提 `checkSalDelivery`。
+
+**前端修复**（[app/src/pages/report/ai.vue](../app/src/pages/report/ai.vue) + [pc-web/src/views/report/Ai.vue](../pc-web/src/views/report/Ai.vue) 同口径）
+- `parseProposal` 缺 `action` / 缺非空 `params` 对象直接 `throw`，捕获后降级为 `{ summary: '这条写操作提议内容不完整 (模型输出被截断), 已忽略…', invalid: true }`；模板 `v-if="!p.invalid"`（App `<view>` / PC `<div>`）让**按钮根本不渲染**，双层兜底对应后端第一道校验。
+
+**测试**：[AgentServiceTest](../../backend/src/test/java/com/industrial/erp/modules/ai/agent/AgentServiceTest.java) 新增 4 例（summary 截断可修补并保留 / params 截断必丢弃 / 无 params 必丢弃 / `closeTruncatedJson` 单元含字符串内括号、悬空冒号、`params` 未闭合不救）；全量 25 类 **262 用例 0 失败**；`scripts/check-version.sh` 七处 1.1.157 全 OK。
+
+**部署**
+- 三站 jar `ab35bb49b5ce22498a94affd224ac547`（`.32` `docker cp` + `docker commit` 到 `erp-system-backend:1.1.157`，`compose --profile failover up -d`；`.150` build context 换 jar + `docker compose build backend`；阿里云 `docker commit` 到 `erp-backend:1.1.157` + `compose up -d --no-deps --no-build erp-backend`）。
+- `ERP_VERSION` 容器 env 三站 1.1.157：`.150` [docker-compose.yml](../../docker-compose.yml) 第 93 行 YAML、阿里云 `/opt/erp-system/.env`、`.32` 容器 env。
+- PC dist `index.html` md5 `f121508f5bda35f9a261e1dad38edb38`（新块 `Ai-DIx6zinb.js`）三站；App H5 `index.html` md5 `6fd2a1511e1fc5f10cd90c76994f82e7`（新块 `pages-report-ai.CAqm0eCd.js`）上 `.32` + 阿里云（`.150` 无 H5 容器）；APK `erp-app-20261102.apk` `e64f14400107afe7c58e42c5f88daf06`（4,476,351 B，versionCode 1157 / versionName 1.1.157）。
+- **顺带拆掉一个静默回退地雷**：`.32` 的 `docker-compose.failover.yml` 第 66/73 行仍写死 `erp-system-backend:1.1.154` / `ERP_VERSION: 1.1.154`，而运行中容器已是 1.1.155 —— 任何一次 `compose up` 重建都会把后端悄悄退回 154。已备份 `.bak_v1157` 并改为 1.1.157；改完必须 `compose --profile failover up -d` 才按新镜像/新 env 重建。
+
+**实测**（canary `.32` App H5，浏览器，用用户原话逐字重放）
+- 后端日志 `收敛 step=4 … proposals=5 dropped=0`；界面 **5 张完整可点的提议卡**，缺口数量正确、按 ①入库 → ②审核入库 → ③审核出库 排序，正文不再挤占 PROPOSE 的位置。
+- 本轮**只执行只读工具**，没有任何真实写单落地；核对 `prd_finished_in` 自 2026-11-02 起 0 行 → 无需清理测试数据。
+- `.32` 复制 `Seconds_Behind_Master: 0`；三站 jar md5 / `ERP_VERSION` / 新前端块逐一核对一致（新 chunk HTTP 200）。
+
+⚠️ 教训
+1. **AI 链路里任何"模型自由格式输出"的负载，服务端必须先验证再上抛**：`finish_reason` / `max_tokens` 这类截断信号不读，前端就会拿到半截 JSON；修的时候也要守住安全边界——**能补的只有"截断发生在说明文字"，残缺的是 id/参数就一律丢弃**，补出来的假完整提议比没有提议更危险。
+2. **前端渲染"可点按钮"前自己也要复算一遍校验**（`invalid` 标记 + `v-if`），后端丢弃时必须在答复里显式说一句，否则用户只会以为系统坏了。
+3. **`npx cap sync android` 会重写 `android/capacitor.settings.gradle`**，把 v1.1.49/v1.1.106 手工追加的 `:capacitor-share`、`:capacitor-app` 两行 include 冲掉 → `./gradlew assembleDebug` 报 `Project with path ':capacitor-share' could not be found`（`app/build.gradle:61` 依赖它）。APK 一律走 [scripts/build-app.sh](../scripts/build-app.sh)（`[4.5/5]` 步骤会自动追加 + 内嵌版本/OS 版本双校验），别手搓 `cap sync` + gradle。
+4. **`命令 | tail` 吞掉 gradle 非零退出码**，构建失败也会报 exit 0（`set -o pipefail` 才能兜住）。
+5. `.150` 的 `pc-web/dist` 目录属 root/uid-1000，非 sudo 的 `mv`/`tar` 会半路 `Permission denied`；先核对"0 个新文件落地"再改用解压到 `upload/` + `sudo mv` + `sudo docker restart erp-pc-web`。
+
+### v1.1.156 (2026-11-01 — 超管在 App 端看不到「检验设备校准」入口的修复）
+
+> **反馈原话**: 「APP端添加检验设备清单和鉴定提醒及记录和报告的上传和查看。这些入口没看到」
+
+**根因（两处叠加，缺一不可）**
+1. **App 端的 perm 是「按端过滤」的**：[AuthService.permsByClientType()](../backend/src/main/java/com/industrial/erp/modules/system/service/AuthService.java) 在请求带 `X-Client-Type: APP` 时走 `SysMenuMapper.selectPermsByUserIdAndClient(uid, "APP")`，SQL 里是 `rm.client_type IN ('BOTH','APP')`（无 admin 通配）；而 Sa-Token 的 `StpInterfaceImpl` 用的是混合口径 `selectPermsByUserId`，所以**超管后端接口一律放行，但 App 前端 `erp_permissions` 里根本没有这 5 个 perm**。
+2. **sql/149 只给「PC 有该 perm 且 APP 已在用设备模块」的角色补了 APP 行**，SUPER_ADMIN 历史上只有 PC 授权行，正好被排除；工作台卡片又是纯 perm-only 兜底（`qa:calibration-equipment:list` 是 F 型载体，`sys_menu.path=''`，不参与 perms+path 双匹配），于是**入口对超管永久隐身**。
+
+**修复**
+- [pages/dashboard/index.vue](../app/src/pages/dashboard/index.vue)：卡片门禁改为 `(isAdmin() || perms.includes('qa:calibration-equipment:list')) && 模块开 && isPermEnabled(...)`，与详情页 `canUpload/canCheck` 的 `isAdmin()` 口径对齐（**模块开关仍然对超管生效**，管理端关掉 `em` 模块照样隐藏）。
+- [sql/150_v11156_super_admin_app_qa_calibration.sql](../sql/150_v11156_super_admin_app_qa_calibration.sql)（幂等，`information_schema` 探测 `client_type`，缺列时走无该列的兜底分支）：给 `SUPER_ADMIN` 补 5 个 perm 的 `client_type='APP'` 授权行 —— 共 5 行，只灌唯一可写主库 `.150`，`.32` / 阿里云靠复制拿到。**这是数据侧的正解**：以后任何新增 perm-only 入口，超管都不会再被「按端过滤」挡住。
+
+**部署（App-only 发布，jar 未变）**
+- 后端 jar `1413b90a5a58ee7aee01bb2ef0c16486`（沿用 v1.1.154），三站 `ERP_VERSION` 仍 1.1.155（本次不动后端）。
+- App H5 `c9c1ab26c2fc3321f452eebd18f265fc`（工作台 chunk `pages-dashboard-index.CGCo2aZt.js`）：`.32` 18090（旧 index 备份为 `../index.html.bak_v1155`）+ 阿里云 `/opt/erp-system/app-h5`（备份 `/root/app-h5.bak_v1155_20261101_205526.tgz`）；`.150` 无 H5 容器。
+- APK `erp-app-20261101.apk` `64c2245ef90db1a5fe1c88a497438602`（4.27 MB，versionCode 1156 / versionName 1.1.156）。
+- 版本七处 1.1.156 / 1156，`scripts/check-version.sh` 全 OK。
+
+**实测（canary `.32` App H5，双账号）**
+- **gpssong（SUPER_ADMIN，复现侧）**：改前「现场填报」无校准卡；sql/150 灌库 + 新 H5 上线后出现「📏 检验设备校准」，点进清单页 `/api/qa/calibration-equipment/page?pageNum=1&pageSize=200` = **200**。
+- **罗飞（WAREHOUSE_MGR，非超管，回归侧）**：`erp_permissions` 含 5 个 `qa:calibration*`；「现场填报」仍有「📏 检验设备校准」→ 清单页正常渲染（0 台设备 → 空态文案），接口 200，**无回归**。
+- 本次验证只读，未写入任何业务数据（清单为空表），无需清理。
+
+⚠️ 教训：**App 端权限一律以 `erp_permissions`（APP 口径）为准，判断「超管应该有入口」时必须显式加 `isAdmin()`**；新增 perm-only 入口时，`sql/*` 要同时给 SUPER_ADMIN 补 APP 授权行，否则 PC 能进、手机看不到。
+
 ### v1.1.155 (2026-11-01 — App「检验设备校准」：设备清单 + 检定到期提醒 + 校准记录/报告上传与查看）
 
 > **需求原话**: 「APP端添加检验设备清单和鉴定提醒及记录和报告的上传和查看。」
