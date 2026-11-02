@@ -35,7 +35,7 @@
             <view v-if="m.actions && m.actions.length" class="propose">
               <view v-for="(p, j) in m.actions" :key="j" class="propose-item">
                 <text class="psum">{{ p.summary }}</text>
-                <view class="pacts">
+                <view v-if="!p.invalid" class="pacts">
                   <button class="pbtn" :disabled="spent(p)" @click="execPropose(p)">确认执行</button>
                   <button class="pbtn ghost" :disabled="!!p.executing" @click="m.actions.splice(j,1)">取消</button>
                 </view>
@@ -319,9 +319,15 @@ function toast(title) {
 
 function parseProposal(s) {
   try {
-    return JSON.parse(String(s).replace(/([:,\[]\s*)(\d{16,})(?=\s*[,}\]])/g, '$1"$2"'))
+    const p = JSON.parse(String(s).replace(/([:,\[]\s*)(\d{16,})(?=\s*[,}\]])/g, '$1"$2"'))
+    // v1.1.157: action + params 齐全才当一条可用提议。以前残缺 JSON 也照样渲染成可点卡片,
+    // 用户点「确认执行」只得到「这条提议缺少参数」, 看着像系统坏了。
+    if (!p || !p.action || typeof p.params !== 'object' || p.params === null || !Object.keys(p.params).length) {
+      throw new Error('incomplete proposal')
+    }
+    return p
   } catch (e) {
-    return { summary: s }
+    return { summary: '这条写操作提议内容不完整 (模型输出被截断), 已忽略。请让 AI 重新提一次, 或到对应页面手工操作。', invalid: true }
   }
 }
 

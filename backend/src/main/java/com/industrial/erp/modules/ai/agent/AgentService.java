@@ -47,6 +47,14 @@ public class AgentService {
     /** 最大工具调用轮数 (防死循环). */
     private static final int MAX_STEPS = 6;
 
+    /**
+     * 单次回复的输出 token 上限.
+     *
+     * <p>v1.1.157: 2048 → 4096。模型爱在正文里重抄一张大表格, 预算被正文吃光后会把末尾的
+     * {@code PROPOSE:} 行拦腰截断 (线上「这条提议缺少参数」的根因之一)。
+     */
+    private static final int MAX_OUTPUT_TOKENS = 4096;
+
     public AgentService(LlmClient llmClient, ErpToolRegistry tools,
                         PermissionService permService, AiProperties aiProps) {
         this.llmClient = llmClient;
@@ -69,6 +77,11 @@ public class AgentService {
          * 不经模型转述 —— 模型抄表格数字会出错, 用户看到的必须是后端算出来的那份。
          */
         public List<Object> tables = new ArrayList<>();
+        /**
+         * v1.1.157 新增: 模型输出了 {@code PROPOSE:} 但内容不可用 (JSON 残缺且救不回 / 缺 action / 缺 params)
+         * 的条数来源, 只用于在答案里给用户一句说明, 不下发前端 —— 宁可不给按钮, 也不给一个点不动的死按钮。
+         */
+        public List<String> droppedProposals = new ArrayList<>();
     }
 
     @OperLog(module = "AI Agent", businessType = "QUERY", saveParam = true)
@@ -96,11 +109,11 @@ public class AgentService {
         result.model = llmClient.model();
 
         for (int step = 0; step < MAX_STEPS; step++) {
-            LlmClient.ChatResult cr = llmClient.chatWithTools(messages, toolSchemas, 2048, 0.2);
+            LlmClient.ChatResult cr = llmClient.chatWithTools(messages, toolSchemas, MAX_OUTPUT_TOKENS, 0.2);
             // 收集本轮可能产生的"写动作提议" (模型在 content 里按约定输出 PROPOSE: 行)
             // v1.1.117: 仅当开启写操作才保留; 关闭时即便模型误输出也丢弃 (前端不弹确认框)
             if (caps.allowWrite) {
-                collectProposals(cr.content, result.proposedActions);
+                collectProposals(cr.content, result.proposedActions, result.droppedProposals);
             }
 
             if (!cr.wantsToolCall()) {
@@ -108,8 +121,9 @@ public class AgentService {
                 result.answer = cleanAnswer(cr.content, caps.allowWrite ? result.proposedActions : java.util.Collections.emptyList());
                 result.stepsUsed = step + 1;
                 result.llmProvider = cr.usedProvider;
-                log.info("[AI Agent] 收敛 step={} provider={} proposals={}", step + 1, cr.usedProvider,
-                        result.proposedActions.size());
+                noteDroppedProposals(result);
+                log.info("[AI Agent] 收敛 step={} provider={} proposals={} dropped={}", step + 1, cr.usedProvider,
+                        result.proposedActions.size(), result.droppedProposals.size());
                 return result;
             }
 
@@ -140,14 +154,15 @@ public class AgentService {
         // 而不是把 "(已达到最大分析轮数)" 这种内部提示丢给用户
         log.warn("[AI Agent] {} 轮未收敛, 禁用工具强制收尾", MAX_STEPS);
         messages.add(role("user", "不要再调用任何工具。直接用中文给出最终回答。"));
-        LlmClient.ChatResult finCr = llmClient.chatWithTools(messages, null, 2048, 0.2);
+        LlmClient.ChatResult finCr = llmClient.chatWithTools(messages, null, MAX_OUTPUT_TOKENS, 0.2);
         result.llmProvider = finCr.usedProvider;
         if (caps.allowWrite) {
-            collectProposals(finCr.content, result.proposedActions);
+            collectProposals(finCr.content, result.proposedActions, result.droppedProposals);
         }
         String finText = cleanAnswer(finCr.content, caps.allowWrite ? result.proposedActions : java.util.Collections.emptyList());
         result.answer = (finText == null || finText.trim().isEmpty())
                 ? "(已达到最大分析轮数 " + MAX_STEPS + ", 未能得出结论, 请把问题拆细一点再问)" : finText;
+        noteDroppedProposals(result);
         return result;
     }
 
@@ -178,6 +193,10 @@ public class AgentService {
             sb.append("2. 若用户要求执行【写操作】(新增/修改/删除/审核/反审核/下单等), 你【不要】直接执行, ");
             sb.append("也不要调用写工具; 而是在回复正文里输出一行形如: ");
             sb.append("PROPOSE: {\"action\":\"<写操作类型>\", \"params\":{...}, \"summary\":\"<一句话说明要做什么>\"}\n");
+            // v1.1.157: 提议被 max_tokens 拦腰截断的线上事故 —— PROPOSE 写在正文末尾时最容易被切掉
+            sb.append("   【输出顺序 - 必须遵守】PROPOSE 行要放在回复【最前面】(多条就连续几行), 再写说明正文; ");
+            sb.append("正文尽量短 (≤3 句), 不要重抄工具已经展示的表格 —— 正文越长越容易把 PROPOSE 挤到输出上限之外, ");
+            sb.append("截断的 PROPOSE 会被系统丢弃, 用户就点不到确认按钮。\n");
             sb.append("   【重要】action 字段只能从下面这套固定枚举里选, 一字不差, 不要自创别名:\n");
             sb.append("   - checkSalDelivery  审核销售出库单     params: {\"id\": 出库单ID}\n");
             sb.append("   - addPurIn          生成采购入库单(草稿) params: {\"supplierId\":供应商ID, \"warehouseId\":仓库ID, \"details\":[{\"productId\":商品ID,\"qty\":数量,\"price\":成本价}], \"remark\":可选}\n");
@@ -195,6 +214,11 @@ public class AgentService {
             sb.append("若同名/近似有多个候选, 先把候选列出来问用户是哪一个, 严禁猜;\n");
             sb.append("     (b) 提议前【必须】先调 listWarehouses 拿到真实 warehouseId; 用户没说入哪个仓时用 isDefault=1 的那个, 并在 summary 里写明仓库名;\n");
             sb.append("     (c) qty【只能】用用户明确说出的实际产量; 用户没说数量就先追问, 严禁拿工单计划量/库存数/克重自己推算;\n");
+            // v1.1.157: 用户常说「不够的部分帮我入库」, 旧规则把这种也算「推算」, 结果一条提议都不敢提
+            sb.append("     (c-补) 例外: 用户明确说「把不够的部分/缺口/差多少入多少」入库时, ");
+            sb.append("缺口 = 出库单明细需求数量 − 当前可用库存 (两个数都必须来自工具返回的真实数据), ");
+            sb.append("可以据此直接提议, 并在 summary 里写清「需求 X / 可用 Y / 补入库 Z」让用户核对; ");
+            sb.append("缺口≤0 的商品【不要】提入库, 只在正文里说明库存已够;\n");
             sb.append("     (d) 不要填 billNo/billDate/billStatus/spec/unitId/unitName/amount/productCode/productName —— 后端自动生成单号并按商品主数据回填规格与单位;\n");
             sb.append("     (e) 一张成品入库单只对应一个商品; 多个商品要入账就提多条 PROPOSE 行, 每条一个商品;\n");
             sb.append("     (f) 若该商品 productType 是 RAW/SEMI (原料/半成品), 【不要】用本动作, 直接说明半成品/原料入库暂不支持自动执行, 请到对应模块手工操作;\n");
@@ -202,6 +226,11 @@ public class AgentService {
             sb.append("     【硬性规则 - checkPrdFinishedIn】: 必须先调 listFinishedInBills 拿到真实 id 且该单 billStatus=DRAFT; ");
             sb.append("用户说\"刚建的那张\"时取列表里最新一条 DRAFT, 并把单号写进 summary 让用户核对; 严禁臆造 id, 严禁审核 CHECKED 单。\n");
             sb.append("     提示: 成品入账是两步 —— 先提议 addPrdFinishedIn 建草稿, 用户确认执行后若要真正入库存, 再提议 checkPrdFinishedIn; 一次只提一步, 不要合并。\n");
+            // v1.1.157: 线上「先补入库再审核出库」的顺序模型提反了 —— 出库审核会因可用库存 0 而扣减失败
+            sb.append("   【顺序 - 涉及补入库时务必按此提议】用户既要「审核出库单」又要「不够的部分补入库」时, ");
+            sb.append("正确顺序是: ① addPrdFinishedIn 建入库草稿 → ② checkPrdFinishedIn 审核入库 (库存这时才真正增加) → ③ checkSalDelivery 审核出库单; ");
+            sb.append("先提议第 ① 步 (缺口多个商品就一次提多条 addPrdFinishedIn), 等用户确认执行后再提下一步, ");
+            sb.append("【不要】一上来就提 checkSalDelivery —— 库存还没补上时审核出库会因可用库存不足而扣减失败。\n");
             sb.append("   其它写操作 (新增出库/改单/删单/半成品入库等) 暂无白名单, 不要提议, 直接说明 \"该操作暂不支持自动执行, 请到对应模块手工操作\"。\n");
             sb.append("   【id 写法】params 里的 id / productId / warehouseId / supplierId 是 19 位长数字, ");
             sb.append("必须写成带引号的字符串, 如 \"id\":\"2116353847494504578\" —— 写成裸数字前端会掉精度拿错单。\n");
@@ -235,16 +264,151 @@ public class AgentService {
         }
     }
 
-    /** 收集模型文本里的 PROPOSE: 行到 list (可能多条). */
-    private static void collectProposals(String text, List<String> out) {
+    /**
+     * 收集模型文本里的 PROPOSE: 行到 list (可能多条).
+     *
+     * <p>v1.1.157 线上「这条提议缺少参数 (模型没按格式输出)」的修法: 旧版把 {@code PROPOSE:} 后面的字符串
+     * <b>原样</b>塞给前端, 于是模型输出被 token 上限拦腰截断时 (正文表格太长把预算吃光), 前端拿到一段
+     * 解析不了的 JSON, 仍然渲染出「确认执行」卡片, 用户一点就报「缺少参数」。现在:
+     * <ol>
+     *   <li>必须能解析成 JSON 且 {@code action} 非空、{@code params} 是非空对象, 才算一条提议;</li>
+     *   <li>解析不了先做一次「闭合修补」(补掉断引号/括号), 救得回来就照常下发 —— 截断通常只切掉
+     *       末尾的 {@code summary}, {@code params} 早已写完, 用户点确认照样是对的单据;</li>
+     *   <li>救不回来 (截在 params 里 / 根本不是 JSON) 就丢弃并计数, 由 {@link #noteDroppedProposals}
+     *       在答案里说明, 不再给用户一个点不动的按钮。</li>
+     * </ol>
+     */
+    private static void collectProposals(String text, List<String> out, List<String> dropped) {
         if (text == null) return;
         for (String line : text.split("\\n")) {
             String t = line.trim();
-            if (t.startsWith("PROPOSE:")) {
-                String payload = t.substring("PROPOSE:".length()).trim();
-                if (!payload.isEmpty()) out.add(quoteLongIds(payload));
+            if (!t.startsWith("PROPOSE:")) continue;
+            String payload = quoteLongIds(t.substring("PROPOSE:".length()).trim());
+            if (payload.isEmpty()) continue;
+            if (usableProposal(payload)) {
+                out.add(payload);
+                continue;
+            }
+            String repaired = closeTruncatedJson(payload);
+            if (repaired != null && usableProposal(repaired)) {
+                log.warn("[AI Agent] PROPOSE 被截断, 已闭合修补后保留: {} → {}", payload, repaired);
+                out.add(repaired);
+            } else {
+                log.warn("[AI Agent] PROPOSE 提议不可用, 已丢弃: {}", payload);
+                dropped.add(payload);
             }
         }
+    }
+
+    /** 一条可用的提议 = 合法 JSON + 非空 action + 非空 params 对象. */
+    private static boolean usableProposal(String json) {
+        if (json == null || !json.startsWith("{")) return false;
+        try {
+            JSONObject o = new JSONObject(json);
+            String action = o.getStr("action");
+            Object params = o.get("params");
+            return action != null && !action.isBlank()
+                    && params instanceof JSONObject && !((JSONObject) params).isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 把被截断的 JSON 补上闭合符号: 只补「字符串外的引号 + 未闭合的花括号/方括号」, 并去掉悬空的分号冒号。
+     *
+     * <p>刻意在 {@code params} 自身还没闭合时放弃修补 —— 那种情况下 id 也被切短了, 补出来的提议看着完整、
+     * 点下去会拿一个错 id 去审核, 比丢弃更危险。
+     */
+    static String closeTruncatedJson(String raw) {
+        if (raw == null || raw.isEmpty() || !paramsClosed(raw)) return null;
+        StringBuilder s = new StringBuilder(raw);
+        java.util.Deque<Character> stack = new java.util.ArrayDeque<>();
+        boolean inString = false;
+        boolean esc = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (inString) {
+                if (esc) esc = false;
+                else if (c == '\\') esc = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') inString = true;
+            else if (c == '{') stack.push('}');
+            else if (c == '[') stack.push(']');
+            else if (c == '}' || c == ']') {
+                if (stack.isEmpty() || stack.pop() != c) return null;
+            }
+        }
+        if (!inString && stack.isEmpty()) return null; // 结构本来就完整, 是内容坏了, 补不回来
+        if (!inString) {
+            // 先剪掉悬空的分号/冒号/空白, 再补闭合符号 —— 顺序反了会把刚补上的收尾引号当悬空字符剪掉
+            int end = s.length();
+            while (end > 0) {
+                char c = s.charAt(end - 1);
+                if (c == ',' || c == ':' || Character.isWhitespace(c)) end--;
+                else break;
+            }
+            s.setLength(end);
+            // 截断正好落在 "key": 与它的值之间 → 剪掉整个悬空键, 否则补出来是 {"a":1,"b"} 这种废 JSON
+            if (s.length() > 0 && s.charAt(s.length() - 1) == '"') {
+                int open = s.lastIndexOf("\"", s.length() - 2);
+                if (open >= 0) {
+                    s.setLength(open);
+                    int e2 = s.length();
+                    while (e2 > 0) {
+                        char c = s.charAt(e2 - 1);
+                        if (c == ',' || c == ':' || Character.isWhitespace(c)) e2--;
+                        else break;
+                    }
+                    s.setLength(e2);
+                }
+            }
+        }
+        if (inString) s.append('"');
+        while (!stack.isEmpty()) s.append(stack.pop());
+        return s.toString();
+    }
+
+    /** {@code "params"} 的值在原文里是否已经闭合 (见 {@link #closeTruncatedJson} 的安全边界). */
+    private static boolean paramsClosed(String raw) {
+        int key = raw.indexOf("\"params\"");
+        if (key < 0) return true; // 没写 params 的提议本来就不该保留, 交给 usableProposal 判
+        int i = key + "\"params\"".length();
+        while (i < raw.length() && (raw.charAt(i) == ':' || Character.isWhitespace(raw.charAt(i)))) i++;
+        if (i >= raw.length()) return false;
+        char open = raw.charAt(i);
+        if (open != '{' && open != '[') return true;
+        char close = open == '{' ? '}' : ']';
+        int depth = 0;
+        boolean inString = false;
+        boolean esc = false;
+        for (; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (inString) {
+                if (esc) esc = false;
+                else if (c == '\\') esc = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            if (c == '"') inString = true;
+            else if (c == open) depth++;
+            else if (c == close) {
+                depth--;
+                if (depth == 0) return true;
+            }
+        }
+        return false;
+    }
+
+    /** 提议被丢弃时, 在答案末尾给用户一句说明 (旧版是留一个点不动的按钮, 用户只会以为系统坏了). */
+    private static void noteDroppedProposals(Result r) {
+        if (r.droppedProposals.isEmpty()) return;
+        String hint = "⚠️ 有 " + r.droppedProposals.size()
+                + " 条写操作提议没生成完整 (模型输出被截断或格式不对), 系统已丢弃以免误执行。"
+                + "请让我重新提一次, 或到对应页面手工操作。";
+        r.answer = (r.answer == null || r.answer.trim().isEmpty()) ? hint : r.answer + "\n\n" + hint;
     }
 
     /**

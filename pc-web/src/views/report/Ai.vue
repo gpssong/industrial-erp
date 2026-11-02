@@ -34,7 +34,7 @@
                 <div v-if="m.actions && m.actions.length" class="propose">
                   <div v-for="(p, j) in m.actions" :key="j" class="propose-item">
                     <div class="psum">{{ p.summary }}</div>
-                    <div class="pacts">
+                    <div v-if="!p.invalid" class="pacts">
                       <!-- 成功后按钮必须锁死: 再点一次会重复建一张草稿单 (写提议不是幂等的) -->
                       <el-button size="small" type="primary" :disabled="spent(p)" @click="execPropose(p)">确认执行</el-button>
                       <el-button size="small" :disabled="p.busy" @click="m.actions.splice(j,1)">取消</el-button>
@@ -156,9 +156,14 @@ async function send() {
 // (2116353847494504578 → 2116353847494504400), 审核时就报「入库单不存在」。先把长整数转成字符串再解析。
 function parseProposal(s) {
   try {
-    return JSON.parse(String(s).replace(/([:,\[]\s*)(\d{16,})(?=\s*[,}\]])/g, '$1"$2"'))
+    const p = JSON.parse(String(s).replace(/([:,\[]\s*)(\d{16,})(?=\s*[,}\]])/g, '$1"$2"'))
+    // v1.1.157: action + params 齐全才算可用提议; 残缺 JSON 以前也渲染成可点卡片, 点了只报「缺少参数」
+    if (!p || !p.action || typeof p.params !== 'object' || p.params === null || !Object.keys(p.params).length) {
+      throw new Error('incomplete proposal')
+    }
+    return p
   } catch (e) {
-    return { summary: s, action: 'unknown' }
+    return { summary: '这条写操作提议内容不完整 (模型输出被截断), 已忽略。请让 AI 重新提一次, 或到对应页面手工操作。', invalid: true }
   }
 }
 
