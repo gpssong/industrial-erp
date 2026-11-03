@@ -108,6 +108,10 @@ public class QmsInspectionService {
     private final PrdProcessMapper prdProcessMapper;
     private final QmsIqcItemService iqcItemService;
 
+    /** v1.1.158 — 检验报告号自动生成 (BG-YL-YYYYMMDD-NNN). 字段注入避免改动大构造函数签名 (单测直构). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.industrial.erp.modules.purchase.bill.ReportNoGenerator reportNoGenerator;
+
     public QmsInspectionService(MesQualityInspectionMapper inspectionMapper,
                                  MesQualityDefectMapper defectMapper,
                                  MesBatchMapper batchMapper,
@@ -1007,6 +1011,19 @@ public class QmsInspectionService {
             inspectionMapper.insert(ins);
         }
         // 写 XK 展示/留痕字段
+        // v1.1.158: 检验报告号系统自动生成 (BG-YL-YYYYMMDD-NNN).
+        //   前端不再手填 reportNo (改只读), 传空 → 后端发号; 已有号 (重签/老数据) 则沿用不重复发.
+        if (StrUtil.isBlank(reportNo)) {
+            String existing = receipt.getInspectionReportNo();
+            if (StrUtil.isNotBlank(existing)) {
+                reportNo = existing;
+            } else if (reportNoGenerator != null) {
+                reportNo = reportNoGenerator.generate();
+            } else {
+                // 兜底 (无对账器注入, 极少见): 沿用 IQC 单号
+                reportNo = ins.getBillNo();
+            }
+        }
         if (sampleQty != null) ins.setSampleQty(sampleQty);
         if (StrUtil.isNotBlank(inspectorName)) ins.setInspectorName(inspectorName);
         if (StrUtil.isNotBlank(photoUrls)) ins.setPhotoUrls(photoUrls);

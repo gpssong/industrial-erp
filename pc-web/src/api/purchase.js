@@ -2,7 +2,15 @@ import request from '@/utils/request'
 
 // v1.1.75: AI 只读解读端点 (复用 report:view 权限, 超管 orRole 短路)
 export const aiApi = {
-  analyzePurReceipt: (id) => request.get(`/ai/analyze/pur-receipt/${id}`)
+  analyzePurReceipt: (id) => request.get(`/ai/analyze/pur-receipt/${id}`),
+  // v1.1.158: 视觉 OCR — 原料标签批号识别
+  ocrStatus: () => request.get('/ai/ocr/status'),
+  // v1.1.163: 可选 productName — 一次到货多种原料时按本行品名定向识别, 避免每行填成同一个批号
+  ocrLabelBatchNo: (photoUrls, productName) => {
+    const body = { photoUrls }
+    if (productName && String(productName).trim()) body.productName = String(productName).trim()
+    return request.post('/ai/ocr/label-batchno', body)
+  }
 }
 
 export const purOrderApi = {

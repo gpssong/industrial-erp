@@ -36,6 +36,15 @@ public interface InvStockMapper extends BaseMapper<InvStock> {
     List<InvStock> listByWarehouseAndProduct(@Param("wId") Long warehouseId, @Param("pId") Long productId);
 
     /**
+     * v1.1.160: 列某商品在**所有仓库**下还有可用量 (available_qty &gt; 0) 的库存批次, 供生产工单原料行选批号.
+     * <p>排序按入库日期升序 (FIFO 先入先出), 让车间默认挑最早那批, 与领料出库语义一致.
+     * <p>不按仓库类型过滤: 用户选哪个仓, 开工后就从哪个仓 outStock, 行仓库与库存行天然对得上.
+     */
+    @Select("SELECT * FROM inv_stock WHERE product_id = #{pId} AND deleted = 0 AND available_qty > 0 "
+        + "ORDER BY COALESCE(last_in_date, '1970-01-01') ASC, id ASC LIMIT 200")
+    List<InvStock> listAvailableByProduct(@Param("pId") Long productId);
+
+    /**
      * v1.0.8+ 盘点账面数聚合: 某仓库某商品的所有未删除库存 qty 之和.
      * 不区分批次 — App 端无批次信息, 后续审核时按库存现状调整.
      */

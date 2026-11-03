@@ -115,13 +115,46 @@ public class PurReceiptController {
     /**
      * v1.1.101 订单为源 — 从采购订单 + 已合格 IQC 自动建 DRAFT 入库单 (完全对齐 PC).
      * v1.1.104: 补 perm 拦截 (历史漏写, check-perm.py 报告 — 业务上"创建入库单"必须有 add 权限).
+     * v1.1.159: 可选 batchNo (App 采购入库 OCR 标签识别或人工录入的到货批次) 写入全部明细行;
+     *   检验报告号改由后端统一发 BG-YL-YYYYMMDD-NNN (见 service.createFromOrder).
+     * v1.1.163: 可选 warehouseId (App 现场选仓, 覆盖订单仓库) + lines[{orderDetailId, batchNo}]
+     *   逐行批号 (一车多原料各归各批); 行上没填的行回落到 batchNo.
      */
     @SaCheckPermission(value = {"purchase:receipt:add"}, orRole = "admin")
     @PostMapping("/create-from-order")
-    public R<java.util.Map<String, Object>> createFromOrder(@RequestBody java.util.Map<String, Long> body) {
-        Long orderId = body == null ? null : body.get("orderId");
-        Long iqcId = body == null ? null : body.get("iqcId");
-        Long receiptId = service.createFromOrder(orderId, iqcId);
+    public R<java.util.Map<String, Object>> createFromOrder(@RequestBody java.util.Map<String, Object> body) {
+        Long orderId = toLong(body == null ? null : body.get("orderId"));
+        Long iqcId = toLong(body == null ? null : body.get("iqcId"));
+        Long warehouseId = toLong(body == null ? null : body.get("warehouseId"));
+        Object b = body == null ? null : body.get("batchNo");
+        String batchNo = b == null ? null : String.valueOf(b);
+        Long receiptId = service.createFromOrder(orderId, iqcId, warehouseId, parseLineBatches(body), batchNo);
         return R.ok(java.util.Map.of("receiptId", receiptId));
+    }
+
+    /** lines: [{orderDetailId, batchNo}] → 订单明细行 id → 批号 (只收非空行). */
+    private static java.util.Map<Long, String> parseLineBatches(java.util.Map<String, Object> body) {
+        java.util.Map<Long, String> out = new java.util.LinkedHashMap<>();
+        Object raw = body == null ? null : body.get("lines");
+        if (!(raw instanceof java.util.List)) return out;
+        for (Object o : (java.util.List<?>) raw) {
+            if (!(o instanceof java.util.Map)) continue;
+            java.util.Map<?, ?> line = (java.util.Map<?, ?>) o;
+            Long detailId = toLong(line.get("orderDetailId"));
+            Object bn = line.get("batchNo");
+            if (detailId == null || bn == null) continue;
+            String v = String.valueOf(bn).trim();
+            if (!v.isEmpty()) out.put(detailId, v);
+        }
+        return out;
+    }
+
+    /** JSON 数字/字符串 → Long (雪花 id 走字符串避免精度, 数字也兼容). */
+    private static Long toLong(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number) return ((Number) v).longValue();
+        String s = String.valueOf(v).trim();
+        if (s.isEmpty()) return null;
+        try { return Long.valueOf(s); } catch (NumberFormatException e) { return null; }
     }
 }

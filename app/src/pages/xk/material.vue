@@ -23,7 +23,8 @@
           <view class="form-input">{{ form.inboundDate || '请选择' }}</view>
         </picker></view>
       <view class="form-row"><text class="form-label">检验报告 *</text>
-        <input class="form-input" v-model="form.reportNo" /></view>
+        <input class="form-input" :value="form.reportNo" disabled
+          :placeholder="form.reportNo ? '' : '系统自动生成 (保存后回填)'" /></view>
       <view class="form-row"><text class="form-label">仓库</text>
         <view class="form-input form-static">{{ form.warehouse }}</view></view>
     </view>
@@ -38,6 +39,8 @@
         <view class="batch-row">
           <input class="form-input" v-model="form.batchNo" />
           <view class="scan-btn" @click="onScan">📷 扫码</view>
+          <view class="scan-btn ocr-btn" :class="{ 'ocr-disabled': !ocrEnabled || ocrLoading || !form.photos.length }"
+            @click="runOcr">{{ ocrLoading ? '识别中' : '🔍 识别批号' }}</view>
         </view></view>
       <view class="form-row"><text class="form-label">入库数量 (kg) *</text>
         <input class="form-input" v-model="form.qty" type="number" /></view>
@@ -88,7 +91,7 @@
 </template>
 
 <script>
-import { materialDraft, submitMaterial } from '@/api/xk'
+import { materialDraft, submitMaterial, ocrStatus, ocrLabelBatchNo } from '@/api/xk'
 import { addPhotoTo, photosToJson, photosFromJson } from '@/utils/photo.js'
 
 export default {
@@ -100,7 +103,10 @@ export default {
         productLine: '食品袋', batchNo: '', qty: 0, location: '',
         photos: []
       },
-      submitting: false
+      submitting: false,
+      // v1.1.158: 视觉 OCR 识别批号 (按钮启用取决于后端是否配了视觉模型 key)
+      ocrEnabled: false,
+      ocrLoading: false
     }
   },
   computed: {
@@ -108,7 +114,8 @@ export default {
       return [
         { key: 'batch',    label: '原料批号已填写',     ok: !!this.form.batchNo },
         { key: 'supplier', label: '供应商及进货日期完整', ok: !!this.form.supplier && !!this.form.inboundDate },
-        { key: 'report',   label: '检验报告已关联',     ok: !!this.form.reportNo },
+        // v1.1.158: 检验报告号改由后端自动生成 (BG-YL-日期-流水), 前端不再手填 → 视为系统保障项
+        { key: 'report',   label: '检验报告号系统自动生成', ok: true },
         { key: 'photo',    label: '标签照片已绑定',     ok: this.form.photos.length > 0 }
       ]
     },
@@ -135,6 +142,28 @@ export default {
         // v1.1.106: 后端 labelPhotos 存的是 URL 数组 (JSON 字符串)
         this.form.photos = photosFromJson(r.labelPhotos)
       }
+      // v1.1.158: 探测视觉模型是否配置 (决定「识别批号」按钮能否用)
+      const s = await ocrStatus()
+      this.ocrEnabled = !!(s && s.data && s.data.enabled)
+    },
+    // v1.1.158: 用已上传标签照片跑视觉识别, 填入原料批号 (人工确认后落库)
+    async runOcr() {
+      if (this.ocrLoading) return
+      if (!this.ocrEnabled) { uni.showToast({ title: '未配置视觉模型, 请到 PC「系统设置→对接方式」填 OCR key', icon: 'none' }); return }
+      if (!this.form.photos.length) { uni.showToast({ title: '请先上传原料标签照片', icon: 'none' }); return }
+      this.ocrLoading = true
+      try {
+        const r = await ocrLabelBatchNo(this.form.photos)
+        const cand = (r && r.data && r.data.candidates) || []
+        if (cand.length) {
+          this.form.batchNo = cand[0]
+          uni.showToast({ title: '识别到 ' + cand[0] + '，请核对标签', icon: 'none' })
+        } else {
+          uni.showToast({ title: '未识别到批号，请手工录入', icon: 'none' })
+        }
+      } catch (e) {
+        uni.showToast({ title: '识别失败：' + ((e && e.msg) || '未知错误'), icon: 'none' })
+      } finally { this.ocrLoading = false }
     },
     // v1.1.106: 真选图 + 真上传 (原来直接 push 一个 unsplash 外链, 用户照片从来没传过)
     onAddPhoto() { return addPhotoTo(this.form.photos) },
@@ -178,6 +207,8 @@ export default {
 .form-picker { flex: 1; }
 .batch-row { display: flex; flex: 1; gap: 6px; align-items: center; }
 .scan-btn { background: #1e6091; color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+.ocr-btn { background: #27ae60; }
+.ocr-disabled { opacity: 0.45; }
 
 .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .photo-item { aspect-ratio: 1; border-radius: 4px; overflow: hidden; position: relative; background: #f5f5f5; border: 1px solid #e0e0e0; }

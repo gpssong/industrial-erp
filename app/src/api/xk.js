@@ -58,7 +58,8 @@ export const materialDraft = async () => {
       batchNo: d.batchNo || raw.batchNo || '',
       qty: d.qty ?? 0,
       location: d.location || '-',
-      reportNo: 'JY-' + String(raw.billNo || ''),
+      // v1.1.158: 检验报告号后端自动生成 (BG-YL-日期-流水), 前端只读展示, 不再伪造 'JY-单号'
+      reportNo: raw.inspectionReportNo || '',
       warehouse: raw.warehouseName || '-',
       productLine: '食品袋',
       // v1.1.106: 原料标签照片 (PurReceipt.labelPhotos, JSON URL 数组)
@@ -85,6 +86,31 @@ export const submitMaterial = async (payload) => {
     await request({ url: '/xk/material', method: 'POST', data: payload, contentType: 'json' })
     return { code: 200, message: '已提交入库, 自动建草稿' }
   } catch (e) { return fail(e.msg || '提交失败') }
+}
+
+// ===== v1.1.158 视觉 OCR: 原料标签 → 批号识别 =====
+
+/** OCR 是否配置 (决定「📷识别批号」按钮是否启用; 不泄露 key). */
+export const ocrStatus = async () => {
+  try {
+    const d = await request({ url: '/ai/ocr/status', method: 'GET', silent: true })
+    return ok(d || { enabled: false, model: '' })
+  } catch (e) { return fail(e.msg || 'OCR 状态读取失败', { enabled: false, model: '' }) }
+}
+
+/**
+ * 用已上传标签照片识别批号候选 (人工确认后填入). d 已是 R.data = {candidates, rawText}.
+ * v1.1.163: 可选 productName — 一次到货多种原料时, 把本行品名交给模型做定向识别,
+ *   避免"整批照片合并出一串候选、每行都填同一个批号".
+ */
+export const ocrLabelBatchNo = async (photoUrls, productName) => {
+  const data = { photoUrls }
+  const p = productName && String(productName).trim()
+  if (p) data.productName = p
+  try {
+    const d = await request({ url: '/ai/ocr/label-batchno', method: 'POST', data, contentType: 'json' })
+    return ok(d || { candidates: [], rawText: '' })
+  } catch (e) { return fail(e.msg || '识别失败', { candidates: [], rawText: '' }) }
 }
 
 export const traceBatches = async (direction) => {
@@ -262,7 +288,8 @@ export const printAudit = async (billNo) => {
 }
 
 export default {
-  dashboardKpi, materialDraft, submitMaterial, traceBatches, traceFull,
+  dashboardKpi, materialDraft, submitMaterial, ocrStatus, ocrLabelBatchNo,
+  traceBatches, traceFull,
   maintenanceOrders, safetyCheck, auditLogs, archivedRecords, equipmentInfo,
   printPreview, printDocs, printDocDetail, printAudit
 }

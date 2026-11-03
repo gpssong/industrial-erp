@@ -110,11 +110,23 @@ public class PrdRequisitionService {
         List<PrdRequisitionDetail> details = detailMapper.selectByRequisitionId(id);
         BaseWarehouse wh = warehouseMapper.selectById(req.getWarehouseId());
         String whName = wh == null ? "" : wh.getWarehouseName();
+        // v1.1.160: 领料明细可按行指定出库仓库 (工单原料行按仓选批回填).
+        //   行仓库优先, 为空回落表头仓库; 名称按需查一次并缓存, 避免循环里逐行查库.
+        java.util.Map<Long, String> whNameCache = new java.util.HashMap<>();
+        if (req.getWarehouseId() != null) whNameCache.put(req.getWarehouseId(), whName);
 
         for (PrdRequisitionDetail d : details) {
+            Long lineWhId = d.getWarehouseId() != null ? d.getWarehouseId() : req.getWarehouseId();
+            String lineWhName = whName;
+            if (lineWhId != null && !lineWhId.equals(req.getWarehouseId())) {
+                lineWhName = whNameCache.computeIfAbsent(lineWhId, wid -> {
+                    BaseWarehouse w2 = warehouseMapper.selectById(wid);
+                    return w2 == null ? "" : w2.getWarehouseName();
+                });
+            }
             if ("ISSUE".equals(req.getBillType()) || "REPLENISH".equals(req.getBillType())) {
                 stockService.outStock(Constants.LEDGER_PROD_OUT, req.getId(), req.getBillNo(), d.getId(),
-                        req.getWarehouseId(), whName, d.getLocationId(), null,
+                        lineWhId, lineWhName, d.getLocationId(), null,
                         d.getProductId(), d.getUnitId(), d.getUnitName(), d.getBatchNo(),
                         d.getQty(), d.getPrice(), req.getBillNo(),
                         null, null, "领料 " + req.getBillNo());
@@ -130,7 +142,7 @@ public class PrdRequisitionService {
                 }
             } else if ("RETURN".equals(req.getBillType())) {
                 stockService.inStock(Constants.LEDGER_PROD_OUT, req.getId(), req.getBillNo(), d.getId(),
-                        req.getWarehouseId(), whName, d.getLocationId(), null,
+                        lineWhId, lineWhName, d.getLocationId(), null,
                         d.getProductId(), d.getUnitId(), d.getUnitName(), d.getBatchNo(),
                         d.getQty(), d.getPrice(), req.getBillNo(),
                         null, null, "退料 " + req.getBillNo());

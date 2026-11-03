@@ -66,6 +66,13 @@ public class PrdOrder {
     @TableField(exist = false)
     private List<PrdRequisitionDetail> requisitionDetails;
 
+    /**
+     * v1.1.160 工单原料明细 (BOM 逐行 + 每行出库仓/库存批号).
+     * 新建/编辑工单时前端提交, 落 prd_order_material; 详情回显 + 开工 release() 据此回填领料行批次.
+     */
+    @TableField(exist = false)
+    private List<PrdOrderMaterial> materials;
+
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private String billNo;
@@ -256,6 +263,8 @@ public class PrdOrder {
     public void setTotalWeightKg(BigDecimal totalWeightKg) { this.totalWeightKg = totalWeightKg; }
     public List<PrdRequisitionDetail> getRequisitionDetails() { return requisitionDetails; }
     public void setRequisitionDetails(List<PrdRequisitionDetail> requisitionDetails) { this.requisitionDetails = requisitionDetails; }
+    public List<PrdOrderMaterial> getMaterials() { return materials; }
+    public void setMaterials(List<PrdOrderMaterial> materials) { this.materials = materials; }
 
     /** 操作员姓名 (list page 注入) */
     public String getCreateByName() { return createByName; }

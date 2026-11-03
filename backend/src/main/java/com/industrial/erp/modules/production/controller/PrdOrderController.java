@@ -62,6 +62,23 @@ public class PrdOrderController {
         return R.ok(order);
     }
 
+    /**
+     * v1.1.160 新建/编辑工单「原料按 BOM 展开 + 批号从库存选择」的只读建议接口.
+     * <p>一次返回该成品 BOM 的全部原料行 (含需求数量) + 每行跨仓库的可用批次候选, 前端渲染一张小表格.
+     * <p>权限挂生产侧 (OR: order add/edit/list/release) 而**不是** production:bom:list / inventory:stock:list —
+     * 吹膜工/制袋工通常只有工单权限, 让他们去调 BOM 详情或库存批次接口会直接 403 (v1.1.117 同类坑)。
+     * 加 release 是因为 App 开工确认也要按行选库存批次 (v1.1.160), 而现场工人多数只有「生产开工」这一个权限点。
+     * 本接口只读该成品的配方用量与这些原料的可用批次, 敏感度不高于工单详情本身。
+     */
+    @SaCheckPermission(value = {"production:order:add", "production:order:edit", "production:order:list",
+            "production:order:release"}, mode = SaMode.OR, orRole = "admin")
+    @GetMapping("/material-suggest")
+    public R<java.util.List<com.industrial.erp.modules.production.entity.PrdOrderMaterial>> materialSuggest(
+            @RequestParam Long productId,
+            @RequestParam(required = false) java.math.BigDecimal planQty) {
+        return R.ok(service.suggestMaterials(productId, planQty));
+    }
+
     @SaCheckPermission(value = {"production:order:add"}, orRole = "admin")
     @PostMapping
     public R<Long> add(@RequestBody PrdOrder o) { return R.ok(service.add(o)); }

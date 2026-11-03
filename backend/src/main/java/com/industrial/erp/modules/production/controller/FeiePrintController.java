@@ -271,20 +271,38 @@ public class FeiePrintController {
         SysFeiePrintTemplate tpl = templateService.get(id);
         // 用模拟数据渲染模板
         Map<String, Object> model = new HashMap<>();
-        model.put("bill", Map.of(
-            "billNo", "SO202607180001",
-            "billDate", "2026-07-18",
-            "customerName", "测试客户",
-            "customerPhone", "13800138000",
-            "warehouseName", "主仓库",
-            "totalQty", "100",
-            "totalAmount", "500.00",
-            "totalAmountTax", "565.00",
-            "remark", "测试备注"
-        ));
+        // 主表字段: 覆盖各单据模板里常用的键; classicCompatible=true 时缺失键渲染成空白,
+        // 所以这里宁可多给几个字段, 免得示例预览看着"能渲染"却全是空值
+        Map<String, Object> bill = new HashMap<>();
+        bill.put("billNo", "SO202607180001");
+        bill.put("billDate", "2026-07-18");
+        bill.put("customerName", "测试客户");
+        bill.put("customerPhone", "13800138000");
+        bill.put("warehouseName", "主仓库");
+        bill.put("totalQty", "100");
+        bill.put("totalAmount", "500.00");
+        bill.put("totalAmountTax", "565.00");
+        bill.put("remark", "测试备注");
+        bill.put("productName", "LDPE 2426H 手提袋");
+        bill.put("productCode", "P0001");
+        bill.put("model", "23*29*0.12");
+        bill.put("spec", "23*29");
+        bill.put("width", "230");
+        bill.put("thickness", "0.12");
+        bill.put("density", "0.92");
+        bill.put("gramWeight", "7.3");
+        bill.put("colorNo", "本色");
+        bill.put("planQty", "2000");
+        bill.put("bomName", "金博 3:1 配方");
+        bill.put("totalWeightKg", "14.600");
+        model.put("bill", bill);
+        // v1.1.162+: 生产单模板用 ${order.xxx}, 示例预览补同一个别名 (否则整页空白)
+        model.put("order", bill);
         model.put("details", List.of(
-            Map.of("productName", "LDPE 2426H", "qty", "50", "price", "10.00", "amount", "500.00"),
-            Map.of("productName", "LLDPE 7050", "qty", "10", "price", "15.00", "amount", "150.00")
+            Map.of("lineNo", "1", "productName", "LDPE 2426H", "batchNo", "B20260718", "unitName", "kg",
+                   "qty", "50", "price", "10.00", "amount", "500.00"),
+            Map.of("lineNo", "2", "productName", "LLDPE 7050", "batchNo", "B20260715", "unitName", "kg",
+                   "qty", "10", "price", "15.00", "amount", "150.00")
         ));
         try {
             Template t = new Template("preview", new StringReader(tpl.getContent()), freemarkerConfig);

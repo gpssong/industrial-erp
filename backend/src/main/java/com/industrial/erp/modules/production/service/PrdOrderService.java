@@ -16,10 +16,12 @@ import com.industrial.erp.modules.production.entity.PrdBom;
 import com.industrial.erp.modules.production.entity.PrdBomDetail;
 import com.industrial.erp.modules.production.entity.PrdFinishedIn;
 import com.industrial.erp.modules.production.entity.PrdOrder;
+import com.industrial.erp.modules.production.entity.PrdOrderMaterial;
 import com.industrial.erp.modules.production.entity.PrdRequisition;
 import com.industrial.erp.modules.production.entity.PrdRequisitionDetail;
 import com.industrial.erp.modules.production.mapper.PrdFinishedInMapper;
 import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
+import com.industrial.erp.modules.production.mapper.PrdOrderMaterialMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionDetailMapper;
 import com.industrial.erp.modules.production.mapper.PrdRequisitionMapper;
 import com.industrial.erp.modules.system.annotation.OperLog;
@@ -35,6 +37,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -61,8 +64,12 @@ public class PrdOrderService {
     private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
     /** v1.1.142: 规格/单位 派生字段兜底回填的唯一口径. */
     private final ProductDeriveService deriveService;
+    /** v1.1.160: 工单原料明细 (BOM 逐行 + 每行出库仓/库存批号). */
+    private final PrdOrderMaterialMapper orderMaterialMapper;
+    /** v1.1.160: 回显原料行选定批次的可用库存量. */
+    private final com.industrial.erp.modules.inventory.mapper.InvStockMapper invStockMapper;
 
-    public PrdOrderService(PrdOrderMapper orderMapper, PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper, PrdFinishedInMapper finishedInMapper, PrdBomService bomService, BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher, com.industrial.erp.modules.mes.service.MesReportService mesReportService, ProductDeriveService deriveService) {
+    public PrdOrderService(PrdOrderMapper orderMapper, PrdRequisitionMapper reqMapper, PrdRequisitionDetailMapper reqDetailMapper, PrdFinishedInMapper finishedInMapper, PrdBomService bomService, BaseProductMapper productMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, PermissionService permService, OperLogPublisher operLogPublisher, com.industrial.erp.modules.mes.service.MesReportService mesReportService, ProductDeriveService deriveService, PrdOrderMaterialMapper orderMaterialMapper, com.industrial.erp.modules.inventory.mapper.InvStockMapper invStockMapper) {
         this.orderMapper = orderMapper;
         this.reqMapper = reqMapper;
         this.reqDetailMapper = reqDetailMapper;
@@ -76,6 +83,8 @@ public class PrdOrderService {
         this.operLogPublisher = operLogPublisher;
         this.mesReportService = mesReportService;
         this.deriveService = deriveService;
+        this.orderMaterialMapper = orderMaterialMapper;
+        this.invStockMapper = invStockMapper;
     }
 
     /**
@@ -93,6 +102,25 @@ public class PrdOrderService {
     /** 展示口径: 3 位小数 (kg); 领料展开仍用 6 位原值 */
     private static BigDecimal display(BigDecimal kg) {
         return kg == null ? null : kg.setScale(3, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * v1.1.160 BOM 单行领料量 (kg) 唯一算法出口: 开工 release() 与前端「按 BOM 展开原料行」的
+     * 建议接口 material-suggest 都走这里, 保证屏幕上看到的需求数量与开工生成的领料数量分毫不差
+     * (v1.1.119 口径: 用量 = 成品总重 × 本项配比/Σ配比 × (1 + 本项损耗率/100)).
+     * 缺总量或配比合计 ≤0 → null, 调用方按降级处理 (与 totalWeightKg 同一风格).
+     */
+    static BigDecimal bomLineNeedKg(BigDecimal totalKg, BigDecimal baseQty, BigDecimal sumRatio, BigDecimal lossRate) {
+        if (totalKg == null || sumRatio == null || sumRatio.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        BigDecimal base = baseQty == null ? BigDecimal.ZERO : baseQty;
+        BigDecimal loss = lossRate == null ? BigDecimal.ZERO : lossRate;
+        BigDecimal share = base.divide(sumRatio, 10, RoundingMode.HALF_UP);
+        return totalKg
+                .multiply(share)
+                .multiply(BigDecimal.ONE.add(loss.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP)))
+                .setScale(4, RoundingMode.HALF_UP);
     }
 
     public IPage<PrdOrder> page(Integer pageNum, Integer pageSize, String billNo, String billStatus, String productName) {
@@ -199,8 +227,184 @@ public class PrdOrderService {
             // v1.1.133 总重量 (kg) = 计划数量 × 克重 ÷ 1000, 生产单详情展示 + 领料合计口径
             order.setTotalWeightKg(display(totalWeightKg(order.getPlanQty(), order.getPGramWeight())));
             order.setRequisitionDetails(reqDetailMapper.selectByPrdOrderId(id));
+            // v1.1.160: 回显工单原料明细 + 每行选定批次的可用库存量
+            order.setMaterials(loadMaterials(id));
         }
         return order;
+    }
+
+    /** v1.1.160: 载工单原料行, 并给已选批次的行注入该 (仓库, 商品, 批次) 的可用库存量 (供前端提示是否够领). */
+    private List<PrdOrderMaterial> loadMaterials(Long orderId) {
+        List<PrdOrderMaterial> list = orderMaterialMapper.selectByOrderId(orderId);
+        if (list == null || list.isEmpty()) return java.util.Collections.emptyList();
+        for (PrdOrderMaterial m : list) {
+            if (m.getWarehouseId() != null && m.getProductId() != null) {
+                try {
+                    com.industrial.erp.modules.inventory.entity.InvStock s =
+                            invStockMapper.selectOne(new LambdaQueryWrapper<com.industrial.erp.modules.inventory.entity.InvStock>()
+                                    .eq(com.industrial.erp.modules.inventory.entity.InvStock::getWarehouseId, m.getWarehouseId())
+                                    .eq(com.industrial.erp.modules.inventory.entity.InvStock::getProductId, m.getProductId())
+                                    .eq(StrUtil.isNotBlank(m.getBatchNo()),
+                                            com.industrial.erp.modules.inventory.entity.InvStock::getBatchNo, m.getBatchNo())
+                                    .isNull(StrUtil.isBlank(m.getBatchNo()),
+                                            com.industrial.erp.modules.inventory.entity.InvStock::getBatchNo)
+                                    .eq(com.industrial.erp.modules.inventory.entity.InvStock::getDeleted, 0)
+                                    .last("LIMIT 1"));
+                    if (s != null) m.setAvailableQty(s.getAvailableQty());
+                } catch (Exception ignore) {
+                    // 库存查询失败不影响详情回显 (availableQty 仅提示用)
+                }
+            }
+        }
+        return list;
+    }
+
+    /**
+     * v1.1.160: 整体替换工单原料明细 (软删旧行 + 插新行).
+     * materials 为 null/空 → 只清不建 (未选 BOM 或全部删除). 每行必须带 productId.
+     */
+    private void saveMaterials(Long orderId, List<PrdOrderMaterial> materials) {
+        // MyBatis-Plus @TableLogic: delete(wrapper) 即软删该工单全部原料行 (deleted=0 → 1)
+        orderMaterialMapper.delete(new LambdaQueryWrapper<PrdOrderMaterial>()
+                .eq(PrdOrderMaterial::getPrdOrderId, orderId));
+        if (materials == null || materials.isEmpty()) return;
+        int line = 0;
+        for (PrdOrderMaterial m : materials) {
+            if (m == null || m.getProductId() == null) continue;   // 无原料商品的行不落
+            m.setId(null);
+            m.setPrdOrderId(orderId);
+            m.setLineNo(++line);
+            m.setDeleted(0);
+            orderMaterialMapper.insert(m);
+        }
+    }
+
+    /**
+     * v1.1.160: App 现场开工确认「批号从库存选择」—— 只把每行的出库仓库 + 批号贴到已有原料行.
+     *
+     * <p>入参只读 productId/warehouseId/batchNo 三个字段, 需求量/品名等一律忽略:
+     * 现场工人不该能改 BOM 算出来的领料量 (口径仍归 release() 与 bomLineNeedKg).
+     * <p>老单 (v1.1.160 之前建的、没走过 PC 新弹窗) 没有原料行时先按当前 BOM 展开一份再贴批次,
+     * 这样开工生成的领料单照样带得上批号 —— 否则领料审核照旧卡在「库存不存在」.
+     *
+     * @return 实际写入批次的原料行数
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int applyMaterialBatches(Long orderId, List<PrdOrderMaterial> picks) {
+        if (picks == null || picks.isEmpty()) return 0;
+        Map<Long, PrdOrderMaterial> byProduct = new HashMap<>();
+        for (PrdOrderMaterial p : picks) {
+            if (p == null || p.getProductId() == null) continue;
+            byProduct.put(p.getProductId(), p);
+        }
+        if (byProduct.isEmpty()) return 0;
+
+        List<PrdOrderMaterial> rows = orderMaterialMapper.selectByOrderId(orderId);
+        if (rows == null || rows.isEmpty()) {
+            PrdOrder order = orderMapper.selectById(orderId);
+            if (order == null) return 0;
+            BaseProduct product = order.getProductId() == null ? null : productMapper.selectById(order.getProductId());
+            Long bomId = order.getBomId() != null ? order.getBomId()
+                    : (product == null ? null : product.getBomId());
+            List<PrdOrderMaterial> expanded = expandBom(bomId, order.getPlanQty(),
+                    product == null ? null : product.getGramWeight());
+            if (expanded.isEmpty()) return 0;
+            saveMaterials(orderId, expanded);
+            rows = orderMaterialMapper.selectByOrderId(orderId);
+        }
+
+        int patched = 0;
+        for (PrdOrderMaterial row : rows) {
+            PrdOrderMaterial pick = row.getProductId() == null ? null : byProduct.get(row.getProductId());
+            if (pick == null) continue;
+            String batchNo = StrUtil.isBlank(pick.getBatchNo()) ? null : pick.getBatchNo().trim();
+            if (pick.getWarehouseId() == null && batchNo == null) continue;   // 没选就不动, 别把已存的清掉
+            row.setWarehouseId(pick.getWarehouseId());
+            row.setBatchNo(batchNo);
+            orderMaterialMapper.updateById(row);
+            patched++;
+        }
+        return patched;
+    }
+
+    /**
+     * v1.1.160: 新建/编辑工单时把成品 BOM 展开成原料行, 并带出每行可选的库存批次 (跨仓库, 可用量 &gt; 0).
+     * <p>BOM 解析口径与 add() 一致 (成品 base_product.bom_id → bomService.detail); 需求数量走
+     * {@link #bomLineNeedKg}, 与开工 release() 生成的领料数量同一算法 —— 屏幕上看到的就是领料单上的。
+     * <p>返回的行就是前端要提交的行 (字段同名), 前端只需再填每行的 warehouseId + batchNo。
+     * <p>降级返回空列表 (不抛错): 成品不存在 / 未配 BOM / BOM 无明细 / 缺克重或配比合计为 0,
+     * 与开工那套「无 BOM 不阻塞」保持同一风格, 建单照常, 用户后续手动建领料单。
+     */
+    public List<PrdOrderMaterial> suggestMaterials(Long productId, BigDecimal planQty) {
+        if (productId == null) return java.util.Collections.emptyList();
+        BaseProduct p = productMapper.selectById(productId);
+        if (p == null || p.getBomId() == null) return java.util.Collections.emptyList();
+        return expandBom(p.getBomId(), planQty, p.getGramWeight());
+    }
+
+    /**
+     * v1.1.160: 把一张 BOM 按 planQty 展开成原料行 (需求数量走 bomLineNeedKg) + 每行的可用库存批次候选.
+     * <p>bomId 由调用方定: 新建工单走成品的 base_product.bom_id, 老工单补批次走工单自己存的 prd_order.bom_id
+     * (两者在 add() 里会对齐, 但历史单可能手选过别的 BOM —— 以工单为准才和 release() 生成的一致).
+     */
+    private List<PrdOrderMaterial> expandBom(Long bomId, BigDecimal planQty, BigDecimal gramWeight) {
+        if (bomId == null) return java.util.Collections.emptyList();
+        PrdBom bom = bomService.detail(bomId);
+        if (bom == null || bom.getDetails() == null || bom.getDetails().isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        BigDecimal sumRatio = BigDecimal.ZERO;
+        for (PrdBomDetail bd : bom.getDetails()) {
+            sumRatio = sumRatio.add(bd.getBaseQty() == null ? BigDecimal.ZERO : bd.getBaseQty());
+        }
+        // 成品总重 (kg) = 计划数量 × 克重 ÷ 1000; 缺克重或未传数量 → 算不出用量, 只给行不给数
+        BigDecimal totalKg = totalWeightKg(planQty, gramWeight);
+        boolean computable = totalKg != null && sumRatio.compareTo(BigDecimal.ZERO) > 0;
+
+        List<PrdOrderMaterial> rows = new java.util.ArrayList<>(bom.getDetails().size());
+        int line = 0;
+        for (PrdBomDetail bd : bom.getDetails()) {
+            PrdOrderMaterial m = new PrdOrderMaterial();
+            m.setLineNo(++line);
+            m.setBomDetailId(bd.getId());
+            m.setMaterialType(bd.getMaterialType());
+            m.setProductId(bd.getProductId());
+            m.setProductCode(bd.getProductCode());
+            m.setProductName(bd.getProductName());
+            m.setSpec(bd.getSpec());
+            m.setUnitId(bd.getUnitId());
+            m.setUnitName(bd.getUnitName());
+            m.setBomBaseQty(bd.getBaseQty());
+            m.setLossRate(bd.getLossRate());
+            m.setReqQty(computable ? bomLineNeedKg(totalKg, bd.getBaseQty(), sumRatio, bd.getLossRate()) : null);
+            m.setBatches(stockBatchOptions(bd.getProductId()));
+            rows.add(m);
+        }
+        return rows;
+    }
+
+    /** v1.1.160: 某原料当前可用库存批次候选 (available_qty &gt; 0, 跨仓库, 按入库先后 = FIFO). */
+    private List<com.industrial.erp.modules.production.vo.StockBatchOptionVO> stockBatchOptions(Long materialProductId) {
+        if (materialProductId == null) return java.util.Collections.emptyList();
+        List<com.industrial.erp.modules.inventory.entity.InvStock> stocks =
+                invStockMapper.listAvailableByProduct(materialProductId);
+        if (stocks == null || stocks.isEmpty()) return java.util.Collections.emptyList();
+        List<com.industrial.erp.modules.production.vo.StockBatchOptionVO> out =
+                new java.util.ArrayList<>(stocks.size());
+        for (com.industrial.erp.modules.inventory.entity.InvStock s : stocks) {
+            com.industrial.erp.modules.production.vo.StockBatchOptionVO o =
+                    new com.industrial.erp.modules.production.vo.StockBatchOptionVO();
+            o.setWarehouseId(s.getWarehouseId());
+            o.setWarehouseName(s.getWarehouseName());
+            o.setBatchNo(s.getBatchNo());
+            o.setUnitId(s.getUnitId());
+            o.setUnitName(s.getUnitName());
+            o.setAvailableQty(s.getAvailableQty());
+            o.setProductionDate(s.getProductionDate());
+            o.setExpireDate(s.getExpireDate());
+            out.add(o);
+        }
+        return out;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -243,6 +447,8 @@ public class PrdOrderService {
             }
         }
         orderMapper.insert(order);
+        // v1.1.160: 落工单原料明细 (BOM 逐行 + 每行出库仓/库存批号), 供开工回填领料行批次
+        saveMaterials(order.getId(), order.getMaterials());
         return order.getId();
     }
 
@@ -271,6 +477,10 @@ public class PrdOrderService {
             }
         }
         orderMapper.updateById(order);
+        // v1.1.160: 前端提交了 materials 才整体替换 (null = 未改动原料区, 保持原行)
+        if (order.getMaterials() != null) {
+            saveMaterials(order.getId(), order.getMaterials());
+        }
     }
 
     /**
@@ -349,6 +559,12 @@ public class PrdOrderService {
                     req.setBillType("ISSUE");
                     req.setBillStatus(Constants.STATUS_DRAFT);
                     req.setDetails(new java.util.ArrayList<>());
+                    // v1.1.160: 工单原料明细按 productId 建索引, 开工时把用户选好的批次/出库仓回填到领料行.
+                    // (同一原料在 BOM 里通常只一行; 多行同 productId 时取第一行批次.)
+                    Map<Long, PrdOrderMaterial> matByProduct = new HashMap<>();
+                    for (PrdOrderMaterial m : loadMaterials(order.getId())) {
+                        if (m.getProductId() != null) matByProduct.putIfAbsent(m.getProductId(), m);
+                    }
                     int line = 0;
                     for (PrdBomDetail bd : bom.getDetails()) {
                         PrdRequisitionDetail rd = new PrdRequisitionDetail();
@@ -358,14 +574,14 @@ public class PrdOrderService {
                         rd.setProductName(bd.getProductName());
                         rd.setUnitId(bd.getUnitId());
                         rd.setUnitName(bd.getUnitName());
-                        BigDecimal base = bd.getBaseQty() == null ? BigDecimal.ZERO : bd.getBaseQty();
-                        BigDecimal loss = bd.getLossRate() == null ? BigDecimal.ZERO : bd.getLossRate();
-                        // 配比份额 = 本项 / Σ全部 ; 再乘成品总重和 (1+损耗率)
-                        BigDecimal share = base.divide(sumRatio, 10, RoundingMode.HALF_UP);
-                        BigDecimal need = totalKg
-                                .multiply(share)
-                                .multiply(BigDecimal.ONE.add(loss.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP)));
-                        rd.setQty(need.setScale(4, RoundingMode.HALF_UP));
+                        // v1.1.160: 需求数量口径抽到 bomLineNeedKg, 与前端建议接口共用同一算法
+                        rd.setQty(bomLineNeedKg(totalKg, bd.getBaseQty(), sumRatio, bd.getLossRate()));
+                        // v1.1.160: 回填批次 + 出库仓 (领料审核 outStock 需精确命中 inv_stock 行, 否则报"库存不存在")
+                        PrdOrderMaterial mat = bd.getProductId() == null ? null : matByProduct.get(bd.getProductId());
+                        if (mat != null) {
+                            if (StrUtil.isNotBlank(mat.getBatchNo())) rd.setBatchNo(mat.getBatchNo());
+                            if (mat.getWarehouseId() != null) rd.setWarehouseId(mat.getWarehouseId());
+                        }
                         req.getDetails().add(rd);
                     }
                     // v1.1.133 把口径写在单上: 领料合计应当等于生产单详情里的「总重量」
@@ -547,6 +763,9 @@ public class PrdOrderService {
                 .eq(PrdOrder::getDeleted, 1));
         orderMapper.update(null, new LambdaUpdateWrapper<PrdOrder>()
                 .eq(PrdOrder::getId, orderId).set(PrdOrder::getDeleted, 1));
+        // v1.1.160: 工单软删 → 原料明细一并软删 (只删未删的活行)
+        orderMaterialMapper.delete(new LambdaQueryWrapper<PrdOrderMaterial>()
+                .eq(PrdOrderMaterial::getPrdOrderId, orderId));
         operLogPublisher.publishDeleteSnapshot("生产加工单", String.valueOf(orderId), order, null);
     }
 }

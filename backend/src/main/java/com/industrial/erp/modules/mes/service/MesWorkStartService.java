@@ -15,6 +15,7 @@ import com.industrial.erp.modules.mes.mapper.MesBatchLinkMapper;
 import com.industrial.erp.modules.mes.mapper.MesWorkStartConfirmMapper;
 import com.industrial.erp.modules.mes.mapper.PrdProcessMapper;
 import com.industrial.erp.modules.production.entity.PrdOrder;
+import com.industrial.erp.modules.production.entity.PrdOrderMaterial;
 import com.industrial.erp.modules.production.entity.PrdRequisition;
 import com.industrial.erp.modules.production.entity.PrdRequisitionDetail;
 import com.industrial.erp.modules.production.entity.PrdSemiIn;
@@ -136,7 +137,20 @@ public class MesWorkStartService {
         PrdOrder order = requireOrder(orderId);
         Map<String, WorkStartEnvItem> envResults = requireEnvQualified(dto, STAGE_BLOW);
         boolean foodGrade = isFoodGradeProduct(order);
-        List<String> batchNos = normalize(dto.getRawBatchNos());
+        List<String> batchNos = new ArrayList<>(normalize(dto.getRawBatchNos()));
+
+        // v1.1.160: 现场按 BOM 行从库存选了「出库仓库 + 批号」→ 先落 prd_order_material,
+        // 紧接着的 release() 生成的领料单才带得上批号 (领料审核不再卡在「库存不存在」)。
+        // 选出来的批号同时并入投料登记, 食品级必填门禁与 XK 追溯口径保持不变。
+        int picked = prdOrderService.applyMaterialBatches(orderId, dto.getMaterials());
+        if (picked > 0 && dto.getMaterials() != null) {
+            for (PrdOrderMaterial m : dto.getMaterials()) {
+                if (m == null || StrUtil.isBlank(m.getBatchNo())) continue;
+                String v = m.getBatchNo().trim();
+                if (!batchNos.contains(v)) batchNos.add(v);
+            }
+        }
+
         if (foodGrade && batchNos.isEmpty()) {
             throw BizException.of("请填写本次投入的原料批号 (XK16-204 要求食品级投料记录可追溯)");
         }

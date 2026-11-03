@@ -271,6 +271,8 @@ export const api = {
   prdOrderBlowStart: (id, data) => request({ url: '/production/order/' + id + '/blow-start', method: 'POST', data, contentType: 'json' }),
   prdOrderBagStart: (id, data) => request({ url: '/production/order/' + id + '/bag-start', method: 'POST', data, contentType: 'json' }),
   prdOrderStartRecords: (id) => request({ url: '/production/order/' + id + '/work-start-records', silent: true }),
+  // v1.1.160 按 BOM 展开原料行 + 每行可用库存批次候选 (开工确认里「批号从库存选择」用)
+  prdOrderMaterialSuggest: (productId, planQty) => request({ url: '/production/order/material-suggest', data: { productId, planQty }, silent: true }),
   // v1.1.151 生产环境检查逐项清单 (GB 31603-2015), 与 PC XK 页共用后端唯一模板
   envCheckTemplate: (stage) => request({ url: '/xk/env-check/template', data: { stage }, silent: true }),
   // 环境不合格登记: 落一张 DRAFT 整改单 (EC 单号), 整改合格后再重新确认开工

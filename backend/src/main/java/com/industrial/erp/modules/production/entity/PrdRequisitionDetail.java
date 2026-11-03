@@ -15,6 +15,8 @@ public class PrdRequisitionDetail {
     @TableId(type = IdType.ASSIGN_ID)
     private Long id;
     private Long requisitionId;
+    /** v1.1.160: 该行出库仓库 (工单原料行按仓选批回填; 空则 check() 回落领料单表头仓库). */
+    private Long warehouseId;
     private Integer lineNo;
     private String materialType;
     private Long productId;
@@ -50,6 +52,8 @@ public class PrdRequisitionDetail {
     public void setId(Long id) { this.id = id; }
     public Long getRequisitionId() { return requisitionId; }
     public void setRequisitionId(Long requisitionId) { this.requisitionId = requisitionId; }
+    public Long getWarehouseId() { return warehouseId; }
+    public void setWarehouseId(Long warehouseId) { this.warehouseId = warehouseId; }
     public Integer getLineNo() { return lineNo; }
     public void setLineNo(Integer lineNo) { this.lineNo = lineNo; }
     public String getMaterialType() { return materialType; }

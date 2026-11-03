@@ -79,7 +79,7 @@
           <div style="display:flex;gap:8px;">
             <div style="flex:1;position:relative;">
               <el-button size="small" type="primary" @click="insertTag('<CB>标题</CB>')" style="position:absolute;z-index:1;top:4px;right:4px;">插入标签</el-button>
-              <el-input v-model="form.content" type="textarea" :rows="18" placeholder="<CB>标题</CB><BR>单号: ${bill.billNo!''}<BR><BR>商品明细:<BR><#list bill.details as d>${d.productName!''}  数量:${d.qty!0}<BR></#list><CUT>" />
+              <el-input v-model="form.content" type="textarea" :rows="18" placeholder="<CB>标题</CB><BR>单号: ${bill.billNo!''}<BR><BR>商品明细:<BR><#list details as d>${d.productName!''}  数量:${d.qty!0}<BR></#list><CUT>" />
             </div>
             <div style="width:280px;border:1px solid #e4e7ed;border-radius:4px;background:#fafbfc;overflow:auto;max-height:380px;">
               <div style="padding:8px 10px;background:#f0f2f5;font-weight:600;font-size:12px;border-bottom:1px solid #e4e7ed;">
@@ -87,12 +87,12 @@
               </div>
               <div v-if="!form.bizType" style="padding:10px;color:#999;font-size:12px;">选择单据后显示字段</div>
               <div v-else>
-                <div style="padding:6px 10px;background:#f0f9eb;color:#67c23a;font-size:11px;font-weight:600;">📌 主表字段 (${'${bill.xxx}'})</div>
+                <div style="padding:6px 10px;background:#f0f9eb;color:#67c23a;font-size:11px;font-weight:600;" v-text="'📌 主表字段 (${'+ bizPrefix + 'xxx})'"></div>
                 <div v-for="f in (FIELD_DOC[form.bizType]?.main || [])" :key="'m-'+f.name" class="field-row" @click="insertField(bizPrefix + f.name)">
                   <span class="field-name">{{ bizPrefix }}{{ f.name }}!''</span>
                   <span class="field-desc">{{ f.desc }}</span>
                 </div>
-                <div v-if="form.bizType !== 'INV_CHECK'" style="padding:6px 10px;background:#fdf6ec;color:#e6a23c;font-size:11px;font-weight:600;">🔁 明细循环 (&lt;#list bill.details as d&gt;...)</div>
+                <div v-if="form.bizType !== 'INV_CHECK'" style="padding:6px 10px;background:#fdf6ec;color:#e6a23c;font-size:11px;font-weight:600;">🔁 明细循环 (&lt;#list details as d&gt; ... &lt;/#list&gt; — 明细根变量只有 details, 不是 bill.details)</div>
                 <div v-for="f in (FIELD_DOC[form.bizType]?.detail || [])" :key="'d-'+f.name" class="field-row" @click="insertField('d.' + f.name)">
                   <span class="field-name">d.{{ f.name }}<span v-if="f.name === 'qty'">!0</span></span>
                   <span class="field-desc">{{ f.desc }}</span>
@@ -156,8 +156,8 @@ const BIZ_TYPE_MAP = {
 }
 
 // 字段说明: 按单据类型分组, 用于编辑器右侧字段树
-// 字段引用规则: 主表 ${bill.fieldName}, 明细 <#list bill.details as d>${d.fieldName}</#list>
-// PRD_ORDER 主表用 ${order.xxx}, INV_CHECK 主表用 ${bill.xxx} 也有
+// 字段引用规则: 主表 ${bill.fieldName} (生产单另有等价别名 ${order.fieldName}), 明细 <#list details as d>${d.fieldName}</#list>
+// 明细永远是根变量 details, 没有 bill.details; 后端保存时会先试解析, 语法错会被拒绝
 const FIELD_DOC = {
   PRD_ORDER: {
     main: [
@@ -343,7 +343,7 @@ const TAG_EXAMPLES = [
   { label: '切纸', code: '<CUT>' },
   { label: 'LOGO', code: '<LOGO>' },
   { label: '变量', code: '${bill.billNo!\'\'}' },
-  { label: '循环', code: '<#list bill.details as d>${d.productName!\'\'}<BR></#list>' }
+  { label: '循环', code: '<#list details as d>${d.productName!\'\'}<BR></#list>' }
 ]
 
 const list = ref([])

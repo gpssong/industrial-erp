@@ -20,6 +20,11 @@ public class WorkStartConfirmDTO {
     private List<String> rawBatchNos;
     /** 原料批号照片 URL — 食品级商品必填 (至少 1 张); 工业品选填 (v1.1.141) */
     private List<String> photoUrls;
+    /**
+     * v1.1.160 按 BOM 行选定的「出库仓库 + 库存批号」(只读 productId/warehouseId/batchNo).
+     * 落 prd_order_material 后 release() 生成的领料单才带得上批号 —— 领料审核不再卡在「库存不存在」.
+     */
+    private List<com.industrial.erp.modules.production.entity.PrdOrderMaterial> materials;
     private String remark;
 
     public Long getProcessId() { return processId; }
@@ -34,6 +39,8 @@ public class WorkStartConfirmDTO {
     public void setRawBatchNos(List<String> rawBatchNos) { this.rawBatchNos = rawBatchNos; }
     public List<String> getPhotoUrls() { return photoUrls; }
     public void setPhotoUrls(List<String> photoUrls) { this.photoUrls = photoUrls; }
+    public List<com.industrial.erp.modules.production.entity.PrdOrderMaterial> getMaterials() { return materials; }
+    public void setMaterials(List<com.industrial.erp.modules.production.entity.PrdOrderMaterial> materials) { this.materials = materials; }
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
 }

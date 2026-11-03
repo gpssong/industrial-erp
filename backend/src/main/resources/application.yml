@@ -98,7 +98,7 @@ sa-token:
     path: /
 
 erp:
-  version: ${ERP_VERSION:1.1.157}
+  version: ${ERP_VERSION:1.1.165}
   # v1.1.75 AI 集成第一步 — 通用 LLM 网关 (OpenAI 兼容协议, 支持通义/DeepSeek/OpenAI/OpenRouter).
   # key 为空时 AI 端点快速失败并提示"未配置", 不影响其他功能. 密钥只走 env, 不进 git.
   #
@@ -141,6 +141,23 @@ erp:
     asr-model: ${ERP_AI_ASR_MODEL:paraformer-v2}
     asr-base-url: ${ERP_AI_ASR_BASE_URL:https://dashscope.aliyuncs.com/api/v1/services/audio/asr}
     asr-timeout-ms: ${ERP_AI_ASR_TIMEOUT_MS:30000}
+    # ---- v1.1.158 OCR (视觉模型: 原料标签批号识别, 可选) ----
+    # OpenAI 兼容协议多模态 chat/completions, content = [{type:text},{type:image_url}].
+    # 默认 DashScope qwen-vl-plus; 未配 ERP_AI_OCR_KEY 时 /ai/ocr/* 快速失败, 不影响 LLM/ASR.
+    # 也可在「系统设置→对接方式」填 sys_config.AI_INTEGRATION.ocr (DB 覆盖优先, 即时生效).
+    ocr-key: ${ERP_AI_OCR_KEY:}
+    ocr-model: ${ERP_AI_OCR_MODEL:qwen-vl-plus}
+    ocr-base-url: ${ERP_AI_OCR_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+    ocr-timeout-ms: ${ERP_AI_OCR_TIMEOUT_MS:30000}
+    # ---- v1.1.165 OCR 服务商开关 + TextIn (合合信息) 通用文字识别 ----
+    # ocr-provider: llm = 上面 ocr-* 的 OpenAI 兼容视觉模型; textin = 走 TextIn 专用 OCR (逐行文字 + 坐标).
+    # 默认 llm (已有视觉 key 的站点行为不变); 选中的服务商凭证没填时自动改用另一个已配齐的.
+    # TextIn 凭证同样「只走 env 或 DB, 不进 git」; 三家 API 均 https://api.textin.com, 一般无需改 base-url.
+    ocr-provider: ${ERP_AI_OCR_PROVIDER:llm}
+    textin-app-id: ${ERP_AI_TEXTIN_APP_ID:}
+    textin-secret-code: ${ERP_AI_TEXTIN_SECRET_CODE:}
+    textin-base-url: ${ERP_AI_TEXTIN_BASE_URL:https://api.textin.com}
+    textin-timeout-ms: ${ERP_AI_TEXTIN_TIMEOUT_MS:20000}
     # v1.1.75 任务3: RAG 语料目录 (读 *.md/*.txt 切块检索). 空则 RAG 不启用, 不影响其它 AI.
     # 容器部署时指向 jar 能读到的语料目录 (见部署说明).
     rag:

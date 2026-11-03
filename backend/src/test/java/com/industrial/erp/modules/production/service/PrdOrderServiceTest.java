@@ -75,6 +75,10 @@ class PrdOrderServiceTest {
     @Mock private MesReportService mesReportService;
     /** v1.1.142: 工单多了派生字段兜底回填, 默认 mock 让 backfillDerived 退化成 no-op. */
     @Mock private ProductDeriveService deriveService;
+    /** v1.1.160: 工单原料明细 (BOM 逐行 + 每行出库仓/库存批号). */
+    @Mock private com.industrial.erp.modules.production.mapper.PrdOrderMaterialMapper orderMaterialMapper;
+    /** v1.1.160: 回显原料行批次可用库存. */
+    @Mock private com.industrial.erp.modules.inventory.mapper.InvStockMapper invStockMapper;
 
     @InjectMocks private PrdOrderService prdOrderService;
 
@@ -136,6 +140,215 @@ class PrdOrderServiceTest {
         verify(reqDetailMapper, times(2)).insert(any(PrdRequisitionDetail.class));
         // 验证: 生产单状态改为 RELEASED
         verify(orderMapper, times(1)).updateById(any(PrdOrder.class));
+    }
+
+    @Test
+    @DisplayName("开工: 工单原料行已选批次/出库仓 → 回填到生成的领料明细行 (v1.1.160)")
+    void release_shouldBackfillBatchAndWarehouseFromOrderMaterial() {
+        PrdOrder order = buildDraftOrder();
+        order.setPlanQty(new BigDecimal("100"));
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(order);
+
+        PrdBom bom = new PrdBom();
+        bom.setId(BOM_ID);
+        bom.setBaseQty(new BigDecimal("10"));
+        bom.setLossRate(BigDecimal.ZERO);
+        bom.setDetails(List.of(
+                buildBomDetail(1L, "LDPE", new BigDecimal("2.0")),
+                buildBomDetail(2L, "LLDPE", new BigDecimal("0.5"))
+        ));
+        when(bomService.detail(BOM_ID)).thenReturn(bom);
+        when(billNoGenerator.generate(eq(Constants.BILL_RQ))).thenReturn("RQ2026-001");
+        BaseProduct product = new BaseProduct();
+        product.setId(PRODUCT_ID);
+        product.setGramWeight(new BigDecimal("10"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product);
+
+        // 原料 1 在开单时选了批次 RAW-A + 出库仓 777
+        com.industrial.erp.modules.production.entity.PrdOrderMaterial mat =
+                new com.industrial.erp.modules.production.entity.PrdOrderMaterial();
+        mat.setProductId(1L);
+        mat.setBatchNo("RAW-A");
+        mat.setWarehouseId(777L);
+        when(orderMaterialMapper.selectByOrderId(ORDER_ID)).thenReturn(List.of(mat));
+
+        prdOrderService.release(ORDER_ID);
+
+        ArgumentCaptor<PrdRequisitionDetail> captor = ArgumentCaptor.forClass(PrdRequisitionDetail.class);
+        verify(reqDetailMapper, times(2)).insert(captor.capture());
+        PrdRequisitionDetail ldpe = captor.getAllValues().stream()
+                .filter(d -> Long.valueOf(1L).equals(d.getProductId())).findFirst().orElseThrow();
+        assertThat(ldpe.getBatchNo()).isEqualTo("RAW-A");
+        assertThat(ldpe.getWarehouseId()).isEqualTo(777L);
+        // 未选批次的另一行保持空 (不阻塞, 由仓管在领料审核补)
+        PrdRequisitionDetail lldpe = captor.getAllValues().stream()
+                .filter(d -> Long.valueOf(2L).equals(d.getProductId())).findFirst().orElseThrow();
+        assertThat(lldpe.getBatchNo()).isNull();
+    }
+
+    @Test
+    @DisplayName("原料建议: 需求数量与开工生成的领料数量同一口径 (v1.1.160)")
+    void suggestMaterials_reqQtyMatchesRequisitionQty() {
+        BaseProduct product = new BaseProduct();
+        product.setId(PRODUCT_ID);
+        product.setBomId(BOM_ID);
+        product.setGramWeight(new BigDecimal("10"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product);
+        when(bomService.detail(BOM_ID)).thenReturn(buildTwoLineBom());
+        when(invStockMapper.listAvailableByProduct(anyLong())).thenReturn(Collections.emptyList());
+
+        List<com.industrial.erp.modules.production.entity.PrdOrderMaterial> rows =
+                prdOrderService.suggestMaterials(PRODUCT_ID, new BigDecimal("100"));
+
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).getProductName()).isEqualTo("LDPE");
+        assertThat(rows.get(1).getProductName()).isEqualTo("LLDPE");
+
+        // 同一 BOM 同一 planQty 走开工: 领料明细数量必须与建议行的需求数量一字不差
+        PrdOrder order = buildDraftOrder();
+        order.setPlanQty(new BigDecimal("100"));
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(order);
+        when(billNoGenerator.generate(eq(Constants.BILL_RQ))).thenReturn("RQ2026-001");
+        when(orderMaterialMapper.selectByOrderId(ORDER_ID)).thenReturn(Collections.emptyList());
+        prdOrderService.release(ORDER_ID);
+
+        ArgumentCaptor<PrdRequisitionDetail> captor = ArgumentCaptor.forClass(PrdRequisitionDetail.class);
+        verify(reqDetailMapper, times(2)).insert(captor.capture());
+        for (PrdRequisitionDetail rd : captor.getAllValues()) {
+            com.industrial.erp.modules.production.entity.PrdOrderMaterial row = rows.stream()
+                    .filter(m -> m.getProductId().equals(rd.getProductId())).findFirst().orElseThrow();
+            assertThat(row.getReqQty()).isEqualByComparingTo(rd.getQty());
+        }
+        // 总重 = 100 件 × 10 g ÷ 1000 = 1 kg; LDPE 配比 2/2.5 → 0.8 kg (损耗 3% → 0.824)
+        assertThat(rows.get(0).getReqQty()).isEqualByComparingTo(new BigDecimal("0.8240"));
+        assertThat(rows.get(1).getReqQty()).isEqualByComparingTo(new BigDecimal("0.2000"));
+    }
+
+    @Test
+    @DisplayName("原料建议: 带出该原料跨仓库的可用批次候选 (v1.1.160)")
+    void suggestMaterials_carriesStockBatchCandidates() {
+        BaseProduct product = new BaseProduct();
+        product.setId(PRODUCT_ID);
+        product.setBomId(BOM_ID);
+        product.setGramWeight(new BigDecimal("10"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product);
+        when(bomService.detail(BOM_ID)).thenReturn(buildTwoLineBom());
+
+        com.industrial.erp.modules.inventory.entity.InvStock s1 =
+                new com.industrial.erp.modules.inventory.entity.InvStock();
+        s1.setProductId(1L);
+        s1.setWarehouseId(777L);
+        s1.setWarehouseName("原料仓");
+        s1.setBatchNo("RAW-A");
+        s1.setUnitName("千克");
+        s1.setAvailableQty(new BigDecimal("500"));
+        when(invStockMapper.listAvailableByProduct(1L)).thenReturn(List.of(s1));
+        when(invStockMapper.listAvailableByProduct(2L)).thenReturn(Collections.emptyList());
+
+        List<com.industrial.erp.modules.production.entity.PrdOrderMaterial> rows =
+                prdOrderService.suggestMaterials(PRODUCT_ID, new BigDecimal("100"));
+
+        assertThat(rows.get(0).getBatches()).hasSize(1);
+        assertThat(rows.get(0).getBatches().get(0).getWarehouseId()).isEqualTo(777L);
+        assertThat(rows.get(0).getBatches().get(0).getBatchNo()).isEqualTo("RAW-A");
+        assertThat(rows.get(0).getBatches().get(0).getAvailableQty()).isEqualByComparingTo("500");
+        assertThat(rows.get(1).getBatches()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("原料建议: 成品未配 BOM 返回空列表, 不阻断建单 (v1.1.160 降级)")
+    void suggestMaterials_emptyWhenProductHasNoBom() {
+        BaseProduct product = new BaseProduct();
+        product.setId(PRODUCT_ID);
+        product.setBomId(null);
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product);
+
+        assertThat(prdOrderService.suggestMaterials(PRODUCT_ID, new BigDecimal("100"))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("原料建议: 成品缺克重时仍给原料行, 需求数量留空 (v1.1.160 降级)")
+    void suggestMaterials_rowsWithoutQtyWhenGramWeightMissing() {
+        BaseProduct product = new BaseProduct();
+        product.setId(PRODUCT_ID);
+        product.setBomId(BOM_ID);
+        product.setGramWeight(null);
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product);
+        when(bomService.detail(BOM_ID)).thenReturn(buildTwoLineBom());
+        when(invStockMapper.listAvailableByProduct(anyLong())).thenReturn(Collections.emptyList());
+
+        List<com.industrial.erp.modules.production.entity.PrdOrderMaterial> rows =
+                prdOrderService.suggestMaterials(PRODUCT_ID, new BigDecimal("100"));
+
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).getReqQty()).isNull();
+    }
+
+    @Test
+    @DisplayName("开工补批次: 只贴仓库与批号, 需求量/品名一动不动 (v1.1.160)")
+    void applyMaterialBatches_onlyPatchesWarehouseAndBatch() {
+        com.industrial.erp.modules.production.entity.PrdOrderMaterial ldpe =
+                new com.industrial.erp.modules.production.entity.PrdOrderMaterial();
+        ldpe.setId(11L); ldpe.setPrdOrderId(ORDER_ID); ldpe.setProductId(1L);
+        ldpe.setProductName("LDPE"); ldpe.setReqQty(new BigDecimal("0.8240"));
+        com.industrial.erp.modules.production.entity.PrdOrderMaterial lldpe =
+                new com.industrial.erp.modules.production.entity.PrdOrderMaterial();
+        lldpe.setId(12L); lldpe.setPrdOrderId(ORDER_ID); lldpe.setProductId(2L);
+        lldpe.setProductName("LLDPE"); lldpe.setReqQty(new BigDecimal("0.2000"));
+        when(orderMaterialMapper.selectByOrderId(ORDER_ID)).thenReturn(List.of(ldpe, lldpe));
+
+        com.industrial.erp.modules.production.entity.PrdOrderMaterial pick =
+                new com.industrial.erp.modules.production.entity.PrdOrderMaterial();
+        pick.setProductId(1L); pick.setWarehouseId(777L); pick.setBatchNo(" RAW-A ");
+        com.industrial.erp.modules.production.entity.PrdOrderMaterial skipped =
+                new com.industrial.erp.modules.production.entity.PrdOrderMaterial();
+        skipped.setProductId(2L);   // 现场没选 → 不能把该行已存的批次清掉
+
+        assertThat(prdOrderService.applyMaterialBatches(ORDER_ID, List.of(pick, skipped))).isEqualTo(1);
+
+        ArgumentCaptor<com.industrial.erp.modules.production.entity.PrdOrderMaterial> cap =
+                ArgumentCaptor.forClass(com.industrial.erp.modules.production.entity.PrdOrderMaterial.class);
+        verify(orderMaterialMapper).updateById(cap.capture());
+        assertThat(cap.getValue().getId()).isEqualTo(11L);
+        assertThat(cap.getValue().getWarehouseId()).isEqualTo(777L);
+        assertThat(cap.getValue().getBatchNo()).isEqualTo("RAW-A");
+        // 工人传什么都不改得了量: 需求数量仍是 BOM 算出来的
+        assertThat(cap.getValue().getReqQty()).isEqualByComparingTo("0.8240");
+        assertThat(cap.getValue().getProductName()).isEqualTo("LDPE");
+    }
+
+    @Test
+    @DisplayName("开工补批次: v1.1.160 之前的老单没有原料行, 先按工单 BOM 展开再贴批次 (v1.1.160)")
+    void applyMaterialBatches_expandsLegacyOrderFromItsOwnBom() {
+        PrdOrder order = buildDraftOrder();
+        when(orderMapper.selectById(ORDER_ID)).thenReturn(order);
+        BaseProduct product = new BaseProduct();
+        product.setId(PRODUCT_ID); product.setBomId(BOM_ID); product.setGramWeight(new BigDecimal("10"));
+        when(productMapper.selectById(PRODUCT_ID)).thenReturn(product);
+        when(bomService.detail(BOM_ID)).thenReturn(buildTwoLineBom());
+        when(invStockMapper.listAvailableByProduct(anyLong())).thenReturn(Collections.emptyList());
+
+        com.industrial.erp.modules.production.entity.PrdOrderMaterial r1 =
+                new com.industrial.erp.modules.production.entity.PrdOrderMaterial();
+        r1.setId(21L); r1.setPrdOrderId(ORDER_ID); r1.setProductId(1L);
+        com.industrial.erp.modules.production.entity.PrdOrderMaterial r2 =
+                new com.industrial.erp.modules.production.entity.PrdOrderMaterial();
+        r2.setId(22L); r2.setPrdOrderId(ORDER_ID); r2.setProductId(2L);
+        when(orderMaterialMapper.selectByOrderId(ORDER_ID))
+                .thenReturn(Collections.emptyList(), List.of(r1, r2));
+
+        com.industrial.erp.modules.production.entity.PrdOrderMaterial pick =
+                new com.industrial.erp.modules.production.entity.PrdOrderMaterial();
+        pick.setProductId(1L); pick.setWarehouseId(777L); pick.setBatchNo("RAW-A");
+
+        assertThat(prdOrderService.applyMaterialBatches(ORDER_ID, List.of(pick))).isEqualTo(1);
+
+        ArgumentCaptor<com.industrial.erp.modules.production.entity.PrdOrderMaterial> ins =
+                ArgumentCaptor.forClass(com.industrial.erp.modules.production.entity.PrdOrderMaterial.class);
+        verify(orderMaterialMapper, times(2)).insert(ins.capture());
+        assertThat(ins.getAllValues().get(0).getReqQty()).isEqualByComparingTo("0.8240");
+        assertThat(r1.getBatchNo()).isEqualTo("RAW-A");
+        assertThat(r2.getBatchNo()).isNull();
     }
 
     @Test
@@ -309,5 +522,18 @@ class PrdOrderServiceTest {
         d.setProductName(name);
         d.setBaseQty(baseQty);
         return d;
+    }
+
+    /** v1.1.160: LDPE 2 份 (损耗 3%) + LLDPE 0.5 份, Σ配比 2.5 — 建议接口与开工共用的测试配方. */
+    private PrdBom buildTwoLineBom() {
+        PrdBom bom = new PrdBom();
+        bom.setId(BOM_ID);
+        PrdBomDetail ldpe = buildBomDetail(1L, "LDPE", new BigDecimal("2.0"));
+        ldpe.setLossRate(new BigDecimal("3"));
+        ldpe.setMaterialType("MAIN");
+        PrdBomDetail lldpe = buildBomDetail(2L, "LLDPE", new BigDecimal("0.5"));
+        lldpe.setMaterialType("MAIN");
+        bom.setDetails(List.of(ldpe, lldpe));
+        return bom;
     }
 }
