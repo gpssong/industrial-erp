@@ -3,6 +3,289 @@
 
 ## changelog (倒序)
 
+### v1.1.165 (2026-11-03 — 原料标签 OCR 加 TextIn (合合信息) 服务商：凭证进「对接方式」+ 按坐标把批号锚到该原料那张标签)
+
+> **用户原话**: 「OCR 标签识别用textln是否合适，合适的话增加设置textln的选项，同时把 x-ti-app-id：… x-ti-secret-code：… 设置进去」
+
+**结论：合适，而且比视觉大模型更贴这个场景** —— 三条理由 + 一条代价：
+1. 生产三家 LLM 槽位都是**纯文本**模型（agnes-3.0-flash / MiniMax-M3），v1.1.158 那条 OCR 路要的「支持图片输入的 OpenAI 兼容多模态 key」线上一直没有 ⇒ OCR 状态恒 `enabled=false`、「📷识别批号」按钮对所有人都是灰的，功能等于没上线。
+2. TextIn 通用文字识别 v2 逐行返回**文字 + 坐标**，批号是「一行」而不是「一段话」，提取比让大模型复述数字可靠，也不占 LLM 日限额。
+3. 三站（.150 / .32 / 阿里云）实测都能直连 `api.textin.com`，无需额外出口。
+- **代价**：TextIn 没有语义能力，不会「只挑赛科那张标签」。v1.1.163 的按品名定向识别原本靠视觉模型提示词，换 TextIn 必须**在服务端按坐标重做锚定**，否则一单多原料时「两行拿同一个批号」直接回归。
+
+**后端**
+- [AiProperties.java](../backend/src/main/java/com/industrial/erp/modules/ai/config/AiProperties.java) `ocr` 槽位扩 `provider` / `textinAppId` / `textinSecretCode` / `textinBaseUrl` / `textinTimeoutMs` + `textinConfigured()` / `llmOcrConfigured()`；env 兜底 `ERP_AI_TEXTIN_APP_ID` / `ERP_AI_TEXTIN_SECRET_CODE`。
+- [OcrService.java](../backend/src/main/java/com/industrial/erp/modules/ai/ocr/OcrService.java)：两家服务商放进同一个类，`provider()` 按 `ocr.provider` 选、**选的那家没配齐就自动回落另一家**，两家都没有 → `none` → 前端按钮禁用（手工录入批号不受影响）。
+  - `textinRecognize()` 走 `POST {base}/ai/service/v2/recognize`，头 `x-ti-app-id` / `x-ti-secret-code`，body 是原图二进制。⚠️ **TextIn 业务错误也回 HTTP 200**（如 40306 超并发），判成功必须看 body 里的 `code`，只看 HTTP 状态码会把失败当空结果 —— `parseTextinLines()` 拆成纯函数就是为了单测这条。
+  - `photoCandidates(perPhoto, hint)` 三趟**逐趟放宽、但越宽越不可信**：① 只取锚定到该原料那张标签的块内候选 → ② 锚到了那张图但批号写在块半径外（canary 真实照片就是这样：品名 BASF 在最下面、批号隔了三行）就退到**锚到的那几张整图** → ③ 一张都没锚到才把所有图摊开。**② 是关键**：少了它，「锚到标签但块内没批号」会直接跳 ③，把别的原料的批号塞进这一行（当时扬巴那行拿到赛科的 `SK216923C1402249`）。
+  - 不变量：**锚定只在单张图内部放宽，绝不跨图合并**；纯字母 token 一律不当候选（`BASF` 不能变成批号）。
+  - `refreshNow()` 与 TTL 的 `refreshFromDb(false)` 成对存在 —— 凭证在 `sys_config` 里改完**不用重启**，但只有走这两个入口才读得到新值。
+- [SysIntegrationController.java](../backend/src/main/java/com/industrial/erp/modules/system/controller/SysIntegrationController.java)：`status` 的 `ocr` 块加 `providerSelected` / `provider` / `textinAppIdMasked` / `textinSecretCodeMasked` / `textinConfigured`（**只出脱敏值**）；`apply` 走 `mergeSecretsWithStored()`，`llm.slot0.key` / `llm.slot1.key` / `legacy.key` / `asr.key` / `ocr.key` / `ocr.textinAppId` / `ocr.textinSecretCode` / **`ocr.provider`** 这次没提交就沿用库内值 —— 最后那条是为了老前端整段不发 `ocr` 时别把 TextIn 静默切回视觉模型。`status` 与 `apply` 都调 `ocr.refreshNow()`。
+- 零 SQL（`AI_INTEGRATION` 早就是一行 JSON）。单测 307/307 绿。
+
+**PC**
+- [Integration.vue](../pc-web/src/views/system/Integration.vue) 卡片 2b「👁 原料标签识别 (OCR 批号)」：`el-radio-button` 二选一（TextIn / 视觉大模型）+ 描述表并列两家状态（本次选用 / 实际生效 / 各自的脱敏 key / 地址 / 超时）；选的和生效的不一致时顶一条 `el-alert` 说明「凭证没填齐」。
+- ⚠️ 这张卡是 `System.vue` 里 `activeTab === 'ai'`（左侧「AI 对接」分区）才渲染的，**URL 加 `?tab=ai` 不会切分区**（`activeTab` 是 `ref('config')`，不读 query）→ 实测必须真点 `.sys-nav-item`，否则探针读到的是空面板还以为配置丢了。
+
+**凭证落库（这次唯一的线上写操作）**
+- 只在 **.150 主库** `UPDATE sys_config SET config_value=… WHERE config_key='AI_INTEGRATION'`，且是**只并 `ocr` 块**的合并写法（`llm` / `asr` 原样保留），避免副本本地写造成复制漂移（sql/142・143 那次教训）。跑完三站 `MD5(config_value)` 全部 = `66e33d51ad5544fe861691638f3c073c`，`Seconds_Behind_Master: 0`。
+- canary 上那份 `ocr` 是同一行同值的 UPDATE，复制到 .32 只是幂等覆盖，没产生副本专属行 —— **配置类 JSON 可以这么先试**，建表/插行的迁移脚本仍然绝对不行。
+
+**产物与部署**
+- jar md5 `6dbe9bd3afb2a474c45a635202c4f7c2`、PC dist `1044c258e9728b0d7ace25a83e7d37b8`；三站**镜像本体**都核对过（`.32` `erp-system-backend:1.1.165` / `.150` 同名 / 阿里云 `erp-backend:1.1.165`），`ERP_VERSION=1.1.165` 各自落在自己的运行时 env（`.150` compose YAML / 阿里云 `.env` / `.32` 容器 env）。
+- App / H5 / APK **未动**：v1.1.163 的逐行「识别批号」按钮和 `photoUrls + productName` 契约不变，服务端换服务商对前端透明；`app/package.json` 与 manifest 留 1.1.164。
+- 版本号：`pc-web/package.json` + `application.yml` `ERP_VERSION` 默认值 + `SystemVersionInitializer` 升 1.1.165。
+
+**实测（canary 与生产各跑一遍，生产用真·非超管）**
+- 生产 API（**gpssong1** = WAREHOUSE_MGR + FINANCE，`orRole="admin"` 兜不住的那个账号）：`GET /api/ai/ocr/status` → `{"provider":"textin","model":"textin-general-ocr","enabled":true}`；两张真实标签 + `productName=赛科0220kj` → `['SK216923C1402249','LL0220KJ']`、`productName=扬巴ldpe2426h` → `['H9Pb2']`、不带品名 → 三个都回。三趟放宽的次序与 canary 数字一致。
+- 生产 PC UI（`192.168.0.150:8088`，新 bundle `index-CBl1IXO2.js`）：采购入库「新增入库」→ 关联 `PO202611030001` 出两行 → 传 2 张照片 → 两个「识别批号」按钮都可点 → 第 0 行自动填 `SK216923C1402249`、第 1 行 `H9Pb2`（**没串台**）；两份请求体都带 `productName`、HTTP 200；`[console.error]` 空。**未保存任何单据**（事后 `purchase/receipt/page` 确认无新草稿）。
+- 生产「系统设置 → AI 对接」：TextIn 单选为选中态、卡片顶标「已接 TextIn 通用文字识别」、`103b****5f16` / `241f****4d92`，整页 `innerText` 与所有 `input.value` 里都搜不到明文 key。
+- 清理：4 张测试照片先确认**六张带照片列的表**（`em_maintain_order` / `em_maintain_record` / `mes_quality_inspection` / `mes_work_start_confirm` / `pur_receipt` / `wf_emergency_plan`）零引用才删（同目录另有 4 张是用户今天自己拍的，保留）；`.150` 与阿里云的传输 tar、本地含密钥的脚本与 dump 全删；实测用的超管会话已 `POST /auth/logout`（非超管那次复用的是 Redis 里既有真实会话，没造新会话）。
+
+**⚠️ 已知限制（下次接手前要知道）**
+1. `loadImageFromUrl()` 从**本机 `ERP_UPLOAD_PATH` 磁盘**读图，不走 HTTP ⇒ 照片文件和执行识别的后端必须同机。阿里云接管期间写入的照片若回落到 .150 跑 OCR 会读不到（静默返回空候选，不报错）。
+2. TextIn 免费额度用完按张计费；一次「识别批号」最多发 2 张。
+3. `ocr.provider` 选 TextIn 时视觉大模型那条路仍在，只是不生效；界面「实际生效」一栏会如实显示回落结果。
+
+**同日追加（仅文档，零代码，版本保持 1.1.165）**
+- 用户问「https://apps.apple.com/cn/app/标签管家/id1663162151 我希望 erp 能打印标签，能把这个标签管家的功能集成进去吗？给我一个方案」⇒ 出 [docs/31_标签打印方案.md](31_标签打印方案.md)（**方案，未实施，等用户答复 4 问再排期**）。要点：标签管家 App 本体无对外 API/URL Scheme，**不可集成**；厂商真接口是启锐 **PSDK**（支持 UniApp，TSPL/CPCL/ESC-POS，蓝牙·WiFi·USB，端侧渲染）与**爱印云打印**（HTTP/MQTT + API Key/Secret，可私有化）。ERP 已有同构云打印链路（`FeiePrintClient` + DB 模板），第二家服务商是扩展不是新建。**真正的卡点是主数据**：合格证 14 项里的生产者名称/地址/XK 编号/执行标准/贮存条件/检验员代号库里全无字段；现有「打印标签」实为飞鹅 58mm 热敏小票，不是不干胶。⚠️ **拓扑红线**（与本次 OCR 只读本地磁盘同一类坑）：后端在 NAS 容器里够不到 USB/蓝牙打印机，TSPL over TCP 9100 在**阿里云接管那天会失效** —— 任何硬件方案先问这一句。
+
+### v1.1.164 (2026-11-03 — App「新建销售出库单」明细数量默认取该客户上次出库量；同日第二批实测揪出该页商品搜索恒空)
+
+> **用户原话**: 「app端销售出库的明细数量默认取历史销售的数量」
+
+**现状核对**：「扫码出库(销售)」[pages/scan/out.vue](../app/src/pages/scan/out.vue) 早就有这行为（`loadHistory` + `onHistoryPick` 带 `qty`），缺的是手工新建页 [pages/sales/delivery-add.vue](../app/src/pages/sales/delivery-add.vue) —— 本次补齐它，不改扫码页。
+
+**实现（纯 App 前端一个文件，后端/PC/SQL/权限零改动）**
+- 选客户后拉 `GET /sales/delivery/customer-history-products?customerId=`（与扫码页同一端点，perm `sales:delivery:list`）：后端按 `bill_date DESC` 返回该客户最近 **50 条** `sal_delivery_detail`，**无 GROUP BY** ⇒ 同一商品取到的第一条就是最近一次；`qty` 回的是 float（`225.0`），一律 `Number()` 归一。
+- `histRowOf(productId)`（要求 `qty > 0`）作唯一取数口，`lastQtyOf` / `lastUnitOf` 都从它派生；搜索结果行右侧渲染「上次出库 225 卷」（`v-if="lastQtyOf(p.id)"`，**别写 `!= null`** —— 0 也会渲染成「上次出库 0」）。
+- `onPickProduct`：新行 `qty = 历史数量 || 1`；该商品已在明细里 → **再加一次**默认量（累加，不覆盖手工改过的值）；命中历史时 `uni.showToast('数量已按上次出库 N')`。
+- 权限面核对：`WAREHOUSE_MGR` 已持 **APP** 行 `sales:delivery:add` + `sales:delivery:list`（v1.1.162 前那批 `sql/` 已授）⇒ 无需新端点、无需 OR、零 SQL。
+
+**同日第二批（只有真 UI 端到端才暴露）**
+- **该页商品搜索一直是坏的**：`onSearch` 写的是 `const list = (r && (r.data || r)) || []` + `Array.isArray(list)`，但 `/base/product/app-search` 回的是 **`PageResult`**（拦截器已 `resolve(R.data)`，数组在 `r.records`）⇒ 结果恒空，而搜索是这页加明细的**唯一入口**。改成 `r.records || r.data.records || []`（R23 口径；[receipt-add.vue:220](../app/src/pages/purchase/receipt-add.vue#L220) 早就注释过这个坑）。
+- 顺带修同页两处空值：`app-search` 的商品主表字段是 `mainUnitId` / `mainUnitName` / `salesPrice`，**没有 `unitId` / `unitName` / `salePrice`** ⇒ 新建的明细行单位为空、单价恒 0（正是 PC 端刚报过的「单位显示不对」同一类）。现在单位优先取该客户历史行、否则回落 `mainUnitId`；单价优先历史成交价、否则 `salesPrice`。
+- **同类审计**：App 里 33 处 `api.*Page(` 调用点逐个核对，另两处（`equipment/my.vue`、`equipment/calibration.vue`）走 `pickArr(r)` 已含 `r.records`；其余 `r.data || r` 的站点调的都是 `R<List>` 端点，无同类问题。
+
+**版本与产物**（本批不动后端/PC ⇒ jar 与 PC dist 沿用 v1.1.163）
+- 1.1.164 落在：`app/package.json`、`app/src/manifest.json`（versionName 1.1.164 / versionCode 1164）、`app/src/pages/profile/index.vue` `APP_VERSION`、`CLAUDE.md` 顶部。**故意不升**：`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`SystemVersionInitializer`（= 1.1.163，先例 v1.1.139/161）。
+- App H5：`index.html` md5 `14af74abe0babd27dfa5169465e5f3b6`，页块 `assets/pages-sales-delivery-add.D-zSFsC9.js`（内含 `records||` 与「数量已按上次出库」）—— `.32:/vol2/erp-system/app-h5/dist/build/h5`（bind mount，就地替换，无需 restart）+ `阿里云:/opt/erp-system/app-h5`。`.150` 无 H5 容器（设计如此）。
+- ⚠️ 阿里云 80 端口是 **PC** vhost，`app-h5` 只监听 `127.0.0.1:18090`（P0-1 收口）⇒ 校验 H5 必须 `curl http://127.0.0.1:18090/index.html`，公网 `47.96.188.129/index.html` 拿到的是 PC 的 `b114d7f0…`，别误判成"没部署上"。
+- APK：`~/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20261103-1164b.apk` md5 `62a8f2b347ff4303514d7d0626e1b499`（4,514,558 B，versionName 1.1.164 / versionCode 1164，走 `scripts/build-app.sh`，六处版本护栏全绿；解包核对内嵌页块同为 `D-zSFsC9`）。**早前那枚 `erp-app-20261103-1164.apk`（`af37ecba…`）作废** —— 它含搜索恒空的 bug，未分发。
+- 零 SQL。回滚备份：`.32` `h5.bak_v1164_20261103-194940`（= v1.1.163 H5）、阿里云 `backup/app-h5.bak_v1164_20261103-195037.tgz`；两站 `upload/app-h5-1164b.tgz` 为本批 tar（`e996d2c5…`）。
+
+**实测（唯一有效验法 = 非超管真 UI）** — canary `192.168.0.32:18090`，账号 **罗飞**（`WAREHOUSE_MGR`，`/me?X-Client-Type: APP` 无 `sales:delivery:check`，走 Redis 里的既有 Sa-Token 会话 + CDP `Network.setCookie`），路径固定「工作台 → 销售管理 → 销售出库单 → ＋新建」：
+- 选客户 → `customer-history-products?customerId=2111723761633406978` **200**；搜「透明胶带」11 条，**只有 tm8053** 带「上次出库 225 卷」。
+- 点它 → toast「数量已按上次出库 225」，明细行 `数量 225 / 单价 5（历史成交价）/ 金额 1125.00`；**再点一次 → 450 / 2250.00**，合计行「合计数量 450 ¥ 2,250.00」。
+- 无历史的「防锈袋22*28」→ `数量 1 / 单价 0.2`（商品售价兜底），且行内无提示文案。
+- `CONSOLE_ERRORS []`；截图 `docs` 外部留档 `/tmp/app_qty_1164_hint.png`。**未提交任何单据**（没点存草稿/保存并审核）。
+- ⚠️ **uni-app H5 的 picker wheel 自动化限制**：目标客户在 wheel 里 idx=30、`getBoundingClientRect().y ≈ 2301`（视口外），合成 `click`/tap **不改变 wheel 选中索引**（确认按钮只回当前索引 0）⇒ 真 UI 只能用 wheel 默认项验证；「舟山市7412工厂 / 塑料袋22*28*0.16 = 63000 只」那条改在 API 层核对（同一 `histRowOf` 逻辑）。
+
+**⚠️ 遗留与观察（未在本次擅自代改）**
+1. 该页「保存并审核」仍走 v1.1.152 之前的**按 batch_no 自动拆分**，逐行选批次的弹窗只在 PC；App 要不要接同一 body 待定。
+2. 「扫码出库(销售)」页的历史列表仍是独立实现（合并逻辑按 `productId+batchNo`），本次没统一两处代码。
+3. 搜索结果只显示「上次出库 数量+单位」，未显示上次单价；单价已静默带出，用户可能不知道来源。
+
+
+### v1.1.163 (2026-11-03 — App 采购入库：入库仓库现场可选 + 到货原料按采购订单明细分列 + 逐行按品名定向 OCR 认批号)
+
+> **用户原话（附 App 截图，单号 PO202611030001 / 浙江宁杨石化）**: 「app端采购入库，1、仓库可以选择。2品名根据实际情况分列，并根据拍摄的原料标签自动读取标签上数字字母作为原料批号。」截图里品名是合并的一行「赛科0220kj、扬巴ldpe2426h」、仓库显示「—」。
+
+**仓库为什么读不到 —— 根因不是新 bug，是 App 权限树白名单缺口**
+`/base/warehouse/list` 原本只认 `base:warehouse:list`，而该 perm **不在 PC「App 权限树」白名单**（`pc-web/src/views/system/Role.vue` `APP_MENU_WHITELIST`）里 → 界面上根本授不出去。`.32` 副本核对：持 **APP** `purchase:receipt:*` 的 7 个角色里 FINANCE 一行 `base:warehouse:list` 都没有、WAREHOUSE_MGR / `zdg` 只有 **PC** 行（铁律 4：`@SaCheckPermission` 走 `selectPermsByUserId` 不过滤 `client_type`，所以那两类账号后端仍放行；FINANCE 才是真 403）；超管/采购经理/生产经理/销售经理有 BOTH 行 ⇒ naive 验证一路绿灯。
+**修法按拍板 = 端点 OR（零 SQL、零白名单改动、不用重出授权、不用改 App 侧判断）**：
+- [BaseWarehouseController.java:29,33](../backend/src/main/java/com/industrial/erp/modules/base/controller/BaseWarehouseController.java#L29) `list` / `{id}` 改 `@SaCheckPermission(value = {"base:warehouse:list", "purchase:receipt:list"}, mode = SaMode.OR, orRole = "admin")`。
+- ⚠️ **只改 controller 不够** —— [BaseWarehouseService.java:34](../backend/src/main/java/com/industrial/erp/modules/base/service/BaseWarehouseService.java#L34) 的 `list()` 里还藏着一道自己的 `requirePerm`，同口径补 `permService.requireAnyPerm("base:warehouse:list", "purchase:receipt:list")`。
+- `add/update/delete` **有意不动** —— 只放宽"读"，不扩大写授权面。
+
+**逐行批号 + 现场改仓库（后端）**
+- [PurReceiptController.java:124-141](../backend/src/main/java/com/industrial/erp/modules/purchase/controller/PurReceiptController.java#L124) `POST /purchase/receipt/create-from-order` 新增可选 `warehouseId`（`parseLineBatches(body)` 收 `lines:[{orderDetailId,batchNo}]`，只收非空行）。
+- [PurReceiptService.java:555](../backend/src/main/java/com/industrial/erp/modules/purchase/service/PurReceiptService.java#L555) `createFromOrder(orderId, iqcId, warehouseId, batchByOrderDetailId, batchNo)`：仓库 = 现场覆盖 → 订单仓库，两边都空 → `400 请选择入库仓库 (采购订单也未指定仓库)`；`:655` 落日志 `warehouse={}({})` 标「现场选择」/「沿用订单」；`:619` `d.setBatchNo(lineBatch(batchByOrderDetailId, od.getId(), fallbackBatch))`，`lineBatch()`（`:665`）trim + 截 64，该行未填 → 回落整单 `batchNo`。
+- 19 位雪花 id 靠 `WebMvcConfig` 的 `ToStringSerializer` 全链路字符串 ⇒ `orderDetailId` 回传不掉精度。
+- **`purchase:receipt:add` 门禁与 IQC 硬门禁位置未动**（`:557` / `:559`）。
+
+**定向 OCR（按行品名）**
+- [AiController.java:79](../backend/src/main/java/com/industrial/erp/modules/ai/controller/AiController.java#L79) `/ai/ocr/label-batchno` 收可选 `productName` → [OcrService.java:305](../backend/src/main/java/com/industrial/erp/modules/ai/ocr/OcrService.java#L305) `buildPrompt(hint)` 拼「本次只需要识别原料「X」的标签 … 其它原料标签上的编号不要输出」；`sanitizeHint()`（`:323`）压平换行/制表并截 `MAX_HINT_CHARS = 60`。
+- hint 为空 → 回原始通用 `PROMPT` ⇒ **PC 老行为零变化**（一张照片里两种原料并排时，不传品名会两行拿到同一个批号）。
+
+**App** — [pages/scan/in.vue](../app/src/pages/scan/in.vue) 重写
+- 「入库仓库」`<picker>`：默认值优先级 **订单仓库 → `warehouseType==='RAW'` → 仓名含「原料」 → `isDefault===1`**，**绝不退到 `warehouses[0]`**（index 0 往往是成品仓，会静默把原料入进成品仓）。
+- 「到货原料与批号」逐行 `materials[]`：品名 + 规格·数量 + **本行**批号输入 + **本行**「🔍 识别批号」（把该行 `productName` 传给 OCR）。
+- `async onLoad` 先 `await Promise.all([loadOrders(), loadWarehouses()])` 再 `bootstrap()`（v1.1.142 同类坑：`onLoad` 不 await 初始化 → 深链进来一片兜底文案）。
+- [api/qms.js](../app/src/api/qms.js) `purchaseCreateFromOrder(orderId, iqcId, batchNo, { warehouseId, lines })`：`lines` 先 `filter` 掉空批号再上送。
+
+**PC** — [views/purchase/Receipt.vue](../pc-web/src/views/purchase/Receipt.vue) `runRowOcr` 同步把 `row.productName` 传给同一端点。
+
+**OCR 生产站没配 key（按拍板「先上线，识别按钮灰着」）**
+`sys_config.AI_INTEGRATION` 只有 `llm` 节点；env 有 `ERP_AI_ASR_KEY`、**无** `ERP_AI_OCR_KEY` ⇒ `ocrStatus.enabled=false`：App/PC 按钮置灰并提示去 PC「系统设置 → 对接方式」配视觉模型，**手工录批号照常用**，报告号自动生成不受影响。
+
+**单测**: `PurReceiptServiceTest` 7 例（warehouseOverride / fallsBackToOrderWarehouse / noWarehouseAtAll / perLineBatch / lineBatch 规则 …）+ 新 `OcrServicePromptTest` 4 例（品名进提示词 / 空品名回原始 PROMPT / 换行压平 / 超长截断）。全量 `Tests run: 283, Failures: 0, Errors: 0`（JDK 17）。
+
+**部署**（飞牛 canary → `.150` 主 → 阿里云）
+- 三站 jar md5 `be7de45d9917f890bbfcb14cee6c8297`（本地 `backend/target/industrial-erp-1.0.4.jar` 同一枚）；镜像 `.32` `erp-system-backend:1.1.163`（`78c96a8db582`，`docker cp` + `docker commit` 后**核过镜像本体** `/opt/app/app.jar`）、`.150` compose rebuild（`087c6dbf401e`）、阿里云 `erp-backend:1.1.163`。
+- PC dist tar `71e3f9d24dfb25c4d283f8bb648c1cd0` **三站**；App H5 tar `69054aa024002a334b09d04b54fe5a45` 上 `.32` + 阿里云（`.150` 无 H5 容器，设计如此）；APK `~/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20261103.apk` md5 `47b3c80c0f3ae157515ec27e2dc43a0f`（4,480,676 B，versionName 1.1.163 / versionCode 1163，走 `scripts/build-app.sh`）。
+- 三站 PC 入口实测都吐新 bundle：`assets/index-DBcN453N.js` + `assets/Receipt-DlC7g_b4.js`；H5 页块 `pages-scan-in.C-FzADT4.js`。
+- `ERP_VERSION` 容器 env 三站 1.1.163（`.150` YAML 硬编码、阿里云 `.env`、`.32` 容器 env）；三站 healthy、`/api/auth/captcha` 200 且经 `n150.93gushi.com:8088` 与阿里云 vhost 200。
+- **零 SQL**（本批不动 schema/授权）。回滚备份：`.32` `dist-new.bak_v1162` / `h5.bak_v1162` / `docker-compose.failover.yml.bak_v1162`；`.150` `industrial-erp-1.0.4.jar.bak_v1162_20261103` / `docker-compose.yml.bak_v1162` / `pc-web/dist.bak_v1162_20261103`；阿里云 `pc-web.bak_v1162_20261103` / `app-h5.bak_v1162_20261103` / `erp-backend:1.1.162` 镜像。
+
+**实测**（唯一有效验法 = 临时角色**只**授 APP 端 perm，超管走 `orRole` 零证明力）
+- canary 用临时角色（`purchase:receipt:list|add` + `quality:inspection:list|check` 等 APP 行）+ 临时账号跑全链：`GET /base/warehouse/list` **200**（同类 FINANCE 权限此前必 403）；负例对照 `POST /base/warehouse` 与 `GET /base/customer/list` 仍 **403** ⇒ 没把授权面放宽。
+- 端到端签核→建单：IQC items `200`、`sign-for-order` `200`、`create-from-order` `200`，且**落库仓库 = 现场选的成品仓库 `2073701024629047297`（订单原仓库是原料仓库 `2109846219481329666`）**、**两行明细两个不同批号**（`TEST-A-001` → 赛科0220kj、`TEST-B-002` → 扬巴ldpe2426h，整单兜底 `batchNo` 未被使用）、报告号自动 `BG-YL-20261103-002`；`/ai/ocr/status` 回 `enabled=false`。
+- headless Chrome CDP 走「工作台 → tab「原料入库」→ `#/pages/scan/in`」：两条原料各带自己的批号输入与 `ocr-btn ocr-disabled` 按钮、入库仓库 picker 有选项且默认选中原料仓库、检验报告号兜底文案完好。
+- 测试数据/账号/Redis 临时会话全部清干净并逐项对账：该订单只剩用户自己那张 `RKP202611030002`（`create_by=2`，3000 kg，真实单据，保留）；临时用户/角色/授权行归零。
+
+**同日修补（PC 新增销售出库单：从「该客户历史销售」加入的明细，单位列显示 19 位 unitId）**
+> 用户原话: 「新增销售出库单时从历史销售加入的明细单位显示不对」。
+- **根因不是接口** —— `/sales/delivery/customer-history-products` 一直正常回 `unitName`。[pc-web/src/views/sales/Delivery.vue](../pc-web/src/views/sales/Delivery.vue) 的「历史加入」把**原始对象**（`reactive()` 之外的 raw map）直接 `push` 进 `form.details`，随后在 raw 引用上补 `unitName` 等派生字段 —— Vue 3 的响应式只认**代理**：往 raw 对象写不会 trigger，表格读代理拿到的是 push 那一刻的旧值，于是单位列退化显示 `unitId`（19 位雪花 id）。
+- **修法**：push 之后改**代理行**再赋值 —— `const row = form.details[form.details.length - 1]`，全部字段写在 `row` 上；同页「手工加行」的同类写法一并对齐。
+- 产物：PC dist「1163c」—— `index.html` md5 `b114d7f0b300306d40f9d33b8361b2f5`、`assets/Delivery-HztRieAk.js` `d925a329e3598cee0988860930c4d540`、tar `f2ddb838…`；上 `.32:18080`、`.150:8088`、`.150:18080`、阿里云。jar / H5 / APK 未动。
+- 实测：canary 与生产站都用**罗飞**（非超管）走真实 UI「新增销售出库单 → 选客户 → 从历史销售加入」，单位列显示「卷」等中文名、`CONSOLE_ERRORS []`。
+
+**⚠️ 遗留与观察（未在本次擅自代改）**
+1. **App 采购入库链路上还有三处「白名单外 perm」挡住别人**：`quality:inspection:add`、`qms:iqc:detail`（[QmsInspectionController.java:234](../backend/src/main/java/com/industrial/erp/modules/qms/controller/QmsInspectionController.java#L234) `/{id}/detail-for-order` 只认这一个）、`purchase:order:list` 都**不在** `APP_MENU_WHITELIST` → PURCHASE_MGR / `zdg` 在手机的其它步骤仍会 403。本次临时角色是**借了 PC 行**才跑通的，不是功能已全覆盖。要不要照同样口径 OR 到 `purchase:receipt:list` / `quality:inspection:list`，等拍板。
+2. **`createFromOrder` 写的是「剩余可入库量」**（`:613` `d.setQty(remain)`，`remain = od.qty − od.inQty`）—— 对已整单入库完的 PO202611030001 再建单数量就是 0，**不是本批回归**；要不要禁止重复建单需产品口径。
+3. [pages/purchase/receipt-add.vue:193](../app/src/pages/purchase/receipt-add.vue#L193) 另一张入库页仍用 `warehouses[0]` 兜底默认仓（本次只改了 `scan/in.vue`）。
+4. `pur_receipt_detail.order_detail_id` 没有被 `createFromOrder` 回填 ⇒ 逐行批号的对应关系**只存在于写入瞬间**，事后无法从入库明细行反查是哪条采购明细（追溯链上的一处断点）。
+5. **OCR 视觉模型 key 生产站仍缺**，真实照片端到端未验（等用户提供 key）。
+6. `.32` 上遗留超管测试账号 `_ws1132`（id `2133001133001133`，v1.1.132 那批留的），非本次产生，待清。
+
+
+### v1.1.162 (2026-11-03 — 线上「飞鹅打印预览失败」根因修复：模板保存加 FreeMarker 语法闸 + 生产单模板根变量补 `order`/`bill` 双别名 + sql/152 修被改坏的 DB 行)
+
+> **用户报障原话**: 「飞鹅预览失败: 自定义模板渲染失败: Syntax error in template "custom" in line 22, column 45: Encountered "''", but was expecting one of these patterns: "." ".." <DOT_DOT_LESS> "..*" "?" "??" "!" "[" "(" "}" <TERMINATING_EXCLAM> …」
+
+**根因（不是渲染上下文、不是数据，是被改坏的 DB 模板行）**
+`sys_feie_print_template` id `2078644534343434242`（biz_type=PRD_ORDER、is_default=1、status=1、update_time **2026-11-03 14:14:09**）这一行是用户当天在 PC「系统设置 → 飞鹅打印模板」里手工编辑过的，**当时保存环节零校验**，坏内容直接落库，只在预览/打印时才炸。三处独立语法错：
+- L21 `<#list bill.details as d>` —— 根变量不存在。`PrdOrderBillLoader` 只往 model 里放 `order` 和 `details` 两个键，`bill.details` 永远取不到（`PrdOrder` 没有 `getDetails()`），而**编辑器右侧字段说明当时恰好在教 `${bill.xxx}` + `<#list bill.details as d>`**，照着提示写就必然错。
+- L22 `${d.qty!0''}` —— `!0` 之后又紧跟一个字面量 `''`，FreeMarker 词法在 **第 22 行第 45 列** 报到 `''`（报错里那串 "expecting one of these patterns" 是它在找分隔符，不是缺运算符）。
+- L22 之后**没有 `</#list>`**，标签不闭合。
+
+**代码修复（后端）**
+- [SysFeiePrintTemplateService.java](../backend/src/main/java/com/industrial/erp/modules/system/service/SysFeiePrintTemplateService.java): `save()`/`update()` 先过 `validateContent()` —— 用注入的 `@Qualifier("feieFreemarkerConfig") Configuration` 试解析（`new Template("custom", new StringReader(content), cfg)`）。⚠️ **`ParseException extends IOException`，不继承 `TemplateException`**，按后者 catch 会漏。命中语法错抛 `BizException.of(400, "模板语法有误: …")`，`describe()` 补「第 N 行 第 M 列 — 」和「；该行内容: <原始整行>」，`brief()` 把 FreeMarker 那串对用户毫无意义的 token 枚举剥掉。
+- [PrdOrderBillLoader.java](../backend/src/main/java/com/industrial/erp/modules/production/bill/PrdOrderBillLoader.java): model 同时放 `order` 与 `bill`（同一个 `PrdOrder` 实例）双别名，历史模板两种写法都能渲染，不必先改数据再上线。
+- [FeiePrintController.java](../backend/src/main/java/com/industrial/erp/modules/production/controller/FeiePrintController.java) `previewTemplate` 的 mock 模型补 `bill`/`order` 别名与明细行字段（`lineNo/productName/batchNo/unitName/qty/price/amount`），模板编辑器里点「预览」不再一片空白。
+
+**代码修复（PC）**
+- [FeiePrintTemplate.vue](../pc-web/src/views/system/FeiePrintTemplate.vue): 字段说明头改成 `bizPrefix` 派生（PRD_ORDER → `📌 主表字段 (${order.xxx})`，其余单据 → `${bill.xxx}`）；明细循环提示明确写「🔁 明细循环 (<#list details as d> … </#list> — **明细根变量只有 details, 不是 bill.details**)」；textarea placeholder 与 `TAG_EXAMPLES` 里的示例同步成合法写法。
+
+**数据修复**
+- [sql/152_v11162_feie_prd_order_template_repair.sql](sql/152_v11162_feie_prd_order_template_repair.sql): 只改 3 处语法（`details` / `${d.qty!0}` / 补 `</#list>`），其余 20 行逐字保留。原行整行进 `sys_feie_print_template_bak_v1162`；UPDATE 命中条件带 `CHAR_LENGTH(content)=925` ⇒ 幂等。**只在 `.150` 主库跑**（备份表沿用源行主键，canary 试跑会撞 1062 停复制），`.32`/阿里云由复制跟上。前后 `len/md5`: 925/`c2788ea3a784b41f68a73f1da2dc4958` → 927/`e56b87a8d7a7494012832e0d3e0cc185`。
+
+**单测**: `SysFeiePrintTemplateServiceTest` 4 例（合法内容放行 / `''` 词法错被拒且回进行号 / 未闭合 `<#list>` 被拒 / 保存前闸门位置）+ `PrdOrderBillLoaderTest` 1 例（`order` 与 `bill` 同实例、`details` 在根）。
+
+**部署**（飞牛 canary → `.150` 主 → 阿里云；App 无改动故 H5/APK 未重出，仅版本号字段对齐到 1.1.162）
+- 三站 jar md5 `304229cff59e4ac91ea64052be1c11d0`；镜像 `.32` `erp-system-backend:1.1.162`（`4a574d382ebf`）、`.150` compose rebuild（`8f4bb2c397f1`）、阿里云 `erp-backend:1.1.162`（`97c41c7c81fa`）—— **均核对过镜像本体 `/opt/app/app.jar` 的 md5**，不是只看运行中容器。
+- PC dist `index.html` md5 `00d1fccdde6ce76bfcd88c8e60edea6a` 三站；`ERP_VERSION` 容器 env 三站 1.1.162；三站 healthy、`/api/auth/captcha` 内网 200 且经 `n150.93gushi.com:8088` 200。
+- `.32` 与阿里云 `Slave_IO/SQL_Running: Yes`、`Seconds_Behind_Master: 0`；sql/152 后三站该行 `len=927 / md5=e56b87a8…` 逐站实测一致。
+
+**实测**
+- canary 端到端（**非超管 罗飞**，PC 端 `X-Client-Type: PC`）：`GET /api/feie/print/PRD_ORDER/2115621508937203713/preview` 由 `500 自定义模板渲染失败…` 变 `200`，小票渲染出单号/日期/产品/规格/克重/数量/使用原料/二维码 + **4 行真实领料明细**（`1｜ldpe2426h｜75.024｜` 等）。
+- 保存闸门（生产站真实 POST）：贴 `${d.qty!0''}` → `400 模板语法有误: 第 2 行 第 10 列 — Encountered "''"，该行内容: ${d.qty!0''}`，测完未留任何探针模板行。
+- 生产站 sql/152 后（仍是罗飞）：同一端点 `200`，内容与 canary 一致。
+- PC 模板编辑器（headless Chrome CDP，深链 `#/system/settings?tab=feieTemplate`）：`📌 主表字段 (${order.xxx})` = true、`📌 主表字段 (${bill.xxx})` = false、`明细根变量只有 details, 不是 bill.details` = true，字段行 30 条渲染正常。
+
+**⚠️ 遗留与观察（未在本次擅自代改）**
+1. `POST /api/feie/templates` / `PUT /api/feie/templates/{id}` 不带 `printerConfigId` 时报 `500 Column 'printer_config_id' cannot be null`（新增则是 `doesn't have a default value`）—— 应回 400。PC 表单有必填校验所以界面走不到，属潜在缺陷。
+2. `feieFreemarkerConfig` 是 `classicCompatible=true` + 缺键渲染成空，所以「字段名写对但取不到值」只会静默出空白（v1.1.137 的「领料数量不显示」就是这一类），**语法错现在会被拦，值取不到仍不会被拦**。
+3. 该模板正文**没有 `<CUT>`**、明细行末**没有 `<BR>`**（靠裸换行分条）—— 这是用户原本的写法，本次只做最小语法修复；真实出纸是否切纸/换行需要按一次「打印」验。
+4. 明细第 4 列（批号）线上全空 = 库存批次 `batch_no` 尚未登记（v1.1.160/161 的待拍板数据项，靠原料入库 OCR 补）。
+
+
+### v1.1.161 (2026-11-03 — v1.1.160「批号从库存中选择」canary 实测后修补：App 无批号批次显示 + PC 食品级批号门禁死路)
+
+> **背景**: v1.1.160 在飞牛 canary 用非超管（罗飞，43 项 APP perm）跑端到端时暴露两个只在真数据下才现形的问题。后端一行未动 —— jar 保持 `d77874b4c3d317ab4321259e672ab272` / `ERP_VERSION=1.1.160`（沿用「本批无后端改动故 jar 留旧版」先例，避免为纯前端修补重建 `.150` 后端造成 ~30s API 中断）。
+
+**问题 1 — App 选了库存批次，界面却像没选**
+- [pages/production/order-detail.vue](../app/src/pages/production/order-detail.vue): 库存行允许「只有仓库、`batch_no` 为 NULL」（原料入库未登记批号）。picker 的显示、清除按钮、提交过滤此前全只认 `batchNo` → 选中这种行后值区回落到占位文案「从库存选择批号」，用户以为没点上而反复重选；实际 `warehouseId` 已写入、开工领料单会按该仓出库。
+- 修：显隐与值区改认 `warehouseId`（`m.warehouseId ? ((m.batchNo || '(无批号)') + ' · ' + m.warehouseName) : '从库存选择批号'`）；提交过滤 `m.batchNo || m.warehouseId`；`matIndex` 匹配用 `warehouseId` + `batchNo||''`。
+
+**问题 2 — PC 新建工单：选了批次仍不让存（上线即死路）**
+- [views/production/Order.vue](../pc-web/src/views/production/Order.vue): 食品级成品的「原料批号」`required` 校验写死 `!val` 就报错，而生产库上唯一有库存的原料行 `ldpe2426h` 的 `batch_no` 正是 NULL（1500 kg，原料仓库）→ 「从库存选择批号」这个新功能对食品级根本走不通。
+- 修四处：① `pickedBatchNos()` 抽「已选批次里真正带批号的那些」，校验改 `isFoodGrade===1 && !val && !pickedBatchNos().length`；② 报错文案给可操作路径 —— 「选中的库存批次没有批号，请到「原料入库」补录批号，或在上方手工填写」；③ `onPickBatch` 里 `if (row.batchNo && !newForm.value.batchNo) newForm.value.batchNo = row.batchNo`（只在空时带出，不覆盖手输）；④ `loadMaterials`（改计划数量会重展开）回填条件从只认 `batchNo` 改 `warehouseId != null || batchNo`，否则「选了库存但该行没批号」的选择会被重建丢掉。
+- 提示文案同步改成「从库存选中的批次带批号时会自动填到这里；库存批次没登记批号才需手工补」。
+
+**数据面（待用户拍板，非本次代码问题）**
+- `lldpe7050` 没有任何库存行（`batches: []`）；`ldpe2426h` 仅 1 行且批号为空 ⇒ 功能可用但当前选不到「有批号」的批次。配套路径 = v1.1.158 的原料标签 OCR 在入库时把批号登记进去。
+- 本次上线前已存在的两张 DRAFT 工单 `PD202611030001` / `PD202611030002` 没有 `prd_order_material` 行（建单时新弹窗还没上），需在 PC 重新打开编辑保存一次才会落原料行。
+
+**部署**（飞牛 canary → `.150` 主 → 阿里云；H5 只 `.32`+阿里云，`.150` 无 H5 容器）
+- H5 `index.html` md5 `ad05fbc8b2cee0e0799a257644bda757`，入口 `index-CCc36gl8.js`，页块 `pages-production-order-detail.LVVfl8iv.js` md5 `594c2b490fea8b60871efc9dd3956a8d`（56927 B，两站 HTTP 200）。
+- PC dist `index.html` md5 `61e85734f739cb960efab0666359068c`（三站一致，替换前 `.150`/阿里云均为 `d82acf8f…`），入口 `index-Coyn5hM4.js`，`assets/Order-Cc_u-SW8.js` md5 `4e3e6f0ec8ce10c403b64cf96cce9b05`（含新校验文案）；`.150` 备份 `upload/pc-web_dist_bak_v1160_20261103160328.tar.gz`，阿里云备份 `pc-web_bak_v1160_20261103160355.tar.gz`。bind-mount 内容原地覆盖，无需重启容器。
+- APK `erp-app-20261103.apk`（4479302 B）md5 `16c53efc9f2c401dbaac07a608054169`，`versionName=1.1.161` / `versionCode=1161`；解包核验内嵌 `assets/public/assets/pages-production-order-detail.LVVfl8iv.js` 与线上 H5 同字节（md5 `594c2b49…`，含 `(无批号)` 显示分支），入口 `index-CCc36gl8.js` 一致。输出在飞牛同步盘 + 桌面，走 `scripts/build-app.sh`（勿手搓 `cap sync`+gradle）。
+- 主库核对：`prd_order_material` 表与 `prd_requisition_detail.warehouse_id` 均已在 `.150` 落地（sql/151 已进主库）；三站 jar md5 与 `ERP_VERSION` 一致。
+
+**实测**（非超管 罗飞，飞牛 canary + `.150` 主库接口）
+- App：工作台 → 工单列表 → 点行 → 详情 → 开工确认，逐条点选/清除/重选库存批次 round-trip 通过，零控制台报错。⚠️ 自动化踩坑：uni-app H5 的 `<picker mode="selector">` 是**点击即选**列表，可见目标是 `.uni-picker-select .uni-picker-item`，「完成」按钮渲染成 `0x0` 隐藏 —— 前两轮脚本点隐藏节点，选择根本没发生。
+- PC：新建工单 BOM 展开（金博23*29*0.12，7.3 g/个、配比 3:1、损耗 0 ⇒ 2000 只 = 14.6 kg → 10.95 / 3.65 kg）、选「无批号」批次显示 `(无批号) · 可用 1500 kg`、门禁给可操作提示、改计划数量后选择仍在、保存成功落 `prd_order_material` 2 行（`warehouse_id` 有值、`batch_no` 为 NULL）—— 测完已删（canary 副本本地写，不回主库）。
+- PC **编辑回填**（第 4 处修改的验收）：canary 重新建一张（罗飞，`PD202611030006`，第 2 行选无批号库存批次 + 手工批号 `TEST-V161B-DELETE`），刷新列表后点该行「编辑」→ 弹窗标题「编辑生产工单」，计划数量 2000、第 1 行仍是占位「从库存选择批号」（该原料无库存 + 提示行），第 2 行回显 `(无批号) · 可用 1500 kg`，「原料批号」回到 `TEST-V161B-DELETE`，零控制台报错。⚠️ **生产工单列表页不是 `el-table` 而是卡片**（`.wo-detail`，`document.querySelectorAll('.el-table')` 返回 0）→ 按 `.el-table__body-wrapper tr` 找行的脚本会整段空跑，要靠「按钮祖先节点里含单号」定位。测完该单与其 2 行原料已硬删（子表 10 张逐一 COUNT 为 0 才删），`prd_order_material` 复旧为 0 行。
+- 主库复查（`.150` 只读）：`prd_order_material` = 0 行（canary 测试写未回流）、`prd_requisition_detail.warehouse_id` 在位；`PD202611030001` / `PD202611030002` 各自原料行数 = 0 ⇒ 这两张存量草稿需在 PC 重新编辑保存一次才会落原料行（生产写操作，交用户执行）。
+- `.150` 主站以 罗飞 的 Sa-Token 会话直调 `GET /api/production/order/material-suggest?productId=…&planQty=2000` → HTTP 200，数量与 canary 完全一致。
+
+### v1.1.160 (2026-11-03 — 新建生产单原料按 BOM 展开 + 批号从库存中选择（PC 弹窗 + App 开工确认）)
+
+> **需求原话**: 「新建生产单时原料按bom，批号从库存中选择」
+
+**数据库 / 后端**
+- [sql/151_v11160_prd_order_material.sql](../sql/151_v11160_prd_order_material.sql) — 新表 `prd_order_material`（工单原料明细行：`bom_detail_id` / `material_type` / 商品与单位快照 / `req_qty` / `warehouse_id` / `batch_no`），`prd_requisition_detail` 加 `warehouse_id` 列。幂等脚本，先跑 canary 再灌主库。
+- [PrdOrderService.expandBom()](../backend/src/main/java/com/industrial/erp/modules/production/service/PrdOrderService.java) 为**唯一算法出口**：`totalKg = planQty × gramWeight ÷ 1000`，`reqQty = totalKg × bomBaseQty ÷ ΣbomBaseQty × (1+lossRate)`；`suggestMaterials(productId, planQty)`（约 338 行）取成品 BOM 展开并按行挂**跨仓库可用库存批次候选**（FIFO）；`applyMaterialBatches(orderId, picks)`（约 293 行）只贴「出库仓库 + 批号」，需求量/品名一动不动，老单没原料行时先按工单自己的 `bom_id` 展开再贴。
+- [PrdOrderController](../backend/src/main/java/com/industrial/erp/modules/production/controller/PrdOrderController.java) `GET /production/order/material-suggest`（约 75 行）：权限 `OR production:order:add|edit|list|release` —— **不挂** `production:bom:list` / `inventory:stock:list`，现场工人多数只有「生产开工」(release)，挂那两个 App 侧必 403（v1.1.117 同类坑）。
+- `WorkStartConfirmDTO.materials` + `MesWorkStartService.confirmBlowStart()`：在 `release()` 之前按行落批次到领料单，并把选中的批号并入 XK 投料登记（食品级必填门禁不变）。
+- 落库只带 `prd_order_material` 实有列：PC 上送前 `toMaterialPayload()` 剔除 `pickedKey/batches/shortfall` 等展示态。
+
+**PC**
+- [views/production/Order.vue](../pc-web/src/views/production/Order.vue) 新建/编辑工单弹窗加「使用原料」明细表：逐行 `el-select` 选「仓库 · 批号 · 可用量」（无批号显示 `(无批号)`），可用不足行内提示差额；改商品/计划数量 450 ms 防抖重展开；编辑时回填工单已存批次。
+
+**App**
+- [pages/production/order-detail.vue](../app/src/pages/production/order-detail.vue) 开工确认「本次投入的原料批号」由手输改成按 BOM 行 picker 选库存批次；前端不再自算领料量（与 PC 同一接口同一算法，避免屏幕上的量和开工生成的领料单对不上）；手工登记行保留为选填；只吹膜（BLOW）开工需要选原料批次，制袋领半成品不走 BOM。
+
+**⚠️ 同批并入 v1.1.159**（App 采购入库 报告号只读 + 单批号 OCR，同批构建、从未单独灰度，详见下一条）。
+
+### v1.1.159 (2026-11-03 — App 采购入库对齐 v1.1.158 PC：检验报告号只读 + 单批号 OCR)
+
+> **需求原话**: 「app端的采购入库也完善一下」；拍板范围 = 「报告号 + 单批号 OCR」（不做逐行品名分列）
+
+- 后端 [PurReceiptService.createFromOrder()](../backend/src/main/java/com/industrial/erp/modules/purchase/service/PurReceiptService.java)：检验报告号不再沿用 IQC 单号，改由 `ReportNoGenerator` 统一发 `BG-YL-YYYYMMDD-NNN`（发号器缺失回退 IQC 单号保证 XK 快照非空，仅当有 IQC 时发号）；新增可选 `batchNo` 入参（trim + 截 64）写入本单全部明细行。[PurReceiptController](../backend/src/main/java/com/industrial/erp/modules/purchase/controller/PurReceiptController.java) `/create-from-order` body 由 `Map<String,Long>` 改 `Map<String,Object>` + `toLong` 兼容雪花 id 字符串。
+- App [api/qms.js](../app/src/api/qms.js) `purchaseCreateFromOrder(orderId, iqcId, batchNo)` 仅非空才带 `batchNo`；[pages/scan/in.vue](../app/src/pages/scan/in.vue) 报告号改只读（保存后回填 `createdReportNo`），原空的「批号」字段接「🔍 识别批号」按钮（复用 `api/xk.js` 的 `ocrStatus` / `ocrLabelBatchNo`），`onLoad` 探测视觉模型是否配置。
+- **零新增 SQL**（`pur_receipt.inspection_report_no` / 明细 `batch_no` 列 sql/100 已建）。OCR 端到端依赖真实视觉 key，未填时按钮禁用、手工录入照常，报告号生成不受限。
+
+### v1.1.158 (2026-11-03 — PC 采购入库「原料入库·XK受控」：检验报告号系统自动生成 + 品名分列明细表 + 原料标签 OCR 识别批号)
+
+> **需求原话**: 「http://home.93gushi.com:8088/#/purchase/receipt 1、检验报告号系统自动生成。2、品名根据实际情况分列，并根据拍摄的原料标签自动读取标签上数字字母作为原料批号。」
+> **四项拍板**: ① OCR 复用现有 LLM 网关接视觉模型（OpenAI 兼容多模态，照片 base64 内联——外链模型访问不到内网照片）；② 品名分列 = 每种原料一行的小表格（编码/品名/规格/数量/批号，逐行 OCR 填批号）；③ 报告号格式 `BG-YL-YYYYMMDD-NNN`（后端生成、前端只读）；④ 范围 PC + App 都做。
+
+**后端**
+- [ReportNoGenerator.java](../backend/src/main/java/com/industrial/erp/modules/purchase/bill/ReportNoGenerator.java) — 独立发号器：Redis INCR（key `erp:reportno:BG-YL:`）+ 与库内 `MAX(inspection_report_no) WHERE bill_no LIKE 'BG-YL-YYYYMMDD-%'` 对账自愈；与通用 `BillNoGenerator` 格式不兼容故单独建。
+- [PurReceiptService.add()/update()](../backend/src/main/java/com/industrial/erp/modules/purchase/service/PurReceiptService.java) — 食品级采购（`hasFoodGradeLine`：任一明细行商品 `base_product.is_food_grade=1`）建单时自动发号、编辑草稿沿用原号、全非食品（免检直通）不发号。字段 `reportNoGenerator` 用 `@Autowired(required=false) @Nullable` 注入。
+- [AiProperties.java](../backend/src/main/java/com/industrial/erp/modules/ai/config/AiProperties.java) — 新增 `erp.ai.ocr-*` 槽位 + `sys_config.AI_INTEGRATION.ocr` DB 覆盖（回落 env），`effectiveOcr*` 读法与其它 provider 一致。
+- [OcrService.java](../backend/src/main/java/com/industrial/erp/modules/ai/ocr/OcrService.java) — 视觉识别：多模态 content parts（text + `image_url` data-URL）、目录穿越防护、最多 6 图、单图 5MB、候选批号去重返回 `OcrResult{rawText,Set<String> candidates}`。`enabled()` = OCR key 非空。
+- [AiController.java](../backend/src/main/java/com/industrial/erp/modules/ai/controller/AiController.java) — `GET /ai/ocr/status`（回 `{enabled,model}`）+ `POST /ai/ocr/label-batchno`（body `{photoUrls}`→`{candidates,rawText}`），权限 OR `{report:ai, purchase:receipt:add, purchase:receipt:edit, purchase:receipt:list}`。
+- [SysIntegrationController.java](../backend/src/main/java/com/industrial/erp/modules/system/controller/SysIntegrationController.java) — `aiStatus()` 回显 ocr 区块（provider `dashscope-vl`/model/baseUrl/timeoutMs/keyMasked/configured）+ `maskIntegrationJson` 给 ocr key 打码。
+
+**前端**
+- PC [Receipt.vue](../pc-web/src/views/purchase/Receipt.vue) — 明细改可编辑小表格（编码/品名/规格/数量/批号逐行），每行「📷识别批号」按钮（OCR 未启用时禁用 + tooltip），检验报告号改只读 `placeholder="保存后系统自动生成 (BG-YL-日期-流水)"`；`onMounted → loadOcrStatus()`。
+- PC [Integration.vue](../pc-web/src/views/system/Integration.vue) — 新增 👁 视觉模型 OCR 卡片（key/model/baseUrl/timeoutMs），保存仅在任一字段有值时带上 `payload.ocr`。
+- App [xk/material.vue](../app/src/pages/xk/material.vue) — 报告号只读 + 「🔍 识别批号」按钮 + 完整度检查项把「检验报告号」改成"系统自动生成"保障项；`runOcr()` 用 `form.photos` 调 `/ai/ocr/label-batchno` 填 `form.batchNo`。
+
+**⚠️ 依赖真实视觉 key**: OCR 端到端识别需用户在「系统设置 → 对接方式」填 OCR 模型 key 后才可用；未填时按钮禁用、手工录入批号照常。报告号自动生成不受此限，可即时实测。
+
+**实测**（canary 后端 API，Redis 读验证码铸造 `gpssong` token 免验证码）
+- `GET /api/ai/ocr/status` → `{enabled:false, model:""}`（未配视觉 key，符合预期）。
+- 建食品级 DRAFT 采购入库单（供应商 上海胜珑源 status=1 / 原料仓 / 明细行 扬巴ldpe2426h `is_food_grade=1`）id `2117451821381128194` → `bill_no=RKP202611030003`、`inspection_report_no` 自动落 `BG-YL-20261103-001`。
+- 测试单清理：`pur_receipt` / `pur_receipt_detail` 各删至 0 行（仅落 `.32` 副本，不回主库）。
+
+**部署**（飞牛 canary 先行 → `.150` 主 → 阿里云）
+- 三站 jar md5 `22a3aec24440e965c4d8137ab921752f`。
+- `ERP_VERSION` 容器 env 三站 1.1.158：`.150` [docker-compose.yml 第 93 行 YAML](../docker-compose.yml) + `docker compose build/up backend`；阿里云 `/opt/erp-system/.env` 第 5 行 + `docker cp`→`docker commit erp-backend:1.1.158`→`compose up erp-backend`；`.32` 容器 env + `docker-compose.failover.yml` 镜像 tag `erp-system-backend:1.1.158`。
+- PC dist `index.html` md5 `1c5e4b701d21a55f43af355398012977`（新块 `index-B4yHQNql.js` / `Receipt-DhecqB5A.js`）三站。
+- App H5 `index.html` md5 `ebadea856b6d939b6262a2bd1cde0903`（新块 `pages-xk-material.Bx-mG1_v.js`）上 `.32` + 阿里云（`.150` 无 H5 容器）。
+- APK versionCode 1158（`erp-app-20261103.apk`）。
+- **零新增 SQL 迁移**（`pur_receipt.inspection_report_no` 列 v1.1.95 sql/100 已建）。
+
+**运维踩坑（新增）**
+- ① **`.32` 上 `gpssong` 已在 `docker` 组（gid 994），docker 命令免 sudo**——只需 `export LANG=C LC_ALL=C` + `bash --noprofile --norc` + `| grep -vE "Warning|warning:"`。
+- ② `.150` `backend/` build context 累积 ~4.9G 的 `industrial-erp-*.jar.bak*` 且原无 `.dockerignore` → 本次新建 `.dockerignore`（排除 `*.bak*`），避免 `compose build` 每次传整包；换 jar 前先把旧 `industrial-erp-1.0.4.jar` 改名 `.bak_vXXXX_日期`（Dockerfile `COPY industrial-erp-*.jar` glob 只匹配一个）。
+- ③ `.150` PC dist 目录 `dr-xr-xr-x`（owner gpssong 无写位）→ 解压到 `upload/` 再 `sudo` 换 + `docker restart erp-pc-web`。
+
 ### v1.1.157 (2026-11-02 — AI 助手「这条提议缺少参数」+ 第二轮不给「确认执行」按钮）
 
 > **反馈原话**: 「ai助手出现缺少参数，第二次没有确认执行的按钮」（附两张 App 截图：一张是半截 JSON 的提议卡 `{"action":"checkSalDelivery","params":{"id":"2115302590817288193"},"summary":"审核`，点下去报「这条提议缺少参数（模型没按格式输出）,请重新描述需求再试」；另一张是同一段需求的前一轮，模型只反问澄清，界面上**一个按钮都没有**）
