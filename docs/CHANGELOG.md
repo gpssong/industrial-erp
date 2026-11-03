@@ -49,6 +49,8 @@
 
 **同日追加（仅文档，零代码，版本保持 1.1.165）**
 - 用户问「https://apps.apple.com/cn/app/标签管家/id1663162151 我希望 erp 能打印标签，能把这个标签管家的功能集成进去吗？给我一个方案」⇒ 出 [docs/31_标签打印方案.md](31_标签打印方案.md)（**方案，未实施，等用户答复 4 问再排期**）。要点：标签管家 App 本体无对外 API/URL Scheme，**不可集成**；厂商真接口是启锐 **PSDK**（支持 UniApp，TSPL/CPCL/ESC-POS，蓝牙·WiFi·USB，端侧渲染）与**爱印云打印**（HTTP/MQTT + API Key/Secret，可私有化）。ERP 已有同构云打印链路（`FeiePrintClient` + DB 模板），第二家服务商是扩展不是新建。**真正的卡点是主数据**：合格证 14 项里的生产者名称/地址/XK 编号/执行标准/贮存条件/检验员代号库里全无字段；现有「打印标签」实为飞鹅 58mm 热敏小票，不是不干胶。⚠️ **拓扑红线**（与本次 OCR 只读本地磁盘同一类坑）：后端在 NAS 容器里够不到 USB/蓝牙打印机，TSPL over TCP 9100 在**阿里云接管那天会失效** —— 任何硬件方案先问这一句。
+- 推 GitHub 前扫了一遍提交面 ⇒ **仓库卫生清理**（见 [docs/security.md](security.md) §仓库明文凭据清理）：① `IntegrationSecretMergeTest` 里我写进了**真实 TextIn app-id/secret-code**，换成明显假的占位 fixture（`aaaa…` / `deadbeef…`），单测 5/5 仍绿；② `docs/CHANGELOG.md` 两处**历史遗留的飞鹅 UKEY 明文**改为「已脱敏」；③ `backups/pre_v121_full_20260825_161507.sql`（1.5 MB 整库 dump，含全部用户口令）**停止 git 跟踪**，磁盘文件保留（v1.2.1 前唯一一份全量备份）—— `.gitignore` 早有 `backups/*.sql`，只是对**已跟踪文件**不生效。
+- ⚠️ **改文件不等于撤销泄漏**：明文已在 git 历史里，唯一有效处置是换凭证。**待用户执行：去飞鹅控制台重置 UKEY**，再按 `sys_feie_printer_config.ukey` 逐台（可能有多个 SN）UPDATE `.150` 主库，复制自动带 `.32`；改完用真实工单打一次飞鹅打印验证（旧 UKEY 静默失败，界面照样像成功）。另：三站 SSH 口令与 MySQL root 口令散在约 50 个跟踪脚本里，**本轮没动** —— 那些值是脚本真实在用的 `sshpass -p`，必须先改成读 env 才能脱敏，是一次独立改造。
 
 ### v1.1.164 (2026-11-03 — App「新建销售出库单」明细数量默认取该客户上次出库量；同日第二批实测揪出该页商品搜索恒空)
 
@@ -4582,7 +4584,7 @@ return isFinite(n) ? n : cleaned  // 完全无效才返回原始字符串 (不�
 - **模板字段说明**: `pc-web/src/views/system/FeiePrintTemplate.vue` 的 `FIELD_DOC`
   - 主表用 `${order.xxx}` (PRD_ORDER) / `${bill.xxx}` (其他)
   - 明细行用 `${d.xxx}` (`<#list bill.details as d>` 循环内)
-- **飞鹅账号**: `gpssong@163.com` / UKEY `cY9qWSXLgDDYwQYP` / SN `916503246`
+- **飞鹅账号**: `gpssong@163.com` / UKEY 已脱敏（真值在飞鹅控制台与库内 `sys_feie_printer_config`；该明文曾提交进 git 历史，请尽快在飞鹅控制台重置）/ SN `916503246`
   - 联调时录入 `sys_feie_printer_config` 表
 
 ### 飞鹅签名算法
@@ -8193,7 +8195,7 @@ return isFinite(n) ? n : cleaned  // 完全无效才返回原始字符串 (不�
 - **模板字段说明**: `pc-web/src/views/system/FeiePrintTemplate.vue` 的 `FIELD_DOC`
   - 主表用 `${order.xxx}` (PRD_ORDER) / `${bill.xxx}` (其他)
   - 明细行用 `${d.xxx}` (`<#list bill.details as d>` 循环内)
-- **飞鹅账号**: `gpssong@163.com` / UKEY `cY9qWSXLgDDYwQYP` / SN `916503246`
+- **飞鹅账号**: `gpssong@163.com` / UKEY 已脱敏（真值在飞鹅控制台与库内 `sys_feie_printer_config`；该明文曾提交进 git 历史，请尽快在飞鹅控制台重置）/ SN `916503246`
   - 联调时录入 `sys_feie_printer_config` 表
 
 ### 飞鹅签名算法
