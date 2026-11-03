@@ -110,6 +110,39 @@ public class AiProperties {
     @Value("${erp.ai.asr-timeout-ms:30000}")
     private int asrTimeoutMs;
 
+    // === v1.1.158 OCR (视觉模型: 原料标签批号识别, 可选) ===
+    // OpenAI 兼容协议, content 传 [{type:text},{type:image_url}] 数组. 默认指 DashScope qwen-vl-plus.
+    // 与文本 LLM 链分开: 独立的 key/model/baseUrl, key 空时 OCR 端点快速失败, 不影响其他 AI.
+    @Value("${erp.ai.ocr-key:}")
+    private String ocrKey;
+
+    @Value("${erp.ai.ocr-model:qwen-vl-plus}")
+    private String ocrModel;
+
+    @Value("${erp.ai.ocr-base-url:https://dashscope.aliyuncs.com/compatible-mode/v1}")
+    private String ocrBaseUrl;
+
+    @Value("${erp.ai.ocr-timeout-ms:30000}")
+    private int ocrTimeoutMs;
+
+    // === v1.1.165 OCR 服务商开关 + TextIn (合合信息) 通用文字识别凭证 ===
+    // llm = 走上面 ocr-* 的 OpenAI 兼容多模态; textin = 走 TextIn 专用 OCR (返回逐行文字 + 坐标).
+    // 默认 llm: 已有视觉模型 key 的站点行为不变, 换 TextIn 由「对接方式」保存 provider=textin 生效.
+    @Value("${erp.ai.ocr-provider:llm}")
+    private String ocrProvider;
+
+    @Value("${erp.ai.textin-app-id:}")
+    private String textinAppId;
+
+    @Value("${erp.ai.textin-secret-code:}")
+    private String textinSecretCode;
+
+    @Value("${erp.ai.textin-base-url:https://api.textin.com}")
+    private String textinBaseUrl;
+
+    @Value("${erp.ai.textin-timeout-ms:20000}")
+    private int textinTimeoutMs;
+
     // ====== getters ======
     public String getLegacyApiKey() { return legacyApiKey; }
     public String getLegacyModel() { return legacyModel; }
@@ -138,6 +171,16 @@ public class AiProperties {
     public String getAsrModel() { return asrModel; }
     public String getAsrBaseUrl() { return asrBaseUrl; }
     public int getAsrTimeoutMs() { return asrTimeoutMs; }
+
+    public String getOcrKey() { return ocrKey; }
+    public String getOcrModel() { return ocrModel; }
+    public String getOcrBaseUrl() { return ocrBaseUrl; }
+    public int getOcrTimeoutMs() { return ocrTimeoutMs; }
+    public String getOcrProvider() { return ocrProvider; }
+    public String getTextinAppId() { return textinAppId; }
+    public String getTextinSecretCode() { return textinSecretCode; }
+    public String getTextinBaseUrl() { return textinBaseUrl; }
+    public int getTextinTimeoutMs() { return textinTimeoutMs; }
 
     // ==================================================================
     // v1.1.80 — DB 覆盖层 (sys_config.AI_INTEGRATION JSON).
@@ -177,6 +220,19 @@ public class AiProperties {
     private volatile String ovAsrBaseUrl;
     private volatile String ovAsrTimeoutMs;
 
+    /** DB 覆盖: OCR (视觉模型). */
+    private volatile String ovOcrKey;
+    private volatile String ovOcrModel;
+    private volatile String ovOcrBaseUrl;
+    private volatile String ovOcrTimeoutMs;
+
+    /** DB 覆盖: OCR 服务商 (llm/textin) + TextIn 凭证. */
+    private volatile String ovOcrProvider;
+    private volatile String ovTextinAppId;
+    private volatile String ovTextinSecretCode;
+    private volatile String ovTextinBaseUrl;
+    private volatile String ovTextinTimeoutMs;
+
     // ===== v1.1.117 — 模型接口配置卡: 能力开关 + 每日上限 (UI 默认 business/quality=true, allowWrite=false) =====
     /** DB 覆盖: 能力开关. null = 未设 (回落 UI 默认). */
     private volatile Boolean ovBusiness;
@@ -200,7 +256,9 @@ public class AiProperties {
      *     "slot1": {"name":"minimax","key":"***","model":"MiniMax-M3","baseUrl":"..."}
      *   },
      *   "legacy": {"key":"...","model":"...","baseUrl":"..."},
-     *   "asr":  {"key":"...","model":"...","baseUrl":"...","timeoutMs":30000}
+     *   "asr":  {"key":"...","model":"...","baseUrl":"...","timeoutMs":30000},
+     *   "ocr":  {"provider":"textin","textinAppId":"...","textinSecretCode":"...",
+     *            "key":"...","model":"qwen-vl-plus","baseUrl":"...","timeoutMs":30000}
      * }
      * </pre>
      *
@@ -279,6 +337,24 @@ public class AiProperties {
             } else {
                 ovAsrKey = ovAsrModel = ovAsrBaseUrl = ovAsrTimeoutMs = null;
             }
+
+            // --- OCR (v1.1.158 视觉模型: 原料标签批号识别) ---
+            JSONObject ocr = root.getJSONObject("ocr");
+            if (ocr != null) {
+                ovOcrKey = ocr.getStr("key");
+                ovOcrModel = ocr.getStr("model");
+                ovOcrBaseUrl = ocr.getStr("baseUrl");
+                ovOcrTimeoutMs = ocr.getStr("timeoutMs");
+                // v1.1.165: 服务商 + TextIn 凭证 (provider: "llm" | "textin")
+                ovOcrProvider = ocr.getStr("provider");
+                ovTextinAppId = ocr.getStr("textinAppId");
+                ovTextinSecretCode = ocr.getStr("textinSecretCode");
+                ovTextinBaseUrl = ocr.getStr("textinBaseUrl");
+                ovTextinTimeoutMs = ocr.getStr("textinTimeoutMs");
+            } else {
+                ovOcrKey = ovOcrModel = ovOcrBaseUrl = ovOcrTimeoutMs = null;
+                ovOcrProvider = ovTextinAppId = ovTextinSecretCode = ovTextinBaseUrl = ovTextinTimeoutMs = null;
+            }
         } catch (Exception e) {
             log.warn("[AiProperties] AI_INTEGRATION JSON 解析失败, 回落纯 env: {}", e.getMessage());
             clearOverrides();
@@ -292,6 +368,8 @@ public class AiProperties {
         ovProvider1Key = ovProvider1Model = ovProvider1BaseUrl = ovProvider1TimeoutMs = ovProvider1StripThinking = null;
         ovLegacyApiKey = ovLegacyModel = ovLegacyBaseUrl = null;
         ovAsrKey = ovAsrModel = ovAsrBaseUrl = ovAsrTimeoutMs = null;
+        ovOcrKey = ovOcrModel = ovOcrBaseUrl = ovOcrTimeoutMs = null;
+        ovOcrProvider = ovTextinAppId = ovTextinSecretCode = ovTextinBaseUrl = ovTextinTimeoutMs = null;
         // v1.1.117
         ovBusiness = ovQuality = ovAllowWrite = null;
         ovDailyLimit = null;
@@ -385,6 +463,45 @@ public class AiProperties {
             try { return Integer.parseInt(ovAsrTimeoutMs.trim()); } catch (Exception ignore) {}
         }
         return asrTimeoutMs;
+    }
+
+    // ===== v1.1.158 OCR (视觉模型: 原料标签批号识别) =====
+    public String effectiveOcrKey() { return coalesce(ovOcrKey, ocrKey); }
+    public String effectiveOcrModel() { return coalesce(ovOcrModel, ocrModel); }
+    public String effectiveOcrBaseUrl() { return coalesce(ovOcrBaseUrl, ocrBaseUrl); }
+    public int effectiveOcrTimeoutMs() {
+        if (ovOcrTimeoutMs != null && !ovOcrTimeoutMs.isEmpty()) {
+            try { return Integer.parseInt(ovOcrTimeoutMs.trim()); } catch (Exception ignore) {}
+        }
+        return ocrTimeoutMs;
+    }
+
+    // ===== v1.1.165 OCR 服务商 + TextIn (合合信息通用文字识别) =====
+
+    /** 期望的 OCR 服务商: "llm" (OpenAI 兼容视觉模型) | "textin". DB 覆盖优先, 空回落 env. */
+    public String effectiveOcrProvider() { return coalesce(ovOcrProvider, ocrProvider); }
+    public String effectiveTextinAppId() { return coalesce(ovTextinAppId, textinAppId); }
+    public String effectiveTextinSecretCode() { return coalesce(ovTextinSecretCode, textinSecretCode); }
+    public String effectiveTextinBaseUrl() { return coalesce(ovTextinBaseUrl, textinBaseUrl); }
+    public int effectiveTextinTimeoutMs() {
+        if (ovTextinTimeoutMs != null && !ovTextinTimeoutMs.isEmpty()) {
+            try { return Integer.parseInt(ovTextinTimeoutMs.trim()); } catch (Exception ignore) {}
+        }
+        return textinTimeoutMs;
+    }
+
+    /** TextIn 两项凭证是否都填了 (缺一即视为未配置, 不发半套请求). */
+    public boolean textinConfigured() {
+        return isNotBlank(effectiveTextinAppId()) && isNotBlank(effectiveTextinSecretCode());
+    }
+
+    /** OpenAI 兼容视觉模型 key 是否填了. */
+    public boolean llmOcrConfigured() {
+        return isNotBlank(effectiveOcrKey());
+    }
+
+    private static boolean isNotBlank(String s) {
+        return s != null && !s.trim().isEmpty();
     }
 
     private static final Logger log = LoggerFactory.getLogger(AiProperties.class);

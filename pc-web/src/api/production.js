@@ -19,6 +19,8 @@ export const prdOrderApi = {
   add: (data) => request.post('/production/order', data),
   update: (data) => request.put('/production/order', data),
   release: (id) => request.post(`/production/order/${id}/release`),
+  // v1.1.160: 按 BOM 展开原料 + 逐行可用库存批次候选 (只读, 复用 production:order:list/add/edit 任一)
+  materialSuggest: (productId, planQty) => request.get('/production/order/material-suggest', { params: { productId, planQty } }),
   finish: (id, params) => request.post(`/production/order/${id}/finish`, null, { params }),
   void: (id) => request.post(`/production/order/${id}/void`),
   delete: (id) => request.delete(`/production/order/${id}`)

@@ -7,9 +7,15 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.system.entity.SysFeiePrintTemplate;
 import com.industrial.erp.modules.system.mapper.SysFeiePrintTemplateMapper;
+import freemarker.core.ParseException;
+import freemarker.template.Configuration;
+import freemarker.template.Template;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.io.StringReader;
 import java.util.List;
 
 /**
@@ -18,14 +24,69 @@ import java.util.List;
  * <p>v1.1.24+: {@code save} / {@code update} 涉及"先 clearDefault 改 N 行 + 再 insert/update" 多步写,
  * 必须包到事务里, 否则 clearDefault 成功 + insert 失败会留下"旧默认被改 0 + 新默认未建"的脏状态
  * (下次调用 getActive 找不到默认模板). {@code delete} 也加了事务 — 后续如改"级联删关联"也安全.
+ *
+ * <p>v1.1.162+: save/update 先用 FreeMarker 试解析 {@code content}. 之前语法错误只能等到打印/预览才暴露,
+ * 且报错行号是渲染期的 "custom" 模板行号, 现场改模板的人对着界面对不上位置.
  */
 @Service
 public class SysFeiePrintTemplateService {
 
-    private final SysFeiePrintTemplateMapper mapper;
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(SysFeiePrintTemplateService.class);
 
-    public SysFeiePrintTemplateService(SysFeiePrintTemplateMapper mapper) {
+    private final SysFeiePrintTemplateMapper mapper;
+    private final Configuration freemarkerConfig;
+
+    public SysFeiePrintTemplateService(SysFeiePrintTemplateMapper mapper,
+                                       @Qualifier("feieFreemarkerConfig") Configuration freemarkerConfig) {
         this.mapper = mapper;
+        this.freemarkerConfig = freemarkerConfig;
+    }
+
+    /**
+     * 试解析模板内容; 语法错误直接拒绝落库, 报错带上 行/列 + 出错那一行的原文.
+     *
+     * <p>FreeMarker 的语法错 {@code ParseException} 继承 {@code IOException}
+     * ({@code Template} 构造器只声明 {@code throws IOException}), 不是 {@code TemplateException}.
+     */
+    private void validateContent(SysFeiePrintTemplate t) {
+        String content = t.getContent();
+        if (content == null || content.isEmpty()) {
+            return;
+        }
+        try {
+            new Template("validate", new StringReader(content), freemarkerConfig);
+        } catch (ParseException e) {
+            throw BizException.of(400, "模板语法有误: " + describe(e, content));
+        } catch (IOException e) {
+            throw BizException.of(400, "模板内容无法解析: " + e.getMessage());
+        }
+    }
+
+    /** 取 ParseException 的行列 + 出错那行原文; FreeMarker 原文里 "but was expecting ..." 一长串枚举对用户没用, 截掉 */
+    private static String describe(ParseException e, String content) {
+        int lineNo = e.lineNumber;
+        StringBuilder sb = new StringBuilder();
+        if (lineNo > 0) {
+            sb.append("第 ").append(lineNo).append(" 行");
+            if (e.columnNumber > 0) sb.append(" 第 ").append(e.columnNumber).append(" 列");
+            sb.append(" — ");
+        }
+        sb.append(brief(e.getMessage()));
+        if (lineNo > 0) {
+            List<String> lines = content.lines().toList();
+            if (lineNo <= lines.size()) sb.append("；该行内容: ").append(lines.get(lineNo - 1));
+        }
+        log.warn("[FeieTpl] 模板语法校验失败: {}", e.getMessage());
+        return sb.toString();
+    }
+
+    private static String brief(String msg) {
+        if (msg == null || msg.isEmpty()) return "FreeMarker 解析失败";
+        int cut = msg.indexOf("but was expecting");
+        String s = cut > 0 ? msg.substring(0, cut).trim() : msg;
+        int firstBrace = s.indexOf(':');
+        if (firstBrace >= 0 && firstBrace < s.length() - 1) s = s.substring(firstBrace + 1).trim();
+        return s.length() > 200 ? s.substring(0, 200) + "…" : s;
     }
 
     /**
@@ -57,6 +118,7 @@ public class SysFeiePrintTemplateService {
 
     @Transactional(rollbackFor = Exception.class)
     public void save(SysFeiePrintTemplate t) {
+        validateContent(t);
         // 如果设默认, 把同 (bizType, printerConfigId) 的其他默认取消
         if (t.getIsDefault() != null && t.getIsDefault() == 1) {
             clearDefault(t.getBizType(), t.getPrinterConfigId(), t.getId());
@@ -83,6 +145,7 @@ public class SysFeiePrintTemplateService {
 
     @Transactional(rollbackFor = Exception.class)
     public void update(SysFeiePrintTemplate t) {
+        validateContent(t);
         if (t.getIsDefault() != null && t.getIsDefault() == 1) {
             clearDefault(t.getBizType(), t.getPrinterConfigId(), t.getId());
         }

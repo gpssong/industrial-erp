@@ -109,11 +109,24 @@ export function purchaseCreateFromIqc(planId, iqcId) {
 
 /**
  * ⑨' 从采购订单 + 合格 IQC 自动建 DRAFT 采购入库单 (订单版, 完全对齐 PC).
- * 后端: POST /purchase/receipt/create-from-order  { orderId, iqcId }
+ * 后端: POST /purchase/receipt/create-from-order
+ *   { orderId, iqcId, batchNo?, warehouseId?, lines?: [{orderDetailId, batchNo}] }
+ * v1.1.159: batchNo = App 采购入库 OCR/手工录入的到货批次 (写入全部明细行); 检验报告号后端发 BG-YL。
+ * v1.1.163: warehouseId = 现场选择的入库仓库 (未传则沿用订单仓库);
+ *   lines = 逐行批号 (一次到货多种原料时每种各一个批号), 未填的行回落 batchNo。
+ * @param {{warehouseId?: string|number, lines?: Array<{orderDetailId: string, batchNo: string}>}} [opts]
  * @returns {Promise<{receiptId: Long}>}
  */
-export function purchaseCreateFromOrder(orderId, iqcId) {
-  return request({ url: '/purchase/receipt/create-from-order', method: 'POST', data: { orderId, iqcId } })
+export function purchaseCreateFromOrder(orderId, iqcId, batchNo, opts) {
+  const data = { orderId, iqcId }
+  if (batchNo && String(batchNo).trim()) data.batchNo = String(batchNo).trim()
+  const o = opts || {}
+  if (o.warehouseId) data.warehouseId = String(o.warehouseId)
+  const lines = (o.lines || [])
+    .filter((l) => l && l.orderDetailId && String(l.batchNo || '').trim())
+    .map((l) => ({ orderDetailId: String(l.orderDetailId), batchNo: String(l.batchNo).trim() }))
+  if (lines.length) data.lines = lines
+  return request({ url: '/purchase/receipt/create-from-order', method: 'POST', data })
 }
 
 /**

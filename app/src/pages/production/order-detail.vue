@@ -269,6 +269,39 @@
 
           <template v-if="sheet.stage === 'BLOW'">
             <text class="ws-label">2. 本次投入的原料批号{{ isFoodGradeOrder ? '' : ' (选填)' }}</text>
+
+            <!-- v1.1.160: 有 BOM 原料行时优先「从库存选批号」—— 选中即定下出库仓库, 开工生成的领料单直接带批号 -->
+            <view v-if="sheet.loadingMaterials" class="ws-tip">正在按 BOM 展开原料并读取可用库存…</view>
+            <view v-else-if="sheet.materials.length" class="ws-mat-list">
+              <view v-for="(m, i) in sheet.materials" :key="'m' + i" class="ws-mat-row">
+                <view class="ws-mat-head">
+                  <text class="ws-mat-name">{{ m.productName || m.productCode || ('原料 ' + (i + 1)) }}</text>
+                  <text class="ws-mat-qty">{{ m.reqQty != null ? (m.reqQty + ' ' + (m.unitName || 'kg')) : '用量待定' }}</text>
+                </view>
+                <view class="ws-mat-pick-row">
+                  <picker mode="selector" :range="matOptions(m)" range-key="label" :value="matIndex(m)"
+                          @change="onMatPick(i, $event)">
+                    <view class="ws-mat-pick">
+                      <!-- 库存行可能没有批号 (只有仓库), 显隐要认 warehouseId —— 只认 batchNo 会让「选了却像没选」 -->
+                      <text :class="m.warehouseId ? 'ws-mat-pick-val' : 'ws-mat-pick-ph'">
+                        {{ m.warehouseId ? ((m.batchNo || '(无批号)') + (m.warehouseName ? ' · ' + m.warehouseName : '')) : '从库存选择批号' }}
+                      </text>
+                      <text class="ws-mat-arrow">▾</text>
+                    </view>
+                  </picker>
+                  <text v-if="m.warehouseId" class="ws-mat-clear" @click="onMatClear(i)">清除</text>
+                </view>
+                <text v-if="!m.batches || !m.batches.length" class="ws-mat-warn">
+                  该原料当前无可用库存 —— 可在下方手工登记批号, 领料单需仓管补批次
+                </text>
+                <text v-else-if="m.shortfall" class="ws-mat-warn">
+                  可用不足, 尚差 {{ m.shortfall }} {{ m.unitName || 'kg' }}
+                </text>
+              </view>
+              <text class="ws-tip">领料量 = 成品总重 × 本项配比 ÷ Σ配比 × (1 + 损耗率), 与开工生成的领料单同一算法。</text>
+            </view>
+
+            <text v-if="sheet.materials.length" class="ws-sublabel">其他批号 (手工登记, 选填)</text>
             <view v-for="(b, i) in sheet.batches" :key="'b' + i" class="ws-batch-row">
               <input v-model="sheet.batches[i]" class="ws-input" placeholder="如 L20261028-03 / 原料袋上批号" />
               <text v-if="sheet.batches.length > 1" class="ws-del" @click="sheet.batches.splice(i, 1)">删除</text>
@@ -355,6 +388,9 @@ const sheet = reactive({
   results: {},
   loadingTemplate: false,
   batches: [''],
+  // v1.1.160: 按 BOM 展开的原料行 (每行从库存选「仓库 + 批号」), 开工时随 blow-start 落 prd_order_material
+  materials: [],
+  loadingMaterials: false,
   photos: [],
   remark: '',
   submitting: false
@@ -382,6 +418,8 @@ const canSubmitStart = computed(() => {
   if (sheet.stage !== 'BLOW') return true
   // v1.1.141: 工业品开工只把「生产环境合格」当必填项; 食品级仍要求投料批号 + 批号照片 (XK16-204)
   if (!isFoodGradeOrder.value) return true
+  // v1.1.160: 从库存选出来的批次同样算「已登记投料批号」(后端会并入 raw_batch_no), 不必再手打一遍
+  if (pickedBatchNos().length > 0 && (sheet.photos || []).length > 0) return true
   const batches = (sheet.batches || []).map(s => String(s || '').trim()).filter(s => s)
   return batches.length > 0 && (sheet.photos || []).length > 0
 })
@@ -577,6 +615,7 @@ async function openStartSheet(stage) {
   }
   sheet.stage = stage
   sheet.batches = ['']
+  sheet.materials = []
   sheet.photos = []
   sheet.remark = ''
   sheet.submitting = false
@@ -584,6 +623,89 @@ async function openStartSheet(stage) {
   sheet.results = {}
   sheet.visible = true
   await loadEnvTemplate(stage)
+  // v1.1.160: 吹膜开工才需要原料批次; 制袋领的是半成品, 不走 BOM 原料
+  if (stage === 'BLOW') await loadSheetMaterials()
+}
+
+// ===== v1.1.160 开工确认「批号从库存选择」=====
+// 原料行与可用批次都来自后端 /production/order/material-suggest (与 PC 新建工单同一接口、同一算法),
+// 前端不再自算领料量, 避免屏幕上的量和开工生成的领料单对不上。
+function shortfallOf(row, b) {
+  if (!b || row.reqQty == null) return null
+  // 单位口径不一致就不下结论 (原料行按 kg, 库存行可能是个/米)
+  if ((row.unitName || 'kg') !== (b.unitName || 'kg')) return null
+  const gap = Number(row.reqQty) - Number(b.availableQty)
+  return gap > 0 ? Math.round(gap * 1000) / 1000 : null
+}
+
+/** picker 的 range: 一个选项 = 一条库存批次 (仓库 + 批号 + 可用量), 选中即定下出库仓。 */
+function matOptions(row) {
+  return (row.batches || []).map(b => ({
+    label: `${b.batchNo || '(无批号)'} · ${b.warehouseName || '仓库'} · 可用 ${b.availableQty} ${b.unitName || 'kg'}`,
+    batch: b
+  }))
+}
+
+function matIndex(row) {
+  const i = matOptions(row).findIndex(o =>
+    String(o.batch.warehouseId) === String(row.warehouseId)
+    && String(o.batch.batchNo || '') === String(row.batchNo || ''))
+  return i < 0 ? 0 : i
+}
+
+function onMatPick(i, ev) {
+  const row = sheet.materials[i]
+  const opt = matOptions(row)[Number(ev && ev.detail && ev.detail.value)]
+  if (!row || !opt) return
+  row.warehouseId = opt.batch.warehouseId
+  row.warehouseName = opt.batch.warehouseName
+  row.batchNo = opt.batch.batchNo || ''
+  row.shortfall = shortfallOf(row, opt.batch)
+}
+
+function onMatClear(i) {
+  const row = sheet.materials[i]
+  if (!row) return
+  row.warehouseId = null
+  row.warehouseName = null
+  row.batchNo = ''
+  row.shortfall = null
+}
+
+function pickedBatchNos() {
+  const out = []
+  sheet.materials.forEach(m => {
+    if (m && m.batchNo && out.indexOf(m.batchNo) < 0) out.push(m.batchNo)
+  })
+  return out
+}
+
+/** 打开弹窗时拉该单的 BOM 原料行 + 可用批次, 并把工单已存过的选择 (prd_order_material) 回填上。 */
+async function loadSheetMaterials() {
+  const o = order.value
+  if (!o || !o.productId) return
+  sheet.loadingMaterials = true
+  try {
+    const r = await api.prdOrderMaterialSuggest(String(o.productId), o.planQty || null)
+    const saved = {}
+    ;(o.materials || []).forEach(m => { if (m && m.productId != null) saved[String(m.productId)] = m })
+    sheet.materials = (r || []).map(m => {
+      const row = { ...m, warehouseName: null, shortfall: null }
+      const prev = saved[String(m.productId)]
+      if (prev && prev.batchNo) { row.warehouseId = prev.warehouseId; row.batchNo = prev.batchNo }
+      const hit = (row.batches || []).find(b =>
+        String(b.warehouseId) === String(row.warehouseId)
+        && String(b.batchNo || '') === String(row.batchNo || ''))
+      if (hit) { row.warehouseName = hit.warehouseName; row.shortfall = shortfallOf(row, hit) }
+      else if (prev && prev.batchNo) { row.warehouseName = '上次所选' }
+      return row
+    })
+  } catch (e) {
+    // 无 BOM / 无权限 / 网络异常 → 退回手工登记批号的老路径, 不挡开工
+    sheet.materials = []
+  } finally {
+    sheet.loadingMaterials = false
+  }
 }
 
 // v1.1.151: 清单来自后端唯一模板 (GB 31603-2015), PC XK 页同一份, 不在前端复制
@@ -629,11 +751,15 @@ async function onStartSubmit() {
   if (!canSubmitStart.value || sheet.submitting) return
   const isBag = sheet.stage === 'BAG'
   const batches = (sheet.batches || []).map(s => String(s || '').trim()).filter(s => s)
+  // v1.1.160: 只上送 productId/warehouseId/batchNo —— 需求量与品名由后端按 BOM 算, 现场改不了
+  const picked = sheet.materials
+    .filter(m => m && (m.batchNo || m.warehouseId))
+    .map(m => ({ productId: m.productId, warehouseId: m.warehouseId || null, batchNo: m.batchNo || null }))
   const payload = isBag
     ? { stage: sheet.stage, processId: String(bagProcess.value.id), envQualified: true,
         envItems: envItemsPayload(), remark: sheet.remark || null }
     : { stage: sheet.stage, envQualified: true, envItems: envItemsPayload(),
-        rawBatchNos: batches, photoUrls: sheet.photos.slice(), remark: sheet.remark || null }
+        rawBatchNos: batches, materials: picked, photoUrls: sheet.photos.slice(), remark: sheet.remark || null }
   sheet.submitting = true
   if (typeof uni !== 'undefined' && uni.showLoading) uni.showLoading({ title: '开工确认中...', mask: true })
   try {
@@ -644,9 +770,11 @@ async function onStartSubmit() {
     sheet.visible = false
     const unknown = (r && r.unknownBatchNos) || []
     const reqNo = r && r.requisitionNo
+    // 后端已把从库存选出来的批号并入投料登记 (mes_work_start_confirm.raw_batch_no), 提示口径保持一致
+    const declared = batches.concat(pickedBatchNos().filter(b => batches.indexOf(b) < 0))
     const msg = isBag
       ? ('制袋已开工' + (reqNo ? ', 领料单 ' + reqNo + ' 待仓管审核' : ''))
-      : ('吹膜已开工' + (batches.length
+      : ('吹膜已开工' + (declared.length
           ? (unknown.length ? ', 批号 ' + unknown.join('/') + ' 系统暂无来料记录' : '')
           : ', 未登记投料批号 (工业品选填)'))
     if (typeof uni !== 'undefined' && uni.showModal) {
@@ -914,6 +1042,21 @@ onMounted(() => { applyTabBar() })
 .ws-input { flex: 1; border: 1px solid #dcdfe6; border-radius: 6px; padding: 8px 10px; font-size: 14px; background: #fff; }
 .ws-del { font-size: 12px; color: #f56c6c; padding: 0 6px; }
 .ws-add { font-size: 13px; color: #1e6091; padding: 6px 0; }
+/* v1.1.160: 开工确认「批号从库存选择」—— 按 BOM 行选仓库+批次 */
+.ws-sublabel { font-size: 12px; color: #909399; display: block; margin: 10px 0 4px; }
+.ws-mat-list { background: #f7f9fc; border: 1px solid #e6ebf2; border-radius: 8px; padding: 8px 10px; margin-bottom: 4px; }
+.ws-mat-row { padding: 6px 0; border-bottom: 1px dashed #e0e6ed; }
+.ws-mat-row:last-of-type { border-bottom: none; }
+.ws-mat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ws-mat-name { font-size: 13px; font-weight: 600; color: #303133; flex: 1; }
+.ws-mat-qty { font-size: 12px; color: #606266; }
+.ws-mat-pick-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.ws-mat-pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid #dcdfe6; border-radius: 6px; padding: 8px 10px; background: #fff; min-width: 420rpx; }
+.ws-mat-pick-val { font-size: 13px; color: #1e6091; flex: 1; }
+.ws-mat-pick-ph { font-size: 13px; color: #a8abb2; flex: 1; }
+.ws-mat-arrow { font-size: 12px; color: #909399; }
+.ws-mat-clear { font-size: 12px; color: #f56c6c; padding: 4px 8px; }
+.ws-mat-warn { display: block; font-size: 11px; color: #e6a23c; margin-top: 4px; line-height: 1.5; }
 .ws-photo-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .ws-thumb { position: relative; }
 .ws-thumb-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; line-height: 18px; text-align: center; border-radius: 50%; background: #f56c6c; color: #fff; font-size: 13px; }

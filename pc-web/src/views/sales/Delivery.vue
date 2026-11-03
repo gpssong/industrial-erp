@@ -660,19 +660,17 @@ async function onHistoryRowClick(row) {
     return
   }
   form.details.push(newLine)
-  // 3. 异步: 加载该商品所有单位 + 该仓库批次候选, 让用户能用下拉
-  if (!productList.value.find(p => p.id === newLine.productId)) {
-    try {
-      const r = await productApi.detail(newLine.productId)
-      const p = r.data?.product || r.data
-      if (p) {
-        productList.value.push({ id: p.id, productCode: p.productCode, productName: p.productName })
-      }
-    } catch (e) { /* ignore */ }
-  }
-  // 等下个 tick 让新行挂上, 再加载批次候选
-  await Promise.resolve()
-  await loadBatchOptionsForRow(newLine)
+  // 3. 异步: 拉商品详情填 row._units (单位下拉的 option 源) + 该仓库批次候选
+  //    必须走 injectProductIntoDetail: 单位列是 el-select, modelValue=unitId 而 option 来自 row._units,
+  //    不灌 _units 时下拉找不到 option 会把 19 位 unitId 原样显示出来 (v1.1.163 用户报"单位显示不对")。
+  //    它顺带按 unitName 修正历史脏数据 unitId=0 / 单位改名后匹配不上的情况。
+  // ⚠️ 只能改 push 之后从 form.details 里取回的那一行, 不能继续改 newLine 本身: form 是 reactive(),
+  //    push 进去的是原始对象, 直接给原始对象挂 _units / _batchOptions 不经过代理, Vue 收不到变更,
+  //    单位列会一直停在 push 那一刻的空 options (裸露 unitId), 直到别的操作碰巧重渲染该行才恢复。
+  //    onEdit 里遍历 form.details 拿到的就是代理, 所以编辑旧单从来没这个症状。
+  const pushedRow = form.details[form.details.length - 1]
+  await injectProductIntoDetail(pushedRow)
+  await loadBatchOptionsForRow(pushedRow)
   ElMessage.success('已加入明细行')
 }
 

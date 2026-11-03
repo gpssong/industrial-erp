@@ -82,6 +82,10 @@ public class PrdOrderBillLoader implements BillLoader {
 
         Map<String, Object> model = new HashMap<>();
         model.put("order", order);
+        // v1.1.162+: 其他 6 个 Loader 都用 bill 作主表根变量, PC 模板编辑器的提示也教 ${bill.xxx};
+        // 生产单此前只有 order, 用户按提示写的模板只能渲染成空白. 补一个同对象别名, order 保留兼容旧模板.
+        // 注意: 明细在根变量 details, 不存在 bill.details (PrdOrder 没有 getDetails()).
+        model.put("bill", order);
         model.put("details", details);
         return model;
     }

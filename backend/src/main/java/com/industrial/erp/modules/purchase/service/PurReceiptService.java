@@ -31,6 +31,7 @@ import com.industrial.erp.modules.system.aspect.OperLogPublisher;
 import com.industrial.erp.utils.BillNoGenerator;
 import com.industrial.erp.security.PermissionService;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -80,6 +81,11 @@ public class PurReceiptService {
     private final QmsInspectionService qmsInspectionService;
     /** v1.1.101 XK — 采购计划 service (createFromIqc 走 plan → 收 plan 上下文) */
     private final com.industrial.erp.modules.purchase.service.PurInboundPlanService inboundPlanService;
+
+    /** v1.1.158 — 检验报告号自动生成 (BG-YL-YYYYMMDD-NNN). 字段注入避免改动大构造函数签名 (单测直构). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Nullable
+    private com.industrial.erp.modules.purchase.bill.ReportNoGenerator reportNoGenerator;
 
     public IPage<PurReceipt> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus, String productName) {
         // v1.1.130: XK 单据打印页要读一张已审核入库单, report:print 独立后该入口也要能读
@@ -193,6 +199,12 @@ public class PurReceiptService {
         receipt.setTotalAmountTax(totalAmountTax);
         receipt.setPaidAmount(BigDecimal.ZERO);
 
+        // v1.1.158: 食品级采购 (XK 受控) 建单时系统自动发检验报告号 BG-YL-YYYYMMDD-NNN,
+        //   前端不再手填。全非食品 (免检直通) 不发号。已带号 (编辑草稿) 沿用。
+        if (anyFood && StrUtil.isBlank(receipt.getInspectionReportNo()) && reportNoGenerator != null) {
+            receipt.setInspectionReportNo(reportNoGenerator.generate());
+        }
+
         receiptMapper.insert(receipt);
         for (PurReceiptDetail d : receipt.getDetails()) {
             d.setId(null);
@@ -254,6 +266,15 @@ public class PurReceiptService {
         receipt.setBillDate(origin.getBillDate());
         receipt.setBillStatus(origin.getBillStatus());
         receipt.setBillType(origin.getBillType());
+
+        // v1.1.158: 改草稿时保留 / 补发检验报告号 (前端只读不再传). 全非食品不发号.
+        if (StrUtil.isBlank(receipt.getInspectionReportNo())) {
+            if (StrUtil.isNotBlank(origin.getInspectionReportNo())) {
+                receipt.setInspectionReportNo(origin.getInspectionReportNo());
+            } else if (anyFood && reportNoGenerator != null) {
+                receipt.setInspectionReportNo(reportNoGenerator.generate());
+            }
+        }
 
         receiptMapper.updateById(receipt);
         // 删旧明细, 重新插入
@@ -518,9 +539,21 @@ public class PurReceiptService {
     /**
      * v1.1.101 订单为源 — 从采购订单 + 已合格 IQC 自动建 DRAFT 采购入库单 (完全对齐 PC).
      * 与 createFromIqc 平行: 源上下文从 PurInboundPlan 换为 PurOrder, 明细按订单全部行展开.
+     *
+     * <p>v1.1.163 App 采购入库现场补录:
+     * <ul>
+     *   <li>{@code warehouseId} 非空 → 现场选仓覆盖订单上的仓库 (订单未指定仓库时也能入库, 不必回 PC 补录).</li>
+     *   <li>{@code batchByOrderDetailId} 按采购订单明细行 id 给各自的批号 (一车多原料各归各批);
+     *       行上没给则回落到整单 {@code batchNo}.</li>
+     * </ul>
+     *
+     * @param warehouseId            现场选择的仓库 id; null → 沿用采购订单仓库
+     * @param batchByOrderDetailId   采购订单明细行 id → 批号; 可为 null
+     * @param batchNo                整单兜底批号 (v1.1.159 行为, 单原料到货用这个)
      */
     @Transactional(rollbackFor = Exception.class)
-    public Long createFromOrder(Long orderId, Long iqcId) {
+    public Long createFromOrder(Long orderId, Long iqcId, Long warehouseId,
+                                java.util.Map<Long, String> batchByOrderDetailId, String batchNo) {
         permService.requirePerm("purchase:receipt:add");
         // 1. 硬门禁: IQC 已审核 PASS (订单版)
         if (!qmsInspectionService.hasPassedIqcForOrder(orderId, iqcId)) {
@@ -535,9 +568,10 @@ public class PurReceiptService {
         if (s.getStatus() != null && s.getStatus() != 1) {
             throw BizException.of("XK: 供应商 " + s.getSupplierName() + " 当前暂停供货, 不能入库");
         }
-        // 4. 仓库
-        if (order.getWarehouseId() == null) throw BizException.of("采购订单未指定仓库, 请先在 PC 端补录");
-        BaseWarehouse w = warehouseMapper.selectById(order.getWarehouseId());
+        // 4. 仓库: v1.1.163 现场选择优先, 否则沿用订单仓库
+        Long whId = warehouseId != null ? warehouseId : order.getWarehouseId();
+        if (whId == null) throw BizException.of("请选择入库仓库 (采购订单也未指定仓库)");
+        BaseWarehouse w = warehouseMapper.selectById(whId);
         if (w == null) throw BizException.of("仓库不存在");
 
         // 5. 构造 head
@@ -548,7 +582,7 @@ public class PurReceiptService {
         receipt.setBillType("NORMAL");
         receipt.setSupplierId(order.getSupplierId());
         receipt.setSupplierName(s.getSupplierName());
-        receipt.setWarehouseId(order.getWarehouseId());
+        receipt.setWarehouseId(whId);
         receipt.setWarehouseName(w.getWarehouseName());
         receipt.setOrderId(orderId);
         receipt.setRemark("v1.1.101 XK 自动入库, 来源采购订单 " + order.getBillNo());
@@ -559,6 +593,10 @@ public class PurReceiptService {
         if (odtls == null || odtls.isEmpty()) throw BizException.of("采购订单无明细行, 不能入库");
         java.util.List<PurReceiptDetail> dtls = new java.util.ArrayList<>();
         java.math.BigDecimal totalQty = java.math.BigDecimal.ZERO;
+        // v1.1.159: 整单兜底批号 (App 单原料到货 OCR/手录); v1.1.163: 行级批号优先用它
+        String nb = batchNo == null ? "" : batchNo.trim();
+        if (nb.length() > 64) nb = nb.substring(0, 64);
+        final String fallbackBatch = nb.isEmpty() ? null : nb;
         int line = 1;
         for (com.industrial.erp.modules.purchase.entity.PurOrderDetail od : odtls) {
             PurReceiptDetail d = new PurReceiptDetail();
@@ -578,7 +616,7 @@ public class PurReceiptService {
             d.setAmount(java.math.BigDecimal.ZERO);
             d.setTaxAmount(java.math.BigDecimal.ZERO);
             d.setAmountTax(java.math.BigDecimal.ZERO);
-            d.setBatchNo(null);
+            d.setBatchNo(lineBatch(batchByOrderDetailId, od.getId(), fallbackBatch));
             dtls.add(d);
             totalQty = totalQty.add(remain);
         }
@@ -595,10 +633,16 @@ public class PurReceiptService {
         com.industrial.erp.modules.qms.entity.MesQualityInspection iqc =
                 qmsInspectionService.findIqcByOrderId(orderId);
         if (iqc != null) {
-            receipt.setInspectionReportNo(iqc.getBillNo());
             receipt.setInspectionResult(Constants.RESULT_PASS);
             receipt.setSampleQty(iqc.getSampleQty());
             receipt.setInspectorName(iqc.getInspectorName());
+            // v1.1.159: 检验报告号统一走 BG-YL 自动生成 (对齐 PC Receipt.vue / xk/material.vue),
+            //   不再沿用 IQC 单号; 发号器缺失时回退 IQC 单号, 保证 XK 快照非空。
+            if (reportNoGenerator != null) {
+                receipt.setInspectionReportNo(reportNoGenerator.generate());
+            } else {
+                receipt.setInspectionReportNo(iqc.getBillNo());
+            }
         }
 
         // 9. 落库
@@ -608,9 +652,23 @@ public class PurReceiptService {
             d.setReceiptId(receipt.getId());
             receiptDetailMapper.insert(d);
         }
-        log.info("[PurReceipt] createFromOrder: orderId={} iqcId={} → receiptId={} billNo={} lines={}",
-                orderId, iqcId, receipt.getId(), receipt.getBillNo(), dtls.size());
+        log.info("[PurReceipt] createFromOrder: orderId={} iqcId={} → receiptId={} billNo={} lines={} warehouse={}({})",
+                orderId, iqcId, receipt.getId(), receipt.getBillNo(), dtls.size(), w.getWarehouseName(),
+                warehouseId != null ? "现场选择" : "沿用订单");
         return receipt.getId();
+    }
+
+    /**
+     * v1.1.163 行级批号: 该行单独填过就用它, 否则回落整单兜底批号.
+     * 清洗与兜底同口径 (trim + 截到列宽 64); 空串视为未填.
+     */
+    static String lineBatch(java.util.Map<Long, String> batchByOrderDetailId, Long orderDetailId, String fallback) {
+        if (batchByOrderDetailId == null || orderDetailId == null) return fallback;
+        String raw = batchByOrderDetailId.get(orderDetailId);
+        if (raw == null) return fallback;
+        String v = raw.trim();
+        if (v.isEmpty()) return fallback;
+        return v.length() > 64 ? v.substring(0, 64) : v;
     }
 
     /**

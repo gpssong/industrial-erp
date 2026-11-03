@@ -104,8 +104,39 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :span="24">
-                    <el-form-item label="品名 (到货原料)">
-                      <el-input :model-value="arrivalProductName" readonly placeholder="选择采购订单后自动带出" />
+                    <el-form-item label="到货原料明细">
+                      <div style="width:100%">
+                        <el-table :data="form.details" size="small" border style="width:100%"
+                          empty-text="请先「关联采购订单」带入原料明细 (每种原料一行)">
+                          <el-table-column label="原料编码" min-width="120">
+                            <template #default="{ row }"><el-input v-model="row.productCode" size="small" placeholder="编码" /></template>
+                          </el-table-column>
+                          <el-table-column label="品名" min-width="150">
+                            <template #default="{ row }"><el-input v-model="row.productName" size="small" placeholder="品名" /></template>
+                          </el-table-column>
+                          <el-table-column label="规格" min-width="120">
+                            <template #default="{ row }"><el-input v-model="row.spec" size="small" placeholder="规格" /></template>
+                          </el-table-column>
+                          <el-table-column label="数量" width="130">
+                            <template #default="{ row }"><el-input-number v-model="row.qty" :min="0" :precision="4" size="small" controls-position="right" style="width:100%" /></template>
+                          </el-table-column>
+                          <el-table-column label="原料批号" min-width="230">
+                            <template #default="{ row }">
+                              <div style="display:flex;gap:6px;align-items:center">
+                                <el-input v-model="row.batchNo" size="small" placeholder="手工录入, 或点右侧识别" />
+                                <el-tooltip :disabled="ocrEnabled" content="未配置视觉模型, 请到「系统设置 → 对接方式」填写 OCR 密钥">
+                                  <el-button size="small" :loading="row.__ocrLoading"
+                                    :disabled="!ocrEnabled || !inspectForm.labelPhotos.length"
+                                    @click="runRowOcr(row)">📷识别批号</el-button>
+                                </el-tooltip>
+                              </div>
+                            </template>
+                          </el-table-column>
+                        </el-table>
+                        <div v-if="form.details.length && !inspectForm.labelPhotos.length" class="xk-photo-tip" style="margin-top:6px">
+                          识别批号需先在下方「原料标签照片」上传至少 1 张原始标签; 未识别到可手工录入。
+                        </div>
+                      </div>
                     </el-form-item>
                   </el-col>
                 </el-row>
@@ -116,7 +147,7 @@
                 </el-row>
                 <el-row :gutter="16">
                   <el-col :span="8"><el-form-item label="抽检数量"><el-input v-model="inspectForm.sampleQty" placeholder="5 袋 / 1 kg" /></el-form-item></el-col>
-                  <el-col :span="8"><el-form-item label="检验报告号"><el-input v-model="inspectForm.reportNo" placeholder="BG-YL-0418-31" /></el-form-item></el-col>
+                  <el-col :span="8"><el-form-item label="检验报告号"><el-input v-model="inspectForm.reportNo" readonly placeholder="保存后系统自动生成 (BG-YL-日期-流水)" /></el-form-item></el-col>
                   <el-col :span="8"><el-form-item label="检验人员"><el-input v-model="inspectForm.inspector" placeholder="李敏" /></el-form-item></el-col>
                 </el-row>
               </el-form>
@@ -745,7 +776,6 @@ function validateBase() {
 async function saveRecordOnly() {
   const err = validateBase()
   if (err) return ElMessage.error(err)
-  if (!inspectForm.reportNo) return ElMessage.warning('请填写检验报告号')
   if (!inspectForm.inspector) return ElMessage.warning('请填写检验人员')
   savingRecords.value = true
   try {
@@ -764,7 +794,6 @@ async function saveRecordOnly() {
 async function onSignAndInbound() {
   const err = validateBase()
   if (err) return ElMessage.error(err)
-  if (!inspectForm.reportNo) return ElMessage.warning('请填写检验报告号')
   if (!inspectForm.inspector) return ElMessage.warning('请填写检验人员')
   if (!allQaOk) return ElMessage.warning('XK 合规: 综合判定为「不合格」(存在不合格检验项), 不能签署合格并入库; 请退供应商或改判全部合格')
   if (!inspectForm.labelPhotos.length) return ElMessage.warning('请至少上传 1 张原始到货标签照片')
@@ -945,7 +974,40 @@ onMounted(async () => {
   products.value = (await productApi.page({ pageNum: 1, pageSize: 200 })).data.records
   await loadOrders()
   loadData()
+  loadOcrStatus()
 })
+
+// ===== v1.1.158 视觉 OCR: 逐行识别原料标签批号 =====
+const ocrEnabled = ref(false)
+async function loadOcrStatus() {
+  try {
+    const r = await aiApi.ocrStatus()
+    ocrEnabled.value = !!(r && r.data && r.data.enabled)
+  } catch (e) { ocrEnabled.value = false }
+}
+/**
+ * 对该行原料, 用已上传的标签照片跑视觉识别, 把候选批号填入 row.batchNo (人工确认后落库).
+ * 后端按整批照片合并去重返回候选; 单原料到货取首个即可, 多原料由操作员核对后改.
+ */
+async function runRowOcr(row) {
+  if (row.__ocrLoading) return
+  row.__ocrLoading = true
+  try {
+    const urls = (inspectForm.labelPhotos || []).map(f => f.url).filter(Boolean)
+    if (!urls.length) return ElMessage.warning('请先上传原料标签照片')
+    const r = await aiApi.ocrLabelBatchNo(urls, row.productName)
+    const d = (r && r.data) || {}
+    const cand = d.candidates || []
+    if (cand.length) {
+      row.batchNo = cand[0]
+      ElMessage.success(`识别到 ${cand.length} 个批号候选, 已填入「${cand[0]}」, 请对照标签核对`)
+    } else {
+      ElMessage.warning('未识别到批号, 请手工录入或重拍更清晰的标签')
+    }
+  } catch (e) {
+    ElMessage.error('识别失败: ' + ((e && (e.msg || e.message)) || '未知错误'))
+  } finally { row.__ocrLoading = false }
+}
 </script>
 
 <style scoped>

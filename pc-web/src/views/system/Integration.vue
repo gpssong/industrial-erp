@@ -134,6 +134,92 @@
       </p>
     </div>
 
+    <!-- 卡片 2b: OCR 标签识别 (v1.1.158 视觉模型 / v1.1.165 TextIn) -->
+    <div class="page-card" style="margin-bottom:16px" v-loading="loading.asr">
+      <div class="card-head">
+        <div class="section-title">👁 原料标签识别 (OCR 批号) <el-tag :type="ocr.enabled ? 'success' : 'info'" size="small" style="margin-left:8px">{{ ocr.enabled ? `已接 ${providerLabel(ocr.provider)}` : '未配置' }}</el-tag></div>
+      </div>
+      <el-descriptions :column="2" border size="small" style="max-width:900px">
+        <el-descriptions-item label="本次选用">{{ providerLabel(ocr.providerSelected) }}</el-descriptions-item>
+        <el-descriptions-item label="实际生效">{{ ocr.enabled ? providerLabel(ocr.provider) : '— (两家都没配)' }}</el-descriptions-item>
+        <el-descriptions-item label="TextIn app_id">{{ ocr.textinAppIdMasked }}</el-descriptions-item>
+        <el-descriptions-item label="TextIn secret_code">{{ ocr.textinSecretCodeMasked }}</el-descriptions-item>
+        <el-descriptions-item label="视觉模型 key">{{ ocr.keyMasked }}</el-descriptions-item>
+        <el-descriptions-item label="模型">{{ ocr.model }}</el-descriptions-item>
+        <el-descriptions-item label="TextIn 地址">{{ ocr.textinBaseUrl }}</el-descriptions-item>
+        <el-descriptions-item label="视觉模型地址">{{ ocr.baseUrl }}</el-descriptions-item>
+        <el-descriptions-item label="用途" :span="2">采购入库「原料标签 → 批号」自动识别 (PC/App); 手工录入批号始终可用</el-descriptions-item>
+      </el-descriptions>
+      <el-alert v-if="ocr.enabled && ocr.provider !== ocr.providerSelected" type="warning" :closable="false"
+        show-icon style="margin:10px 0 0;max-width:900px"
+        :title="`选的是 ${providerLabel(ocr.providerSelected)}, 但它的凭证没填齐, 暂时在用 ${providerLabel(ocr.provider)}`" />
+      <el-form label-width="112px" label-position="left" style="margin-top:12px;max-width:900px">
+        <el-form-item label="识别服务商">
+          <el-radio-group v-model="integration.ocr.provider">
+            <el-radio-button label="textin">TextIn 通用文字识别</el-radio-button>
+            <el-radio-button label="llm">视觉大模型</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+
+        <template v-if="integration.ocr.provider === 'textin'">
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="x-ti-app-id">
+                <el-input v-model="integration.ocr.textinAppId" placeholder="合合信息应用 ID (留空 = 不改库内已存值)" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="secret-code">
+                <el-input v-model="integration.ocr.textinSecretCode" type="password" show-password
+                  placeholder="x-ti-secret-code (留空 = 不改库内已存值)" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="16">
+              <el-form-item label="服务地址">
+                <el-input v-model="integration.ocr.textinBaseUrl" placeholder="https://api.textin.com (一般不用改)" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="超时 (ms)">
+                <el-input-number v-model="integration.ocr.textinTimeoutMs" :min="3000" :max="120000" :step="1000" controls-position="right" style="width:100%" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </template>
+
+        <template v-else>
+          <el-row :gutter="16">
+            <el-col :span="24">
+              <el-form-item label="API Key">
+                <el-input v-model="integration.ocr.key" type="password" show-password
+                  placeholder="视觉模型 API key (留空 = 不改库内已存值, 库里也没有才回落 env ERP_AI_OCR_KEY)" style="width:100%" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="模型名称">
+                <el-input v-model="integration.ocr.model" placeholder="如 qwen-vl-plus (留空用默认)" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="API 地址">
+                <el-input v-model="integration.ocr.baseUrl" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </template>
+      </el-form>
+      <p class="muted-tip" style="margin-top:8px">
+        <b>TextIn (合合信息通用文字识别)</b>: 专用 OCR, 逐行吐文字 + 坐标, 一单多原料时由服务端按坐标把候选锚到该原料那张标签;
+        控制台领的免费额度用完按张计费, 只需 app-id / secret-code 两项, 无需自备大模型。<br>
+        <b>视觉大模型</b>: 需一个支持图片输入的 OpenAI 兼容多模态模型 (如阿里百炼 <code>qwen-vl-plus</code>), 定向识别走提示词。<br>
+        两家都没配时采购入库「📷识别批号」按钮禁用, 手工录入批号仍可用, 不影响其他功能。填完随 LLM 卡片「保存并即时生效」一起写入 <code>AI_INTEGRATION.ocr</code>, 即时生效无需重启。
+      </p>
+    </div>
+
     <!-- 卡片 3: MCP (Hermes) -->
     <div class="page-card" style="margin-bottom:16px" v-loading="loading.mcp">
       <div class="card-head">
@@ -242,9 +328,17 @@ const PROVIDER_PRESETS = {
   minimax: { model: 'MiniMax-M3', baseUrl: 'https://api.minimaxi.com/v1' }
 }
 /** v1.1.80: ASR key (卡片 2 独立填, 随保存一起写 AI_INTEGRATION). */
-const integration = reactive({ asr: { key: '' } })
+const integration = reactive({
+  asr: { key: '' },
+  ocr: { key: '', model: '', baseUrl: '', timeoutMs: 30000, provider: 'llm', textinAppId: '', textinSecretCode: '', textinBaseUrl: '', textinTimeoutMs: 20000 }
+})
 /** ASR 状态 */
 const asr = ref({ enabled: false, model: '—', baseUrl: '', keyMasked: '(未配置)', timeoutMs: 0 })
+/** v1.1.158/v1.1.165: OCR 状态 (视觉模型 或 TextIn) */
+const ocr = ref({
+  enabled: false, provider: 'none', providerSelected: 'llm', model: '—', baseUrl: '', keyMasked: '(未配置)', timeoutMs: 0,
+  textinAppIdMasked: '(未配置)', textinSecretCodeMasked: '(未配置)', textinBaseUrl: 'https://api.textin.com', textinTimeoutMs: 0
+})
 /** MCP 状态 */
 const mcp = ref({ endpoint: '', protocolVersion: '', tools: [], bot: {} })
 /** Dify 状态 */
@@ -256,6 +350,13 @@ const liveOrderStr = computed(() => {
   return arr.length ? arr.join(', ') : '(未配置 LLM)'
 })
 
+/** OCR 服务商码 → 界面名. */
+function providerLabel(p) {
+  if (p === 'textin') return 'TextIn 通用文字识别'
+  if (p === 'llm') return '视觉大模型'
+  return '未配置'
+}
+
 async function loadAi() {
   loading.ai = true; loading.asr = true
   try {
@@ -263,6 +364,7 @@ async function loadAi() {
     const d = r?.data || {}
     llm.value = d.llm || { enabled: false, providers: [], providerOrder: '' }
     asr.value = d.asr || { enabled: false, model: '—' }
+    ocr.value = { ...ocr.value, ...(d.ocr || {}) }
     // 回填主/备两槽: 后端 slot0 = 主, slot1 = 备 (key 一律不打回, 留空 = 回落 env)
     const provs = llm.value.providers || []
     const fill = (slotKey, idx) => {
@@ -284,6 +386,18 @@ async function loadAi() {
     llmForm.capabilities.allowWrite = caps.allowWrite === true
     llmForm.dailyLimit = caps.dailyLimit || 1000
     integration.asr.key = ''
+    // 密钥一律不回显 (脱敏值也不能回填, 否则下次保存把 **** 当新值写进库); 留空 = 后端沿用库内已存值
+    integration.ocr = {
+      key: '',
+      model: '',
+      baseUrl: '',
+      timeoutMs: ocr.value.timeoutMs || 30000,
+      provider: ocr.value.providerSelected || 'llm',
+      textinAppId: '',
+      textinSecretCode: '',
+      textinBaseUrl: '',
+      textinTimeoutMs: ocr.value.textinTimeoutMs || 20000
+    }
   } catch (e) {
     console.warn('[Integration] 加载 AI 状态失败:', e)
   } finally {
@@ -380,6 +494,17 @@ async function onSave() {
     if (integration.asr.key && integration.asr.key.trim()) {
       payload.asr.key = integration.asr.key.trim()
     }
+    // v1.1.158/v1.1.165: OCR (视觉模型 或 TextIn) — 任一字段填了才写, 留空一律回落 (env 或库内已存密钥)
+    const oc = integration.ocr
+    payload.ocr = { provider: oc.provider }
+    if (oc.key && oc.key.trim()) payload.ocr.key = oc.key.trim()
+    if (oc.model && oc.model.trim()) payload.ocr.model = oc.model.trim()
+    if (oc.baseUrl && oc.baseUrl.trim()) payload.ocr.baseUrl = oc.baseUrl.trim()
+    if (oc.timeoutMs) payload.ocr.timeoutMs = String(oc.timeoutMs)
+    if (oc.textinAppId && oc.textinAppId.trim()) payload.ocr.textinAppId = oc.textinAppId.trim()
+    if (oc.textinSecretCode && oc.textinSecretCode.trim()) payload.ocr.textinSecretCode = oc.textinSecretCode.trim()
+    if (oc.textinBaseUrl && oc.textinBaseUrl.trim()) payload.ocr.textinBaseUrl = oc.textinBaseUrl.trim()
+    if (oc.textinTimeoutMs) payload.ocr.textinTimeoutMs = String(oc.textinTimeoutMs)
     const json = JSON.stringify(payload)
     await integrationApi.applyIntegration(json)
     await loadAi()   // 重新拉状态 (DB 已生效)

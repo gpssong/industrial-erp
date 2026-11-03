@@ -307,6 +307,56 @@
         <el-col :span="12"><el-form-item label="班组长"><el-input v-model="newForm.leader" placeholder="现场负责人" /></el-form-item></el-col>
       </el-row>
 
+      <!-- v1.1.160 原料明细: 选完成品按 BOM 逐行展开, 每行从库存选「仓库 + 批号」(开工时自动回填到领料单) -->
+      <el-divider content-position="left">原料明细 (按 BOM 展开 · 批号从库存选择)</el-divider>
+      <div v-if="materialLoading" class="form-hint">正在按 BOM 展开原料并读取可用库存…</div>
+      <el-form-item v-else-if="materialRows.length" label-width="0px" class="material-item">
+        <el-table :data="materialRows" size="small" border class="material-table">
+          <el-table-column type="index" label="#" width="46" align="center" />
+          <el-table-column label="原料" min-width="170">
+            <template #default="{ row }">
+              <div class="mat-name">{{ row.productName || row.productCode || '-' }}</div>
+              <div v-if="row.productCode || row.spec" class="mat-sub">
+                {{ [row.productCode, row.spec].filter(Boolean).join(' / ') }}
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="需求数量" width="130" align="right">
+            <template #default="{ row }">
+              <div>{{ row.reqQty != null ? `${row.reqQty} ${row.unitName || 'kg'}` : '—' }}</div>
+              <div v-if="row.bomBaseQty != null" class="mat-sub">
+                配比 {{ row.bomBaseQty }} 份<template v-if="row.lossRate != null"> · 损耗 {{ row.lossRate }}%</template>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="出库批次 (仓库 · 批号 · 可用量)" min-width="280">
+            <template #default="{ row }">
+              <el-select v-model="row.pickedKey" filterable clearable
+                placeholder="从库存选择批号" style="width:100%" @change="onPickBatch(row)">
+                <el-option-group v-for="g in batchGroups(row)" :key="g.key" :label="g.label">
+                  <el-option v-for="b in g.options" :key="b.key" :label="b.label" :value="b.key">
+                    <span>{{ b.batchNo || '(无批号)' }}</span>
+                    <span class="mat-opt-tail">可用 {{ b.availableQty }} {{ b.unitName || 'kg' }}</span>
+                  </el-option>
+                </el-option-group>
+              </el-select>
+              <div v-if="!row.batches || !row.batches.length" class="mat-warn">
+                该原料当前无可用库存 —— 开工后领料到「领料管理」手动补批次
+              </div>
+              <div v-else-if="row.shortfall" class="mat-warn">可用不足, 尚差 {{ row.shortfall }} {{ row.unitName || 'kg' }}</div>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="form-hint">
+          领料量 = 成品总重 × 本项配比 ÷ Σ配比 × (1 + 损耗率), 与开工生成的领料单同一算法;
+          选定批次后开工时自动带出批号与出库仓库, 未选的行仍需在领料单里补批次。
+        </div>
+      </el-form-item>
+      <div v-else-if="newForm.productId" class="form-hint">
+        该成品未配 BOM 明细 (或缺克重/配比合计为 0), 无法逐行展开原料 —— 仍可照常建单,
+        开工后请到「生产管理 → 领料管理」手动建领料单。
+      </div>
+
       <!-- 食品级原料批号 (条件显示) -->
       <template v-if="productInfo.isFoodGrade === 1">
         <el-divider content-position="left">
@@ -314,7 +364,7 @@
         </el-divider>
         <el-form-item label="原料批号" prop="batchNo">
           <el-input v-model="newForm.batchNo" placeholder="如 RAW-20251014-001" maxlength="64" show-word-limit />
-          <div class="form-hint">食品级成品入库触发 XK 食品接触原料追溯, 必须填写原料批号</div>
+          <div class="form-hint">从库存选中的批次带批号时会自动填到这里；库存批次没登记批号才需手工补 —— 食品级成品入库触发 XK 食品接触原料追溯，批号不能留空</div>
         </el-form-item>
       </template>
 
@@ -379,8 +429,13 @@ const newFormRules = {
   unitId: [{ required: true, message: '请选择单位', trigger: 'change' }],
   startDate: [{ required: true, message: '请选择开工时间', trigger: 'change' }],
   batchNo: [{ required: false, validator: (rule, val, cb) => {
-    if (productInfo.value.isFoodGrade === 1 && !val) cb(new Error('食品级成品原料批号必填 (XK16-204)'))
-    else cb()
+    // v1.1.161: 从库存选到了「带批号」的批次就满足 XK 追溯, 不必再手填一次同一个批号;
+    // 库存行没批号 (原料入库未登记) 时仍强制手填 —— 食品级投料记录不能空着。
+    if (productInfo.value.isFoodGrade === 1 && !val && !pickedBatchNos().length) {
+      cb(new Error('食品级需原料批号 (XK16-204)：选中的库存批次没有批号，请到「原料入库」补录批号，或在上方手工填写'))
+      return
+    }
+    cb()
   }, trigger: 'blur' }]
 }
 // v1.1.136 使用原料 (公斤) = 计划数量 × 克重 ÷ 1000, 与计划数量双向换算.
@@ -410,6 +465,128 @@ function onRawMaterialInput(v) {
   syncRawMaterial()
 }
 watch(() => newForm.value.planQty, syncRawMaterial)
+
+// ===== v1.1.160 原料明细 (按 BOM 展开 + 批号从库存选择) =====
+// 需求数量与批次候选都由后端 material-suggest 给 (与开工 release() 同一算法, 前端不再自算, 防口径漂移)。
+const materialRows = ref([])
+const materialLoading = ref(false)
+// 编辑工单时把已存批次灌进来, 由 loadMaterials 消费一次 (切换计划数量重新拉取时不至于清空用户的选择)
+const restorePicks = ref([])
+
+function pickKeyOf(whId, batchNo) {
+  return whId == null ? '' : `${whId}|${batchNo == null ? '' : batchNo}`
+}
+
+/** 一行的批次候选按仓库分组 (el-option-group), 选一个即同时定下出库仓 + 批号。 */
+function batchGroups(row) {
+  const groups = []
+  const idx = new Map()
+  ;(row.batches || []).forEach(b => {
+    const gk = String(b.warehouseId)
+    if (!idx.has(gk)) {
+      idx.set(gk, groups.length)
+      groups.push({ key: gk, label: b.warehouseName || `仓库 #${b.warehouseId}`, options: [] })
+    }
+    groups[idx.get(gk)].options.push({
+      key: pickKeyOf(b.warehouseId, b.batchNo),
+      label: `${b.batchNo || '(无批号)'} · 可用 ${b.availableQty} ${b.unitName || 'kg'}`,
+      batchNo: b.batchNo,
+      availableQty: b.availableQty,
+      unitName: b.unitName
+    })
+  })
+  return groups
+}
+
+/** 可用量是否够领 —— 只在单位口径一致时判 (原料主单位 sql/128 起统一 kg, 单位不同就不敢下结论)。 */
+function computeShortfall(row) {
+  const b = (row.batches || []).find(x => pickKeyOf(x.warehouseId, x.batchNo) === row.pickedKey)
+  if (!b || row.reqQty == null) return null
+  if ((row.unitName || 'kg') !== (b.unitName || 'kg')) return null
+  const gap = Number(row.reqQty) - Number(b.availableQty)
+  return gap > 0 ? Math.round(gap * 1000) / 1000 : null
+}
+
+/** 已选批次里真正带批号的那些 —— 建单时的食品级门禁和「原料批号」自动带出都看它。 */
+function pickedBatchNos() {
+  const out = []
+  materialRows.value.forEach(r => {
+    const b = r.batchNo || ''
+    if (b && out.indexOf(b) < 0) out.push(b)
+  })
+  return out
+}
+
+function onPickBatch(row) {
+  if (!row.pickedKey) {
+    row.warehouseId = null
+    row.batchNo = ''
+    row.shortfall = null
+    return
+  }
+  const b = (row.batches || []).find(x => pickKeyOf(x.warehouseId, x.batchNo) === row.pickedKey)
+  if (!b) return
+  row.warehouseId = b.warehouseId
+  row.batchNo = b.batchNo == null ? '' : b.batchNo
+  row.shortfall = computeShortfall(row)
+  // 库存批次有批号时顺手带进工单的「原料批号」，用户不必再抄一遍 (空着才填，不覆盖手输值)
+  if (row.batchNo && !newForm.value.batchNo) newForm.value.batchNo = row.batchNo
+}
+
+async function loadMaterials() {
+  const pid = newForm.value.productId
+  if (!pid) { materialRows.value = []; return }
+  materialLoading.value = true
+  try {
+    const r = await prdOrderApi.materialSuggest(pid, newForm.value.planQty || null)
+    const src = restorePicks.value.length ? restorePicks.value : materialRows.value
+    const byProduct = new Map(src.map(m => [String(m.productId), m]))
+    restorePicks.value = []
+    materialRows.value = (r.data || []).map(m => {
+      const prev = byProduct.get(String(m.productId))
+      const row = { ...m }
+      // 改计划数量会重算候选并重建行 —— 只认 batchNo 会把「选了库存但该行没批号」的选择丢掉
+      if (prev && (prev.warehouseId != null || prev.batchNo)) {
+        row.warehouseId = prev.warehouseId
+        row.batchNo = prev.batchNo
+      }
+      row.pickedKey = pickKeyOf(row.warehouseId, row.batchNo)
+      row.shortfall = computeShortfall(row)
+      return row
+    })
+  } catch (e) {
+    // 无 BOM / 无权限 / 接口异常都退成提示文案, 不挡住建单 (与后端开工降级同一风格)
+    materialRows.value = []
+  } finally {
+    materialLoading.value = false
+  }
+}
+
+// 计划数量变 → 需求数量变, 重新按 BOM 展开 (防抖, 避免每敲一个字打一次接口)
+let materialDebounce = null
+watch([() => newForm.value.productId, () => newForm.value.planQty], () => {
+  if (materialDebounce) clearTimeout(materialDebounce)
+  materialDebounce = setTimeout(loadMaterials, 450)
+})
+
+/** 上送后端落库的原料行: 只带 prd_order_material 有的列, 剔除 pickedKey/batches/shortfall 等展示态。 */
+function toMaterialPayload() {
+  return materialRows.value.map((m, i) => ({
+    lineNo: i + 1,
+    bomDetailId: m.bomDetailId,
+    materialType: m.materialType,
+    productId: m.productId,
+    productCode: m.productCode,
+    productName: m.productName,
+    spec: m.spec,
+    unitId: m.unitId,
+    unitName: m.unitName,
+    reqQty: m.reqQty,
+    warehouseId: m.warehouseId || null,
+    batchNo: m.batchNo || null,
+    remark: m.remark || null
+  }))
+}
 
 let productSearchTimer = null
 async function searchProducts(kw) {
@@ -491,7 +668,9 @@ async function onConfirmNewWo() {
     const payload = {
       ...newForm.value,
       unitName: u ? u.unitName : '',
-      warehouseName: w ? w.warehouseName : ''
+      warehouseName: w ? w.warehouseName : '',
+      // v1.1.160: 只提交入库字段, 批次候选/ pickedKey 等纯展示字段不上送
+      materials: toMaterialPayload()
     }
     if (editingId.value) {
       // v1.1.103+: 编辑模式, 显式带 id 走 update (后端 PrdOrderController.update 走非空字段)
@@ -522,6 +701,10 @@ function onNewDialogClosed() {
   productInfo.value = {}
   unitOptions.value = []
   rawMaterialKg.value = null
+  // v1.1.160: 关掉原料明细, 防止下一次新建带着上一张单的批次
+  materialRows.value = []
+  restorePicks.value = []
+  materialLoading.value = false
 }
 
 // v1.1.103+: 编辑工单 — 拉详情灌进 newForm, 弹窗改编辑模式
@@ -552,6 +735,10 @@ async function onEditWo() {
     remark: woDetail.value.remark || ''
   }
   // 选完 productId 后用 onProductChange 拉商品详情 + 单位下拉 + 食品级判定
+  // v1.1.160: 先登记工单已存的原料批次, 紧接着的 loadMaterials (watch 触发) 会把仓库/批号回填到对应行
+  restorePicks.value = (woDetail.value.materials || []).map(m => ({
+    productId: m.productId, warehouseId: m.warehouseId, batchNo: m.batchNo
+  }))
   await onProductChange(woDetail.value.productId)
   // 仓库默认选第一个成品仓 (loadFgWarehouses 会自动)
   await loadFgWarehouses()
@@ -1074,4 +1261,13 @@ onMounted(loadPlans)
 .wo-prod-spec .spec-cell { background: #fff; border: 1px solid #ebeef5; border-radius: 6px; padding: 8px 10px; }
 .wo-prod-spec .spec-cell small { display: block; color: #909399; font-size: 12px; margin-bottom: 2px; }
 .wo-prod-spec .spec-cell b { color: #303133; font-size: 14px; font-weight: 500; word-break: break-all; }
+
+/* v1.1.160: 新建工单原料明细 (按 BOM 展开 · 批号从库存选择) */
+.material-item { margin-top: 4px; }
+.material-item :deep(.el-form-item__content) { margin-left: 0 !important; }
+.material-table { width: 100%; }
+.mat-name { font-size: 13px; font-weight: 600; color: #303133; }
+.mat-sub { font-size: 11px; color: #909399; margin-top: 2px; }
+.mat-warn { font-size: 11px; color: #e6a23c; margin-top: 4px; line-height: 1.4; }
+.mat-opt-tail { float: right; color: #909399; font-size: 12px; margin-left: 24px; }
 </style>

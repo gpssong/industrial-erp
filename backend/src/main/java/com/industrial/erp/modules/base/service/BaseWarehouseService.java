@@ -24,7 +24,16 @@ public class BaseWarehouseService {
     private final PermissionService permService;
     private final OperLogPublisher operLogPublisher;
 
-    public List<BaseWarehouse> list() { permService.requirePerm("base:warehouse:list"); return mapper.selectList(null); }
+    /**
+     * v1.1.163 — 与服务层之外的 controller 注解同口径放宽: 持有采购入库列表权限的 App 角色
+     * (FINANCE / WAREHOUSE_MGR / zdg) 需要读仓库名录给入库单选仓, 而 base:warehouse:list
+     * 不在 PC「App 权限树」白名单里, 界面上授不出去 → 只认它会 403.
+     * 这里必须一起放宽, 否则 controller 的 OR 会被本行 requirePerm 二次拦掉.
+     */
+    public List<BaseWarehouse> list() {
+        permService.requireAnyPerm("base:warehouse:list", "purchase:receipt:list");
+        return mapper.selectList(null);
+    }
     public BaseWarehouse detail(Long id) { return mapper.selectById(id); }
     @OperLog(module="仓库管理", businessType="ADD", saveParam=true)
     @Transactional(rollbackFor = Exception.class)

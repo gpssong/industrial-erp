@@ -53,7 +53,10 @@
               <text class="si-name">{{ p.productName || '—' }}</text>
               <text v-if="p.productCode" class="si-code">{{ p.productCode }}</text>
             </view>
-            <text v-if="p.spec" class="si-spec">{{ p.spec }}</text>
+            <view class="si-sub">
+              <text v-if="p.spec" class="si-spec">{{ p.spec }}</text>
+              <text v-if="lastQtyOf(p.id)" class="si-last">上次出库 {{ lastQtyOf(p.id) }}{{ lastUnitOf(p.id) ? ' ' + lastUnitOf(p.id) : '' }}</text>
+            </view>
           </view>
         </view>
 
@@ -118,7 +121,9 @@ export default {
       details: [],
       kw: '',
       searching: false,
-      searchResults: []
+      searchResults: [],
+      // v1.1.164: 该客户最近 50 条历史出库明细 (后端按单据日期 DESC), 用于把"上次出库数量"作为新行默认数量
+      historyList: []
     }
   },
   computed: {
@@ -158,7 +163,37 @@ export default {
     },
     onPickCustomer(e) {
       const c = this.customers[Number(e.detail.value)]
-      if (c) this.form.customerId = String(c.id)
+      if (c) {
+        this.form.customerId = String(c.id)
+        this.loadHistory()
+      }
+    },
+    // 拉该客户历史出库明细 (与扫码出库页同一端点, perm sales:delivery:list)
+    async loadHistory() {
+      this.historyList = []
+      if (!this.form.customerId) return
+      try {
+        const r = await api.customerHistoryProducts(this.form.customerId)
+        const list = (r && (r.data || r)) || []
+        this.historyList = Array.isArray(list) ? list : []
+      } catch (e) {
+        // 拦截器已弹后端 msg; 历史只是默认值, 取不到不挡新建单据
+        if (!(e && e.code === 401)) console.warn('[sales-delivery-add.loadHistory] 失败:', e)
+      }
+    },
+    // 后端按单据日期 DESC 返回, 同一商品取到的第一条就是最近一次
+    histRowOf(productId) {
+      if (!productId) return null
+      const h = this.historyList.find((x) => String(x.productId) === String(productId))
+      return h && Number(h.qty) > 0 ? h : null
+    },
+    lastQtyOf(productId) {
+      const h = this.histRowOf(productId)
+      return h ? Number(h.qty) : 0
+    },
+    lastUnitOf(productId) {
+      const h = this.histRowOf(productId)
+      return h ? (h.unitName || '') : ''
     },
     onPickWh(e) {
       const w = this.warehouses[Number(e.detail.value)]
@@ -170,8 +205,10 @@ export default {
       if (!kw) { this.searchResults = []; return }
       this.searching = true
       api.productAppSearch(kw).then((r) => {
-        const list = (r && (r.data || r)) || []
-        this.searchResults = Array.isArray(list) ? list.slice(0, 30) : []
+        // ⚠ R23: 拦截器已 resolve(R.data), /base/product/app-search 回的是 PageResult,
+        //   商品数组在 r.records (读 r.data 或直接当数组会恒空 → 搜索框永远"无结果")
+        const recs = (r && r.records) || (r && r.data && r.data.records) || []
+        this.searchResults = Array.isArray(recs) ? recs.slice(0, 30) : []
       }).catch((e) => {
         if (!(e && e.code === 401)) console.warn('[sales-delivery-add.search] 失败:', e)
         this.searchResults = []
@@ -190,22 +227,34 @@ export default {
       })
     },
     onPickProduct(p) {
-      // 已在明细里 → 数量 +1
+      // v1.1.164: 默认数量取该客户"上次出库数量"(历史里没有/没选客户则回退 1)
+      const hist = this.histRowOf(p.id)
+      const histQty = hist ? Number(hist.qty) : 0
+      const defQty = histQty || 1
+      // 已在明细里 → 再加一次默认数量
       const exist = this.details.find((d) => String(d.productId) === String(p.id))
       if (exist) {
-        exist.qty = String((Number(exist.qty) || 0) + 1)
+        exist.qty = String((Number(exist.qty) || 0) + defQty)
       } else {
+        // /base/product/app-search 回的是商品主表字段 (mainUnitId/mainUnitName/salesPrice),
+        // 没有 unitId/unitName; 该客户历史里有单位则优先用历史的, 否则回退主单位
+        const unitId = (hist && hist.unitId) || p.mainUnitId || null
+        const unitName = (hist && hist.unitName) || p.mainUnitName || ''
+        const price = hist && Number(hist.price) > 0 ? Number(hist.price)
+          : (p.salesPrice != null ? Number(p.salesPrice) : (p.salePrice != null ? Number(p.salePrice) : 0))
         this.details.push({
           productId: p.id,
           productCode: p.productCode || '',
           productName: p.productName || '',
           spec: p.spec || '',
-          unitId: p.unitId,
-          unitName: p.unitName || '',
-          qty: '1',
-          // v1.1.99 商品表有售价字段则带出, 否则留 0 由用户填
-          price: p.salePrice != null ? String(p.salePrice) : (p.price != null ? String(p.price) : '0')
+          unitId,
+          unitName,
+          qty: String(defQty),
+          price: String(price)
         })
+      }
+      if (histQty) {
+        uni.showToast({ title: '数量已按上次出库 ' + defQty, icon: 'none' })
       }
       this.searchResults = []
       this.kw = ''
@@ -292,7 +341,9 @@ export default {
 .si-main { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .si-name { font-size: 14px; color: #303133; font-weight: 500; }
 .si-code { font-size: 11px; color: #909399; }
-.si-spec { font-size: 12px; color: #606266; margin-top: 2px; }
+.si-sub { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 2px; }
+.si-spec { font-size: 12px; color: #606266; }
+.si-last { font-size: 11px; color: #1e6091; }
 .detail-row { border: 1px solid #f0f0f0; border-radius: 8px; padding: 10px; margin-top: 8px; }
 .dr-head { display: flex; justify-content: space-between; align-items: center; }
 .dr-name { font-size: 14px; font-weight: 600; color: #303133; }

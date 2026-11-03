@@ -70,7 +70,7 @@
       <view class="record-line">
         <view class="record-name">{{ order.billNo || form.linkedOrderNo || '待选择采购订单' }}</view>
         <view class="record-sub">采购单号: {{ form.orderNo || '—' }}</view>
-        <view class="record-sub">交货批次: {{ form.batchNo || '—' }}</view>
+        <view class="record-sub">交货批次: {{ orderBatch || '—' }}</view>
       </view>
     </view>
 
@@ -85,10 +85,6 @@
           </picker>
         </view>
         <view class="info-item">
-          <text class="i-lbl">品名</text>
-          <view class="i-val static">{{ arrivalProductName }}</view>
-        </view>
-        <view class="info-item">
           <text class="i-lbl">供应商 / 到货来源</text>
           <view class="i-val static">{{ order.supplierName || '—' }}</view>
         </view>
@@ -96,9 +92,12 @@
           <text class="i-lbl">合同 / 采购单号</text>
           <input class="i-val input" v-model="form.orderNo" placeholder="CCL-A-2025-05-153" />
         </view>
+        <!-- v1.1.163: 仓库改为现场可选 (以前只读订单仓库, 订单没填就永远显示 —) -->
         <view class="info-item">
-          <text class="i-lbl">仓库</text>
-          <view class="i-val static">{{ order.warehouseName || '—' }}</view>
+          <text class="i-lbl">入库仓库</text>
+          <picker :range="whNames" :value="warehouseIndex" @change="onPickWh">
+            <view class="i-val pickable">{{ whName || (warehouses.length ? '选择仓库…' : '暂无可选仓库') }}</view>
+          </picker>
         </view>
         <view class="info-item">
           <text class="i-lbl">验收日期</text>
@@ -116,18 +115,37 @@
         </view>
         <view class="info-item">
           <text class="i-lbl">检验报告号</text>
-          <input class="i-val input" v-model="form.reportNo" placeholder="BG-YL-0418-31" />
+          <view class="i-val static">{{ createdReportNo || '保存后系统自动生成 (BG-YL-日期-流水)' }}</view>
         </view>
         <view class="info-item">
           <text class="i-lbl">检验人员</text>
           <input class="i-val input" v-model="form.inspector" placeholder="李敏" />
         </view>
-        <view class="info-item">
-          <text class="i-lbl">批号</text>
-          <input class="i-val input" v-model="form.batchNo" placeholder="输入原料批号" />
-        </view>
       </view>
     </view>
+
+      <!-- 到货原料与批号 (v1.1.163: 品名按采购订单明细分列, 每种原料各一行、各有自己的批号) -->
+      <view class="card">
+        <view class="card-h row">
+          <text>到货原料与批号</text>
+          <text class="muted small">{{ materials.length }} 种</text>
+        </view>
+        <view class="file-tip">多种原料同车到货时逐行分开录批号；先拍原料标签，再点本行「识别批号」按品名定向识别</view>
+        <view v-for="(m, i) in materials" :key="m.orderDetailId || ('n' + i)" class="mat-item">
+          <view class="mat-head">
+            <text class="mat-name">{{ m.productName || '（订单未填品名）' }}</text>
+            <text class="mat-meta muted small">{{ materialMeta(m) }}</text>
+          </view>
+          <view class="mat-field">
+            <input class="i-val input batch-input" v-model="m.batchNo" placeholder="输入或识别原料批号" />
+            <view class="ocr-btn" :class="{ 'ocr-disabled': !ocrEnabled || ocrLoadingIdx >= 0 || !photos.length }"
+                  @click="runOcr(i, m)">{{ ocrLoadingIdx === i ? '识别中' : '🔍 识别批号' }}</view>
+          </view>
+        </view>
+        <view v-if="!materials.length && !loadingItems" class="empty">采购订单没有原料明细 — 请先在 PC 端补明细行</view>
+        <view v-if="loadingItems" class="empty">原料明细加载中…</view>
+        <view class="photo-tip" v-if="materials.length && !photos.length">📷 识别批号需先上传至少 1 张原始标签照片；识别不到可手工录入</view>
+      </view>
 
       <!-- 检验报告 · 采购合同 · 发票 (文件) -->
       <view class="card">
@@ -233,8 +251,9 @@
 </template>
 
 <script>
-import { request } from '../../api/index.js'
+import api, { request } from '../../api/index.js'
 import * as qmsApi from '../../api/qms.js'
+import { ocrStatus, ocrLabelBatchNo } from '../../api/xk'
 import { pickAndUploadImage } from '../../utils/upload.js'
 
 export default {
@@ -245,19 +264,26 @@ export default {
       iqc: {},
       iqcId: null,
       form: {
-        batchNo: '',
         orderNo: '',
         arriveDate: new Date().toISOString().slice(0, 10),
         sampleQty: '',
-        reportNo: '',
         inspector: '',
         linkedOrderNo: ''
       },
+      // v1.1.163: 仓库现场可选 + 原料逐行批号 (一车多原料各归各批)
+      warehouses: [],
+      warehouseId: '',
+      materials: [],
+      ocrLoadingIdx: -1,
       items: [],
       attachments: [],
       photos: [],
       createdReceiptId: null,
+      // v1.1.159: 报告号改由后端 createFromOrder 自动生成 (BG-YL-日期-流水), 入库成功后回填展示
+      createdReportNo: '',
       submitting: false,
+      // v1.1.159: 视觉 OCR 识别批号 (按钮启用取决于后端是否配了视觉模型 key)
+      ocrEnabled: false,
       orderList: [],
       loadingPlan: false,
       loadingItems: false,
@@ -287,12 +313,26 @@ export default {
           })
         : ['（暂无采购订单）']
     },
-    // 到货原料品名: 取采购订单明细 (多行去重), 回退检验单头的商品快照
-    arrivalProductName() {
-      const names = ((this.order && this.order.details) || []).map((d) => d.productName).filter(Boolean)
-      const uniq = [...new Set(names)]
-      if (uniq.length) return uniq.join('、')
-      return this.iqc.productName || '—'
+    // 交货批次: 取第一个已填的原料行批号 (检验单头只有一个批号列, 逐行批号落在入库单明细上)
+    orderBatch() {
+      const hit = this.materials.find((m) => (m.batchNo || '').trim())
+      return hit ? String(hit.batchNo).trim() : ''
+    },
+    whNames() {
+      // 空列表也要给 picker 一项, 否则点开是空白面板 (对齐 orderOptions 的兜底写法)
+      return this.warehouses.length
+        ? this.warehouses.map((w) => (w.warehouseName || '未命名仓库') + (w.warehouseType === 'RAW' ? '（原料仓）' : ''))
+        : ['（暂无可选仓库）']
+    },
+    warehouseIndex() {
+      const idx = this.warehouses.findIndex((w) => String(w.id) === String(this.warehouseId))
+      return idx < 0 ? 0 : idx
+    },
+    whName() {
+      const w = this.warehouses.find((x) => String(x.id) === String(this.warehouseId))
+      if (w) return w.warehouseName || ''
+      // 仓库名录还没到 / 没权限时, 至少把订单上的仓库名显示出来 (不显示裸 id)
+      return this.order.warehouseName || ''
     },
     // 顶部三步视觉进度: 由填写程度驱动 (对齐 PC flowStep)
     flowStep() {
@@ -309,12 +349,14 @@ export default {
       return 'v-pending'
     }
   },
-  onLoad(query) {
+  async onLoad(query) {
     this.orderId = query && query.orderId ? Number(query.orderId) : null
-    // 始终加载采购订单列表 (供「关联采购订单」picker + 顶部选择条), 即使无订单也渲染 3 步表单
-    this.loadOrders()
+    this.loadOcr()
+    // v1.1.163: 仓库名录与采购订单列表并行取; 深链带 orderId 时必须先等它们落地再 bootstrap
+    //   (v1.1.142 同类坑: onLoad 里不 await 初始化 → 深链进来一片空兜底文案)
+    await Promise.all([this.loadOrders(), this.loadWarehouses()])
     if (this.orderId) {
-      this.bootstrap()
+      await this.bootstrap()
     }
   },
   methods: {
@@ -330,8 +372,91 @@ export default {
         this.loadingPlan = false
       }
     },
+    /**
+     * v1.1.163: App 采购入库要选仓库.
+     * 后端 /base/warehouse/list 已 OR 上 purchase:receipt:list (做采购的角色库里根本没有 base:warehouse:list,
+     * 而它不在 PC「App 权限树」白名单里, 界面上授不出去) → App 端可直接读.
+     * 万一还是 403/网络错, 回空数组: picker 显示「暂无可选仓库」, 提交时后端沿用订单仓库, 不阻断主流程.
+     */
+    async loadWarehouses() {
+      try {
+        const w = await api.warehouseList()
+        const raw = (w && (w.data || w.records || w)) || []
+        const list = Array.isArray(raw) ? raw : []
+        this.warehouses = list.filter((x) => x && x.status !== 0)
+      } catch (e) {
+        console.warn('[scan/in] loadWarehouses failed:', e)
+        this.warehouses = []
+      }
+      this.applyDefaultWarehouse()
+    },
+    // 默认仓库: 订单已指定 → 沿用; 否则按类型 RAW / 仓名含「原料」挑。
+    // 绝不退到 warehouses[0] (index 0 往往是成品仓, 会静默把原料入到成品仓)。
+    applyDefaultWarehouse() {
+      if (this.warehouseId || !this.warehouses.length) return
+      const orderWhId = this.order && this.order.warehouseId
+      const hit = (orderWhId && this.warehouses.find((x) => String(x.id) === String(orderWhId)))
+        || this.warehouses.find((x) => x.warehouseType === 'RAW')
+        || this.warehouses.find((x) => (x.warehouseName || '').indexOf('原料') >= 0)
+        || this.warehouses.find((x) => x.isDefault === 1)
+      if (hit) this.warehouseId = String(hit.id)
+    },
+    onPickWh(e) {
+      const w = this.warehouses[Number(e.detail.value)]
+      if (w) this.warehouseId = String(w.id)
+    },
+    // v1.1.159: 探测视觉模型是否配置 (决定「识别批号」按钮能否用)
+    async loadOcr() {
+      try {
+        const s = await ocrStatus()
+        this.ocrEnabled = !!(s && s.data && s.data.enabled)
+      } catch (e) {
+        this.ocrEnabled = false
+      }
+    },
+    /**
+     * v1.1.163: 逐行识别 — 把本行品名交给后端拼进定向提示词,
+     *   一车多种原料时不会把所有行都填成同一个批号。
+     */
+    async runOcr(i, m) {
+      if (this.ocrLoadingIdx >= 0) return
+      if (!this.ocrEnabled) {
+        uni.showToast({ title: '未配置视觉模型, 请到 PC「系统设置→对接方式」填 OCR key', icon: 'none' })
+        return
+      }
+      if (!this.photos.length) {
+        uni.showToast({ title: '请先上传原料标签照片', icon: 'none' })
+        return
+      }
+      this.ocrLoadingIdx = i
+      try {
+        const urls = this.photos.map((p) => p.fileUrl).filter(Boolean)
+        const r = await ocrLabelBatchNo(urls, m && m.productName)
+        const cand = (r && r.data && r.data.candidates) || []
+        if (cand.length) {
+          m.batchNo = cand[0]
+          uni.showToast({ title: (m.productName || '本行') + '：识别到 ' + cand[0] + '，请核对标签', icon: 'none', duration: 3000 })
+        } else {
+          uni.showToast({ title: '未识别到该原料的批号，请手工录入', icon: 'none' })
+        }
+      } catch (e) {
+        uni.showToast({ title: '识别失败：' + ((e && e.msg) || '未知错误'), icon: 'none' })
+      } finally {
+        this.ocrLoadingIdx = -1
+      }
+    },
+    /** 明细行副标题: 规格 · 数量单位 */
+    materialMeta(m) {
+      const parts = []
+      if (m.spec) parts.push(m.spec)
+      if (m.qty !== null && m.qty !== undefined && m.qty !== '') parts.push(m.qty + (m.unitName || ''))
+      return parts.join(' · ')
+    },
     onPickOrder(o) {
       this.orderId = o.id
+      // 换单 = 换仓库上下文: 清空现场选择, 让新订单的仓库/原料仓默认值重新生效
+      this.warehouseId = ''
+      this.materials = []
       this.bootstrap()
     },
     onPickOrderByIndex(e) {
@@ -348,6 +473,7 @@ export default {
       try {
         const order = await request({ url: `/purchase/order/${this.orderId}`, method: 'GET' })
         this.order = order || {}
+        this.applyDefaultWarehouse()
         const iqcId = await qmsApi.iqcCreateFromOrder(this.orderId)
         this.iqcId = iqcId
         const detail = await qmsApi.iqcDetailForOrder(iqcId)
@@ -355,8 +481,10 @@ export default {
         this.items = (detail && detail.items) || []
         this.attachments = (detail && detail.attachments) || []
         this.photos = this.attachments.filter((a) => ['LABEL_PHOTO', 'PACK_PHOTO', 'SAMPLE_PHOTO'].includes(a.attachType))
-        // 回填: 报告号 / 检验人员 / 抽检数量 / 采购单号 / 供应商/仓库上下文
-        if (!this.form.reportNo && this.iqc.billNo) this.form.reportNo = this.iqc.billNo
+        // v1.1.163: 品名按采购订单明细逐行分列, 每行自己的批号 (订单上已录过的先带出; 无明细退检验单头品名)
+        this.buildMaterials()
+        // 回填: 检验人员 / 抽检数量 / 采购单号 / 供应商/仓库上下文
+        // v1.1.159: 报告号不再回填 — 改由后端 createFromOrder 统一生成 BG-YL-日期-流水
         if (this.iqc.inspectorName) this.form.inspector = this.iqc.inspectorName
         if (this.order.totalQty) this.form.sampleQty = String(this.order.totalQty)
         if (this.order.billNo) {
@@ -371,6 +499,29 @@ export default {
       } finally {
         this.loadingItems = false
       }
+    },
+    /**
+     * v1.1.163: 把采购订单明细摊成"每种原料一行"的表单模型。
+     * 明细为空时退一行"检验单头上的品名" (老单据/单行没明细也能录批号), 这种行没有 orderDetailId,
+     * 批号走整单兜底而不是 lines。
+     */
+    buildMaterials() {
+      const ds = (this.order && this.order.details) || []
+      if (ds.length) {
+        this.materials = ds.map((d) => ({
+          orderDetailId: d.id ? String(d.id) : null,
+          productName: d.productName || '',
+          spec: d.spec || '',
+          qty: d.qty === undefined || d.qty === null ? '' : d.qty,
+          unitName: d.unitName || '',
+          batchNo: d.batchNo || ''
+        }))
+        return
+      }
+      const name = this.iqc && this.iqc.productName
+      this.materials = name
+        ? [{ orderDetailId: null, productName: name, spec: '', qty: this.order.totalQty || '', unitName: '', batchNo: '' }]
+        : []
     },
     hasAttach(type) {
       return this.attachments.some((a) => a.attachType === type)
@@ -447,7 +598,7 @@ export default {
             method: 'PUT',
             data: {
               id: this.iqcId,
-              batchNo: this.form.batchNo,
+              batchNo: this.orderBatch,
               sampleQty: this.form.sampleQty || 0
             }
           })
@@ -466,6 +617,14 @@ export default {
         return
       }
       if (this.submitting) return
+      // v1.1.163: 入库仓库是后端硬门禁 — 现场没选且订单也没带, 提前拦下并说清原因
+      if (!this.warehouseId && !this.order.warehouseId) {
+        uni.showToast({
+          title: this.warehouses.length ? '请选择入库仓库' : '仓库名录为空或无权读取, 请到 PC「基础数据 · 仓库管理」确认',
+          icon: 'none', duration: 3000
+        })
+        return
+      }
       if (!this.allPassed) {
         uni.showModal({
           title: '存在不合格项',
@@ -482,16 +641,27 @@ export default {
       this.submitting = true
       try {
         await qmsApi.iqcSaveItems(this.iqcId, this.items)
-        const reportNo = this.form.reportNo || (this.iqc.billNo || ('RPT' + Date.now()))
         const photoUrls = JSON.stringify(this.photos.map((p) => p.fileUrl))
+        // v1.1.159: 报告号不再前端手填 — 由后端 createFromOrder 统一生成 BG-YL-日期-流水
         await qmsApi.iqcSignForOrder(this.orderId, this.iqcId, {
-          reportNo,
+          reportNo: '',
           sampleQty: Number(this.form.sampleQty) || 0,
           inspectorName: this.form.inspector || this.iqc.inspectorName,
           photoUrls
         })
-        const r = await qmsApi.purchaseCreateFromOrder(this.orderId, this.iqcId)
+        // v1.1.163: 现场选的仓库 + 逐行批号一起提交; 行上没填的, 后端回落整单 orderBatch
+        const r = await qmsApi.purchaseCreateFromOrder(this.orderId, this.iqcId, this.orderBatch, {
+          warehouseId: this.warehouseId,
+          lines: this.materials.map((m) => ({ orderDetailId: m.orderDetailId, batchNo: m.batchNo }))
+        })
         this.createdReceiptId = r.receiptId
+        // 回填系统生成的检验报告号 (只读展示)
+        try {
+          const receipt = await request({ url: `/purchase/receipt/${this.createdReceiptId}`, method: 'GET' })
+          this.createdReportNo = (receipt && receipt.inspectionReportNo) || ''
+        } catch (e) {
+          console.warn('[scan/in] 报告号回填失败:', e)
+        }
         const detail = await qmsApi.iqcDetailForOrder(this.iqcId)
         this.iqc = (detail && detail.head) || {}
         uni.showToast({ title: '入库单已生成', icon: 'success', duration: 2000 })
@@ -576,6 +746,18 @@ export default {
 .i-val.static { background: #f7f9fc; color: #333; border: 2rpx solid #eef2f7; }
 .i-val.input { background: #f5f6f8; }
 .i-val.pickable { background: #f5f6f8; color: #1677ff; }
+
+/* ===== 原料逐行批号 + OCR 识别按钮 (v1.1.159 / v1.1.163 分列) ===== */
+.mat-item { padding: 16rpx 0; border-top: 2rpx solid #f2f5f9; }
+.mat-item:first-of-type { border-top: none; }
+.mat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12rpx; margin-bottom: 10rpx; }
+.mat-name { flex: 1; min-width: 0; font-size: 26rpx; font-weight: 600; color: #1a2b3c; }
+.mat-meta { flex: 0 0 auto; text-align: right; }
+.mat-field { display: flex; align-items: center; gap: 12rpx; }
+.batch-input { flex: 1; min-width: 0; }
+.ocr-btn { flex: 0 0 auto; font-size: 24rpx; color: #fff; background: #27ae60;
+  padding: 10rpx 18rpx; border-radius: 8rpx; }
+.ocr-disabled { opacity: 0.45; }
 
 /* ===== 文件区 ===== */
 .file-tip { font-size: 22rpx; color: #8a95a5; margin-bottom: 14rpx; }

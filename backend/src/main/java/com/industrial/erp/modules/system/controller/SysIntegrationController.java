@@ -6,6 +6,7 @@ import com.industrial.erp.common.R;
 import com.industrial.erp.modules.ai.asr.AsrService;
 import com.industrial.erp.modules.ai.client.LlmClient;
 import com.industrial.erp.modules.ai.config.AiProperties;
+import com.industrial.erp.modules.ai.ocr.OcrService;
 import com.industrial.erp.modules.mcp.McpToolRegistry;
 import com.industrial.erp.modules.system.entity.SysOperLog;
 import com.industrial.erp.modules.system.entity.SysUser;
@@ -54,6 +55,7 @@ public class SysIntegrationController {
     private final AiProperties ai;
     private final LlmClient llm;
     private final AsrService asr;
+    private final OcrService ocr;
     private final McpToolRegistry mcpTools;
     private final SysUserMapper userMapper;
     /** v1.1.80: 读 DB 覆盖 + 改 DB 后强刷 provider 链 (即时生效). */
@@ -61,13 +63,14 @@ public class SysIntegrationController {
     /** v1.1.80: 审计同步直写 (McpAuditService 教训: 高频异步 @Async 漏写). */
     private final SysOperLogMapper operLogMapper;
 
-    public SysIntegrationController(AiProperties ai, LlmClient llm, AsrService asr,
+    public SysIntegrationController(AiProperties ai, LlmClient llm, AsrService asr, OcrService ocr,
                                     McpToolRegistry mcpTools, SysUserMapper userMapper,
                                     com.industrial.erp.modules.system.service.SysConfigService configService,
                                     SysOperLogMapper operLogMapper) {
         this.ai = ai;
         this.llm = llm;
         this.asr = asr;
+        this.ocr = ocr;
         this.mcpTools = mcpTools;
         this.userMapper = userMapper;
         this.configService = configService;
@@ -80,6 +83,8 @@ public class SysIntegrationController {
     public R<Map<String, Object>> aiStatus() {
         // 先强刷一次链 (让 activeProvider/providerOrder 反映 DB 覆盖 + 最新 cooldown)
         llm.rebuildChain(false);
+        // v1.1.165: OCR 卡片同理 —— 刚在库里/页面上改过凭证, 这张卡要当场见到结果
+        ocr.refreshNow();
 
         Map<String, Object> out = new LinkedHashMap<>();
         boolean dbOverride = ai.hasOverrides();
@@ -138,6 +143,28 @@ public class SysIntegrationController {
         asrOut.put("keyMasked", maskKey(ai.effectiveAsrKey()));
         asrOut.put("configured", asr.enabled());
         out.put("asr", asrOut);
+
+        // === OCR (v1.1.158 视觉模型 / v1.1.165 TextIn, effective) ===
+        boolean textinReady = ai.textinConfigured();
+        boolean llmOcrReady = ai.llmOcrConfigured();
+        Map<String, Object> ocrOut = new LinkedHashMap<>();
+        ocrOut.put("enabled", ocr.enabled());
+        // 用户选的服务商 (可能尚未配齐凭证) 与本次实际生效的那个, 分开回显, 前端才能解释「选了 A 却在用 B」
+        ocrOut.put("providerSelected", ai.effectiveOcrProvider());
+        ocrOut.put("provider", ocr.provider());
+        ocrOut.put("model", ocr.model());
+        ocrOut.put("baseUrl", ai.effectiveOcrBaseUrl());
+        ocrOut.put("timeoutMs", ai.effectiveOcrTimeoutMs());
+        ocrOut.put("keyMasked", maskKey(ai.effectiveOcrKey()));
+        ocrOut.put("llmConfigured", llmOcrReady);
+        // TextIn: appId 是应用标识, secretCode 才是密钥; 两者都打码回显, 只用于运维核对
+        ocrOut.put("textinAppIdMasked", maskKey(ai.effectiveTextinAppId()));
+        ocrOut.put("textinSecretCodeMasked", maskKey(ai.effectiveTextinSecretCode()));
+        ocrOut.put("textinBaseUrl", ai.effectiveTextinBaseUrl());
+        ocrOut.put("textinTimeoutMs", ai.effectiveTextinTimeoutMs());
+        ocrOut.put("textinConfigured", textinReady);
+        ocrOut.put("configured", ocr.enabled());
+        out.put("ocr", ocrOut);
 
         // === 当前 DB 覆盖内容 (脱敏回显, 供前端编辑) ===
         out.put("integrationJsonMasked", maskIntegrationJson(dbOverride ? currentIntegrationJson() : null));
@@ -207,16 +234,94 @@ public class SysIntegrationController {
     @PostMapping("/apply")
     public R<Map<String, Object>> applyIntegration(@RequestBody Map<String, String> body) {
         String json = body == null ? null : body.get("json");
-        String toStore = (json == null) ? "" : json;
+        String toStore = (json == null) ? "" : carryOverSecrets(json);
         configService.updateValue("AI_INTEGRATION", toStore);
         llm.rebuild();          // 立即生效, 不等 30s TTL
+        ocr.refreshNow();       // v1.1.165: OCR 也当场生效 (含清覆盖 → provider 回 none)
         writeAudit(toStore);    // 同步写 sys_oper_log (McpAuditService 教训)
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("applied", true);
         out.put("active", !toStore.isEmpty());
         out.put("providerOrder", llm.providerOrder());
         out.put("activeProvider", llm.activeProvider());
+        out.put("ocrProvider", ocr.provider());
         return R.ok(out);
+    }
+
+    /**
+     * v1.1.165 — 密钥沿用: 本次提交的 JSON 里没写 (或写的是脱敏值) 的密钥字段, 沿用库里已存的.
+     *
+     * <p>保存是整串 JSON 覆盖, 而各卡片都把「留空 = 不动」当约定; 之前只有前端自己保证每次都带上,
+     * 一旦只保存 LLM 卡片, 之前存好的 OCR / TextIn 凭证就被冲没了。这里在服务端兜住,
+     * 非密钥字段 (model / baseUrl / 能力开关) 仍按提交值全量覆盖 —— 那些要能改回 env 默认。
+     * 想彻底清掉凭证走「还原」(提交空串 = 清整个覆盖).
+     */
+    private String carryOverSecrets(String incoming) {
+        return mergeSecretsWithStored(incoming, currentIntegrationJson());
+    }
+
+    /** 纯函数部分 (单测覆盖): 库里已存 ({@code stored}) 而本次 ({@code incoming}) 没带的密钥/服务商选择字段逐项补回. */
+    static String mergeSecretsWithStored(String incoming, String stored) {
+        if (incoming == null || incoming.trim().isEmpty()) return incoming;
+        if (stored == null || stored.trim().isEmpty()) return incoming;
+        try {
+            cn.hutool.json.JSONObject root = cn.hutool.json.JSONUtil.parseObj(incoming);
+            cn.hutool.json.JSONObject old = cn.hutool.json.JSONUtil.parseObj(stored);
+            int kept = 0;
+            kept += carry(root, old, "llm.slot0", "key");
+            kept += carry(root, old, "llm.slot1", "key");
+            kept += carry(root, old, "legacy", "key");
+            kept += carry(root, old, "asr", "key");
+            kept += carry(root, old, "ocr", "key");
+            kept += carry(root, old, "ocr", "textinAppId");
+            kept += carry(root, old, "ocr", "textinSecretCode");
+            // 「选哪家服务商」不是密钥, 但同样属于「这次没碰就别丢」的: 老前端整段不发 ocr 时不能把 TextIn 选回视觉模型
+            kept += carry(root, old, "ocr", "provider");
+            log.info("[Integration] 本次保存沿用库内已存密钥 {} 项", kept);
+            return root.toString();
+        } catch (Exception e) {
+            // 解析不了就按原样存 (与 v1.1.164 之前的行为一致), 不因兜底逻辑挡保存
+            log.warn("[Integration] 密钥沿用跳过 (JSON 解析失败): {}", e.getMessage());
+            return incoming;
+        }
+    }
+
+    /**
+     * 库里 {@code path} 段的 {@code field} 有值、本次提交的没有 (或只是脱敏回显) → 把库里的值写回提交结果.
+     * 本次整段都没写时按需创建该段, 好让凭证活过一次「只改了 LLM 卡片」的保存.
+     */
+    private static int carry(cn.hutool.json.JSONObject newRoot, cn.hutool.json.JSONObject oldRoot,
+                             String path, String field) {
+        String oldVal = read(oldRoot, path, field);
+        if (!isUsableSecret(oldVal)) return 0;
+        if (isUsableSecret(read(newRoot, path, field))) return 0;
+        node(newRoot, path, true).set(field, oldVal);
+        return 1;
+    }
+
+    /** 沿 {@code a.b} 取值; 中途缺段返回 null. {@code create} 时逐级补齐. */
+    private static String read(cn.hutool.json.JSONObject root, String path, String field) {
+        cn.hutool.json.JSONObject node = node(root, path, false);
+        return node == null ? null : node.getStr(field);
+    }
+
+    private static cn.hutool.json.JSONObject node(cn.hutool.json.JSONObject root, String path, boolean create) {
+        cn.hutool.json.JSONObject cur = root;
+        for (String seg : path.split("\\.")) {
+            cn.hutool.json.JSONObject next = cur.getJSONObject(seg);
+            if (next == null) {
+                if (!create) return null;
+                next = cn.hutool.json.JSONUtil.createObj();
+                cur.set(seg, next);
+            }
+            cur = next;
+        }
+        return cur;
+    }
+
+    /** 能用 = 非空且不是一眼假的脱敏回显 (库里存过脱敏值的脏数据也不能被当成凭证写回去). */
+    private static boolean isUsableSecret(String v) {
+        return v != null && !v.trim().isEmpty() && !v.contains("****");
     }
 
     /**
@@ -324,6 +429,7 @@ public class SysIntegrationController {
             }
             maskSingleKeys(root.getJSONObject("legacy"));
             maskSingleKeys(root.getJSONObject("asr"));
+            maskSingleKeys(root.getJSONObject("ocr"));
             return root.toString();
         } catch (Exception e) {
             return "(解析失败, 原文打码不可用)";
@@ -334,6 +440,11 @@ public class SysIntegrationController {
         if (obj == null) return;
         String k = obj.getStr("key");
         if (k != null && !k.trim().isEmpty()) obj.set("key", maskKey(k));
+        // v1.1.165: TextIn 凭证 (appId 是应用标识, secretCode 是密钥) 同样只回显脱敏
+        String appId = obj.getStr("textinAppId");
+        if (appId != null && !appId.trim().isEmpty()) obj.set("textinAppId", maskKey(appId));
+        String secret = obj.getStr("textinSecretCode");
+        if (secret != null && !secret.trim().isEmpty()) obj.set("textinSecretCode", maskKey(secret));
     }
 
     /** 同步写 sys_oper_log (McpAuditService 同款直写, 不阻塞主流程). */
