@@ -1,7 +1,9 @@
 package com.industrial.erp.modules.base.label;
 
+import com.industrial.erp.modules.system.entity.SysUser;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.modules.system.service.SysConfigService;
+import com.industrial.erp.security.SecurityContext;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -51,5 +53,31 @@ class LabelMasterServiceTest {
         when(configService.getByKey("LABEL_MASTER")).thenReturn("{}");
         LabelMaster m = new LabelMasterService(configService, userMapper).load();
         assertThat(m.getInspectorCode()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("已登录时取当前用户的 inspector_code；列没填也要降级成空串")
+    void readsInspectorCodeOfCurrentUser() {
+        when(configService.getByKey("LABEL_MASTER")).thenReturn("{}");
+        SysUser u = new SysUser();
+        u.setInspectorCode("JY-03");
+        when(userMapper.selectById(77L)).thenReturn(u);
+
+        SecurityContext.setCurrentUserIdForTest(77L);
+        try {
+            assertThat(new LabelMasterService(configService, userMapper).load().getInspectorCode())
+                    .isEqualTo("JY-03");
+        } finally {
+            SecurityContext.clearForTest();
+        }
+
+        u.setInspectorCode(null);
+        SecurityContext.setCurrentUserIdForTest(77L);
+        try {
+            assertThat(new LabelMasterService(configService, userMapper).load().getInspectorCode())
+                    .isEmpty();
+        } finally {
+            SecurityContext.clearForTest();
+        }
     }
 }
