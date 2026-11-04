@@ -27,6 +27,8 @@ public class SysUser {
     private Integer status;
     private String lastLoginIp;
     private LocalDateTime lastLoginTime;
+    /** v1.1.167 检验员代号，标签 inspectorCode 字段取它 (sql/155) */
+    private String inspectorCode;
     @TableField(fill = FieldFill.INSERT)
 
     private Long createBy;
@@ -74,6 +76,8 @@ public class SysUser {
     public void setLastLoginIp(String lastLoginIp) { this.lastLoginIp = lastLoginIp; }
     public LocalDateTime getLastLoginTime() { return lastLoginTime; }
     public void setLastLoginTime(LocalDateTime lastLoginTime) { this.lastLoginTime = lastLoginTime; }
+    public String getInspectorCode() { return inspectorCode; }
+    public void setInspectorCode(String inspectorCode) { this.inspectorCode = inspectorCode; }
     public Long getCreateBy() { return createBy; }
     public void setCreateBy(Long createBy) { this.createBy = createBy; }
     public LocalDateTime getCreateTime() { return createTime; }
