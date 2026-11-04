@@ -190,7 +190,10 @@ const PATH_TO_APP = {
 // 同时支持"外勤盘点" / "生产加工单(新增)" 共用同一 sys_menu 但要不同 App 入口:
 // 用特殊 sys_menu.path 前缀区分 (/inventory/check 是盘点, /production/order 是生产单).
 const APP_MENU_TO_PAGE = [
-  { perms: 'base:product:list',      path: '/base/product',         module: 'base',       page: { path: '/pages/base/product-add', title: '新增商品', icon: '➕' } },
+  // v1.1.166: 改挂 base:product:add (sys_menu 6034, B 型 path=/base/product/add) —
+  // 原先挂 base:product:list + /base/product (301), 于是只有查看权的角色 (生产/采购/销售主管)
+  // 也看得见「新增商品」, 点进去 POST /base/product 必 403. 6034 有 APP 授权行的角色才显示.
+  { perms: 'base:product:add',         path: '/base/product/add',      module: 'base',       page: { path: '/pages/base/product-add', title: '新增商品', icon: '➕' } },
   { perms: 'purchase:receipt:list',  path: '/purchase/receipt',     module: 'purchase',   page: { path: '/pages/scan/in', title: '原料入库', icon: '📥' } },
   { perms: 'sales:return:list',      path: '/sales/return',         module: 'sales',      page: { path: '/pages/scan/out', title: '扫码出库', icon: '📤' } },
   { perms: 'inventory:stock:list',   path: '/inventory/stock',      module: 'inventory',  page: { path: '/pages/inventory/query', title: '查库存', icon: '📦' } },

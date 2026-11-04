@@ -227,7 +227,8 @@ export const api = {
   productAppSearch: (keyword) => request({ url: '/base/product/app-search', data: { keyword } }),
   productDetail: (id) => request({ url: '/base/product/' + id }),
   productAdd: (data) => request({ url: '/base/product', method: 'POST', data, contentType: 'json' }),
-  productUpdate: (id, data) => request({ url: '/base/product/' + id, method: 'PUT', data, contentType: 'json' }),
+  // 计量单位 (App 端新增商品选主单位用; base:unit:list 在所有 App 角色都没有授权行)
+  unitAppList: () => request({ url: '/base/unit/app-list' }),
   // 销售
   salesOrderPage: (params) => request({ url: '/sales/order/page', data: params }),
   salesOrderAdd: (data) => request({ url: '/sales/order', method: 'POST', data }),

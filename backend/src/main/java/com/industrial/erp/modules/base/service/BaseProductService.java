@@ -96,7 +96,14 @@ public class BaseProductService {
         }
         // 同上处理 barcode: uniq_base_product_barcode (barcode, deleted) 唯一索引,
         // 如果之前用过同 barcode 然后软删除, 重新用会因唯一索引冲突 DuplicateKeyException.
+        // ⚠ 必须先查"活行"再清墓碑: selectAnyByBarcode 不带 deleted 过滤, 少了这道检查
+        //   就会把用了同一条码的在用商品当墓碑物理删掉 (v1.1.166 App 端扫码/手工录条码会撞).
         if (StrUtil.isNotBlank(p.getBarcode())) {
+            BaseProduct liveByBarcode = productMapper.selectByBarcode(p.getBarcode());
+            if (liveByBarcode != null) {
+                throw BizException.of("商品条码已被「" + liveByBarcode.getProductName()
+                        + "」(" + liveByBarcode.getProductCode() + ") 使用");
+            }
             BaseProduct deletedByBarcode = productMapper.selectAnyByBarcode(p.getBarcode());
             if (deletedByBarcode != null) {
                 productMapper.physicalDeleteById(deletedByBarcode.getId());
