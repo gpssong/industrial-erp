@@ -23,7 +23,7 @@ class LabelMasterServiceTest {
     @Mock private SysUserMapper userMapper;
 
     @Test
-    @DisplayName("LABEL_MASTER 的五个键全部读出，JSON 坏了降级成空串而不是抛错")
+    @DisplayName("LABEL_MASTER 的五个键全部读出")
     void readsFiveKeys() {
         when(configService.getByKey("LABEL_MASTER")).thenReturn(
                 "{\"producerName\":\"舟山市鹏程包装有限公司\",\"producerAddress\":\"浙江省舟山市舟山高新技术产业园区大成九路32号\","
@@ -39,12 +39,33 @@ class LabelMasterServiceTest {
     }
 
     @Test
-    @DisplayName("配置缺失/JSON 非法 → 各字段空串（不阻断打印，docs/32 §5）")
+    @DisplayName("配置缺失/JSON 非法 → 六个字段全空串，不抛错也不留 null（不阻断打印，docs/32 §5）")
     void degradesToBlank() {
-        when(configService.getByKey("LABEL_MASTER")).thenReturn("{这不是 json");
-        LabelMaster m = new LabelMasterService(configService, userMapper).load();
-        assertThat(m.getProducerName()).isEmpty();
-        assertThat(m.getXkNo()).isEmpty();
+        for (String raw : new String[] {"{这不是 json", null, "", "   "}) {
+            when(configService.getByKey("LABEL_MASTER")).thenReturn(raw);
+            LabelMaster m = new LabelMasterService(configService, userMapper).load();
+            assertThat(m.getProducerName()).isEmpty();
+            assertThat(m.getProducerAddress()).isEmpty();
+            assertThat(m.getXkNo()).isEmpty();
+            assertThat(m.getExecStandard()).isEmpty();
+            assertThat(m.getStorageCondition()).isEmpty();
+            assertThat(m.getInspectorCode()).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("用户已被删（selectById 回 null）时不抛错，inspectorCode 空串")
+    void blankInspectorWhenUserRowGone() {
+        when(configService.getByKey("LABEL_MASTER")).thenReturn("{\"producerName\":\"鹏程\"}");
+        when(userMapper.selectById(88L)).thenReturn(null);
+        SecurityContext.setCurrentUserIdForTest(88L);
+        try {
+            LabelMaster m = new LabelMasterService(configService, userMapper).load();
+            assertThat(m.getProducerName()).isEqualTo("鹏程");
+            assertThat(m.getInspectorCode()).isEmpty();
+        } finally {
+            SecurityContext.clearForTest();
+        }
     }
 
     @Test
@@ -59,21 +80,18 @@ class LabelMasterServiceTest {
     @DisplayName("已登录时取当前用户的 inspector_code；列没填也要降级成空串")
     void readsInspectorCodeOfCurrentUser() {
         when(configService.getByKey("LABEL_MASTER")).thenReturn("{}");
-        SysUser u = new SysUser();
-        u.setInspectorCode("JY-03");
-        when(userMapper.selectById(77L)).thenReturn(u);
+        SysUser filled = new SysUser();
+        filled.setInspectorCode("JY-03");
+        when(userMapper.selectById(77L)).thenReturn(filled);
 
         SecurityContext.setCurrentUserIdForTest(77L);
         try {
             assertThat(new LabelMasterService(configService, userMapper).load().getInspectorCode())
                     .isEqualTo("JY-03");
-        } finally {
-            SecurityContext.clearForTest();
-        }
 
-        u.setInspectorCode(null);
-        SecurityContext.setCurrentUserIdForTest(77L);
-        try {
+            SysUser notFilled = new SysUser();
+            notFilled.setInspectorCode(null);
+            when(userMapper.selectById(77L)).thenReturn(notFilled);
             assertThat(new LabelMasterService(configService, userMapper).load().getInspectorCode())
                     .isEmpty();
         } finally {

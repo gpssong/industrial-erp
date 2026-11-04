@@ -6,6 +6,8 @@ import com.industrial.erp.modules.system.entity.SysUser;
 import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.modules.system.service.SysConfigService;
 import com.industrial.erp.security.SecurityContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -18,6 +20,8 @@ import org.springframework.stereotype.Service;
 public class LabelMasterService {
 
     public static final String CONFIG_KEY = "LABEL_MASTER";
+
+    private static final Logger log = LoggerFactory.getLogger(LabelMasterService.class);
 
     public LabelMasterService(SysConfigService configService, SysUserMapper userMapper) {
         this.configService = configService;
@@ -40,8 +44,10 @@ public class LabelMasterService {
                 m.setXkNo(n.path("xkNo").asText(""));
                 m.setExecStandard(n.path("execStandard").asText(""));
                 m.setStorageCondition(n.path("storageCondition").asText(""));
-            } catch (Exception ignored) {
-                // 坏 JSON ⇒ 五个字段全空串；预览会标红，不阻断打印
+            } catch (Exception e) {
+                // 坏 JSON ⇒ 五个字段全空串；预览会标红，不阻断打印。但必须留痕：
+                // 车间分不出「没配」和「配坏了」，服务端得能查。
+                log.warn("LABEL_MASTER JSON 解析失败，标签主数据降级为空串: {}", e.getMessage());
             }
         }
         Long userId = SecurityContext.getUserId();
