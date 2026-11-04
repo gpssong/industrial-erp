@@ -274,6 +274,25 @@ class BaseLabelControllerPrintTest {
         assertThat(controller.logs("FG_ROLL", 5L, 30).getData()).isSameAs(rows);
     }
 
+    /**
+     * A11：/fields 是模板编辑器字段下拉的唯一来源 —— 必须与 LabelFieldDict 同源同序，
+     * 不能是第二份手抄名单（v1.1.162 编辑器教用户写 bill.details 就是名单和代码分家的结果）。
+     */
+    @Test
+    @DisplayName("/fields: 按 LabelFieldDict 顺序逐字段出 {name,label}，label 是中文名")
+    void fieldsMirrorsLabelFieldDict() {
+        List<String> dict = LabelFieldDict.fields("FG_ROLL");
+
+        List<Map<String, String>> out = controller.fields("FG_ROLL").getData();
+
+        assertThat(out).hasSize(dict.size());
+        assertThat(out).extracting(m -> m.get("name")).containsExactlyElementsOf(dict);
+        assertThat(out).extracting(m -> m.get("label"))
+                .containsExactlyElementsOf(dict.stream().map(LabelFieldDict::label).toList());
+        // 首项中文名落地 ⇒ LABELS 表真的被查了，不是把字段名原样回显
+        assertThat(out.get(0)).containsEntry("name", "productName").containsEntry("label", "产品名称");
+    }
+
     @Test
     @DisplayName("四个新端点的路径与权限点（飞鹅/日志写口要 print 权限，读口 list OR print）")
     void endpointContracts() throws Exception {
@@ -306,5 +325,15 @@ class BaseLabelControllerPrintTest {
         assertThat(feiePreview.value()).containsExactly("base:label:print", "base:label:list");
         assertThat(feiePreview.mode()).isEqualTo(SaMode.OR);
         assertThat(feiePreview.orRole()).containsExactly("admin");
+
+        // A11：/fields 挂模板管理那组（template OR list），路径 /base/label/fields
+        SaCheckPermission fields = BaseLabelController.class
+                .getMethod("fields", String.class)
+                .getAnnotation(SaCheckPermission.class);
+        assertThat(fields.value()).containsExactly("base:label:template", "base:label:list");
+        assertThat(fields.mode()).isEqualTo(SaMode.OR);
+        assertThat(fields.orRole()).containsExactly("admin");
+        assertThat(BaseLabelController.class.getMethod("fields", String.class)
+                .getAnnotation(GetMapping.class).value()).containsExactly("/fields");
     }
 }
