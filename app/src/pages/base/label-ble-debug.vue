@@ -45,12 +45,14 @@
 // 取证页: 不承担业务, 唯一作用是把「服务端渲染器产出的字节」原样送到打印机,
 // 并把异常与分片数报出来 → 答案写进 docs/34_印麦IP803指令集实测.md.
 //
-// 与 docs/33 计划骨架的差别 (两处, 都是为了让取证跑得起来 / 读得出结果):
+// 与 docs/33 计划骨架的差别 (三处, 都是为了让取证跑得起来 / 读得出结果):
 //   1) 多一颗「申请蓝牙权限」按钮 + LabelBle.ensurePermissions()。计划里 AndroidManifest
 //      只做了声明, 而全仓此前没有任何运行时授权流程 → Android 12+ 上扫描/连接必抛
 //      SecurityException, 现场没有任何授权入口, 取证 APK 直接是死的。
 //   2) 把 print 的 mtu / chunkDelayMs 开放成输入框。docs/34 要记录的正是「这台机器
 //      能吃多大的片」, 写死 30ms 间隔、拿不到 MTU 就答不了这个问题。
+//   3) 日志里带上 connect / print 的 elapsedMs (A15 返修 M1)。docs/32 §9 除了「吃不吃这套
+//      指令」还要看吞吐, 只靠日志的秒级时间戳量不出毫秒级的片速率。
 import { registerPlugin } from '@capacitor/core'
 import { isNativeApp } from '@/utils/runtime'
 
@@ -109,7 +111,7 @@ export default {
       if (!this.picked.mac) { this.say('先选一台设备'); return }
       try {
         const r = await LabelBle.connect({ mac: this.picked.mac })
-        this.say(`已连接, mtu=${r.mtu} 单片=${r.chunkSize} 服务数=${r.serviceCount}`)
+        this.say(`已连接, mtu=${r.mtu} 单片=${r.chunkSize} 服务数=${r.serviceCount} 耗时=${r.elapsedMs}ms`)
       } catch (e) {
         this.say('连接失败: ' + ((e && (e.message || e.errMsg)) || e))
       }
@@ -137,7 +139,7 @@ export default {
       this.say(`准备发送 ${this.raw.length} 字符 → base64 ${payload.contentBase64.length} 字符`)
       try {
         const r = await LabelBle.print(payload)
-        this.say(`已发 ${r.sentBytes} 字节 / ${r.chunks} 片 (片大小 ${r.chunkSize}, mtu ${r.mtu}, 无回调 ${r.missingAcks} 片)`)
+        this.say(`已发 ${r.sentBytes} 字节 / ${r.chunks} 片 (片大小 ${r.chunkSize}, mtu ${r.mtu}, 无回调 ${r.missingAcks} 片, 耗时 ${r.elapsedMs}ms)`)
       } catch (e) {
         this.say('发送失败: ' + ((e && (e.message || e.errMsg)) || e))
       }
