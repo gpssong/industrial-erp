@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * v1.1.167 标签模板 (docs/32 §2.2)。
  *
  * <p>只存**结构化元素**，不存原始指令文本 —— 这是「以后换 CPCL/别家机器不用重写」的机制保证。
- * 元素坐标单位是**点**，{@code dpi} 决定点数：dots = floor(mm × dpi / 25.4)。
+ * 元素坐标单位是**点**，{@code dpi} 决定点数：dots = floor(mm × trueDpi / 25.4)，203dpi 按 8 点/毫米。
  */
 @TableName("base_label_template")
 public class BaseLabelTemplate {

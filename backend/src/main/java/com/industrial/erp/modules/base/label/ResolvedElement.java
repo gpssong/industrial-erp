@@ -1,0 +1,45 @@
+package com.industrial.erp.modules.base.label;
+
+/**
+ * 取值/格式化之后的元素 —— **唯一的中间接口** (docs/32 §4 约束 1)。
+ *
+ * <p>以后加第三家渲染器（CPCL / 爱印云 / ZPL）只写第三个类，主数据、模板、元素模型、日志、页面都不动。
+ */
+public class ResolvedElement {
+    private String type;
+    private int x;
+    private int y;
+    /** 解析后的最终文本；barcode/qrcode 时这就是要编码的内容。 */
+    private String content;
+    private int fontSize;
+    private String align;
+    private boolean bold;
+    private int w;
+    private int h;
+    /** required 且取值为空 —— 预览标红，但不阻断打印 (docs/32 §5)。 */
+    private boolean missing;
+    private String field;
+
+    public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
+    public int getX() { return x; }
+    public void setX(int x) { this.x = x; }
+    public int getY() { return y; }
+    public void setY(int y) { this.y = y; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public int getFontSize() { return fontSize; }
+    public void setFontSize(int fontSize) { this.fontSize = fontSize; }
+    public String getAlign() { return align; }
+    public void setAlign(String align) { this.align = align; }
+    public boolean isBold() { return bold; }
+    public void setBold(boolean bold) { this.bold = bold; }
+    public int getW() { return w; }
+    public void setW(int w) { this.w = w; }
+    public int getH() { return h; }
+    public void setH(int h) { this.h = h; }
+    public boolean isMissing() { return missing; }
+    public void setMissing(boolean missing) { this.missing = missing; }
+    public String getField() { return field; }
+    public void setField(String field) { this.field = field; }
+}
