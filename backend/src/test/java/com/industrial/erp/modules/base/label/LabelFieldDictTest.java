@@ -40,6 +40,13 @@ class LabelFieldDictTest {
     }
 
     @Test
+    @DisplayName("null bizType 只回主数据字段 —— 修前 Map.getOrDefault(null, …) 是直接 NPE")
+    void nullBizTypeDegradesToMasterOnly() {
+        assertThat(LabelFieldDict.fields(null)).isEqualTo(LabelFieldDict.MASTER_FIELDS);
+        assertThat(LabelFieldDict.isKnown(null, "producerName")).isTrue();
+    }
+
+    @Test
     @DisplayName("label() 认得的给中文，认不出的原样回 —— 报错信息不能变成 null")
     void labelFallsBackToFieldName() {
         assertThat(LabelFieldDict.label("batchNo")).isEqualTo("批号");
