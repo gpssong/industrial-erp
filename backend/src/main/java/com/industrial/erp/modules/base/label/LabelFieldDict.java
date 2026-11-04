@@ -1,6 +1,7 @@
 package com.industrial.erp.modules.base.label;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -43,8 +44,16 @@ public final class LabelFieldDict {
             Map.entry("xkNo", "生产许可证编号"), Map.entry("execStandard", "执行标准"),
             Map.entry("storageCondition", "贮存条件"), Map.entry("inspectorCode", "检验员代号"));
 
+    /**
+     * 枚举 {@link LabelBizType#of} 大小写不敏感，字典必须同样宽容 —— 否则 {@code fg_roll}
+     * 会先被枚举放过、再被这张表判成「每个业务字段都不合法」，保存闸报的错还指向字段而不是大小写。
+     */
+    private static String key(String bizType) {
+        return bizType == null ? "" : bizType.toUpperCase(Locale.ROOT);
+    }
+
     public static List<String> fields(String bizType) {
-        List<String> biz = BIZ_FIELDS.getOrDefault(bizType, List.of());
+        List<String> biz = BIZ_FIELDS.getOrDefault(key(bizType), List.of());
         return java.util.stream.Stream.concat(biz.stream(), MASTER_FIELDS.stream()).toList();
     }
 
