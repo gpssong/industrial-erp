@@ -3,7 +3,61 @@
 
 ## changelog (倒序)
 
-### v1.1.165 (2026-11-03 — 原料标签 OCR 加 TextIn (合合信息) 服务商：凭证进「对接方式」+ 按坐标把批号锚到该原料那张标签)
+### v1.1.166 (2026-11-04 — App 端「新增商品」从坏 stub 改成真能用的表单：主单位落库 + 全字段校验 + 入口按新建权过滤)
+
+> **用户原话**: 「在 APP 端增加添加商品的功能。请实现完整的商品添加界面和逻辑，包括商品名称、价格、库存、分类等必要字段的输入和验证，以及提交到后端保存的功能。」
+
+**先取证再动手，结论是这功能 v1.1.8 就建了页、但四处是坏的**（所以本次是修 + 补全，不是新建第二个页面）：
+
+| # | 坏在哪 | 后果 |
+|---|---|---|
+| 1 | 编辑回显按**扁平结构**读 `{product, units, stockSummary}`，而 `detail()` 回的就是这三段嵌套 | 编辑永远带不出原值 |
+| 2 | `productUpdate` PUT `/base/product/{id}`，而 `BaseProductController.update` 是**裸 `@PutMapping`**（无路径段） | 编辑必 404 |
+| 3 | 提交时硬塞 `units: []` | **新建商品永远没有主单位** —— 下游「该商品未配置单位」的源头就在这 |
+| 4 | 页面拉 `/base/unit/list` 取单位下拉 | `.32` 实测 `base:unit:list` 在**所有角色的 App 端都没有授权行** → 纯 App 账号 100% 403，单位永远选不了 |
+
+另外两个字段口径必须先定：
+- **「分类」没有 API**。`base_product_category` 只有表和种子数据，controller / 实体 / UI 全不存在 → 本次映射到已有的 `productType`（原材料/半成品/成品/商品/服务），与 PC 端 `Product.vue` 的 `PT_LABEL` 严格对齐。
+- **「库存」没有列**。`base_product` 只有 `safety_stock`，实际库存在 `inv_ledger` → 表单做「安全库存」预警线，并在页面上写明「这里填的是预警线，不是实际库存；实际库存由原料入库 / 成品入库 / 盘点产生」，避免用户以为填了就有货。
+- **编辑模式从 App 撤掉**：`base:product:edit` 同样只有 PC 授权行、也不在 App 权限树白名单里 → App 只做新增，编辑仍在 PC（页面上留了一句指引）。
+
+**后端**
+- [BaseUnitController.java](../backend/src/main/java/com/industrial/erp/modules/base/controller/BaseUnitController.java)：新增 `GET /base/unit/app-list`，`@SaCheckLogin`（**不给 `base:unit:list` 扩 App 授权** —— 那是 `erp-sa-token-auth` 铁律 3 的反面：加白名单要 PC + APK 协同发布才配合得上，而基础档案只读、低敏感，照 `/base/product/app-search` 同口径处理）。只回 `status=1`，按 id 升序。
+- [BaseProductService.java](../backend/src/main/java/com/industrial/erp/modules/base/service/BaseProductService.java) `add()`：补**条码活行前置校验**。⚠️ 读代码发现的隐患，不是跑出来的错 —— `selectAnyByBarcode` **不带 `deleted` 过滤**，原逻辑「先清墓碑再插入」会把**在用**的同条码商品当墓碑 `physicalDeleteById` 掉。现在先 `selectByBarcode`（带 `deleted=0`）命中就报 `商品条码已被「X」(编码) 使用`，确属软删墓碑才物理清。条码重复是 App 现场扫码建档最容易撞的，这条必须先在单测里锁住。
+
+**App**
+- [pages/base/product-add.vue](../app/src/pages/base/product-add.vue) 整页重写：基本信息（编码*/名称*/类型*/规格/型号/材质/色号/条码+📷扫码）、单位与价格（主单位*/销售/采购/成本/税率默认 13/安全库存）、规格参数（长度/宽度/厚度/克重 g/个 + 总重量公式提示）、食品接触合规（`isFoodGrade` 开关，开了才展开用途/执行标准/备案号/总迁移量/保质期）、备注。
+  - `validate()` 逐项拦：必填、长度上限、类型、主单位、数字非负且 ≤99999999、税率 0~100、保质期是非负整数。
+  - ⚠️ 数字字段在 `form` 里**用字符串承载**，提交前 `toNum()`：空 → `null`，非法 → `undefined` 让 `validate()` 拒掉（直接 `v-model.number` 会把 `"3.2.1"` 变成 `NaN` 静默入库）。
+  - 提交带 `units:[{unitId, unitName, isMain:1, conversionRate:1, salesPrice, purchasePrice, costPrice, sortNo:1}]` —— 后端 `syncPriceFromMainUnit` 只认 `isMain==1` 的那行，把这行的价格与 `mainUnitId` 回填到商品主表。
+  - 失败**不重复弹**：拦截器（[api/index.js:134](../app/src/api/index.js#L134)）已把后端 `msg` 弹成 toast，catch 里不再弹 modal，也**不返回上一页**，让用户看清「条码已被占用」这类原因后改完再提交。
+  - 权限门禁走 `isAdmin() || getAppPermissions().includes('base:product:add')` + `isPermEnabled('base', …)`，无权限显示「无新建权限」卡片而不是白屏（深链直达兜住）。
+- [api/index.js](../app/src/api/index.js)：删掉 `productUpdate`（URL 不存在且 App 无编辑权），加 `unitAppList`。
+- [pages/dashboard/index.vue](../app/src/pages/dashboard/index.vue)：工作台「新增商品」入口从 `base:product:list` + `/base/product`（sys_menu 301）**改挂 `base:product:add` + `/base/product/add`（6034）** —— 此前 `PRODUCTION_MGR` / `PURCHASE_MGR` / `SALES_MGR` 只有查看权也看得见按钮，点进去 POST 必 403。
+
+**SQL**
+- [sql/153_v11166_super_admin_app_product_add.sql](../sql/153_v11166_super_admin_app_product_add.sql)：给 `SUPER_ADMIN` 补 `base:product:add` 的 **APP** 授权行（v1.1.156 同一现象：6034 建的时候只给了 cmg/FINANCE/WAREHOUSE_MGR/zdg 的 APP 行，超管只有 PC 行 → 手机上看不见入口）。按 `perms + path` 定位、不写死 id，幂等。
+- [sql/154_v11166_app_product_add_mirror.sql](../sql/154_v11166_app_product_add_mirror.sql)：本人拍板「授权 = 给 PC 端已有新增商品权的角色补手机端」，所以这里**只做镜像、不创造新权限** —— 凡持有 6034 的 `PC`/`BOTH` 行的角色补一条 `APP` 行，PC 也建不了商品的角色手机端照样不给。`INSERT IGNORE` + `information_schema` 探测 `client_type` 列（老库不分端则空操作）；脚本自带镜像前/后各角色授权端对照输出。**只灌 `.150` 主库**，且若 canary 试跑过必须先删那几行，否则主库 INSERT 复制回备库撞 1062（`binlog_format=ROW` 下 `INSERT IGNORE` 护不住下游，sql/149/150 踩过两次）。
+
+**单测**：新增 [BaseProductServiceAddTest.java](../backend/src/test/java/com/industrial/erp/modules/base/service/BaseProductServiceAddTest.java) 4 条 —— 活条码拒绝且不物理删不插入 / 墓碑条码清理后正常插入 / 主单位行把价格与 `mainUnitId` 回填到商品 / 空白条码归一为 `null` 且不查条码表。全量 `mvn clean package` 绿。
+
+**版本**：1.1.166 七处对齐（`bash scripts/check-version.sh 1.1.166` 全 OK）。产物：jar `1e90845ede2c50f35d1d04e5c3c97d60`（101683325 B）、APK `~/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20261104.apk` md5 `0031dd7395ec45e5d82eb72093d688f4`（versionName 1.1.166 / versionCode 1166）、H5 `index.html` `91b2037fea1b36748f28c22bfdc19ee9`；PC 本次零改动，dist 沿用 v1.1.165（`Role.vue` 白名单里 `base:product:add` 早在，无需重出）。
+
+**部署（2026-11-04，按本人点名的三站顺序 .32 → .150 → 阿里云）**
+- SQL：`sql/153` + `sql/154`（镜像 PC 已有「新增商品」权的角色到 APP 端）灌 `.150` 主库。⚠️ 主库其实已有 cmg / FINANCE / WAREHOUSE_MGR / zdg 4 行，**真正新增的只有 SUPER_ADMIN 那 1 行**（sql/153）；`binlog_format=ROW` 下 `INSERT IGNORE` 护不住下游，所以灌主库前先删掉 `.32` canary 试跑留下的脏行防 1062。三站对账 `sys_role_menu` 6034 = **10 行 / 其中 APP 5 行**，一致。
+- jar：三站同 md5 `1e90845ede2c…`，**都验镜像本体**（`docker run --rm --entrypoint md5sum <image:tag> /opt/app/app.jar`）而非只验运行中容器。`.32` `erp-system-backend:1.1.166`（镜像 `1a595c322a02`，与 `latest` 同）、`.150` `docker compose build backend` 重打、阿里云 `erp-backend:1.1.166`（`fb2dca75ad22`）。
+- `ERP_VERSION` 运行态三站各改各的，都确认容器 printenv = 1.1.166：`.32` 容器 env、`.150` `docker-compose.yml` 第 93 行（改前备份 + `compose config` 自检）、阿里云 `/opt/erp-system/.env`（同样先备份，它同时驱动 `image: erp-backend:${ERP_VERSION}`）。
+- H5：`.32` + 阿里云都换成 `index.html` `91b2037fea1b…`（阿里云走 `mv` 旧目录留底 + `mv` 新目录 + `docker restart erp-app-h5`，再核**容器内**那份 md5 与宿主一致）；`.150` 无 H5 容器，跳过。
+- 阿里云顺手补了 `.dockerignore`（`*.bak*` / `*.retired` / `*.part`）：构建上下文从累积的 ~1.7GB 旧 jar 降到 **101.70MB**（那台机磁盘已用 80%）。⚠️ 它的 Dockerfile 是 `COPY industrial-erp-*.jar /opt/app/app.jar` —— **单文件目标 + 通配符匹配到两个 jar 会直接 build 失败**（`.150` 那版是 `find … -exec mv` 会静默取最后一个），换版必须把旧 jar 改成不匹配 `*.jar` 的后缀。
+- 复制健康：迁移后两侧下游复查 —— `.32` 与阿里云均 `Slave_IO/SQL_Running=Yes`、`Seconds_Behind_Master: 0`、`Last_SQL_Error` 空（阿里云经 SSH 隧道 `172.18.0.1:13306` 回连主库）。
+
+**上线后实测**
+- **写路径只在 `.32` canary 跑过**（这是有意的：主库有 XK 审计痕迹，不该拿别人/自己的真实身份在生产建测试商品）。用两个等权临时账号：`base:product:add`+`base:product:list` 的能建成，`base_product_unit` 落了 `is_main=1 / conversion_rate=1` 的主单位行、`base_product.main_unit_id` 与三个价格由 `syncPriceFromMainUnit` 回填；撞在用条码被拒且 `deleted=0` 的行数仍为 1（在用商品没被当墓碑删）、撞码的新编码没落库；空条码连建两个都成功（归一 NULL 不撞唯一索引）；**只有查看权的那个 POST 403**；登出后旧 token 立刻失效。测完临时账号、角色、测试商品全清。
+- **生产只做只读核验**，用的是主站上已有的两条真实非超管 App 会话（秦运桂=zdg、罗飞=WAREHOUSE_MGR）：`/auth/me` 带 `X-Client-Type: APP` 都拿到 `base:product:add`；`GET /base/unit/app-list` 回 200 + 真实单位列表。
+- ⚠️ 一条**如实记录、别当成"没放宽授权面"的证据**：原计划的反例对照 `/base/unit/list` 在这两个账号身上**也回了 200**，不是 403 —— 后端 `selectPermsByUserId` **不看 `client_type`**，他俩的 PC 授权行早就覆盖了这个端点（前端 `/me` 里 `base:unit:list` 仍是 false，两套口径的老现象）。所以新端点的授权面实话是「任何登录用户可读单位字典」，与 `/base/product/app-search` 同口径，不能靠那条对照组说它没扩。
+- **只有查看权的角色（生产/采购/销售主管）从此看不见入口** —— 如实反映现实（点进去本来就 403），不是回归；要不要真给他们 `base:product:add` 是业务决定，未拍板。
+
+
 
 > **用户原话**: 「OCR 标签识别用textln是否合适，合适的话增加设置textln的选项，同时把 x-ti-app-id：… x-ti-secret-code：… 设置进去」
 

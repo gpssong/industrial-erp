@@ -1,6 +1,8 @@
 package com.industrial.erp.modules.base.controller;
 
+import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.industrial.erp.common.R;
 import com.industrial.erp.exception.BizException;
@@ -30,6 +32,17 @@ public class BaseUnitController {
     @SaCheckPermission(value = {"base:unit:list"}, orRole = "admin")
     @GetMapping("/list")
     public R<List<BaseUnit>> list() { return R.ok(mapper.selectList(null)); }
+
+    /** App 端专用计量单位下拉 (登录即可, 不需要 base:unit:list)。
+     *  与 /base/product/app-search 同口径: 基础档案只读、低敏感，不为它扩 App 授权面
+     *  (base:unit:list 在所有角色的 App 端都没有授权行，加白名单要重出 APK 才能配合)。 */
+    @SaCheckLogin
+    @GetMapping("/app-list")
+    public R<List<BaseUnit>> appList() {
+        return R.ok(mapper.selectList(new LambdaQueryWrapper<BaseUnit>()
+                .eq(BaseUnit::getStatus, 1)
+                .orderByAsc(BaseUnit::getId)));
+    }
 
     @SaCheckPermission(value = {"base:unit:add"}, orRole = "admin")
     @PostMapping
