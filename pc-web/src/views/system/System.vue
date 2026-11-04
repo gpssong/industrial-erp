@@ -317,19 +317,25 @@ const brandForm = reactive({
   systemName: '', enName: '', factory: '', factoryCode: '',
   creditCode: '', xkNo: '', address: '', footer: ''
 })
+const loadFailed = new Set()
 /** 六个字段此前"能填能保存提示成功但直接丢弃"（假成功）—— v1.1.167 接真 (docs/32 §6.2) */
 async function loadBrand() {
   brandForm.systemName = systemName.value
   brandForm.factory = factoryName.value
   const read = async (key) => {
-    try { const r = await configApi.getByKey(key); return r?.data || '' } catch { return '' }
+    try { const r = await configApi.getByKey(key); return r?.data || '' }
+    catch { loadFailed.add(key); return '' }
   }
   brandForm.enName = await read('SYS_EN_NAME')
   brandForm.factoryCode = await read('SYS_FACTORY_CODE')
   brandForm.creditCode = await read('SYS_CREDIT_CODE')
   brandForm.footer = await read('SYS_FOOTER')
   let master = {}
-  try { master = JSON.parse((await read('LABEL_MASTER')) || '{}') || {} } catch { master = {} }
+  try {
+    const raw = await read('LABEL_MASTER')
+    master = raw ? JSON.parse(raw) : {}
+    if (!master || typeof master !== 'object' || Array.isArray(master)) { loadFailed.add('LABEL_MASTER'); master = {} }
+  } catch { loadFailed.add('LABEL_MASTER'); master = {} }
   brandForm.xkNo = master.xkNo || ''
   brandForm.address = master.producerAddress || ''
 }
@@ -368,10 +374,16 @@ async function saveBrand() {
     if (brandForm.factory.trim()) await saveFactoryName(brandForm.factory.trim())
   } catch (e) { errors.push('系统/工厂名称: ' + (errText(e) || '失败')) }
 
-  await put('英文名称', 'SYS_EN_NAME', brandForm.enName.trim())
-  await put('工厂编码', 'SYS_FACTORY_CODE', brandForm.factoryCode.trim())
-  await put('统一社会信用代码', 'SYS_CREDIT_CODE', brandForm.creditCode.trim())
-  await put('单据页脚', 'SYS_FOOTER', brandForm.footer.trim())
+  // R-A13-3：载入失败的字段禁止写成空值 —— 读失败回显成空框与"用户清空"不可区分，
+  // 宁可拒绝这一次覆盖，也不能把网络抖动变成丢配置（载入成功+用户清空 仍照常写空）。
+  const putLoaded = async (name, key, val) => {
+    if (!val && loadFailed.has(key)) { errors.push(`${name}: 未成功载入，本次未覆盖`); return }
+    await put(name, key, val)
+  }
+  await putLoaded('英文名称', 'SYS_EN_NAME', brandForm.enName.trim())
+  await putLoaded('工厂编码', 'SYS_FACTORY_CODE', brandForm.factoryCode.trim())
+  await putLoaded('统一社会信用代码', 'SYS_CREDIT_CODE', brandForm.creditCode.trim())
+  await putLoaded('单据页脚', 'SYS_FOOTER', brandForm.footer.trim())
 
   // XK 证号 + 工厂地址进 LABEL_MASTER（标签渲染直接读那份 JSON）：读-改-写，绝不能整份覆盖 ——
   // execStandard / storageCondition 只由 SQL 种子维护、tab 上没有输入框，读到空/坏 JSON 就干脆不写，
@@ -386,6 +398,8 @@ async function saveBrand() {
   } catch { masterReadFail = true }
   if (masterReadFail) {
     errors.push('XK许可证编号/工厂地址: 标签主数据读取失败，未覆盖保存')
+  } else if (loadFailed.has('LABEL_MASTER') && !brandForm.xkNo.trim() && !brandForm.address.trim()) {
+    errors.push('XK许可证编号/工厂地址: 未成功载入，本次未覆盖')
   } else {
     master.xkNo = brandForm.xkNo.trim()
     master.producerAddress = brandForm.address.trim()
