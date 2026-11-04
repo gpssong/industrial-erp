@@ -49,10 +49,15 @@ public class LabelPreviewService {
         for (Map<String, Object> ctx : rows) {
             RenderResult r = renderer.render(tpl, ctx);
             for (ResolvedElement e : r.getElements()) {
+                // 封顶 1024 点：size 来自**存进库的模板**，是用户可存的数据，预览不许因为它吃满堆
+                // （二维码 size 40000 就是 1,000,000 点见方；OOM 是 Error，encodePng 的
+                // catch (Exception) 拦不住 ⇒ 整页 500）；1024 点足够屏显。
+                // 正常模板（size 24 ⇒ 600 点）行为不变；条码宽是写死的 300，不需要夹。
+                int qrPx = Math.min(1024, Math.max(4, e.getFontSize()) * 25);
                 if ("qrcode".equals(e.getType())) e.setSvg(encodePng(e.getContent(), BarcodeFormat.QR_CODE,
-                        Math.max(4, e.getFontSize()) * 25, Math.max(4, e.getFontSize()) * 25, true));
+                        qrPx, qrPx, true));
                 else if ("barcode".equals(e.getType())) e.setSvg(encodePng(e.getContent(), BarcodeFormat.CODE_128,
-                        300, Math.max(20, e.getFontSize()), false));
+                        300, Math.min(1024, Math.max(20, e.getFontSize())), false));
             }
             dedupeMissingRequired(r);
             out.add(r);
@@ -73,6 +78,16 @@ public class LabelPreviewService {
         if (distinct.size() != missing.size()) r.setMissingRequired(distinct);
     }
 
+    /**
+     * **A9 裁定 R5**：CODE_128 装不下非 ASCII；zxing 各版本抛的异常类型不同（3.5.x 是
+     * {@code IllegalArgumentException}，老版本是 {@code WriterException}），所以自己先判，别依赖它。
+     * 抽成包级静态方法是为了让这条预检能被单测直接钉住 —— 留在 {@code encodePng} 里时，
+     * 删掉它测试仍然绿（zxing 自己抛错也落进同一个 catch），这条测试就保护不了 R5。
+     */
+    static boolean asciiOnly(String s) {
+        return s.chars().noneMatch(c -> c > 127);
+    }
+
     /** 编不出来（空内容 / 中文进 CODE128）就回 null，让前端显示文本 —— 预览不能因为码图失败而整页 500。 */
     private String encodePng(String content, BarcodeFormat format, int w, int h, boolean qr) {
         if (content == null || content.isBlank()) return null;
@@ -80,7 +95,7 @@ public class LabelPreviewService {
         // 在不同版本里不一致（多在超出 CODE128B 字符域时抛，也有走 CODE_C 把字节塞进去的）。
         // 自己先判 ⇒「编不出来 → svg 留空 + content 照旧给前端显示」这条行为成立，而不是碰巧成立。
         // QR 不判：二维码按 UTF-8 装得下中文。
-        if (!qr && content.chars().anyMatch(c -> c > 127)) return null;
+        if (!qr && !asciiOnly(content)) return null;
         try {
             Map<EncodeHintType, Object> hints = new HashMap<>();
             hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
