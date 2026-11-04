@@ -366,7 +366,8 @@ function errText(e) {
 async function saveBrand() {
   const errors = []
   const put = async (name, key, val) => {
-    try { await configApi.updateValue(key, val == null ? '' : val) }
+    // 写成功 ⇒ 屏幕上的值就是库里的值，此后这个字段上的空值是「用户真清空」，不再是「没读到」
+    try { await configApi.updateValue(key, val == null ? '' : val); loadFailed.delete(key) }
     catch (e) { errors.push(`${name}: ${errText(e) || '失败'}`) }
   }
   try {
@@ -405,8 +406,11 @@ async function saveBrand() {
   if (masterReadFail) {
     errors.push('XK许可证编号/工厂地址: 标签主数据读取失败，未覆盖保存')
   } else if (masterMissing) {
-    // 空读出来不代表可以建：blob 归 sql/155 种子，前端先建一行会让 INSERT IGNORE 永久跳过 5 键主数据
-    errors.push('XK许可证编号/工厂地址: 标签主数据尚未初始化，需先执行 sql/155 种子')
+    // 空读出来不代表可以建：blob 归 sql/155 种子，前端先建一行会让 INSERT IGNORE 永久跳过 5 键主数据。
+    // 两个输入框本来就空着 ⇒ 没东西要存，不必报「未初始化」（报了看着像这次保存失败了）。
+    if (brandForm.xkNo.trim() || brandForm.address.trim()) {
+      errors.push('XK许可证编号/工厂地址: 标签主数据尚未初始化，需先执行 sql/155 种子')
+    }
   } else {
     const xk = brandForm.xkNo.trim()
     const addr = brandForm.address.trim()
