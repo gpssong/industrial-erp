@@ -36,6 +36,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeScannerPlugin.class);
         registerPlugin(NativeSharePlugin.class);
         registerPlugin(NativePrintPlugin.class);
+        registerPlugin(LabelBlePlugin.class);
         super.onCreate(savedInstanceState);
 
         // Fix: HTTPS page + HTTP API → Android WebView blocks mixed content by default.
