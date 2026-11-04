@@ -148,3 +148,6 @@ electron/pc-web-dist/
 # Python 缓存 (entity-schema-check 等脚本运行时生成)
 __pycache__/
 *.pyc
+
+# SDD scratch (ledger/briefs/review packages) — never commit
+.superpowers/
