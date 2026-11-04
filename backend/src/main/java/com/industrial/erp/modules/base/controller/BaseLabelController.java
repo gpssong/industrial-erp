@@ -192,7 +192,10 @@ public class BaseLabelController {
                 JSONObject resp = feieClient.printMsg(cfg.getUser(), cfg.getUkey(), cfg.getDeviceSn(), content, 1);
                 failMsg = FeieResult.failureOf(resp);   // null ⇒ 云端已接受下发
             } catch (Exception e) {
-                failMsg = e.getMessage();
+                // `failMsg` 这一个变量同时是「有没有失败」和「失败原因」⇒ 空 message 的异常
+                // （裸 `new RuntimeException()`、部分三方库）会把它留成 null，下面判空就当「云端已接受」，
+                // 一张没发出去的标签就在 XK 的自证材料里成了 SUCCESS。兜到类名：文案粗一点，账不能记错。
+                failMsg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
             }
             if (failMsg == null) {
                 printService.logSuccess(req.getBizType(), req.getBizId(), bizNo, tpl,

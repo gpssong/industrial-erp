@@ -153,6 +153,28 @@ class BaseLabelControllerPrintTest {
                 "A<BR>\n<CUT>\n", "飞鹅 API 请求异常: connect timed out");
     }
 
+    /**
+     * A10-R1 的最后一道缝：`failMsg` 这一个变量同时承担「有没有失败」和「失败原因」。
+     * 异常**没有 message**（裸 `new IllegalStateException()`、部分三方库的异常）时，
+     * `e.getMessage()` 回 null ⇒ 原判空逻辑把「根本没发出去」当成「云端已接受」，
+     * 一张纸都没出的标签就在 XK 检查的自证材料里成了 SUCCESS —— 那是假账，不是 bug 级别的问题。
+     */
+    @Test
+    @DisplayName("异常没有 message 时仍落 FAIL（哨兵值不许被空 message 骗成成功）")
+    void messagelessExceptionIsLoggedAsFail() {
+        stubOneLabelFGRoll();
+        when(feieClient.printMsg(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenThrow(new IllegalStateException());
+
+        R<Map<String, Object>> out = controller.feiePrint(req("FG_ROLL", null, 5L));
+
+        assertThat(out.getData()).containsEntry("success", 0).containsEntry("failed", 1);
+        verify(printService).logFail("FG_ROLL", 5L, "PFI0001", tpl, "FEIE", "车间 1 号机", null, 1,
+                "A<BR>\n<CUT>\n", "java.lang.IllegalStateException");
+        verify(printService, never()).logSuccess(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any());
+    }
+
     @Test
     @DisplayName("批量：单张失败落 FAIL 后继续发下一张，不许中断整批")
     void continuesAfterSingleLabelFailure() {
@@ -276,5 +298,13 @@ class BaseLabelControllerPrintTest {
                 .getMethod("logs", String.class, Long.class, int.class)
                 .getAnnotation(SaCheckPermission.class);
         assertThat(logs.value()).containsExactly("base:label:list", "base:label:print");
+
+        // 预览是读口（要给打印中心选模板用），和 /preview 同一组：print OR list 都放行
+        SaCheckPermission feiePreview = BaseLabelController.class
+                .getMethod("feiePreview", LabelPreviewRequest.class)
+                .getAnnotation(SaCheckPermission.class);
+        assertThat(feiePreview.value()).containsExactly("base:label:print", "base:label:list");
+        assertThat(feiePreview.mode()).isEqualTo(SaMode.OR);
+        assertThat(feiePreview.orRole()).containsExactly("admin");
     }
 }

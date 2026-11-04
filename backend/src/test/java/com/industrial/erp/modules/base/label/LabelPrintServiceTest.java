@@ -120,8 +120,23 @@ class LabelPrintServiceTest {
                 "FEIE", "车间 1 号机", null, 1, "A<BR>\n<CUT>\n", "打印机离线")).doesNotThrowAnyException();
     }
 
+    /**
+     * limit 是调用方传来的（PC 那个「最近 N 条」下拉），不夹取就等于允许一次全表扫。
+     * MP 3.5.9 的 wrapper 不暴露 `getLast()`，把夹取本身抽成包级静态方法直接验
+     * （与 A9 把 ASCII 预检抽成 `LabelPreviewService.asciiOnly` 同一手法）。
+     */
     @Test
-    @DisplayName("recent 把查询交给 mapper 并把结果原样回传（limit 在 1..100 内夹住，不越界报错）")
+    @DisplayName("limit 夹在 1..100：0/负数按 1，5000 按 100")
+    void limitIsClamped() {
+        assertThat(LabelPrintService.clampLimit(0)).isEqualTo(1);
+        assertThat(LabelPrintService.clampLimit(-5)).isEqualTo(1);
+        assertThat(LabelPrintService.clampLimit(30)).isEqualTo(30);
+        assertThat(LabelPrintService.clampLimit(100)).isEqualTo(100);
+        assertThat(LabelPrintService.clampLimit(5000)).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("recent 把查询交给 mapper 并把结果原样回传")
     void recentDelegatesToMapper() {
         List<BaseLabelPrintLog> rows = List.of(new BaseLabelPrintLog());
         when(logMapper.selectList(any())).thenReturn(rows);
@@ -130,6 +145,25 @@ class LabelPrintServiceTest {
         assertThat(svc.recent("FG_ROLL", 1L, 30)).isSameAs(rows);
         assertThat(svc.recent(null, null, 0)).isSameAs(rows);
         assertThat(svc.recent("  ", 1L, 5000)).isSameAs(rows);
+    }
+
+    /**
+     * `/print/log` 的三个字符串是**手机上报的**（系统边界），列宽只有 64/128/32（sql/155:43,47-48）。
+     * 超宽不截 ⇒ insert 被数据库拒收 ⇒ 正好落进 A10-R2 那个 catch ⇒ App 收到 R.ok、库里没这行，
+     * 只剩一条服务端 warn。这张表存在的意义就是「一行都不丢」，所以在写入口按列宽截齐。
+     */
+    @Test
+    @DisplayName("App 上报的 bizNo/printerName/printerMac 按 DDL 列宽截断（超宽不能把整行丢给 catch）")
+    void wideAppSuppliedStringsAreCutToColumnWidth() {
+        new LabelPrintService(logMapper).logSuccess("CARTON", 9L, "S".repeat(200), tpl(),
+                "BT_TSPL", "P".repeat(300), "M".repeat(100), 1, "<CUT>\n");
+
+        ArgumentCaptor<BaseLabelPrintLog> cap = ArgumentCaptor.forClass(BaseLabelPrintLog.class);
+        verify(logMapper).insert(cap.capture());
+        BaseLabelPrintLog row = cap.getValue();
+        assertThat(row.getBizNo()).hasSize(64);
+        assertThat(row.getPrinterName()).hasSize(128);
+        assertThat(row.getPrinterMac()).hasSize(32);
     }
 
     private static String sha256Hex(String s) {

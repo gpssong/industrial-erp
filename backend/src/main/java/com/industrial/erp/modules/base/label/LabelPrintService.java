@@ -43,7 +43,12 @@ public class LabelPrintService {
                 .eq(bizType != null && !bizType.isBlank(), BaseLabelPrintLog::getBizType, bizType)
                 .eq(bizId != null, BaseLabelPrintLog::getBizId, bizId)
                 .orderByDesc(BaseLabelPrintLog::getId)
-                .last("LIMIT " + Math.min(Math.max(limit, 1), 100)));
+                .last("LIMIT " + clampLimit(limit)));
+    }
+
+    /** 日志是给人翻的，不是给人搬库的：limit 夹在 1..100，0/负数和 5000 都不许原样拼进 SQL。 */
+    static int clampLimit(int limit) {
+        return Math.min(Math.max(limit, 1), 100);
     }
 
     /** 渲染异常也要能落日志：这里只 catch 落库本身的失败，不把打印异常吞掉。 */
@@ -53,14 +58,17 @@ public class LabelPrintService {
         BaseLabelPrintLog row = new BaseLabelPrintLog();
         row.setBizType(bizType);
         row.setBizId(bizId);
-        row.setBizNo(bizNo);
+        // 这三列里 biz_no/printer_name/printer_mac 收的是**手机上报的字符串**（`/print/log` 是系统边界）。
+        // 超宽不截 ⇒ 数据库拒收整行 ⇒ 正好落进下面那个 catch ⇒ App 收到 R.ok、库里一行没有，只剩一条 warn。
+        // 这张表的底线是「一行都不丢」，所以按列宽截齐（sql/155:43,47-48），宁可少几个字符。
+        row.setBizNo(cut(bizNo, 64));
         if (tpl != null) {
             row.setTemplateId(tpl.getId());
             row.setTemplateCode(tpl.getTemplateCode());
         }
         row.setChannel(channel);
-        row.setPrinterName(printerName);
-        row.setPrinterMac(printerMac);
+        row.setPrinterName(cut(printerName, 128));
+        row.setPrinterMac(cut(printerMac, 32));
         row.setCopies(copies);
         row.setContent(content);
         row.setContentHash(sha256Hex(content));
@@ -75,6 +83,12 @@ public class LabelPrintService {
             log.warn("标签打印日志落库失败, bizType={}, bizId={}, channel={}, status={}",
                     bizType, bizId, channel, status, e);
         }
+    }
+
+    /** 按 DDL 列宽截齐，留一位给省略号 —— 截完的总长正好等于列宽。 */
+    private static String cut(String s, int columnWidth) {
+        if (s == null || s.length() <= columnWidth) return s;
+        return s.substring(0, columnWidth - 1) + "…";
     }
 
     private static String sha256Hex(String s) {
