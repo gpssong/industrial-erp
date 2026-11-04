@@ -93,6 +93,8 @@ class LabelTemplateValidateTest {
         assertThat(issues).hasSize(1);
         assertThat(issues.get(0).index()).isEqualTo(-1);
         assertThat(issues.get(0).message()).contains("解析失败");
+        // jacksonBrief 截断的唯一钉子：Jackson 的 [Source: 回显不许出现在给车间看的那句话里
+        assertThat(issues.get(0).message()).doesNotContain("[Source:");
     }
 
     @Test
@@ -110,13 +112,22 @@ class LabelTemplateValidateTest {
     @Test
     @DisplayName("数组里夹 null：按**原始下标**点名，不许悄悄压缩后把行号挪走")
     void nullEntryIsNamedByItsOwnPosition() {
-        List<ValidationIssue> issues = renderer.validate(
+        // **A7 裁定 R7（计划原文自相矛盾，以本段为准）：** 原样例把 null 放在下标 0，却断言「第 2 项」——
+        // 按 1 起点点名就是「第 1 项」，实现没错、计划写错了。
+        // 但只测首项等于**什么都没钉住**：实现写死「第 1 项」也能过，而这条用例的本意是
+        // 「按它**自己**的位置点名」。⇒ 首项、尾项各测一次，1 起点编号才真的被钉住。
+        List<ValidationIssue> first = renderer.validate(
                 "[null,{\"type\":\"hexagon\",\"x\":0,\"y\":0}]", "FG_ROLL", 80, 60, 203);
-        assertThat(issues).hasSize(1);
-        assertThat(issues.get(0).index()).isEqualTo(-1);
-        // null 是数组首项 ⇒ 点名「第 1 项」。计划文档这里写成「第 2 项」，但它给的样例 JSON 把 null 放在了下标 0，
-        // 按「原始下标点名」的本意就是第 1 项；改成 1 才能同时满足样例输入与 parse 的实现（实测输出即「第 1 项是空的」）。
-        assertThat(issues.get(0).message()).contains("第 1 项是空的");
+        assertThat(first).hasSize(1);
+        assertThat(first.get(0).index()).isEqualTo(-1);
+        assertThat(first.get(0).message()).contains("第 1 项是空的");
+
+        List<ValidationIssue> second = renderer.validate(
+                "[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24},null]",
+                "FG_ROLL", 80, 60, 203);
+        assertThat(second).hasSize(1);
+        assertThat(second.get(0).index()).isEqualTo(-1);
+        assertThat(second.get(0).message()).contains("第 2 项是空的");
     }
 
     @Test

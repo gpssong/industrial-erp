@@ -101,21 +101,9 @@ public class LabelTemplateRenderer {
                         "y=" + e.getY() + (e.getH() > 0 ? " 起高 " + e.getH() + " 点" : "")
                         + " 越过下边界 " + canvasH + " 点，越界 " + beyondY + " 点"));
             }
-            // 与 render 的 estWidth 判定**同口径**（改这里必须同步改 render，两边不一致就是撒谎）：
-            // line/rect 用声明尺寸；barcode/qrcode 免估算（TSPL 按内容自适应），只认显式 w；
-            // text 的 w 盖不住估宽（TSPL TEXT 不换行，取 max）；只有 multiline 的 w 才是真换行宽度。
-            // validate 侧没有取值过程，直接用元素自己的 text 字面量估（取不到值时字面量就是最终值）。
-            Integer estW;
-            if ("line".equals(type) || "rect".equals(type)) {
-                estW = Math.max(e.getW(), 0);
-            } else if ("barcode".equals(type) || "qrcode".equals(type)) {
-                estW = e.getW() > 0 ? e.getW() : null;
-            } else if ("multiline".equals(type)) {
-                estW = e.getW() > 0 ? e.getW() : LabelGeometry.estWidthDots(e.getText(), e.getSize());
-            } else {
-                int est = LabelGeometry.estWidthDots(e.getText(), e.getSize());
-                estW = e.getW() > 0 ? Math.max(e.getW(), est) : est;
-            }
+            // estWidth 是 validate / render 同一个口径的唯一出口（docs/33 A6 I-3 / A7 R2、R6）。
+            // validate 侧没有取值过程，传元素自己的 text 字面量估（取不到值时字面量就是最终值）。
+            Integer estW = estWidth(type, e.getW(), e.getSize(), e.getText());
             if (estW != null) {
                 long beyondX = (long) e.getX() + estW - canvasW;
                 if (beyondX > 0) {
@@ -163,21 +151,9 @@ public class LabelTemplateRenderer {
             r.setH(e.getH());
             r.setField(e.getField());
             r.setMissing(e.isRequired() && content.isEmpty());
-            // **R2**：越界估算与 A6 保存闸同口径 —— barcode/qrcode 的宽度按内容与模块自适应，
-            // 拿 estWidthDots 估它们会在预览里误标橙（真机照打），只有用户显式声明 w 时才按 w 查。
-            // **A6 I-3 / 本任务 R6**：text 声明的 w **盖不住**估宽（TSPL TEXT 不换行，取 max）；
-            // 只有 multiline 的 w 才是换行宽度，那种情况下按 w 算。改这里必须同步改 validate，两边不一致就是撒谎。
-            Integer estW;
-            if ("line".equals(type) || "rect".equals(type)) {
-                estW = Math.max(e.getW(), 0);
-            } else if ("barcode".equals(type) || "qrcode".equals(type)) {
-                estW = e.getW() > 0 ? e.getW() : null;
-            } else if ("multiline".equals(type)) {
-                estW = e.getW() > 0 ? e.getW() : LabelGeometry.estWidthDots(content, e.getSize());
-            } else {
-                int est = LabelGeometry.estWidthDots(content, e.getSize());
-                estW = e.getW() > 0 ? Math.max(e.getW(), est) : est;
-            }
+            // **R2 / A6 I-3 / 本任务 R6**：越界估算与 A6 保存闸同一个口径，统一走 estWidth
+            // —— 那是唯一出口，这里只是把取值后的 content 作为第 4 个入参传进去。
+            Integer estW = estWidth(type, e.getW(), e.getSize(), content);
             // **A6 I-2 / 本任务 R5**：升 long —— int 相加溢出成负数会把天大的越界判成合格。
             r.setOverflow(estW != null && (long) e.getX() + estW > canvasW);
             resolved.add(r);
@@ -202,6 +178,28 @@ public class LabelTemplateRenderer {
         if (v instanceof LocalDateTime dt) return dt.toLocalDate().toString();
         if (v instanceof LocalDate d) return d.toString();
         return String.valueOf(v);
+    }
+
+    /**
+     * est 宽口径的**唯一出口**（docs/33 A6 I-3 / A7 R2、R6）：validate 与 render 各调一次，
+     * 两边只差第 4 个入参 —— validate 传元素自己的 text 字面量，render 传取值后的 content。
+     * line/rect 用声明尺寸；barcode/qrcode 免估算（TSPL 按内容自适应），只认显式 w；
+     * multiline 的 w 才是真换行宽度；text 的 w 盖不住估宽（TSPL TEXT 不换行，取 max）。
+     * 返回 null = 这一条不查横向越界。
+     */
+    private static Integer estWidth(String type, int declaredW, int size, String text) {
+        Integer estW;
+        if ("line".equals(type) || "rect".equals(type)) {
+            estW = Math.max(declaredW, 0);
+        } else if ("barcode".equals(type) || "qrcode".equals(type)) {
+            estW = declaredW > 0 ? declaredW : null;
+        } else if ("multiline".equals(type)) {
+            estW = declaredW > 0 ? declaredW : LabelGeometry.estWidthDots(text, size);
+        } else {
+            int est = LabelGeometry.estWidthDots(text, size);
+            estW = declaredW > 0 ? Math.max(declaredW, est) : est;
+        }
+        return estW;
     }
 
     private static String nullToEmpty(String s) { return s == null ? "" : s; }
