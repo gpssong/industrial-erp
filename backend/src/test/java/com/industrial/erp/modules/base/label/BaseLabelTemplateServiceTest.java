@@ -18,8 +18,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
-import java.util.List;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -101,6 +99,73 @@ class BaseLabelTemplateServiceTest {
         assertThat(cap.getValue().getSqlSet()).contains("is_default");
         verify(mapper).updateById(t);
         assertThat(t.getIsDefault()).isEqualTo(1);
+    }
+
+    // ↓↓↓ A8 修补轮（round 1）新增的 5 条，逐条对应上面的裁定 R6 与两条小口径 ↓↓↓
+
+    @Test
+    @DisplayName("新建时客户端偷带 isDefault=1 也不许落成默认 —— 默认位只能走 setDefault (A8 裁定 R6)")
+    void addNeverCreatesADefaultRow() {
+        BaseLabelTemplate t = good();
+        t.setIsDefault(1);                       // 客户端这么写
+        when(mapper.selectCount(any())).thenReturn(0L);
+
+        svc().add(t);
+
+        // 不拦就是同 bizType 里第二条默认：setDefault 清的是兄弟行，管不到正在 INSERT 的这一行。
+        ArgumentCaptor<BaseLabelTemplate> cap = ArgumentCaptor.forClass(BaseLabelTemplate.class);
+        verify(mapper).insert(cap.capture());
+        assertThat(cap.getValue().getIsDefault()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("整模板级错误（坏 JSON / 空数组）只有一条消息，且不带「第 N 个元素」前缀")
+    void wholeTemplateIssueHasNoElementPrefix() {
+        BaseLabelTemplate t = good();
+        t.setElements("{not json");              // parse 失败 → validate 回且只回一条 index=-1
+        when(mapper.selectCount(any())).thenReturn(0L);
+
+        assertThatThrownBy(() -> svc().add(t)).isInstanceOf(BizException.class)
+                .hasMessageContaining("模板校验未通过")
+                .hasMessageNotContaining("个元素");
+    }
+
+    @Test
+    @DisplayName("PUT 也查模板编码重复（selfId 排除自己那一步只能验到「查没查」）")
+    void updateAlsoChecksCodeUniqueness() {
+        BaseLabelTemplate stored = good();
+        stored.setId(7L);
+        when(mapper.selectById(7L)).thenReturn(stored);
+        when(mapper.selectCount(any())).thenReturn(1L);   // 另一个活行占用了同一编码
+
+        assertThatThrownBy(() -> svc().update(stored)).isInstanceOf(BizException.class)
+                .hasMessageContaining("已存在");
+        verify(mapper, never()).updateById(any(BaseLabelTemplate.class));
+    }
+
+    @Test
+    @DisplayName("零元素模板存不进去：[] 和全空白都算（否则能存成默认、打出一张空白标签）")
+    void emptyElementsRejected() {
+        BaseLabelTemplate blank = good();
+        blank.setElements("[]");
+        when(mapper.selectCount(any())).thenReturn(0L);
+        assertThatThrownBy(() -> svc().add(blank)).isInstanceOf(BizException.class)
+                .hasMessageContaining("任何元素");
+
+        BaseLabelTemplate spaces = good();
+        spaces.setElements("   ");
+        assertThatThrownBy(() -> svc().add(spaces)).isInstanceOf(BizException.class)
+                .hasMessageContaining("任何元素");
+    }
+
+    @Test
+    @DisplayName("PUT 不带 id → 400「缺少模板 id」，不是「不存在或已删除: id=null」那种把人引偏的 404")
+    void updateWithoutIdIsClientError() {
+        BaseLabelTemplate t = good();            // 没有 id
+
+        assertThatThrownBy(() -> svc().update(t)).isInstanceOf(BizException.class)
+                .hasMessageContaining("缺少模板 id");
+        verify(mapper, never()).selectById(any());
     }
 
     @Test

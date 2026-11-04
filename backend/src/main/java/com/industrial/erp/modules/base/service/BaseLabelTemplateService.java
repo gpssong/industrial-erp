@@ -67,12 +67,16 @@ public class BaseLabelTemplateService {
         requireUniqueCode(t.getTemplateCode(), null);
         gate(t);
         t.setId(null);
-        t.setIsDefault(t.getIsDefault() == null ? 0 : t.getIsDefault());
+        // **A8 裁定 R6（评审 I-1）：新建一律不是默认，默认位只能走 setDefault。**
+        // 照客户传的 isDefault=1 直接 INSERT，会在 setDefault 的清兄弟逻辑背后插出第二条默认。
+        t.setIsDefault(0);
         mapper.insert(t);
     }
 
     public void update(BaseLabelTemplate t) {
         permService.requirePerm(PERM);
+        // **A8 修补轮：** id 缺失是客户端的错，回 400；别让 detail 报「不存在或已删除: id=null」那种 404。
+        if (t.getId() == null) throw BizException.of(400, "缺少模板 id");
         BaseLabelTemplate old = detail(t.getId());
         // **A8 裁定 R2：先把行的身份钉死，再过闸。** bizType 决定「哪些字段名算合法」，
         // 原来 gate(t) 排在回写之前 ⇒ 客户端 PUT 时偷带一个别的 bizType，元素就会按**伪造类型**的字典过闸，
@@ -108,6 +112,10 @@ public class BaseLabelTemplateService {
 
     /** 保存闸：把 ValidationIssue 拼成人话，第一条就够定位（元素下标从 0 起，PC 表格里同号）。 */
     private void gate(BaseLabelTemplate t) {
+        // **A8 修补轮：空模板也是「存得下、打不出」。** `validate` 对 "[]" 回 0 条 issue（它只管元素，
+        // A6 那 8 条钉子钉死了这个口径，别去改它）⇒ 零元素模板能存成默认、打出来一张空白标签。
+        String el = t.getElements() == null ? "" : t.getElements().trim();
+        if (el.isEmpty() || el.equals("[]")) throw BizException.of(400, "模板里还没有任何元素");
         List<ValidationIssue> issues = renderer.validate(t.getElements(), t.getBizType(),
                 t.getWidthMm(), t.getHeightMm(), t.getDpi());
         if (!issues.isEmpty()) {
