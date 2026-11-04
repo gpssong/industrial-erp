@@ -94,4 +94,36 @@ class LabelTemplateValidateTest {
         assertThat(issues.get(0).index()).isEqualTo(-1);
         assertThat(issues.get(0).message()).contains("解析失败");
     }
+
+    @Test
+    @DisplayName("第二个元素出错，index 必须是 1 —— A11 靠它指行")
+    void secondElementGetsSecondIndex() {
+        List<ValidationIssue> issues = renderer.validate(
+                "[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24},"
+              + "{\"type\":\"text\",\"x\":600,\"y\":0,\"text\":\"批号批号批号\",\"size\":24}]",
+                "FG_ROLL", 80, 60, 203);
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).index()).isEqualTo(1);
+        assertThat(issues.get(0).message()).contains("越界 104 点");
+    }
+
+    @Test
+    @DisplayName("数组里夹 null：按**原始下标**点名，不许悄悄压缩后把行号挪走")
+    void nullEntryIsNamedByItsOwnPosition() {
+        List<ValidationIssue> issues = renderer.validate(
+                "[null,{\"type\":\"hexagon\",\"x\":0,\"y\":0}]", "FG_ROLL", 80, 60, 203);
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).index()).isEqualTo(-1);
+        // null 是数组首项 ⇒ 点名「第 1 项」。计划文档这里写成「第 2 项」，但它给的样例 JSON 把 null 放在了下标 0，
+        // 按「原始下标点名」的本意就是第 1 项；改成 1 才能同时满足样例输入与 parse 的实现（实测输出即「第 1 项是空的」）。
+        assertThat(issues.get(0).message()).contains("第 1 项是空的");
+    }
+
+    @Test
+    @DisplayName("超大坐标不许靠 int 溢出混过闸")
+    void hugeCoordinatesDoNotWrapIntoACleanPass() {
+        assertThat(renderer.validate(
+                "[{\"type\":\"rect\",\"x\":2000000000,\"y\":2000000000,\"w\":2000000000,\"h\":2000000000}]",
+                "FG_ROLL", 80, 60, 203)).isNotEmpty();
+    }
 }

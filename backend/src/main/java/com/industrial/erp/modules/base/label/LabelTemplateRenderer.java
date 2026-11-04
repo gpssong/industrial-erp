@@ -2,11 +2,16 @@ package com.industrial.erp.modules.base.label;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.base.entity.BaseLabelTemplate;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -31,10 +36,19 @@ public class LabelTemplateRenderer {
         try {
             LabelElement[] arr = objectMapper.readValue(elementsJson, LabelElement[].class);
             List<LabelElement> out = new ArrayList<>();
-            for (LabelElement e : arr) if (e != null) out.add(e);
+            for (int i = 0; i < arr.length; i++) {
+                if (arr[i] == null) {
+                    // 空元素必须点名拒绝：跳过会让后面的下标整体左移，A11 的行号就对不上真实 JSON 了。
+                    throw BizException.of(400, "模板元素数组第 " + (i + 1) + " 项是空的");
+                }
+                out.add(arr[i]);
+            }
             return out;
+        } catch (BizException e) {
+            throw e;   // 语义拒绝（空元素等）原样上抛，别塞进「JSON 解析失败」的壳里
         } catch (Exception e) {
-            throw BizException.of(400, "模板元素 JSON 解析失败: " + e.getMessage());
+            // 车间的人看不了 Jackson 的整段回显，只留首行并砍掉 [Source: 之后
+            throw BizException.of(400, "模板元素 JSON 解析失败: " + jacksonBrief(e.getMessage()));
         }
     }
 
@@ -58,7 +72,9 @@ public class LabelTemplateRenderer {
             // 会把 "MULTILINE" 折成 "multıline"（点less i），误杀成「未知元素类型」。
             String type = e.getType() == null ? "" : e.getType().trim().toLowerCase(Locale.ROOT);
             if (!KNOWN_TYPES.contains(type)) {
-                issues.add(new ValidationIssue(i, type, "未知元素类型: " + e.getType()
+                // 未知元素类型: null 甩给车间看没意义，缺 type 就直说是缺 type
+                String typeLabel = e.getType() == null ? "（缺少 type）" : e.getType();
+                issues.add(new ValidationIssue(i, type, "未知元素类型: " + typeLabel
                         + "（可用 text / multiline / barcode / qrcode / line / rect）"));
                 continue;
             }
@@ -78,23 +94,30 @@ public class LabelTemplateRenderer {
             // 竖向按「声明了的高度」查：line/rect 的 h 是确定的，最后一个点落在 y+h-1。
             // text/qrcode/barcode 不猜字号排出来的真实行高（内置字库要 §9 真机取证），只查原点越界。
             int vExtent = Math.max(e.getH(), 1);
-            int beyondY = e.getY() + vExtent - canvasH;
+            // 越界算式一律升 long：int 相加溢出成负数会把天大的越界判成合格。
+            long beyondY = (long) e.getY() + vExtent - canvasH;
             if (beyondY > 0) {
                 issues.add(new ValidationIssue(i, e.getField(),
                         "y=" + e.getY() + (e.getH() > 0 ? " 起高 " + e.getH() + " 点" : "")
                         + " 越过下边界 " + canvasH + " 点，越界 " + beyondY + " 点"));
             }
-            // barcode 不查宽：TSPL BARCODE 宽度按内容与模块宽自适应，写死了反而会误杀
-            if (!"barcode".equals(type)) {
-                int estW;
-                if ("line".equals(type) || "rect".equals(type)) {
-                    estW = Math.max(e.getW(), 0);
-                } else if (e.getW() > 0) {
-                    estW = e.getW();               // multiline 等显式声明了可用宽
-                } else {
-                    estW = LabelGeometry.estWidthDots(e.getText(), e.getSize());
-                }
-                int beyondX = e.getX() + estW - canvasW;
+            // 与 render 的 estWidth 判定**同口径**（改这里必须同步改 render，两边不一致就是撒谎）：
+            // line/rect 用声明尺寸；barcode/qrcode 免估算（TSPL 按内容自适应），只认显式 w；
+            // text 的 w 盖不住估宽（TSPL TEXT 不换行，取 max）；只有 multiline 的 w 才是真换行宽度。
+            // validate 侧没有取值过程，直接用元素自己的 text 字面量估（取不到值时字面量就是最终值）。
+            Integer estW;
+            if ("line".equals(type) || "rect".equals(type)) {
+                estW = Math.max(e.getW(), 0);
+            } else if ("barcode".equals(type) || "qrcode".equals(type)) {
+                estW = e.getW() > 0 ? e.getW() : null;
+            } else if ("multiline".equals(type)) {
+                estW = e.getW() > 0 ? e.getW() : LabelGeometry.estWidthDots(e.getText(), e.getSize());
+            } else {
+                int est = LabelGeometry.estWidthDots(e.getText(), e.getSize());
+                estW = e.getW() > 0 ? Math.max(e.getW(), est) : est;
+            }
+            if (estW != null) {
+                long beyondX = (long) e.getX() + estW - canvasW;
                 if (beyondX > 0) {
                     issues.add(new ValidationIssue(i, e.getField(),
                             "从 x=" + e.getX() + " 起宽约 " + estW + " 点，越过右边界 " + canvasW + " 点，越界 " + beyondX + " 点"));
@@ -102,5 +125,95 @@ public class LabelTemplateRenderer {
             }
         }
         return issues;
+    }
+
+    /**
+     * 取值 + 格式化 + 必填/越界标记。ctx 里缺字段 ⇒ 空串（保存闸已保证新模板不会缺）。
+     * 不抛「必填缺失」异常 —— 车间不能因为一个代号空就停下不出标签 (docs/32 §5)。
+     */
+    public RenderResult render(BaseLabelTemplate tpl, Map<String, Object> ctx) {
+        int dpi = tpl.getDpi() == null ? 203 : tpl.getDpi();
+        int canvasW = LabelGeometry.dots(tpl.getWidthMm() == null ? 80 : tpl.getWidthMm(), dpi);
+        int canvasH = LabelGeometry.dots(tpl.getHeightMm() == null ? 60 : tpl.getHeightMm(), dpi);
+
+        List<LabelElement> elements = parse(tpl.getElements());
+        List<ResolvedElement> resolved = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        for (LabelElement e : elements) {
+            String type = e.getType() == null ? "" : e.getType().trim().toLowerCase(Locale.ROOT);
+            boolean hasField = e.getField() != null && !e.getField().isBlank();
+            // **R1**：声明了 field 就只取上下文值，取不到是空串 —— 不回落 text。
+            // docs/32 §3 里 text 与 field 是「二选一」，回落会把「批号：」这种标题当值打出去，
+            // 还会让 §5 要求的 required 预览标红永远不触发（合规缺口被抹平）。
+            String content = hasField ? stringify(ctx.get(e.getField())) : nullToEmpty(e.getText());
+            if (e.isRequired() && content.isEmpty() && hasField) {
+                // **R3**：清单只收字段名。required 挂在纯字面量元素上是配错，
+                // 标该元素（missing=true）可以，往 missingRequired 里塞一个空串会变成界面上一枚空白红牌。
+                missing.add(e.getField());
+            }
+            ResolvedElement r = new ResolvedElement();
+            r.setType(type);
+            r.setX(e.getX());
+            r.setY(e.getY());
+            r.setContent(content);
+            r.setFontSize(e.getSize());
+            r.setBold(e.isBold());
+            r.setAlign(e.getAlign() == null ? "LEFT" : e.getAlign());
+            r.setW(e.getW());
+            r.setH(e.getH());
+            r.setField(e.getField());
+            r.setMissing(e.isRequired() && content.isEmpty());
+            // **R2**：越界估算与 A6 保存闸同口径 —— barcode/qrcode 的宽度按内容与模块自适应，
+            // 拿 estWidthDots 估它们会在预览里误标橙（真机照打），只有用户显式声明 w 时才按 w 查。
+            // **A6 I-3 / 本任务 R6**：text 声明的 w **盖不住**估宽（TSPL TEXT 不换行，取 max）；
+            // 只有 multiline 的 w 才是换行宽度，那种情况下按 w 算。改这里必须同步改 validate，两边不一致就是撒谎。
+            Integer estW;
+            if ("line".equals(type) || "rect".equals(type)) {
+                estW = Math.max(e.getW(), 0);
+            } else if ("barcode".equals(type) || "qrcode".equals(type)) {
+                estW = e.getW() > 0 ? e.getW() : null;
+            } else if ("multiline".equals(type)) {
+                estW = e.getW() > 0 ? e.getW() : LabelGeometry.estWidthDots(content, e.getSize());
+            } else {
+                int est = LabelGeometry.estWidthDots(content, e.getSize());
+                estW = e.getW() > 0 ? Math.max(e.getW(), est) : est;
+            }
+            // **A6 I-2 / 本任务 R5**：升 long —— int 相加溢出成负数会把天大的越界判成合格。
+            r.setOverflow(estW != null && (long) e.getX() + estW > canvasW);
+            resolved.add(r);
+        }
+
+        RenderResult out = new RenderResult();
+        out.setElements(resolved);
+        out.setWidthDots(canvasW);
+        out.setHeightDots(canvasH);
+        out.setMissingRequired(missing);
+        out.setCopies(tpl.getCopies() == null ? 1 : tpl.getCopies());
+        out.setGapMm(tpl.getGapMm() == null ? 3 : tpl.getGapMm());
+        out.setDpi(dpi);
+        out.setDirection(tpl.getDirection() == null ? "NORMAL" : tpl.getDirection());
+        return out;
+    }
+
+    /** 数字去尾零、日期一律 yyyy-MM-dd（标签上没有时分秒的位置）。 */
+    public String stringify(Object v) {
+        if (v == null) return "";
+        if (v instanceof BigDecimal b) return b.stripTrailingZeros().toPlainString();
+        if (v instanceof LocalDateTime dt) return dt.toLocalDate().toString();
+        if (v instanceof LocalDate d) return d.toString();
+        return String.valueOf(v);
+    }
+
+    private static String nullToEmpty(String s) { return s == null ? "" : s; }
+
+    /** Jackson 原始异常太长，只留首行、砍掉 [Source: 之后的回显，别甩给车间的人看。 */
+    private static String jacksonBrief(String raw) {
+        if (raw == null) return "";
+        String first = raw;
+        int nl = first.indexOf('\n');
+        if (nl >= 0) first = first.substring(0, nl);
+        int src = first.indexOf("[Source:");
+        if (src >= 0) first = first.substring(0, src);
+        return first.trim();
     }
 }

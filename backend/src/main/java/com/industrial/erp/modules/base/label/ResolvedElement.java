@@ -18,6 +18,8 @@ public class ResolvedElement {
     private int h;
     /** required 且取值为空 —— 预览标红，但不阻断打印 (docs/32 §5)。 */
     private boolean missing;
+    /** 取值后估宽越过右边界（预览标橙，保存闸只拦字面量能算出来的那种）。 */
+    private boolean overflow;
     private String field;
 
     public String getType() { return type; }
@@ -40,6 +42,8 @@ public class ResolvedElement {
     public void setH(int h) { this.h = h; }
     public boolean isMissing() { return missing; }
     public void setMissing(boolean missing) { this.missing = missing; }
+    public boolean isOverflow() { return overflow; }
+    public void setOverflow(boolean overflow) { this.overflow = overflow; }
     public String getField() { return field; }
     public void setField(String field) { this.field = field; }
 }
