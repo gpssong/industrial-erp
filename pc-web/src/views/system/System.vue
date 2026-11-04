@@ -323,7 +323,7 @@ async function loadBrand() {
   brandForm.systemName = systemName.value
   brandForm.factory = factoryName.value
   const read = async (key) => {
-    try { const r = await configApi.getByKey(key); return r?.data || '' }
+    try { const r = await configApi.getByKey(key); loadFailed.delete(key); return r?.data || '' }
     catch { loadFailed.add(key); return '' }
   }
   brandForm.enName = await read('SYS_EN_NAME')
@@ -336,8 +336,8 @@ async function loadBrand() {
     master = raw ? JSON.parse(raw) : {}
     if (!master || typeof master !== 'object' || Array.isArray(master)) { loadFailed.add('LABEL_MASTER'); master = {} }
   } catch { loadFailed.add('LABEL_MASTER'); master = {} }
-  brandForm.xkNo = master.xkNo || ''
-  brandForm.address = master.producerAddress || ''
+  brandForm.xkNo = String(master.xkNo ?? '')
+  brandForm.address = String(master.producerAddress ?? '')
 }
 const logoInput = ref(null)
 const logoPreview = ref('')
@@ -371,7 +371,9 @@ async function saveBrand() {
   }
   try {
     if (brandForm.systemName.trim()) await saveSystemName(brandForm.systemName.trim())
+    else errors.push('系统显示名称: 留空不会保存')
     if (brandForm.factory.trim()) await saveFactoryName(brandForm.factory.trim())
+    else errors.push('工厂名称: 留空不会保存')
   } catch (e) { errors.push('系统/工厂名称: ' + (errText(e) || '失败')) }
 
   // R-A13-3：载入失败的字段禁止写成空值 —— 读失败回显成空框与"用户清空"不可区分，
@@ -390,20 +392,31 @@ async function saveBrand() {
   // 否则会把 producerName 抹掉，而它是成品卷标上的必填元素。
   let master = null
   let masterReadFail = false
+  let masterMissing = false
   try {
     const r = await configApi.getByKey('LABEL_MASTER')
     const raw = r?.data
-    master = raw ? JSON.parse(raw) : {}
-    if (!master || typeof master !== 'object' || Array.isArray(master)) throw new Error('非 JSON 对象')
+    if (!raw) masterMissing = true
+    else {
+      master = JSON.parse(raw)
+      if (!master || typeof master !== 'object' || Array.isArray(master)) throw new Error('非 JSON 对象')
+    }
   } catch { masterReadFail = true }
   if (masterReadFail) {
     errors.push('XK许可证编号/工厂地址: 标签主数据读取失败，未覆盖保存')
-  } else if (loadFailed.has('LABEL_MASTER') && !brandForm.xkNo.trim() && !brandForm.address.trim()) {
-    errors.push('XK许可证编号/工厂地址: 未成功载入，本次未覆盖')
+  } else if (masterMissing) {
+    // 空读出来不代表可以建：blob 归 sql/155 种子，前端先建一行会让 INSERT IGNORE 永久跳过 5 键主数据
+    errors.push('XK许可证编号/工厂地址: 标签主数据尚未初始化，需先执行 sql/155 种子')
   } else {
-    master.xkNo = brandForm.xkNo.trim()
-    master.producerAddress = brandForm.address.trim()
-    await put('XK许可证编号/工厂地址', 'LABEL_MASTER', JSON.stringify(master))
+    const xk = brandForm.xkNo.trim()
+    const addr = brandForm.address.trim()
+    const masterLoaded = !loadFailed.has('LABEL_MASTER')
+    let assigned = false
+    if (xk || masterLoaded) { master.xkNo = xk; assigned = true }
+    else errors.push('XK许可证编号: 未成功载入，本次未覆盖')
+    if (addr || masterLoaded) { master.producerAddress = addr; assigned = true }
+    else errors.push('工厂地址: 未成功载入，本次未覆盖')
+    if (assigned) await put('XK许可证编号/工厂地址', 'LABEL_MASTER', JSON.stringify(master))
   }
 
   if (errors.length) ElMessage.error('部分字段未保存 → ' + errors.join('；'))
