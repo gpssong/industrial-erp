@@ -26,6 +26,7 @@ const routes = [
       { path: 'base/supplier', name: 'BaseSupplier', component: () => import('@/views/base/Supplier.vue'), meta: { title: '供应商管理', icon: 'Connection', perm: 'base:supplier:list' } },
       { path: 'base/warehouse', name: 'BaseWarehouse', component: () => import('@/views/base/Warehouse.vue'), meta: { title: '仓库管理', icon: 'House', perm: 'base:warehouse:list' } },
       { path: 'base/unit', name: 'BaseUnit', component: () => import('@/views/base/Unit.vue'), meta: { title: '计量单位', icon: 'DataLine', perm: 'base:unit:list' } },
+      { path: 'base/label-template', name: 'BaseLabelTemplate', component: () => import('@/views/base/LabelTemplate.vue'), meta: { title: '标签模板', icon: 'Tickets', perm: 'base:label:template' } },
       // 采购
       { path: 'purchase/order', name: 'PurOrder', component: () => import('@/views/purchase/Order.vue'), meta: { title: '采购订单', icon: 'List', perm: 'purchase:order:list' } },
       { path: 'purchase/receipt', name: 'PurReceipt', component: () => import('@/views/purchase/Receipt.vue'), meta: { title: '采购入库', icon: 'Box', perm: 'purchase:receipt:list' } },

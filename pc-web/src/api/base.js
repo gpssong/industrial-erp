@@ -38,3 +38,31 @@ export const unitApi = {
   update: (data) => request.put('/base/unit', data),
   delete: (id) => request.delete(`/base/unit/${id}`)
 }
+
+/**
+ * v1.1.167 标签层 (docs/32 §6.1)。
+ * 渲染/打印挂 base:label:print，模板增删改挂 base:label:template。
+ * 注意：每个调用方各自 try/catch，一个失败不要清空其他已取到的数据（v1.1.145 教训）。
+ */
+export const labelApi = {
+  master: () => request.get('/base/label/master'),
+  fields: (bizType) => request.get('/base/label/fields', { params: { bizType } }),
+  bills: (params) => request.get('/base/label/bills', { params }),
+  lines: (params) => request.get('/base/label/lines', { params }),
+  preview: (data) => request.post('/base/label/preview', data),
+  feiePreview: (data) => request.post('/base/label/feie/preview', data),
+  feiePrint: (data) => request.post('/base/label/feie/print', data),
+  logs: (params) => request.get('/base/label/logs', { params }),
+  // B3 才启用：导出 TSPL 文本（闸后）
+  tspl: (data) => request.post('/base/label/tspl', data)
+}
+
+export const labelTemplateApi = {
+  list: (params) => request.get('/base/label/template/list', { params }),
+  detail: (id) => request.get(`/base/label/template/${id}`),
+  defaultOne: (bizType) => request.get('/base/label/template/default', { params: { bizType } }),
+  add: (data) => request.post('/base/label/template', data),
+  update: (data) => request.put('/base/label/template', data),
+  delete: (id) => request.delete(`/base/label/template/${id}`),
+  setDefault: (id) => request.put(`/base/label/template/${id}/default`)
+}

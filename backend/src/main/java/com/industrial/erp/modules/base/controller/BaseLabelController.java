@@ -12,6 +12,7 @@ import com.industrial.erp.modules.base.label.FeieLabelRenderer;
 import com.industrial.erp.modules.base.label.FeieResult;
 import com.industrial.erp.modules.base.label.LabelBizType;
 import com.industrial.erp.modules.base.label.LabelContextService;
+import com.industrial.erp.modules.base.label.LabelFieldDict;
 import com.industrial.erp.modules.base.label.LabelMaster;
 import com.industrial.erp.modules.base.label.LabelMasterService;
 import com.industrial.erp.modules.base.label.LabelPrintLogRequest;
@@ -98,6 +99,18 @@ public class BaseLabelController {
     @SaCheckPermission(value = {"base:label:list", "base:product:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/master")
     public R<LabelMaster> master() { return R.ok(masterService.load()); }
+
+    /** 该标签类型可选的字段名单（模板编辑器的下拉数据源）。 */
+    @SaCheckPermission(value = {"base:label:template", "base:label:list"}, mode = SaMode.OR, orRole = "admin")
+    @GetMapping("/fields")
+    public R<List<Map<String, String>>> fields(@RequestParam String bizType) {
+        LabelBizType.of(bizType); // 未知类型直接 400
+        List<Map<String, String>> out = new ArrayList<>();
+        for (String f : LabelFieldDict.fields(bizType)) {
+            out.add(Map.of("name", f, "label", LabelFieldDict.label(f)));
+        }
+        return R.ok(out);
+    }
 
     /** 选单据：三类标签各查各的主表，keyword 打单号/品名/客户/供应商。
      *  只回 10 列以内的小 Map，别把整张单据喂给前端；limit 封顶 50（分页拦截器 maxLimit=200 是防 OOM 的兜底，不是许可）。 */
