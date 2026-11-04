@@ -209,6 +209,11 @@ const APP_MENU_WHITELIST = [
   ]},
   { name: '基础 / 系统', children: [
     { name: '新增商品', perms: 'base:product:add', idApp: 'app-product-add' },
+    // v1.1.167 标签层: 白名单里没有的 perm **界面上根本授不出去** (技能铁律 3),
+    //   所以 App 标签打印必须在这里登记两项 —— 数据查看 + 打印执行。
+    //   base:label:template 有意**不进 App 白名单**: 模板设计只在 PC 做 (规格 §6.1)。
+    { name: '标签数据查看', perms: 'base:label:list', idApp: 'app-label-list' },
+    { name: '标签打印', perms: 'base:label:print', idApp: 'app-label-print' },
     { name: '用户管理', perms: 'system:user:list', idApp: 'app-users' }
   ]}
 ]
