@@ -41,7 +41,7 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :disabled="!q.bizId" :loading="loading" @click="doPreview">预览</el-button>
-          <el-button :disabled="!previews.length" :loading="printing" @click="doFeiePrint">发飞鹅打印机</el-button>
+          <el-button :disabled="!canPrint" :loading="printing" @click="doFeiePrint">发飞鹅打印机</el-button>
           <el-button disabled title="B3 接入：印麦指令集真机取证后才能出 TSPL 文本 (docs/32 §9)">导出 TSPL</el-button>
         </el-form-item>
       </el-form>
@@ -112,6 +112,12 @@
           </el-table-column>
         </el-table>
         <p class="log-note">
+          <b>本表最多显示最近 {{ LOG_LIMIT }} 条，不是完整台账</b>：本页请求 <code>limit={{ LOG_LIMIT }}</code>，
+          后端 <code>clampLimit</code> 再把它夹在 1..100（{{ LOG_LIMIT }} 在范围内，所以实际就是 {{ LOG_LIMIT }} 条封顶），
+          取的是<b>按 id 倒序的最新 {{ LOG_LIMIT }} 条</b>，本页不给它加分页。更早的下发记录没被删，
+          只是这一屏没显示 —— <b>这里查不到，不等于没发生过</b>；要全量得到数据库里翻。
+        </p>
+        <p class="log-note">
           <span class="star">*</span>「份数」是日志行 <code>copies</code> 列的原样：<b>飞鹅（FEIE）行的 copies 恒为 1</b>
           ——一份模板要出 N 张时，渲染器把 N 段拼进同一次下发、云端 times=1，所以那一行的 1 不代表实际出纸张数。
           本页因此<b>不做「共打印 N 张」的合计</b>（合计会把飞鹅行少算）；要按张数对账看蓝牙（BT_TSPL）行，
@@ -123,7 +129,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { labelApi, labelTemplateApi } from '@/api/base'
@@ -143,6 +149,20 @@ const loading = ref(false)
 const printing = ref(false)
 const logVisible = ref(false)
 const logLoading = ref(false)
+
+/**
+ * 预览的「世代」计数器（I-2 的竞态闸）：
+ * 每次**发预览** +1、每次**改选择**（invalidatePreviews）+1；发请求时先记下自己这一号，
+ * 响应回来时号不等就整块丢弃 —— 不写 previews、不接「发飞鹅」的可用态、也不把它的失败
+ * 当成当下的失败播报。关的是这个窗口：点预览 → 请求在途（三个下拉没禁用）→ 改模板/改行 →
+ * 旧选择的响应晚到 → 屏上挂着旧版式、而 doFeiePrint 用的是**当前**选择 ⇒「看着 A 发出去 B」。
+ * 做成 ref（而不是普通 let）是为了让 canPrint 跟着它一起重算；「发飞鹅」能不能点是**从守卫推**的，
+ * 过期响应永远点不亮它。debounce 关不掉这个窗口——请求早就发出去了。
+ */
+const previewGen = ref(0)
+/** 当前这屏 previews 属于哪一次请求（-1 = 屏上没有预览 / 已被作废）。 */
+const previewsGen = ref(-1)
+const canPrint = computed(() => !!previews.value.length && previewsGen.value === previewGen.value)
 
 const router = useRouter()
 
@@ -181,15 +201,20 @@ function textStyle(e, p) {
 }
 /**
  * 码图尺寸：模板里 barcode/qrcode 的 w/h 一般是 0（TSPL 按内容自适应，A4 的估宽也豁免了它们），
- * 直接套 posStyle 会把 <img> 压成 0×0、码图整块看不见。所以 w/h 缺时按 A9 给这张图出的
- * 像素尺寸（= 点数，LabelPreviewService:56-60，已封顶 1024 点）换算，不假设它更大。
+ * 直接套 posStyle 会把 <img> 压成 0×0、码图整块看不见。
+ * 所以 w/h 缺时**只按类型给宽度**——宽度就是 A9 给这张 PNG 出的宽度（= 点数，已封顶 1024 点，
+ * LabelPreviewService:56-60）：二维码 `min(1024, max(4,size)*25)` 见方、条码固定 300 宽——再乘本页的
+ * 屏显比例 k；**高度一律交给 height:auto**，用后端那张 PNG 自身的宽高比说话。
+ * 不在 JS 里镜像后端的高度公式：镜像过一次就漂移过一次（二维码 175×175 被抄成条码的矮高式，
+ * 画成 87×10 px 的横带），而 height:auto 无从漂移。1024 的封顶从宽度式里继承，不再乘回去。
+ * 模板真给了 w/h 时仍按声明值（只有缺的那一维走这里）。
  */
 function codeStyle(e, p) {
   const st = posStyle(e, p)
   const k = scaleOf(p)
   const size = e.fontSize || 0
   if (!e.w) st.width = Math.round((e.type === 'qrcode' ? Math.min(1024, Math.max(4, size) * 25) : 300) * k) + 'px'
-  if (!e.h) st.height = Math.round(Math.min(1024, Math.max(20, size)) * k) + 'px'
+  if (!e.h) st.height = 'auto'
   return st
 }
 
@@ -276,7 +301,11 @@ async function loadMaster() {
 }
 
 function invalidatePreviews() {
+  previewGen.value++
+  // 在途那份预览请求从这一刻起算过期（它回来会被 doPreview 丢掉），转圈别挂着不走
+  loading.value = false
   previews.value = []
+  previewsGen.value = -1
   feieNote.value = ''
   feieFailed.value = []
 }
@@ -288,24 +317,35 @@ async function onBizChange() {
 }
 async function onBillChange() { q.lineIds = []; reportJobs([await loadLines()]) }
 
-// 改了选择，上一屏预览就不是要发出去的那份了：作废它，「发飞鹅」按钮跟着禁用（打印用的是当前选择）
+// 改了选择：上一屏预览就不是要发出去的那份了 → 作废它，并把世代号推进（在途的预览请求跟着作废），
+// 「发飞鹅」按钮跟着禁用（打印用的是当前选择）。
 watch(() => [q.bizId, q.lineIds.slice(), q.templateId], invalidatePreviews)
 
 async function doPreview() {
+  const gen = ++previewGen.value
   loading.value = true
   feieNote.value = ''
   feieFailed.value = []
   try {
-    previews.value = (await labelApi.preview({
+    const rows = (await labelApi.preview({
       bizType: q.bizType, bizId: q.bizId,
       lineIds: q.lineIds.length ? q.lineIds : null,
       templateId: q.templateId || null
     })).data || []
-    if (!previews.value.length) ElMessage.info('该单没有可打印的行')
+    // 过期响应（选择已改 / 已有更新的预览在后面）：整块丢掉，不写 previews，也就点不亮「发飞鹅」
+    if (gen !== previewGen.value) return
+    previews.value = rows
+    previewsGen.value = gen
+    if (!rows.length) ElMessage.info('该单没有可打印的行')
   } catch (e) {
+    // 旧请求的失败不代表当下失败：丢掉，不冒充成「现在预览不出来」
+    if (gen !== previewGen.value) return
     previews.value = []
+    previewsGen.value = -1
     ElMessage.error(errText(e) || '预览失败')
-  } finally { loading.value = false }
+  } finally {
+    if (gen === previewGen.value) loading.value = false
+  }
 }
 
 /**
@@ -327,18 +367,29 @@ async function doFeiePrint() {
     const failed = r.failed == null ? 0 : r.failed
     feieNote.value = r.note || ''
     feieFailed.value = r.failedItems || []
-    if (failed) ElMessage.warning(`云端已接受下发 ${ok}/${total} 张，${failed} 张被云端拒绝（原因见下方列表与打印日志）`)
+    if (!total) {
+      // M-1：后端给了 200 但 total=0（回执缺键，或预览后那些行被删光 ⇒ contents 空）
+      // 这不是「办妥了」，绿色的成功播报配零张容易被读成已出纸，走 warning 说清没发东西
+      ElMessage.warning('云端没有收到任何标签（本次没有下发）')
+    } else if (failed) ElMessage.warning(`云端已接受下发 ${ok}/${total} 张，${failed} 张被云端拒绝（原因见下方列表与打印日志）`)
     else ElMessage.success(`云端已接受下发 ${ok}/${total} 张（云端收下指令，不等于打印机已出纸）`)
   } catch (e) {
     ElMessage.error(errText(e) || '发飞鹅失败')
   } finally { printing.value = false }
 }
 
+/**
+ * 日志条数口径（M-2）：本页向 /logs 请求 50 条，后端 LabelPrintService.clampLimit 再把它夹在
+ * 1..100 ⇒ 实际生效的上限就是 50（不是后端的 100），取的是按 id 倒序的最新 50 条。
+ * 这个数字同时喂给弹窗里那句口径说明，免得改了请求却忘了改说明。
+ */
+const LOG_LIMIT = 50
+
 async function loadLog() {
   logVisible.value = true
   logLoading.value = true
   try {
-    logs.value = (await labelApi.logs({ bizType: q.bizType, limit: 50 })).data || []
+    logs.value = (await labelApi.logs({ bizType: q.bizType, limit: LOG_LIMIT })).data || []
   } catch (e) {
     // 清空旧的：刷新失败还留着上一批行，看着就像「这批是新数据」
     logs.value = []
