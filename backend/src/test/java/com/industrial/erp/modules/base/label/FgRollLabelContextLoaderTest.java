@@ -21,6 +21,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -70,11 +72,14 @@ class FgRollLabelContextLoaderTest {
         assertThat(m).containsEntry("productName", "PE 平口袋");
         assertThat(m).containsEntry("gramWeight", new BigDecimal("12.5"));
         assertThat(m).containsEntry("colorNo", "透明");
+        // key 集合钉桩：字面量清单（docs/32 §3.2 FG_ROLL 字段），不从 LabelFieldDict 反推
+        assertThat(m).containsOnlyKeys("productName", "productCode", "spec", "unitName", "qty",
+                "batchNo", "orderNo", "billNo", "productionDate", "gramWeight", "width", "thickness", "colorNo");
     }
 
     @Test
-    @DisplayName("批次查不到（主库 mes_batch 普遍无批号）→ productionDate 为空，不抛错")
-    void toleratesMissingBatch() {
+    @DisplayName("批号为空 → 不查批次，productionDate 为 null")
+    void skipsBatchLookupWhenBatchNoBlank() {
         PrdFinishedIn in = new PrdFinishedIn();
         in.setId(2L);
         in.setBillNo("PFI2");
@@ -85,5 +90,24 @@ class FgRollLabelContextLoaderTest {
                 .load(2L, null);
         assertThat(ctx).hasSize(1);
         assertThat(ctx.get(0).get("productionDate")).isNull();
+        verify(batchMapper, never()).selectOne(any());
+    }
+
+    @Test
+    @DisplayName("批次查不到（mes_batch 里确实没有这个批号）→ productionDate 为 null，不抛错")
+    void toleratesMissingBatch() {
+        PrdFinishedIn in = new PrdFinishedIn();
+        in.setId(3L);
+        in.setBillNo("PFI3");
+        in.setBatchNo("B-2026-11-01");
+        when(finishedInMapper.selectById(3L)).thenReturn(in);
+        when(batchMapper.selectOne(any())).thenReturn(null);
+
+        List<Map<String, Object>> ctx = new FgRollLabelContextLoader(finishedInMapper, productMapper, batchMapper)
+                .load(3L, null);
+
+        assertThat(ctx).hasSize(1);
+        assertThat(ctx.get(0).get("productionDate")).isNull();
+        verify(batchMapper).selectOne(any());
     }
 }

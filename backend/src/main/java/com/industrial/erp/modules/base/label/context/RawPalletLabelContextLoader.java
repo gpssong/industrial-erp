@@ -8,9 +8,11 @@ import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptMapper;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -36,9 +38,12 @@ public class RawPalletLabelContextLoader implements LabelContextLoader {
         PurReceipt r = receiptMapper.selectById(bizId);
         if (r == null) throw BizException.of(404, "采购入库单不存在或已删除: id=" + bizId);
         List<PurReceiptDetail> details = detailMapper.selectByReceiptId(bizId);
+        // Set.copyOf 遇 [null] 抛 NPE（500），先挡一道回 400；null/空 仍是"全部行"
+        if (lineIds != null && lineIds.stream().anyMatch(Objects::isNull))
+            throw BizException.of(400, "明细行 id 不能为空");
         Set<Long> pick = (lineIds == null || lineIds.isEmpty()) ? Set.of() : Set.copyOf(lineIds);
 
-        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        List<Map<String, Object>> out = new ArrayList<>();
         for (PurReceiptDetail d : details) {
             if (!pick.isEmpty() && !pick.contains(d.getId())) continue;
             Map<String, Object> m = new LinkedHashMap<>();
@@ -48,7 +53,6 @@ public class RawPalletLabelContextLoader implements LabelContextLoader {
             m.put("inspectionReportNo", r.getInspectionReportNo());
             m.put("productName", d.getProductName());
             m.put("productCode", d.getProductCode());
-            m.put("spec", d.getSpec());
             m.put("unitName", d.getUnitName());
             m.put("qty", d.getQty());
             m.put("batchNo", d.getBatchNo());

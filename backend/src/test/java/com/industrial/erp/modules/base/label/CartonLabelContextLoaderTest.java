@@ -76,6 +76,9 @@ class CartonLabelContextLoaderTest {
                 .containsEntry("spec", "300×400mm")
                 .containsEntry("unitName", "个")
                 .containsEntry("qty", new BigDecimal("500"));
+        // key 集合钉桩：字面量清单（docs/32 §3.2 CARTON 字段），不从 LabelFieldDict 反推
+        assertThat(first).containsOnlyKeys("customerName", "deliveryAddress", "deliveryPhone",
+                "productName", "spec", "qty", "unitName", "orderNo", "deliveryBillNo", "deliveryDate", "batchNo");
         assertThat(ctx.get(1)).containsEntry("productName", "PP 背心袋")
                 .containsEntry("batchNo", "B3");
     }

@@ -11,6 +11,7 @@ import com.industrial.erp.modules.production.entity.PrdFinishedIn;
 import com.industrial.erp.modules.production.mapper.PrdFinishedInMapper;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,7 +63,7 @@ public class FgRollLabelContextLoader implements LabelContextLoader {
     }
 
     /** 生产日期不在 prd_finished_in 上（该表没有 prod_date 列，docs/32 §3.2 已核对），按批号回查 mes_batch。 */
-    private Object productionDateOf(String batchNo) {
+    private LocalDate productionDateOf(String batchNo) {
         if (batchNo == null || batchNo.isBlank()) return null;
         MesBatch b = batchMapper.selectOne(new LambdaQueryWrapper<MesBatch>()
                 .eq(MesBatch::getBatchNo, batchNo)

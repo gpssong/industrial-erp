@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,7 +35,8 @@ public class LabelContextService {
         LabelMaster master = masterService.load();
         List<Map<String, Object>> out = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {
-            Map<String, Object> m = new HashMap<>(row);
+            // loader 刻意用 LinkedHashMap 保字段顺序（A7/预览要按这个顺序排），这里不能丢
+            Map<String, Object> m = new LinkedHashMap<>(row);
             m.put("producerName", master.getProducerName());
             m.put("producerAddress", master.getProducerAddress());
             m.put("xkNo", master.getXkNo());
@@ -49,6 +51,7 @@ public class LabelContextService {
     /** 单号归一 / 单张预览用：只取第一项（一张单据只有一个单号，不必展开全部明细行）。 */
     public Map<String, Object> loadFirst(String bizTypeCode, Long bizId, List<Long> lineIds) {
         List<Map<String, Object>> rows = load(bizTypeCode, bizId, lineIds);
+        // 当前三个 loader 均不可能回空，保留兜底是给以后按行过滤的 loader
         if (rows.isEmpty()) throw BizException.of(404, "该单据没有可打印的内容: " + bizTypeCode + " id=" + bizId);
         return rows.get(0);
     }

@@ -73,6 +73,9 @@ class RawPalletLabelContextLoaderTest {
                 .containsEntry("batchNo", "YL20261101")
                 .containsEntry("qty", new BigDecimal("2000"))
                 .containsEntry("unitName", "kg");
+        // key 集合钉桩：字面量清单（docs/32 §3.2 RAW_PALLET 字段，有意不含 spec），不从 LabelFieldDict 反推
+        assertThat(first).containsOnlyKeys("productName", "productCode", "supplierName", "batchNo",
+                "qty", "unitName", "receiptBillNo", "receiptDate", "inspectionReportNo");
         Map<String, Object> second = ctx.get(1);
         assertThat(second).containsEntry("supplierName", "金波塑业")
                 .containsEntry("inspectionReportNo", "BG-YL-20261103-001")

@@ -8,9 +8,11 @@ import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -36,9 +38,12 @@ public class CartonLabelContextLoader implements LabelContextLoader {
         SalDelivery s = deliveryMapper.selectById(bizId);
         if (s == null) throw BizException.of(404, "销售出库单不存在或已删除: id=" + bizId);
         List<SalDeliveryDetail> details = detailMapper.selectByDeliveryId(bizId);
+        // Set.copyOf 遇 [null] 抛 NPE（500），先挡一道回 400；null/空 仍是"全部行"
+        if (lineIds != null && lineIds.stream().anyMatch(Objects::isNull))
+            throw BizException.of(400, "明细行 id 不能为空");
         Set<Long> pick = (lineIds == null || lineIds.isEmpty()) ? Set.of() : Set.copyOf(lineIds);
 
-        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        List<Map<String, Object>> out = new ArrayList<>();
         for (SalDeliveryDetail d : details) {
             if (!pick.isEmpty() && !pick.contains(d.getId())) continue;
             Map<String, Object> m = new LinkedHashMap<>();
