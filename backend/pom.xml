@@ -158,6 +158,19 @@
             <version>9.1.22</version>
         </dependency>
 
+        <!-- v1.1.167 标签预览：条码/二维码在服务端出 PNG 给 PC/App 屏显用。
+             ⚠ 只服务预览——真正出纸走打印机指令 (docs/32 §4 约束 4)，别拿它当打印图源。 -->
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>core</artifactId>
+            <version>3.5.3</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.zxing</groupId>
+            <artifactId>javase</artifactId>
+            <version>3.5.3</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -21,6 +21,12 @@ public class ResolvedElement {
     /** 取值后估宽越过右边界（预览标橙，保存闸只拦字面量能算出来的那种）。 */
     private boolean overflow;
     private String field;
+    /**
+     * 只服务屏显预览：zxing 出的 PNG data URL（<b>PNG，不是 SVG</b> —— 键名沿用 A4 元素模型 /
+     * docs/32 §6.3 的对外契约，A9→A11→A12→B 系列四处都按 `svg` 取值，改名要单独一轮，不是 A9 顺手）。
+     * 打印通道**忽略**它 (docs/32 §4 约束 4)。
+     */
+    private String svg;
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
@@ -46,4 +52,6 @@ public class ResolvedElement {
     public void setOverflow(boolean overflow) { this.overflow = overflow; }
     public String getField() { return field; }
     public void setField(String field) { this.field = field; }
+    public String getSvg() { return svg; }
+    public void setSvg(String svg) { this.svg = svg; }
 }
