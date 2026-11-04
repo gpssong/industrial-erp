@@ -100,7 +100,7 @@ VALUES
   {"type":"text","x":20,"y":200,"text":"批号","size":24},{"type":"text","x":110,"y":200,"field":"batchNo","size":24,"required":true},
   {"type":"text","x":20,"y":240,"text":"生产日期","size":24},{"type":"text","x":160,"y":240,"field":"productionDate","size":24},
   {"type":"text","x":20,"y":280,"text":"工单号","size":24},{"type":"text","x":160,"y":280,"field":"orderNo","size":24},
-  {"type":"qrcode","x":480,"y":200,"field":"batchNo","size":7},
+  {"type":"qrcode","x":440,"y":200,"field":"batchNo","size":7},
   {"type":"barcode","x":20,"y":320,"field":"billNo","size":60},
   {"type":"line","x":20,"y":400,"w":600,"h":2},
   {"type":"multiline","x":20,"y":415,"field":"producerName","size":16,"w":600,"required":true},
