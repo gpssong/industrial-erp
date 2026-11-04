@@ -134,6 +134,7 @@
             <div class="brand-note">
               <b>Logo 上传要求</b>
               <small>建议使用透明背景 PNG 或 SVG，尺寸不小于 256×256。修改后将同步更新登录页、导航栏和打印单据。</small>
+              <small>执行标准编号与贮存条件由「标签主数据」维护（本期无输入框）；Logo 仅本机预览，不上传服务端。</small>
             </div>
 
             <div class="brand-foot">
@@ -295,9 +296,8 @@ onMounted(async () => {
   }
   await loadCfgInfo()
   await loadSystemName()
-  // 把已存的品牌/工厂名回填到 brand 表单
-  brandForm.systemName = systemName.value
-  brandForm.factory = factoryName.value
+  // 把已存的品牌/工厂名及 6 个独立配置键回填到 brand 表单
+  await loadBrand()
 })
 
 // Figma 主 7 分区 (左侧 nav 展示的项) + 隐藏扩展项
@@ -317,6 +317,22 @@ const brandForm = reactive({
   systemName: '', enName: '', factory: '', factoryCode: '',
   creditCode: '', xkNo: '', address: '', footer: ''
 })
+/** 六个字段此前"能填能保存提示成功但直接丢弃"（假成功）—— v1.1.167 接真 (docs/32 §6.2) */
+async function loadBrand() {
+  brandForm.systemName = systemName.value
+  brandForm.factory = factoryName.value
+  const read = async (key) => {
+    try { const r = await configApi.getByKey(key); return r?.data || '' } catch { return '' }
+  }
+  brandForm.enName = await read('SYS_EN_NAME')
+  brandForm.factoryCode = await read('SYS_FACTORY_CODE')
+  brandForm.creditCode = await read('SYS_CREDIT_CODE')
+  brandForm.footer = await read('SYS_FOOTER')
+  let master = {}
+  try { master = JSON.parse((await read('LABEL_MASTER')) || '{}') || {} } catch { master = {} }
+  brandForm.xkNo = master.xkNo || ''
+  brandForm.address = master.producerAddress || ''
+}
 const logoInput = ref(null)
 const logoPreview = ref('')
 function triggerLogoUpload() { logoInput.value?.click() }
@@ -332,13 +348,52 @@ function onLogoDrop(e) {
   const f = e.dataTransfer?.files?.[0]
   if (f) { const r = new FileReader(); r.onload = (ev) => (logoPreview.value = ev.target.result); r.readAsDataURL(f) }
 }
+// 业务错误的中文在 e.msg; HTTP 403/401 走 axios 原始错误(拦截器静默 reject, 只有 status), 直接用 e.message 只剩英文
+function errText(e) {
+  if (!e) return ''
+  if (e.msg) return e.msg
+  const st = e.response && e.response.status
+  if (st === 403) return '无权限访问该接口'
+  if (st === 401) return '登录已过期'
+  return e.message || ''
+}
 async function saveBrand() {
+  const errors = []
+  const put = async (name, key, val) => {
+    try { await configApi.updateValue(key, val == null ? '' : val) }
+    catch (e) { errors.push(`${name}: ${errText(e) || '失败'}`) }
+  }
   try {
-    // 系统显示名称落到 SYS_NAME, 工厂名称落到 SYS_FACTORY (侧边栏/顶栏即时读取)
     if (brandForm.systemName.trim()) await saveSystemName(brandForm.systemName.trim())
     if (brandForm.factory.trim()) await saveFactoryName(brandForm.factory.trim())
-    ElMessage.success('品牌设置已保存')
-  } catch (e) { ElMessage.error(e.message || '保存失败') }
+  } catch (e) { errors.push('系统/工厂名称: ' + (errText(e) || '失败')) }
+
+  await put('英文名称', 'SYS_EN_NAME', brandForm.enName.trim())
+  await put('工厂编码', 'SYS_FACTORY_CODE', brandForm.factoryCode.trim())
+  await put('统一社会信用代码', 'SYS_CREDIT_CODE', brandForm.creditCode.trim())
+  await put('单据页脚', 'SYS_FOOTER', brandForm.footer.trim())
+
+  // XK 证号 + 工厂地址进 LABEL_MASTER（标签渲染直接读那份 JSON）：读-改-写，绝不能整份覆盖 ——
+  // execStandard / storageCondition 只由 SQL 种子维护、tab 上没有输入框，读到空/坏 JSON 就干脆不写，
+  // 否则会把 producerName 抹掉，而它是成品卷标上的必填元素。
+  let master = null
+  let masterReadFail = false
+  try {
+    const r = await configApi.getByKey('LABEL_MASTER')
+    const raw = r?.data
+    master = raw ? JSON.parse(raw) : {}
+    if (!master || typeof master !== 'object' || Array.isArray(master)) throw new Error('非 JSON 对象')
+  } catch { masterReadFail = true }
+  if (masterReadFail) {
+    errors.push('XK许可证编号/工厂地址: 标签主数据读取失败，未覆盖保存')
+  } else {
+    master.xkNo = brandForm.xkNo.trim()
+    master.producerAddress = brandForm.address.trim()
+    await put('XK许可证编号/工厂地址', 'LABEL_MASTER', JSON.stringify(master))
+  }
+
+  if (errors.length) ElMessage.error('部分字段未保存 → ' + errors.join('；'))
+  else ElMessage.success('品牌设置已保存（XK 证号与工厂地址同步进标签主数据）')
 }
 // 保存设置 = 触发当前分区对应子组件的默认保存 (各子组件自带保存按钮, 此处为统一入口占位)
 function onSave() { ElMessage.info('请使用各分区内的「保存」按钮提交') }
