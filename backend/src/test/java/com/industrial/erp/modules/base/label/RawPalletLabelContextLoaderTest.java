@@ -16,6 +16,7 @@ import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -107,5 +108,17 @@ class RawPalletLabelContextLoaderTest {
         assertThatThrownBy(() -> new RawPalletLabelContextLoader(receiptMapper, detailMapper).load(99L, null))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("采购入库单不存在");
+    }
+
+    @Test
+    @DisplayName("lineIds 里夹了 null（请求体 [101,null]）→ 400，不是 Set.copyOf 的 NPE 500")
+    void nullLineIdIsClientError() {
+        when(receiptMapper.selectById(10L)).thenReturn(receipt());
+        when(detailMapper.selectByReceiptId(10L)).thenReturn(List.of(detail(101L, "PE 低压原料", "YL20261101", "2000")));
+
+        assertThatThrownBy(() -> new RawPalletLabelContextLoader(receiptMapper, detailMapper)
+                .load(10L, Arrays.asList(101L, null)))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("明细行 id 不能为空");
     }
 }
