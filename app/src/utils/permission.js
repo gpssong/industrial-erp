@@ -36,6 +36,9 @@ const SENSITIVE_PAGES = new Set([
   '/pages/profile/change-password',
   '/pages/base/product-add',
   '/pages/base/products',
+  // v1.1.167 B4: 标签打印中心 — 与上面两条 base/* 同样「两处都要出现」的先例
+  //   （只进 PAGE_PERMS 不进 SENSITIVE_PAGES 就漏了默认拒绝语义：任何登录账号可用直链进页）
+  '/pages/base/label-print',
   '/pages/inventory/query',
   '/pages/dashboard/index',
   '/pages/profile/index',
@@ -103,6 +106,12 @@ const PAGE_PERMS = {
   '/pages/product-add':               { perm: 'base:product:add',        module: 'base' },
   '/pages/base/product-add':          { perm: 'base:product:add',        module: 'base' },
   '/pages/base/products':             { perm: 'base:product:list',       module: 'base' },
+  // v1.1.167 B4 标签打印中心：页级门禁按「读」口径 base:label:list（选单/选行/预览都只吃 list），
+  //   「打印」按钮另在页面里按 base:label:print 卡 —— 这样页面对只授了查看的角色也能进来看版式，
+  //   而 /print/log 的写入仍由服务端 @SaCheckPermission("base:label:print") 强制（BaseLabelController.java:286）。
+  //   ⚠ 登记进 PAGE_PERMS 只是「声明」：App 端没有全局路由拦截器，页面必须自己调
+  //     checkPagePermission('/pages/base/label-print')（见 label-print.vue 的 onLoad，先例 count/index.vue）。
+  '/pages/base/label-print':          { perm: 'base:label:list',         module: 'base' },
   '/pages/change-password':           { perm: 'system:user:edit',        module: '' },        // 改自己的密码
   '/pages/profile/change-password':   { perm: 'system:user:edit',        module: '' },
   '/pages/report/index':              { perm: 'report:view',             module: 'report' },

@@ -317,6 +317,17 @@ const visibleMenus = computed(() => {
       seen.add('/pages/equipment/calibration')
       result.push({ path: '/pages/equipment/calibration', title: '检验设备校准', icon: '📏' })
     }
+    // v1.1.167 标签打印 (Task B4 落地, A14 Step 6 留的那段兜底接上):
+    //   base:label:print / base:label:list 都是 sql/156 的 F 型 perm 载体 (path='' → 不进
+    //   (perms,path) 双匹配) → 只能 perm-only 兜底; isAdmin() 兜底照 v1.1.156 口径
+    //   (App 端 /me 按 client_type 过滤且没有 admin 通配, 超管只有 PC 行时卡片永远不出现)。
+    //   ⚠ 本入口与 pages.json 里的 pages/base/label-print 必须同批发布, 否则点了报「页面不存在」。
+    if ((isAdmin() || (Array.isArray(perms) && (perms.includes('base:label:print') || perms.includes('base:label:list'))))
+        && !seen.has('/pages/base/label-print')
+        && isModuleEnabled('base') && isPermEnabled('base', 'base:label:print')) {
+      seen.add('/pages/base/label-print')
+      result.push({ path: '/pages/base/label-print', title: '标签打印', icon: '🏷' })
+    }
   } catch (e) {}
   // v1.1.100+: 飞牛/老库没跑 v1.1.24+ perm seed, 用户 perm 数组中包含的 perm
   // 在 sys_menu 里没对应 path → (perms,path) 双匹配永远 false. 这里加 perm-only 兜底:
