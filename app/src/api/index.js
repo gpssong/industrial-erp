@@ -54,7 +54,7 @@ function request({ url, method = 'GET', data = {}, contentType, silent }) {
   // 检测方式: typeof uni.request !== 'function'
   if (typeof uni === 'undefined' || typeof uni.request !== 'function') {
     logDebug('[api] → using fetch for:', fullUrl)
-    return fetchRequest(fullUrl, method, data)
+    return fetchRequest(fullUrl, method, data, silent)
   }
 
   // 真机/小程序环境: 用 uni.request
@@ -92,7 +92,8 @@ function request({ url, method = 'GET', data = {}, contentType, silent }) {
             }
           } catch (e) {}
           const err = { code: res.statusCode || 500, msg, data: null }
-          if (typeof uni !== 'undefined' && uni.showToast) {
+          // silent=true 的接口（配置类读、打印日志回报）失败由调用方自己兜底，不弹（B4 评审 F1）
+          if (!silent && typeof uni !== 'undefined' && uni.showToast) {
             uni.showToast({ title: msg, icon: 'none', duration: 3000 })
           }
           reject(err)
@@ -141,7 +142,9 @@ function request({ url, method = 'GET', data = {}, contentType, silent }) {
         // 网络层失败 (无网络 / DNS 失败 / 超时)
         console.warn('[api] uni.request 网络失败:', url, err)
         const e = { code: 0, msg: '网络连接失败, 请检查网络', data: null }
-        if (typeof uni !== 'undefined' && uni.showToast) {
+        // silent=true 时断网也不弹：打印日志回报是「纸出来后」的 fire-and-forget，
+        // 断网弹一句「网络连接失败」等于把成功的一次打印报成失败（B4 评审 F1）。
+        if (!silent && typeof uni !== 'undefined' && uni.showToast) {
           uni.showToast({ title: e.msg, icon: 'none' })
         }
         reject(e)
@@ -151,7 +154,7 @@ function request({ url, method = 'GET', data = {}, contentType, silent }) {
 }
 
 // H5 (浏览器) 环境的 fetch 实现, 与 uni.request 行为一致
-function fetchRequest(url, method, data) {
+function fetchRequest(url, method, data, silent) {
   logDebug('[api] fetchRequest called, url:', url, 'method:', method)
   return fetch(url, {
     method,
@@ -183,10 +186,12 @@ function fetchRequest(url, method, data) {
       }, 100)
       throw Object.assign(d, { needRelogin: true })
     }
-    if (typeof uni !== 'undefined' && uni.showToast) {
-      uni.showToast({ title: d.msg || '请求失败', icon: 'none' })
-    } else {
-      alert(d.msg || '请求失败')
+    if (!silent) {
+      if (typeof uni !== 'undefined' && uni.showToast) {
+        uni.showToast({ title: d.msg || '请求失败', icon: 'none' })
+      } else {
+        alert(d.msg || '请求失败')
+      }
     }
     throw d
   })
