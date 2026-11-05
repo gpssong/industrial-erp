@@ -186,7 +186,9 @@ public class LabelTemplateRenderer {
     private static List<String> overflowMessages(String type, int x, int y, int declaredW, int declaredH,
                                                  int size, String content, int canvasW, int canvasH) {
         if ("text".equals(type) || "multiline".equals(type)) {
-            if (content == null || content.isEmpty()) return List.of();
+            // 空与纯空格都不判越界：渲染侧 `safe()` 先 trim，trim 后为空就根本不发 TEXT 行
+            // (TsplLabelRenderer 的 text 分支)。判定口径比打印口径严 = 把打得干净的模板拦在闸外。
+            if (content == null || content.isBlank()) return List.of();
             LabelGeometry.Font font = LabelGeometry.fontFor(content, size);
             int available = LabelGeometry.wrapBudgetDots(x, declaredW, canvasW);
             if (available < font.perCharDots()) {

@@ -78,6 +78,18 @@ class LabelTemplateValidateTest {
     }
 
     @Test
+    @DisplayName("纯空格的字面量不判越界：渲染侧对 trim 后为空的内容根本不发 TEXT 行，判定口径不能比打印口径严 (B3b 评审 Minor 1)")
+    void whitespaceOnlyTextNeverCountsAsOverflow() {
+        // 必须挂上已知 field：纯空格字面量单独存在时会先撞「既没有 text 也没有 field」那条正确的闸，
+        // 把它算进本轮的越界误杀就什么也没钉住。
+        // 60 空格 @size24 走 ASCII 字库（纯空格没有 CJK）：每字 12×2=24 点、行高 20×1=20 点；
+        // w=600 圈栏 ⇒ 一行 25 字 ⇒ 3 行 × 20 = 60 点，440+60−480 = 20
+        // ⇒ 旧口径必报「越过下边界 480 点」，而渲染器 trim 之后这一行什么都不印。
+        assertThat(v("[{\"type\":\"text\",\"x\":20,\"y\":440,\"size\":24,\"w\":600,\"field\":\"batchNo\",\"text\":\""
+                + " ".repeat(60) + "\"}]")).isEmpty();
+    }
+
+    @Test
     @DisplayName("右侧连一个字符都放不下才按横向拦（那种情况渲染器**不拆**，尾巴会被固件吞掉）")
     void rejectsTextWithNoRoomForEvenOneCharacter() {
         List<ValidationIssue> tight = v("[{\"type\":\"text\",\"x\":630,\"y\":10,\"text\":\"批号\",\"size\":24}]");
