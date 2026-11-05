@@ -151,3 +151,6 @@ __pycache__/
 
 # SDD scratch (ledger/briefs/review packages) — never commit
 .superpowers/
+
+# 运维凭据载体：真值文件绝不入库（模板 scripts/ops-env.example 仍可提交）
+scripts/ops-env.sh
