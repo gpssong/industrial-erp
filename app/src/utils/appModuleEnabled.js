@@ -75,7 +75,7 @@ export async function loadFromServer(force = false) {
     meta.lastErr = '返回数据非字符串'
     return false
   } catch (e) {
-    // 拦截器已弹过 toast, 这里只记录, 不再二次弹
+    // api.appModuleGetConfig 是 silent: true，拦截器**不会**弹 toast，这里是唯一的失败痕迹
     meta.lastErr = (e && e.msg) || (e && e.message) || '网络失败'
     console.warn('[appModuleEnabled] loadFromServer 失败, fallback 全开:', meta.lastErr)
     return false
