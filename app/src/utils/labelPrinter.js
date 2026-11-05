@@ -6,7 +6,7 @@
  * 绑定关系只存手机本地（一台手机一台机，不进库：车间换机不该去找 PC 管理员）。
  *
  * ⚠ 插件句柄的取法（Task B4 裁定 R-B4-1，别再退回旧写法）：
- *   必须 `registerPlugin('LabelBle')`（与已连过真机的取证页 label-ble-debug.vue:56-59 同一句）。
+ *   必须 `registerPlugin('LabelBle')`（docs/34 的取证与生产路径用的是同一句取法）。
  *   `window.Capacitor.Plugins.LabelBle` 在本项目实测落到 Capacitor 的**桩**上，
  *   调用即抛 "LabelBle.print() is not implemented on android" —— 看着像插件没注册，
  *   其实是取句柄方式错了（docs/34 取证就是靠 registerPlugin 跑通的）。

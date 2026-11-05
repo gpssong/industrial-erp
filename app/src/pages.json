@@ -18,8 +18,6 @@
     { "path": "pages/profile/change-password", "style": { "navigationBarTitleText": "修改密码" } },
     { "path": "pages/system/users", "style": { "navigationBarTitleText": "用户管理" } },
     { "path": "pages/base/product-add", "style": { "navigationBarTitleText": "新增商品" } },
-    // v1.1.167 标签层 §9 真机取证专用页 (Task B6 上线前删除)
-    { "path": "pages/base/label-ble-debug", "style": { "navigationBarTitleText": "标签蓝牙取证" } },
     // v1.1.167 B4 标签打印中心 (车间主出口: 蓝牙直发服务端渲染的 TSPL)
     { "path": "pages/base/label-print", "style": { "navigationBarTitleText": "标签打印" } },
     { "path": "pages/production/order-add", "style": { "navigationBarTitleText": "新增生产单" } },

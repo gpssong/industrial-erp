@@ -14,25 +14,12 @@
     <view class="card">
       <text class="muted" style="font-size:12px">当前地址：{{ currentBase }}</text>
     </view>
-
-    <!-- v1.1.167 标签层 §9 取证入口 (刻意放这里而不是工作台, 别在生产界面露出)。
-         取证做完 → docs/34 落定后由 Task B6 连同 pages/base/label-ble-debug 一起删除。 -->
-    <view class="card">
-      <text class="title">🧪 取证专用</text>
-      <text class="muted">标签打印机蓝牙直连调试页 — 仅用于 docs/32 §9 的 IP-803 真机取证，
-        不属于业务功能，上线前必须移除本页入口。</text>
-      <view class="btn btn-block" @click="onOpenLabelBleDebug" style="margin-top:12px">打开标签蓝牙取证页</view>
-    </view>
   </view>
 </template>
 <script setup>
 import { ref, onMounted } from 'vue'
 const apiBase = ref('')
 const currentBase = ref('')
-
-function onOpenLabelBleDebug() {
-  uni.navigateTo({ url: '/pages/base/label-ble-debug' })
-}
 
 // H5 浏览器: 默认走「同源 /api」(由部署侧 nginx 反代到 backend), 填了绝对地址才覆盖.
 // 原生/Capacitor: 默认写死 http://home.93gushi.com:8088/api.
