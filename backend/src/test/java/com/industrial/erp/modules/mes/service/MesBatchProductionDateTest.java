@@ -119,4 +119,21 @@ class MesBatchProductionDateTest {
         verify(batchMapper, never()).insert(any(MesBatch.class));
         verify(batchMapper, never()).updateById(any(MesBatch.class));
     }
+
+    /**
+     * 守门用例: 没走过成品入库审核的 FG 批 (存量直接出库 / 外购成品), 第一次现身就是销售出库
+     * 那一刻 —— 这条一旦变红 (production_date 不再为 null), 就说明出库日正在被写成生产日期,
+     * 和给 RAW 写当天是同一个性质的造假。批次照样要登记 (流向不能丢), 但日期必须留空,
+     * 由入库审核侧 (registerFgOnFinish/registerSemiOnFinish) 显式设置。
+     */
+    @Test
+    void batchNeverRegisteredAtFinishedInStaysWithoutProductionDateWhenFirstSeenAtDelivery() {
+        // selectOne 默认返回 null ⇒ 库里没有这个批号, upsertBatch 走 insert 分支
+        service.registerFgOutToCustomer("FG-OUT-ONLY", 1L, BigDecimal.TEN, null, "SD20261105001");
+
+        MesBatch inserted = captureInsertedBatch();
+        // 批次登记了 (流向没丢), 但日期不能被兜成出库当天
+        assertThat(inserted.getBatchType()).isEqualTo(Constants.BATCH_TYPE_FG);
+        assertThat(inserted.getProductionDate()).isNull();
+    }
 }
