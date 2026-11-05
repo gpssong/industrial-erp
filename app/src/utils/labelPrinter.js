@@ -33,7 +33,7 @@ const LabelBle = registerPlugin('LabelBle')
  * 漏掉裸字符串时 `String(e)` 兜住，不再出现「[object Object]」这种工人读不出来的提示。
  */
 export function errText(e) {
-  if (!e) return ''
+  if (!e) return '未知错误'
   if (typeof e === 'string') return e
   return e.message || e.msg || e.errMsg || String(e)
 }

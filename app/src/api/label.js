@@ -37,8 +37,9 @@ export const labelApi = {
   templates: (bizType) => request({ url: '/base/label/template/list?' + qs({ bizType, status: 1 }), method: 'GET' }),
   preview: (body) => request({ url: '/base/label/preview', method: 'POST', data: body, contentType: 'json' }),
   tspl: (body) => request({ url: '/base/label/tspl', method: 'POST', data: body, contentType: 'json' }),
-  // 打印日志回报：channel 由服务端钉成 BT_TSPL，前端不传
-  log: (body) => request({ url: '/base/label/print/log', method: 'POST', data: body, contentType: 'json' }),
+  // 打印日志回报：channel 由服务端钉成 BT_TSPL，前端不传。
+  // silent=true 是硬要求：日志失败绝不能把已经出纸的打印报成失败（B4 评审 F1）。
+  log: (body) => request({ url: '/base/label/print/log', method: 'POST', data: body, contentType: 'json', silent: true }),
   // 最近打印日志（排查「谁在手机上打错了什么」）
   logs: (o) => request({ url: '/base/label/logs?' + qs(o), method: 'GET' })
 }

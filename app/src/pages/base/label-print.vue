@@ -179,8 +179,10 @@ export default {
       || (getAppPermissions().includes('base:label:print') && isPermEnabled('base', 'base:label:print'))
     // 并发请求各自 try/catch，一个失败不吃掉其它已拿到的数据（v1.1.145 教训）→ 不用 Promise.all。
     // 顺序有讲究：loadBills 之后链式 loadLines 要用 billIdx，loadTemplates 决定 templateId。
+    // 名单走 HTTP、链路走 BLE，互不依赖：先起名单，别被关机状态下的重连超时拖住（B4 评审 F3）
+    const lists = this.dataLoaded ? null : this.reloadLists()
     await this.syncStatus()
-    if (!this.dataLoaded) await this.reloadLists()
+    if (lists) await lists
   },
   methods: {
     body() {
@@ -206,11 +208,13 @@ export default {
     },
     async reloadLists() {
       this.dataLoaded = true
+      // 一次重新拉名单就清一次红卡，否则失败之后名单再拉成功、红卡还挂着（B4 评审 F7-2）
+      this.lastError = ''
       await this.loadTemplates()
       await this.loadBills()
     },
-    onBill(e) { this.billIdx = Number(e.detail.value); this.picked = []; this.loadLines() },
-    onTpl(e) { this.tplIdx = Number(e.detail.value) },
+    onBill(e) { this.billIdx = Number(e.detail.value); this.picked = []; this.preview = []; this.missing = []; this.loadLines() },
+    onTpl(e) { this.tplIdx = Number(e.detail.value); this.preview = []; this.missing = [] },
     toggleLine(i) {
       this.picked = this.picked.includes(i) ? this.picked.filter(x => x !== i) : this.picked.concat(i)
     },
@@ -222,7 +226,7 @@ export default {
         // 选中单之后立刻链式取明细行：整单/按行的口径在这里就定下来，
         // 不等用户去点「预览」才发现行名单是空的。
         if (this.bills.length) await this.loadLines()
-      } catch (e) { this.bills = []; this.lines = []; this.lastError = '单据加载失败: ' + errText(e) }
+      } catch (e) { this.bills = []; this.lines = []; this.dataLoaded = false; this.lastError = '单据加载失败: ' + errText(e) }
       finally { this.loadedOnce = true }
     },
     async loadLines() {
@@ -251,7 +255,7 @@ export default {
         }))
         // 换类型后旧下标可能越界，钳回 0（列表已按 isDefault 优先，0 就是默认模板位）
         if (this.tplIdx >= this.templates.length) this.tplIdx = 0
-      } catch (e) { this.templates = []; this.lastError = '模板加载失败: ' + errText(e) }
+      } catch (e) { this.templates = []; this.dataLoaded = false; this.lastError = '模板加载失败: ' + errText(e) }
     },
     async loadPreview() {
       if (!this.body().bizId) { uni.showToast({ title: '先选单据', icon: 'none' }); return }
@@ -371,6 +375,8 @@ export default {
     async doPrint() {
       const body = this.body()
       if (!body.bizId || !body.templateId) { uni.showToast({ title: '单据和模板都要选', icon: 'none' }); return }
+      // 先清掉上一张的原文：/tspl 这次就失败时，弹窗下方回显的必须是「这次这张」，不能是陈货（B4 评审 F4）
+      this.lastTspl = ''
       this.busy = true
       let content = null
       let text = ''
