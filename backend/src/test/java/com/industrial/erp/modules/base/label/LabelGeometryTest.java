@@ -24,4 +24,12 @@ class LabelGeometryTest {
         assertThat(LabelGeometry.estWidthDots("", 24)).isZero();
         assertThat(LabelGeometry.estWidthDots(null, 24)).isZero();
     }
+
+    @Test
+    @DisplayName("dots → mm：与 dots() 互逆，误差 < 0.5mm 打印机不敏感（TSPL SIZE 只认毫米）")
+    void convertsDotsBackToMm() {
+        assertThat(LabelGeometry.mm(640, 203)).isEqualTo(80);
+        assertThat(LabelGeometry.mm(480, 203)).isEqualTo(60);
+        assertThat(LabelGeometry.mm(472, 300)).isEqualTo(40);
+    }
 }

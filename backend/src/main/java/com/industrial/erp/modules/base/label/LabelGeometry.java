@@ -23,9 +23,19 @@ public final class LabelGeometry {
         return (int) Math.floor((double) mm * trueDpi(dpi) / 25.4d);
     }
 
+    /** dots → mm（四舍五入）。TSPL 的 SIZE/GAP 只认毫米，元素坐标是点，两头都要换算。分母必须是 trueDpi，否则正反映射不自洽。 */
+    public static int mm(int dots, int dpi) {
+        return (int) Math.round(dots * 25.4d / trueDpi(dpi));
+    }
+
     /**
      * 估算一段文本占多少点宽，**只用于保存模板时的越界校验**，不是排版引擎：
      * 中日韩字符按一个字号，其余按 0.6 个字号（打印机内置字库的真实宽度只有真机取证后才知道，见 §9）。
+     *
+     * <p>注意它和 {@link TsplLabelRenderer} 的拆行估算**不是同一套数**：真机取证（docs/34）之后
+     * 打印侧的字库宽是定值 —— ASCII 字体"2" = 12 点/字符、中文 TSS24.BF2 = 24 点/字符（再乘放大倍率），
+     * 而这里 0.6×字号在 24 点时只算 14 点，对 ASCII 明显偏松。保存闸口径本期不动（它拦的是"字面量能算出来
+     * 的越界"，偏松只是少拦），但预览与实纸的差异、以及要不要统一这两套数，归 B3/B4 收口。
      */
     public static int estWidthDots(String s, int size) {
         if (s == null || s.isEmpty() || size <= 0) return 0;
