@@ -42,7 +42,7 @@
         <el-form-item>
           <el-button type="primary" :disabled="!q.bizId" :loading="loading" @click="doPreview">预览</el-button>
           <el-button :disabled="!canPrint" :loading="printing" @click="doFeiePrint">发飞鹅打印机</el-button>
-          <el-button disabled title="B3 接入：印麦指令集真机取证后才能出 TSPL 文本 (docs/32 §9)">导出 TSPL</el-button>
+          <el-button :disabled="!canPrint" :loading="exporting" @click="exportTspl">导出 TSPL</el-button>
         </el-form-item>
       </el-form>
 
@@ -147,6 +147,7 @@ const feieNote = ref('')
 const feieFailed = ref([])
 const loading = ref(false)
 const printing = ref(false)
+const exporting = ref(false)
 const logVisible = ref(false)
 const logLoading = ref(false)
 
@@ -376,6 +377,49 @@ async function doFeiePrint() {
   } catch (e) {
     ElMessage.error(errText(e) || '发飞鹅失败')
   } finally { printing.value = false }
+}
+
+/** 按 base64 落原始指令字节：绝不能用 new Blob([文本])，那样中文会被写成 UTF-8，打印机按 GBK 解必乱。 */
+function b64ToBytes(b64) {
+  const bin = atob(b64)
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  return arr
+}
+
+/**
+ * B3：导出标准 TSPL。后端 `contentsBase64` 给的是**按 GBK 编好码的指令字节**（不是文本），
+ * 落盘的文件可以直接喂给任何 TSPL 机器（docs/32 §2.4「换厂商只用换渲染器」的兑现处）。
+ * 这里唯一的坑是编码：必须 `atob` → Uint8Array → Blob 原样写出，
+ * 一旦 `new Blob([previewText])` 就等于让浏览器按 UTF-8 重编一遍，中文全乱。
+ * 取上下文的路与「发飞鹅」同一条（`/preview` 那套 lineIds 口径也照抄：空=全部行）。
+ */
+async function exportTspl() {
+  if (!canPrint.value) return
+  exporting.value = true
+  try {
+    // PC 的 request 拦截器回的是整封 {code,msg,data}，必须再取 .data（v1.1.118 教训）
+    const d = ((await labelApi.tspl({
+      bizType: q.bizType, templateId: q.templateId, bizId: q.bizId,
+      lineIds: q.lineIds.length ? q.lineIds : null
+    })) || {}).data || {}
+    // 缺键/空串都先挡住：否则 atob(undefined) 抛的是 InvalidCharacterError，
+    // 看着像「后端返回的不是 base64」，实际是它压根没回内容（v1.1.144 教训：接口 200 不代表文件内容对）。
+    const b64 = (d.contentsBase64 || [])[0]
+    if (!b64) throw new Error('后端没有回指令内容（contentsBase64 是空的）')
+    const bytes = b64ToBytes(b64)
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = d.fileName || 'label.tspl'
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(`已导出 ${d.labels || 1} 张标签 · ${d.encoding || ''} 编码 · 日志已记 EXPORT 通道`)
+  } catch (e) {
+    ElMessage.error('导出 TSPL 失败: ' + (errText(e) || e))
+  } finally {
+    exporting.value = false
+  }
 }
 
 /**

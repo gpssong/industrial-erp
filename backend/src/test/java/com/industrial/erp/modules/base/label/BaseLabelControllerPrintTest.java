@@ -24,6 +24,9 @@ import org.mockito.quality.Strictness;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,10 +61,13 @@ class BaseLabelControllerPrintTest {
     private BaseLabelController controller;
     private BaseLabelTemplate tpl;
 
+    /** TSPL 用**真渲染器**（它是纯函数，B2 已单测）：mock 它就等于把「字节真能往返」这条最要紧的断言架空。 */
+    private final TsplLabelRenderer tspl = new TsplLabelRenderer();
+
     @BeforeEach
     void setUp() {
         controller = new BaseLabelController(masterService, templateService, previewService, contextService,
-                printService, new FeieLabelRenderer(), feieClient,
+                printService, new FeieLabelRenderer(), tspl, feieClient,
                 null, null, null, null, null, printerMapper);
         tpl = new BaseLabelTemplate();
         tpl.setId(1167000000000000001L);
@@ -335,5 +341,151 @@ class BaseLabelControllerPrintTest {
         assertThat(fields.orRole()).containsExactly("admin");
         assertThat(BaseLabelController.class.getMethod("fields", String.class)
                 .getAnnotation(GetMapping.class).value()).containsExactly("/fields");
+    }
+
+    // ============================ B3: /tspl 导出标准 TSPL ============================
+
+    /**
+     * 80×60mm @203dpi = 640×480 点（docs/34 实测口径）。元素内容是**真中文**，
+     * 因为这条测试要证的正是「GBK 字节流出去还能原样解回来」。
+     */
+    private RenderResult tsplLabel(String content, int copies) {
+        ResolvedElement e = new ResolvedElement();
+        e.setType("text"); e.setX(20); e.setY(40); e.setContent(content); e.setFontSize(24);
+        RenderResult r = new RenderResult();
+        r.setElements(List.of(e));
+        r.setWidthDots(640); r.setHeightDots(480); r.setDpi(203); r.setGapMm(3);
+        r.setDirection("NORMAL"); r.setCopies(copies);
+        return r;
+    }
+
+    private void stubFgRoll(RenderResult... labels) {
+        when(templateService.defaultOf("FG_ROLL")).thenReturn(tpl);
+        when(previewService.preview(any(), eq(5L), isNull())).thenReturn(List.of(labels));
+        when(contextService.loadFirst(eq("FG_ROLL"), eq(5L), isNull()))
+                .thenReturn(new HashMap<>(Map.of("billNo", "PFI202611040001")));
+    }
+
+    @Test
+    @DisplayName("/tspl: base64 解出来就是 GBK 原始指令字节，首行 SIZE、末行 PRINT，且与 previewText 同一份内容")
+    void tsplBytesRoundTripInGbk() {
+        stubFgRoll(tsplLabel("批号 B20261104", 1));
+
+        Map<String, Object> d = controller.tspl(req("FG_ROLL", null, 5L)).getData();
+
+        // 契约的键一个不多一个不少（前端按键取值，多一个键没人接、少一个键就是 undefined）
+        assertThat(d).containsOnlyKeys("labels", "copies", "encoding", "fileName",
+                "contentsBase64", "previewText", "note");
+        assertThat(d).containsEntry("encoding", "GBK").containsEntry("labels", 1).containsEntry("copies", 1);
+
+        @SuppressWarnings("unchecked")
+        List<String> b64 = (List<String>) d.get("contentsBase64");
+        assertThat(b64).hasSize(1);
+        // 本任务交付的就是**字节**：解回来必须是指令原文，中文不是 mojibake
+        byte[] raw = Base64.getDecoder().decode(b64.get(0));
+        String text = new String(raw, TsplLabelRenderer.charset());
+        assertThat(text).startsWith("SIZE 80 mm,60 mm\r\n").endsWith("PRINT 1,1\r\n");
+        assertThat(text).contains("TEXT 20,40,\"TSS24.BF2\",0,1,1,\"批号 B20261104\"");
+        assertThat(text).doesNotContain("\uFFFD");
+        // 反证：同一批字节按 UTF-8 解就是乱码 ⇒ 编码出口只有 GBK 一个（B2 的 charset() 是唯一出口）
+        assertThat(new String(raw, StandardCharsets.UTF_8)).doesNotContain("批号");
+        // base64 里不许有换行：getMimeEncoder 每 76 字符插 \r\n，PC 侧 atob 直接抛 InvalidCharacterError
+        assertThat(b64.get(0)).doesNotContain("\r").doesNotContain("\n");
+        // 文本与字节是同一份内容的两种编码，不能各说一套
+        assertThat(text).isEqualTo(d.get("previewText"));
+        assertThat((String) d.get("note")).contains("GBK");
+    }
+
+    @Test
+    @DisplayName("/tspl: fileName 带单据号与模板码（label_<单号>_<模板码>.tspl），多张拼进同一个文件")
+    void tsplFileNameCarriesBizNoAndTemplateCode() {
+        stubFgRoll(tsplLabel("成品卷标", 1), tsplLabel("批号 B2", 1));
+
+        Map<String, Object> d = controller.tspl(req("FG_ROLL", null, 5L)).getData();
+
+        assertThat(d.get("fileName")).isEqualTo("label_PFI202611040001_FG_ROLL_DEFAULT.tspl");
+        @SuppressWarnings("unchecked")
+        List<String> b64 = (List<String>) d.get("contentsBase64");
+        assertThat(b64).hasSize(1);
+        String text = new String(Base64.getDecoder().decode(b64.get(0)), TsplLabelRenderer.charset());
+        // 两张标签 = 两段完整指令（SIZE 出现两次），PRINT 只以最后一段收尾
+        assertThat(text.split("SIZE 80 mm,60 mm", -1)).hasSize(3);
+        assertThat(text).endsWith("PRINT 1,1\r\n");
+    }
+
+    /** copies 是「总共出几张纸」= 各张份数之和；labels 是「几种标签」。两者不等时才看得出实现把两个混成了一个。 */
+    @Test
+    @DisplayName("/tspl: copies 是各张份数之和（2+3=5），labels 是张数（2）")
+    void tsplCopiesIsTheSumNotTheLabelCount() {
+        stubFgRoll(tsplLabel("成品卷标", 2), tsplLabel("批号 B2", 3));
+
+        Map<String, Object> d = controller.tspl(req("FG_ROLL", null, 5L)).getData();
+
+        assertThat(d).containsEntry("labels", 2).containsEntry("copies", 5);
+        String text = new String(Base64.getDecoder().decode(
+                (String) ((List<?>) d.get("contentsBase64")).get(0)), TsplLabelRenderer.charset());
+        assertThat(text).contains("PRINT 2,1\r\n").endsWith("PRINT 3,1\r\n");
+    }
+
+    /** 用户拿这份文本去别的机器打了，账上必须看得见 ⇒ 导出也是一次打印，channel=EXPORT。 */
+    @Test
+    @DisplayName("/tspl: 以 channel=EXPORT 落一条 SUCCESS 日志，份数是合计、内容是指令原文")
+    void tsplLogsTheExportChannel() {
+        stubFgRoll(tsplLabel("成品卷标", 2), tsplLabel("批号 B2", 1));
+
+        Map<String, Object> d = controller.tspl(req("FG_ROLL", null, 5L)).getData();
+
+        // logSuccess 的形参位：bizType, bizId, bizNo, tpl, channel, printerName, printerMac, copies, content
+        verify(printService).logSuccess("FG_ROLL", 5L, "PFI202611040001", tpl, "EXPORT", null, null, 3,
+                (String) d.get("previewText"));
+        verify(printService, never()).logFail(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any());
+    }
+
+    @Test
+    @DisplayName("/tspl 的路径与权限点：print OR list + orRole=admin（与 /preview 同一组，导出不比预览更严）")
+    void tsplEndpointContract() throws Exception {
+        Method m = BaseLabelController.class.getMethod("tspl", LabelPreviewRequest.class);
+        assertThat(m.getAnnotation(PostMapping.class).value()).containsExactly("/tspl");
+        SaCheckPermission auth = m.getAnnotation(SaCheckPermission.class);
+        assertThat(auth.value()).containsExactly("base:label:print", "base:label:list");
+        assertThat(auth.mode()).isEqualTo(SaMode.OR);
+        assertThat(auth.orRole()).containsExactly("admin");
+    }
+
+    /**
+     * 负例：`lineIds` 传**空列表**（PC 那边「不选=全部行」就是这么发的）不许裸 NPE 成 500 ——
+     * 空列表在 loader 口径里就是「全部行」，与 null 同义。同时钉住「单号取不到时 fileName 回落 bizType」：
+     * bizNo 是日志上给人看的列，取不到就留空，不能因为它把整次导出拒掉。
+     */
+    @Test
+    @DisplayName("/tspl: lineIds 为空列表时按「全部行」走，单号取不到也不 NPE（fileName 回落 bizType）")
+    void emptyLineIdsIsAllLinesNotNpe() {
+        LabelPreviewRequest q = req("FG_ROLL", null, 5L);
+        q.setLineIds(List.of());
+        when(templateService.defaultOf("FG_ROLL")).thenReturn(tpl);
+        when(previewService.preview(any(), eq(5L), eq(List.of()))).thenReturn(List.of(tsplLabel("成品卷标", 1)));
+        // 上下文里没有 billNo（草稿单/列没值都可能）：loadFirst 给一个空 Map
+        when(contextService.loadFirst(eq("FG_ROLL"), eq(5L), eq(List.of()))).thenReturn(new HashMap<>());
+
+        Map<String, Object> d = controller.tspl(q).getData();
+
+        assertThat(d.get("fileName")).isEqualTo("label_FG_ROLL_FG_ROLL_DEFAULT.tspl");
+        assertThat(d).containsEntry("labels", 1);
+        verify(printService).logSuccess(eq("FG_ROLL"), eq(5L), isNull(), eq(tpl), eq("EXPORT"),
+                isNull(), isNull(), eq(1), any());
+    }
+
+    /** 负例：还没灌 sql/155 的种子模板时，/tspl 要给一条能照着做的 400，不是 NPE/500。 */
+    @Test
+    @DisplayName("/tspl: 没有默认模板 ⇒ 可执行的 400，且一行日志都不记")
+    void missingDefaultTemplateIsActionable400() {
+        when(templateService.defaultOf("FG_ROLL")).thenReturn(null);
+
+        assertThatThrownBy(() -> controller.tspl(req("FG_ROLL", null, 5L)))
+                .isInstanceOf(BizException.class)
+                .hasMessage("该标签类型还没有默认模板，请先到「标签模板」建一份");
+        verify(printService, never()).logSuccess(any(), any(), any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), any());
     }
 }

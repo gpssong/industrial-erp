@@ -20,6 +20,7 @@ import com.industrial.erp.modules.base.label.LabelPrintService;
 import com.industrial.erp.modules.base.label.LabelPreviewRequest;
 import com.industrial.erp.modules.base.label.LabelPreviewService;
 import com.industrial.erp.modules.base.label.RenderResult;
+import com.industrial.erp.modules.base.label.TsplLabelRenderer;
 import com.industrial.erp.modules.base.service.BaseLabelTemplateService;
 import com.industrial.erp.modules.production.client.FeiePrintClient;
 import com.industrial.erp.modules.production.entity.PrdFinishedIn;
@@ -42,6 +43,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -58,6 +60,7 @@ public class BaseLabelController {
                                LabelContextService contextService,
                                LabelPrintService printService,
                                FeieLabelRenderer feieRenderer,
+                               TsplLabelRenderer tsplRenderer,
                                FeiePrintClient feieClient,
                                PrdFinishedInMapper finishedInMapper,
                                PurReceiptMapper purReceiptMapper,
@@ -71,6 +74,7 @@ public class BaseLabelController {
         this.contextService = contextService;
         this.printService = printService;
         this.feieRenderer = feieRenderer;
+        this.tsplRenderer = tsplRenderer;
         this.feieClient = feieClient;
         this.finishedInMapper = finishedInMapper;
         this.purReceiptMapper = purReceiptMapper;
@@ -86,6 +90,8 @@ public class BaseLabelController {
     private final LabelContextService contextService;
     private final LabelPrintService printService;
     private final FeieLabelRenderer feieRenderer;
+    /** 主通道（印麦 IP-803 / TSPL）。与飞鹅并排的意义在 `/tspl`：同一批 RenderResult，换渲染器不换上下文。 */
+    private final TsplLabelRenderer tsplRenderer;
     private final FeiePrintClient feieClient;
     private final PrdFinishedInMapper finishedInMapper;
     private final PurReceiptMapper purReceiptMapper;
@@ -223,6 +229,57 @@ public class BaseLabelController {
         return R.ok(Map.of("total", contents.size(), "success", ok, "failed", failed.size(),
                 "failedItems", failed,
                 "note", "飞鹅是 58mm 流式小票机：坐标与分割线画不出，条码退化成明文 (docs/32 §3.1)"));
+    }
+
+    /** 导出标准 TSPL：回 base64 真字节，前端落盘就是能直接喂给打印机的文件 (docs/32 §2.4)。 */
+    @SaCheckPermission(value = {"base:label:print", "base:label:list"}, mode = SaMode.OR, orRole = "admin")
+    @PostMapping("/tspl")
+    public R<Map<String, Object>> tspl(@RequestBody LabelPreviewRequest req) {
+        BaseLabelTemplate tpl = tplOf(req.getBizType(), req.getTemplateId());
+        List<RenderResult> rs = renderResults(req);
+        // 与 A10 的 feiePrint 同一口径：一张单据一个单号，取一次就够（bizNoOf 会回查上下文，
+        // 日志和文件名共用同一个值，也不出现「日志记 A、文件名是 B」的两套数）。
+        String bizNo = bizNoOf(req);
+        List<String> b64 = new ArrayList<>();
+        StringBuilder preview = new StringBuilder();
+        byte[] merged = concat(rs);
+        b64.add(java.util.Base64.getEncoder().encodeToString(merged));
+        for (RenderResult r : rs) preview.append(tsplRenderer.renderCommandText(r));
+        // **导出也是一次打印**：用户拿这份文本去别的机器打了，账上必须看得见（channel=EXPORT）。
+        printService.logSuccess(req.getBizType(), req.getBizId(), bizNo, tpl,
+                "EXPORT", null, null, totalCopies(rs), preview.toString());
+        return R.ok(Map.of("labels", rs.size(), "encoding", TsplLabelRenderer.charset().name(),
+                "fileName", fileNameOf(req, tpl, bizNo), "contentsBase64", b64,
+                "copies", totalCopies(rs),
+                "previewText", preview.toString(),
+                "note", "文件是按 " + TsplLabelRenderer.charset().name() + " 编码的原始指令字节，"
+                        + "可直接 COPY /debug 到打印机串口或用蓝牙工具发送"));
+    }
+
+    /**
+     * 多张标签拼成**一个**文件：TSPL 是按段执行的（每段自带 SIZE…PRINT），
+     * 一台机器连着打就是这个顺序，与飞鹅那边「一次下发拼多段」同构。
+     * `contentsBase64` 保持 List 是给以后「逐张分别下载」留的口子，不改前端契约；本期就 1 个元素。
+     * base64 用 `getEncoder()`（本就不插换行），**不许**换成 `getMimeEncoder()` —— 它每 76 字符插一次
+     * `\r\n`，PC 侧 `atob` 会直接抛 `InvalidCharacterError`，症状看着像「后端返回的不是 base64」。
+     */
+    private byte[] concat(List<RenderResult> rs) {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        for (RenderResult r : rs) bos.writeBytes(tsplRenderer.renderBytes(r));
+        return bos.toByteArray();
+    }
+
+    /** 总份数 = 各张标签的份数之和，也就是每段指令末尾那个 `PRINT n,1` 的 n 加总；一张至少 1 份。 */
+    private static int totalCopies(List<RenderResult> rs) {
+        int n = 0;
+        for (RenderResult r : rs) n += Math.max(1, r.getCopies());
+        return Math.max(1, n);
+    }
+
+    /** 文件名要能认出「这是哪张单的标签」：单号在前，模板码在后；单号取不到时退到 bizType（不是退到 null）。 */
+    private String fileNameOf(LabelPreviewRequest req, BaseLabelTemplate tpl, String bizNo) {
+        return "label_" + (bizNo == null || bizNo.isBlank() ? req.getBizType() : bizNo)
+                + "_" + (tpl == null ? "tpl" : tpl.getTemplateCode()) + ".tspl";
     }
 
     /** App 蓝牙打完之后回报日志（成功与失败都要报）。绑定关系只存手机本地，MAC 由这里上报落库。 */
