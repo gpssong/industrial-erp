@@ -91,25 +91,10 @@ public class LabelTemplateRenderer {
             // --- 越界检测 (docs/32 §5: 保存时报错并指出越界的元素序号与越界量) ---
             if (e.getX() < 0) issues.add(new ValidationIssue(i, e.getField(), "x 不能为负，当前 " + e.getX()));
             if (e.getY() < 0) issues.add(new ValidationIssue(i, e.getField(), "y 不能为负，当前 " + e.getY()));
-            // 竖向按「声明了的高度」查：line/rect 的 h 是确定的，最后一个点落在 y+h-1。
-            // text/qrcode/barcode 不猜字号排出来的真实行高（内置字库要 §9 真机取证），只查原点越界。
-            int vExtent = Math.max(e.getH(), 1);
-            // 越界算式一律升 long：int 相加溢出成负数会把天大的越界判成合格。
-            long beyondY = (long) e.getY() + vExtent - canvasH;
-            if (beyondY > 0) {
-                issues.add(new ValidationIssue(i, e.getField(),
-                        "y=" + e.getY() + (e.getH() > 0 ? " 起高 " + e.getH() + " 点" : "")
-                        + " 越过下边界 " + canvasH + " 点，越界 " + beyondY + " 点"));
-            }
-            // estWidth 是 validate / render 同一个口径的唯一出口（docs/33 A6 I-3 / A7 R2、R6）。
-            // validate 侧没有取值过程，传元素自己的 text 字面量估（取不到值时字面量就是最终值）。
-            Integer estW = estWidth(type, e.getW(), e.getSize(), e.getText());
-            if (estW != null) {
-                long beyondX = (long) e.getX() + estW - canvasW;
-                if (beyondX > 0) {
-                    issues.add(new ValidationIssue(i, e.getField(),
-                            "从 x=" + e.getX() + " 起宽约 " + estW + " 点，越过右边界 " + canvasW + " 点，越界 " + beyondX + " 点"));
-                }
+            // 越界判定的唯一出口在 overflowMessages —— 预览标橙用的是同一个函数，两边不可能算出两套结论。
+            for (String msg : overflowMessages(type, e.getX(), e.getY(), e.getW(), e.getH(),
+                    e.getSize(), e.getText(), canvasW, canvasH)) {
+                issues.add(new ValidationIssue(i, e.getField(), msg));
             }
         }
         return issues;
@@ -151,11 +136,10 @@ public class LabelTemplateRenderer {
             r.setH(e.getH());
             r.setField(e.getField());
             r.setMissing(e.isRequired() && content.isEmpty());
-            // **R2 / A6 I-3 / 本任务 R6**：越界估算与 A6 保存闸同一个口径，统一走 estWidth
-            // —— 那是唯一出口，这里只是把取值后的 content 作为第 4 个入参传进去。
-            Integer estW = estWidth(type, e.getW(), e.getSize(), content);
-            // **A6 I-2 / 本任务 R5**：升 long —— int 相加溢出成负数会把天大的越界判成合格。
-            r.setOverflow(estW != null && (long) e.getX() + estW > canvasW);
+            // **R2 / A6 I-3 / B3b**：越界判定与 A6 保存闸同一个函数 —— 这里只是把**取值后的** content
+            // 传进去（值的长度只有 render 侧知道，validate 侧只能拿字面量）。
+            r.setOverflow(!overflowMessages(type, e.getX(), e.getY(), e.getW(), e.getH(),
+                    e.getSize(), content, canvasW, canvasH).isEmpty());
             resolved.add(r);
         }
 
@@ -181,25 +165,66 @@ public class LabelTemplateRenderer {
     }
 
     /**
-     * est 宽口径的**唯一出口**（docs/33 A6 I-3 / A7 R2、R6）：validate 与 render 各调一次，
-     * 两边只差第 4 个入参 —— validate 传元素自己的 text 字面量，render 传取值后的 content。
-     * line/rect 用声明尺寸；barcode/qrcode 免估算（TSPL 按内容自适应），只认显式 w；
-     * multiline 的 w 才是真换行宽度；text 的 w 盖不住估宽（TSPL TEXT 不换行，取 max）。
-     * 返回 null = 这一条不查横向越界。
+     * 元素在纸面上放不放得下的**唯一判定**（docs/33 A6 I-3 / A7 R2、R6 那条「唯一出口」的规矩，B3b 续上）：
+     * validate 拿它拼话术，render 拿它的 `isEmpty()` 标橙。返回空表 = 这条放得下。
+     *
+     * <p>**text/multiline 按拆行之后的实际盒判**，不按「一行横着塞不塞得下」判：渲染器会把超宽的行
+     * 拆成多行往下压（docs/34 硬约束 2，固件对行尾静默丢弃），所以横向超宽本身不是错 ——
+     * 按一行判会误杀本来打得好的模板，还会漏掉真错误。真错误只有两种：
+     * ① 右侧连一个字符都放不下（那种情况渲染器**不拆**，尾巴被吞，见 `lineSegments` 的守卫）；
+     * ② 拆完的总高越过下边界。
+     *
+     * <p>**其余类型**：line/rect 两个轴都按声明尺寸查；barcode/qrcode 免估算（TSPL 按内容自适应），
+     * 只认显式 `w`（A7 裁定 R2）；竖向对它们只按 `h`（没声明 h 就按 1 点，等于只查原点）——
+     * 条码/二维码自适应排出来的真实高度没有实测数据，不猜。
+     *
+     * <p>所有比较**升 long**：int 相加溢出成负数会把天大的越界判成合格（A6 I-2 / A7 R5）。
+     *
+     * <p>validate 侧传的是元素自己的 `text` 字面量：声明了 `field` 的元素在这里必然拿不到值，
+     * 空内容不出 `TEXT` 行、谈不上越界（返回空表），值的长度由 render 侧那一次调用负责。
      */
-    private static Integer estWidth(String type, int declaredW, int size, String text) {
-        Integer estW;
-        if ("line".equals(type) || "rect".equals(type)) {
-            estW = Math.max(declaredW, 0);
-        } else if ("barcode".equals(type) || "qrcode".equals(type)) {
-            estW = declaredW > 0 ? declaredW : null;
-        } else if ("multiline".equals(type)) {
-            estW = declaredW > 0 ? declaredW : LabelGeometry.estWidthDots(text, size);
-        } else {
-            int est = LabelGeometry.estWidthDots(text, size);
-            estW = declaredW > 0 ? Math.max(declaredW, est) : est;
+    private static List<String> overflowMessages(String type, int x, int y, int declaredW, int declaredH,
+                                                 int size, String content, int canvasW, int canvasH) {
+        if ("text".equals(type) || "multiline".equals(type)) {
+            if (content == null || content.isEmpty()) return List.of();
+            LabelGeometry.Font font = LabelGeometry.fontFor(content, size);
+            int available = LabelGeometry.wrapBudgetDots(x, declaredW, canvasW);
+            if (available < font.perCharDots()) {
+                return List.of("从 x=" + x + " 起只剩 " + Math.max(0, available) + " 点，放不下一个 "
+                        + font.perCharDots() + " 点的字符（字体 " + font.name() + " ×" + font.mulX()
+                        + "），起点请往左挪");
+            }
+            List<String> lines = LabelGeometry.lineSegments(content, font.perCharDots(), available);
+            int height = lines.size() * font.lineHeightDots();
+            long beyondY = (long) y + height - canvasH;
+            if (beyondY > 0) {
+                return List.of("这段要拆成 " + lines.size() + " 行 × " + font.lineHeightDots() + " 点 = "
+                        + height + " 点高，从 y=" + y + " 起越过下边界 " + canvasH + " 点，越界 " + beyondY + " 点");
+            }
+            return List.of();
         }
-        return estW;
+
+        List<String> out = new ArrayList<>();
+        int vExtent = Math.max(declaredH, 1);
+        long beyondY = (long) y + vExtent - canvasH;
+        if (beyondY > 0) {
+            out.add("y=" + y + (declaredH > 0 ? " 起高 " + declaredH + " 点" : "")
+                    + " 越过下边界 " + canvasH + " 点，越界 " + beyondY + " 点");
+        }
+        // 横向只查「尺寸是确定的」那两类：line/rect 的 w 就是它自己声明的；条码/二维码只有显式声明才查。
+        Integer codeW;
+        if ("line".equals(type) || "rect".equals(type)) {
+            codeW = Math.max(declaredW, 0);
+        } else {
+            codeW = declaredW > 0 ? declaredW : null;
+        }
+        if (codeW != null) {
+            long beyondX = (long) x + codeW - canvasW;
+            if (beyondX > 0) {
+                out.add("从 x=" + x + " 起宽 " + codeW + " 点，越过右边界 " + canvasW + " 点，越界 " + beyondX + " 点");
+            }
+        }
+        return out;
     }
 
     private static String nullToEmpty(String s) { return s == null ? "" : s; }

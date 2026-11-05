@@ -61,11 +61,32 @@ class LabelTemplateValidateTest {
     }
 
     @Test
-    @DisplayName("字面量文本越过右边界 → 报错带越界点数")
-    void rejectsHorizontalOverflow() {
-        List<ValidationIssue> issues = v("[{\"type\":\"text\",\"x\":600,\"y\":10,\"text\":\"批号批号批号\",\"size\":24}]");
+    @DisplayName("超宽的字面量文本会**自动拆行**，不是横向越界 —— 按一行塞不塞得下去拦就是误杀（B3b）")
+    void longTextThatWrapsIntoThePaperIsAccepted() {
+        assertThat(v("[{\"type\":\"text\",\"x\":600,\"y\":10,\"text\":\"批号批号批号\",\"size\":24}]")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("拆完之后竖向越过下边界才拦，并且把行数与越界量一起报出来")
+    void rejectsTextThatSpillsOffTheBottomAfterWrapping() {
+        // 20 个汉字 @24 点：右侧预算 640−560=80 ⇒ 一行 3 字 ⇒ 7 行 × 24 = 168 点；400+168−480 = 88
+        List<ValidationIssue> issues = v(
+                "[{\"type\":\"text\",\"x\":560,\"y\":400,\"text\":\"批号批号批号批号批号批号批号批号批号批号\",\"size\":24}]");
         assertThat(issues).hasSize(1);
-        assertThat(issues.get(0).message()).contains("越界 104 点");
+        assertThat(issues.get(0).message()).contains("7 行");
+        assertThat(issues.get(0).message()).contains("越界 88 点");
+    }
+
+    @Test
+    @DisplayName("右侧连一个字符都放不下才按横向拦（那种情况渲染器**不拆**，尾巴会被固件吞掉）")
+    void rejectsTextWithNoRoomForEvenOneCharacter() {
+        List<ValidationIssue> tight = v("[{\"type\":\"text\",\"x\":630,\"y\":10,\"text\":\"批号\",\"size\":24}]");
+        assertThat(tight).hasSize(1);
+        assertThat(tight.get(0).message()).contains("只剩 10 点");
+        assertThat(tight.get(0).message()).contains("放不下一个 24 点的字符");
+        // 起点整体在纸外：预算是负数，报「只剩 0 点」而不是负数点数（车间看到负数只会以为程序坏了）
+        assertThat(v("[{\"type\":\"text\",\"x\":700,\"y\":10,\"text\":\"批号\",\"size\":24}]"))
+                .anySatisfy(is -> assertThat(is.message()).contains("只剩 0 点"));
     }
 
     @Test
@@ -102,11 +123,11 @@ class LabelTemplateValidateTest {
     void secondElementGetsSecondIndex() {
         List<ValidationIssue> issues = renderer.validate(
                 "[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24},"
-              + "{\"type\":\"text\",\"x\":600,\"y\":0,\"text\":\"批号批号批号\",\"size\":24}]",
+              + "{\"type\":\"line\",\"x\":600,\"y\":0,\"w\":100,\"h\":2}]",
                 "FG_ROLL", 80, 60, 203);
         assertThat(issues).hasSize(1);
         assertThat(issues.get(0).index()).isEqualTo(1);
-        assertThat(issues.get(0).message()).contains("越界 104 点");
+        assertThat(issues.get(0).message()).contains("越界 60 点");
     }
 
     @Test

@@ -202,4 +202,24 @@ class TsplLabelRendererTest {
         assertThat(out).contains("TEXT 700,40,\"2\",0,2,1,\"AB\"\r\n");
         assertThat(out).doesNotContain("TEXT 700,60");
     }
+
+    @Test
+    @DisplayName("声明了 w 就按 w 换行、不按纸宽：w=100 ⇒ 一行 4 个 24 点的字（种子模板的三条 multiline 都走这条）")
+    void declaredWidthIsTheWrapBudget() {
+        ResolvedElement e = el("multiline", 20, 40, "一二三四五六七八九十", 24);
+        e.setW(100);
+        String out = renderer.renderCommandText(of(e));
+        assertThat(out).contains("TEXT 20,40,\"TSS24.BF2\",0,1,1,\"一二三四\"\r\n");
+        assertThat(out).contains("TEXT 20,64,\"TSS24.BF2\",0,1,1,\"五六七八\"\r\n");
+        assertThat(out).contains("TEXT 20,88,\"TSS24.BF2\",0,1,1,\"九十\"\r\n");
+        assertThat(out).doesNotContain("TEXT 20,112");
+    }
+
+    @Test
+    @DisplayName("同样的内容不声明 w ⇒ 按纸宽 620 点排，一行放得下就还是 1 行")
+    void paperWidthIsTheFallbackBudget() {
+        String out = renderer.renderCommandText(of(el("multiline", 20, 40, "一二三四五六七八九十", 24)));
+        assertThat(out).contains("TEXT 20,40,\"TSS24.BF2\",0,1,1,\"一二三四五六七八九十\"\r\n");
+        assertThat(out).doesNotContain("TEXT 20,64");
+    }
 }

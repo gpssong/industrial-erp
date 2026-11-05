@@ -18,7 +18,7 @@ public class ResolvedElement {
     private int h;
     /** required 且取值为空 —— 预览标红，但不阻断打印 (docs/32 §5)。 */
     private boolean missing;
-    /** 取值后估宽越过右边界（预览标橙，保存闸只拦字面量能算出来的那种）。 */
+    /** 取值后按实测字库量宽、按**拆行后的实际盒**判越界（预览标橙，与保存闸同一个函数）。 */
     private boolean overflow;
     private String field;
     /**

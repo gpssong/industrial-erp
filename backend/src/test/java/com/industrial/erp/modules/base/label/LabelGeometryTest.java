@@ -17,12 +17,70 @@ class LabelGeometryTest {
     }
 
     @Test
-    @DisplayName("宽度估算：中文按字号全额、ASCII 按 0.6 倍 —— 只为保存闸的越界检测服务")
-    void estimatesWidth() {
-        assertThat(LabelGeometry.estWidthDots("批号", 24)).isEqualTo(48);
-        assertThat(LabelGeometry.estWidthDots("AB", 24)).isEqualTo(28);   // floor(24*0.6)=14 each
-        assertThat(LabelGeometry.estWidthDots("", 24)).isZero();
-        assertThat(LabelGeometry.estWidthDots(null, 24)).isZero();
+    @DisplayName("字宽按 docs/34 实测点阵：中文 24 点/字，ASCII 字体\"2\" 12 点/字，都再乘横向倍率")
+    void measuresFontWidths() {
+        // 24 点字号：中文正好 1 倍 ⇒ 24 点/字
+        assertThat(LabelGeometry.textWidthDots("批号", 24)).isEqualTo(48);
+        // 24 点字号的 ASCII：倍率 round(24/12)=2 ⇒ 12×2=24 点/字（旧的 0.6×字号只算 14，偏松）
+        assertThat(LabelGeometry.textWidthDots("AB", 24)).isEqualTo(48);
+        assertThat(LabelGeometry.textWidthDots("AB", 12)).isEqualTo(24);   // ×1
+        assertThat(LabelGeometry.textWidthDots("", 24)).isZero();
+        assertThat(LabelGeometry.textWidthDots(null, 24)).isZero();
+    }
+
+    @Test
+    @DisplayName("混合内容整段按中文字库全额计价 —— 内置字库没有混排，宁可多算也不能少算")
+    void mixedContentIsChargedAsCjk() {
+        assertThat(LabelGeometry.textWidthDots("批号A", 24)).isEqualTo(72);   // 3 × 24，不是 48+14
+    }
+
+    @Test
+    @DisplayName("中日韩判据与渲染器同一条：0x3000–0x9FFF 与全角 0xFF00–0xFFEF")
+    void cjkTestMatchesTheRenderer() {
+        assertThat(LabelGeometry.hasCjk("批号")).isTrue();
+        assertThat(LabelGeometry.hasCjk("、")).isTrue();   // 中日韩标点 U+3001
+        assertThat(LabelGeometry.hasCjk("Ａ")).isTrue();   // 全角 A U+FF21
+        assertThat(LabelGeometry.hasCjk("，")).isTrue();   // 全角逗号 U+FF0C（不在 0x3000 段，靠全角那条命中）
+        assertThat(LabelGeometry.hasCjk("PFI202611040001")).isFalse();
+        assertThat(LabelGeometry.hasCjk(null)).isFalse();
+    }
+
+    @Test
+    @DisplayName("行高：ASCII 字体\"2\" 基准 20 点、中文 24 点；倍率各按自己的基准算，不共用")
+    void givesLineHeights() {
+        assertThat(LabelGeometry.fontFor("AB", 24).lineHeightDots()).isEqualTo(20);   // round(24/20)=1 ⇒ ×1
+        assertThat(LabelGeometry.fontFor("AB", 24).mulX()).isEqualTo(2);              // 横纵不同倍率
+        assertThat(LabelGeometry.fontFor("批号", 48).lineHeightDots()).isEqualTo(48); // 24×2
+        assertThat(LabelGeometry.fontFor("AB", 12).mulX()).isEqualTo(1);
+        assertThat(LabelGeometry.fontFor("AB", 12).mulY()).isEqualTo(1);              // round(12/20)=0 ⇒ 兜到 1
+    }
+
+    @Test
+    @DisplayName("字号漏填（≤0）按中文基准 24 点兜底 —— 与 B2 渲染器原样一致，不该崩")
+    void zeroSizeFallsBackToCjkBase() {
+        assertThat(LabelGeometry.fontFor("合格", 0).mulX()).isEqualTo(1);
+        assertThat(LabelGeometry.fontFor("合格", -8).perCharDots()).isEqualTo(24);
+        assertThat(LabelGeometry.textWidthDots("AB", 0)).isEqualTo(48);   // 兜底后 eff=24 ⇒ ×2 ⇒ 24 点/字
+    }
+
+    @Test
+    @DisplayName("换行预算：取「纸右边界」与「声明 w 右边界」里较近的那个；没声明 w 只看纸宽")
+    void budgetsTheWrapWidth() {
+        assertThat(LabelGeometry.wrapBudgetDots(560, 0, 640)).isEqualTo(80);
+        assertThat(LabelGeometry.wrapBudgetDots(0, 100, 640)).isEqualTo(100);
+        assertThat(LabelGeometry.wrapBudgetDots(500, 300, 640)).isEqualTo(140);  // min(640, 800) − 500
+        assertThat(LabelGeometry.wrapBudgetDots(700, 0, 640)).isEqualTo(-60);    // 起点已在纸外：负数照实返回
+    }
+
+    @Test
+    @DisplayName("拆段按码点推进：代理对不许被劈成两半，预算不足一个字符时不拆")
+    void splitsOnCodePointBoundaries() {
+        // 预算 80 / 24 点 = 一行 3 个 ⇒ 5 个字拆成 3 + 2（尾段短于满行，正好钉住「不补齐」）
+        assertThat(LabelGeometry.lineSegments("一二三四五", 24, 80)).containsExactly("一二三", "四五");
+        assertThat(LabelGeometry.lineSegments("一二三", 24, 8)).containsExactly("一二三");   // 放不下一个字符 ⇒ 不拆
+        assertThat(LabelGeometry.lineSegments("AB", 24, 0)).containsExactly("AB");           // 纸宽没填 ⇒ 不拆
+        // 代理对不许劈开：字体"2"×2 = 24 点/字，预算 56 ⇒ 一行 2 个码点；按 char 推进就会把一个 emoji 切成两半
+        assertThat(LabelGeometry.lineSegments("😀😀😀", 24, 56)).containsExactly("😀😀", "😀");
     }
 
     @Test

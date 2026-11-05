@@ -71,12 +71,21 @@ class LabelTemplateRenderTest {
     }
 
     @Test
-    @DisplayName("取值后越右边界 → 元素标 overflow（CARTON 的 batchNo | 串就是这一类）")
+    @DisplayName("取值后**拆行**会溢出下边界 → 元素标 overflow（CARTON 的 batchNo | 串就是这一类）")
     void flagsOverflowAfterResolution() {
         RenderResult r = renderer.render(tpl(
                 "[{\"type\":\"text\",\"x\":500,\"y\":440,\"field\":\"batchNo\",\"size\":24}]"),
                 Map.of("batchNo", "B20261104|B20261103|B20261102|"));
         assertThat(r.getElements().get(0).isOverflow()).isTrue();
+    }
+
+    @Test
+    @DisplayName("同一条长批号串挪到纸面上方 ⇒ 拆 6 行仍放得下 ⇒ **不标橙**（旧口径按单行估宽会误报）")
+    void longTextThatFitsAfterWrappingIsNotFlagged() {
+        RenderResult r = renderer.render(tpl(
+                "[{\"type\":\"text\",\"x\":500,\"y\":100,\"field\":\"batchNo\",\"size\":24}]"),
+                Map.of("batchNo", "B20261104|B20261103|B20261102|"));
+        assertThat(r.getElements().get(0).isOverflow()).isFalse();
     }
 
     @Test

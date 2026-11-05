@@ -3,13 +3,12 @@ package com.industrial.erp.modules.base.label;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.Charset;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 印麦 IP-803 主通道渲染器 (docs/32 §4，§9 闸后)。
  *
- * <p>**取证结论的三个落点**：`CHARSET`(Q3)、`ASCII_FONT`/`CHINESE_FONT`(Q2)、`QRCODE` 的形参顺序(Q1/④)。
+ * <p>**取证结论的三个落点**：`CHARSET`(Q3)、字体号与点阵宽(Q2，已归 {@link LabelGeometry})、`QRCODE` 的形参顺序(Q1/④)。
  * 这三处以外不需要按机器改 —— 元素模型、模板表、日志、页面都与厂商无关。
  *
  * <p>TSPL 没有「加粗」也没有「画矩形」：加粗用右移 1 点重复打一次，矩形用四条实心 BAR 描边。
@@ -17,7 +16,7 @@ import java.util.List;
  * <p>**超宽必须在这里拆行** (docs/34 硬约束 2，2026-11-05 实测)：这台的固件对**超出纸宽的行尾直接静默丢弃**
  * —— 不折行、不报错、`print()` 回过来的 `missingAcks=0` 只代表蓝牙发完了，不代表印全了。
  * 所以服务端不算「排版」（字距/连字之类仍归打印机内置字库），但**必须算「一行放得下几个字」**：
- * 按内置字库的点阵宽（ASCII 字体"2" = 12 点、中文 TSS24.BF2 = 24 点，均再乘横向放大倍率）估宽，
+ * 按 {@link LabelGeometry} 的**实测点阵度量**与**同一个拆行函数**估宽、拆行 —— 保存闸判的是同一套数（B3b）。
  * 放不下就拆成多条 `TEXT`，后续段在 y 上依次下移一个行高。
  * 选择**拆行而不是缩字号**：缩字号会让同一模板因内容长短打出两种字号，版式不可预测。
  */
@@ -26,14 +25,6 @@ public class TsplLabelRenderer {
 
     /** Q3 取证结论：GBK / GB18030 / UTF-8 三选一。**改这一行**，其余代码跟着 `CHARSET.name()` 走。 */
     public static final Charset CHARSET = Charset.forName("GBK");
-
-    /** Q2 取证结论：ASCII 内置字体号与其基准点阵（"2" = 12×20 点）。 */
-    private static final String ASCII_FONT = "2";
-    private static final int ASCII_BASE_W = 12;
-    private static final int ASCII_BASE_H = 20;
-    /** Q2 取证结论：中文内置字库名与基准点阵（TSS24.BF2 = 24×24 点简中）。 */
-    private static final String CHINESE_FONT = "TSS24.BF2";
-    private static final int CJK_BASE = 24;
 
     private static final int LINE_THICKNESS = 2;
     private static final int MIN_BARCODE_HEIGHT = 10;
@@ -78,14 +69,7 @@ public class TsplLabelRenderer {
             case "multiline": {
                 String content = safe(e.getContent());
                 if (content.isEmpty()) return "";
-                int size = e.getFontSize() <= 0 ? CJK_BASE : e.getFontSize();
-                if (hasCjk(content)) {
-                    int mul = Math.max(1, Math.round((float) size / CJK_BASE));
-                    return textBlock(e, content, CHINESE_FONT, mul, mul, CJK_BASE, CJK_BASE, paperW);
-                }
-                int mx = Math.max(1, Math.round((float) size / ASCII_BASE_W));
-                int my = Math.max(1, Math.round((float) size / ASCII_BASE_H));
-                return textBlock(e, content, ASCII_FONT, mx, my, ASCII_BASE_W, ASCII_BASE_H, paperW);
+                return textBlock(e, content, paperW);
             }
             case "qrcode": {
                 String content = safe(e.getContent());
@@ -110,56 +94,26 @@ public class TsplLabelRenderer {
     }
 
     /**
-     * 一段文本 → 一条或多条 `TEXT`（超宽拆行）。
+     * 一段文本 → 一条或多条 `TEXT`（超宽拆行）。字体、倍率、行高、拆段全部来自
+     * {@link LabelGeometry}：**渲染器不再自带一套字宽假设**，所以保存闸说「放得下」
+     * 就等于这张纸真放得下（B3b）。
      *
-     * @param baseW 所选字体的基准**宽**（点）：ASCII "2" = 12，中文 TSS24.BF2 = 24
-     * @param baseH 所选字体的基准**高**（点）：拆行时后续段下移的行高 = baseH × mulY
+     * <p>换行预算用 `wrapBudgetDots(x, e.getW(), paperW)`：声明了 w 的（种子模板里三条
+     * `multiline` 都声明了）按 w 圈栏，没声明的按纸宽 —— 用户在编辑器里圈的栏宽就是实纸上的栏宽。
      */
-    private static String textBlock(ResolvedElement e, String content, String font,
-                                    int mulX, int mulY, int baseW, int baseH, int paperW) {
-        int perCharDots = baseW * mulX;
-        List<String> segments = fitSegments(content, perCharDots, paperW - e.getX());
-        int lineHeight = baseH * mulY;
+    private static String textBlock(ResolvedElement e, String content, int paperW) {
+        LabelGeometry.Font font = LabelGeometry.fontFor(content, e.getFontSize());
+        int available = LabelGeometry.wrapBudgetDots(e.getX(), e.getW(), paperW);
+        List<String> segments = LabelGeometry.lineSegments(content, font.perCharDots(), available);
         StringBuilder sb = new StringBuilder();
         int y = e.getY();
         for (String segment : segments) {
-            sb.append(textLine(e.getX(), y, font, mulX, mulY, segment));
+            sb.append(textLine(e.getX(), y, font.name(), font.mulX(), font.mulY(), segment));
             // 加粗的 x+1 重复行跟着**每一段**走，只拆第一行等于把加粗弄丢。
-            if (e.isBold()) sb.append(textLine(e.getX() + 1, y, font, mulX, mulY, segment));
-            y += lineHeight;
+            if (e.isBold()) sb.append(textLine(e.getX() + 1, y, font.name(), font.mulX(), font.mulY(), segment));
+            y += font.lineHeightDots();
         }
         return sb.toString();
-    }
-
-    /**
-     * 一行放不下就按字符边界拆段（拆不断半个汉字：按码点推进，代理对不会被劈开）。
-     *
-     * <p>混合内容里 ASCII 也按所选字体的全额宽度预算 —— 中文行内夹英文时到底占 12 还是 24 点
-     * **没有实测数据**（docs/34 只在纯 ASCII 行上钉死了 24 点/字符 @×2）。宁可多算（早拆一行、
-     * 纸面多一行空白余量）也不能少算（少算就是固件静默丢尾，等于把 ② 那张纸的 bug 抄进产品）。
-     *
-     * @param availableDots 纸宽减去起点 x；小于一个字符宽（含 x 已在纸外、纸宽未填）时**不拆**，
-     *                      原样一行交出去 —— 起点越界是模板排版的错，归 A6 保存闸，不在这里静默改坐标。
-     */
-    private static List<String> fitSegments(String content, int perCharDots, int availableDots) {
-        List<String> segments = new ArrayList<>();
-        if (perCharDots <= 0 || availableDots < perCharDots) {
-            segments.add(content);
-            return segments;
-        }
-        int maxChars = availableDots / perCharDots;
-        int from = 0;
-        while (from < content.length()) {
-            int to = from;
-            int chars = 0;
-            while (chars < maxChars && to < content.length()) {
-                to += Character.charCount(content.codePointAt(to));
-                chars++;
-            }
-            segments.add(content.substring(from, to));
-            from = to;
-        }
-        return segments;
     }
 
     /** x/y 单独作形参：加粗那条只是同一行的 x+1，其余（字体/倍率/本段内容）必须与普通那条完全一致。 */
@@ -175,15 +129,6 @@ public class TsplLabelRenderer {
                 + "BAR " + x + "," + (y + h - LINE_THICKNESS) + "," + w + "," + LINE_THICKNESS + "\r\n"
                 + "BAR " + x + "," + y + "," + LINE_THICKNESS + "," + h + "\r\n"
                 + "BAR " + (x + w - LINE_THICKNESS) + "," + y + "," + LINE_THICKNESS + "," + h + "\r\n";
-    }
-
-    private static boolean hasCjk(String s) {
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c >= 0x3000 && c <= 0x9FFF) return true;   // 中日韩标点 + 基本汉字
-            if (c >= 0xFF00 && c <= 0xFFEF) return true;   // 全角
-        }
-        return false;
     }
 
     /** 指令的参数是双引号包住的字符串，内容里的引号/换行必须打掉，否则指令被截断（打出半张纸）。 */
