@@ -53,7 +53,6 @@ export const labelApi = {
   feiePreview: (data) => request.post('/base/label/feie/preview', data),
   feiePrint: (data) => request.post('/base/label/feie/print', data),
   logs: (params) => request.get('/base/label/logs', { params }),
-  // B3 才启用：导出 TSPL 文本（闸后）
   tspl: (data) => request.post('/base/label/tspl', data)
 }
 
