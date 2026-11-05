@@ -3,6 +3,82 @@
 
 ## changelog (倒序)
 
+### v1.1.167 (2026-11-05 — 标签打印层：结构化元素模板 + TSPL 主通道 + 印麦 IP-803 手机蓝牙直发 + PC/App 标签打印中心；代码与四套产物只在本机，三站一行 SQL 都没灌)
+
+> **用户原话**: 「先做 A（本周就能开工）：补标签主数据（生产者名称/地址/XK 证号/执行标准/贮存条件/检验员代号，放 sys_config 或新表）+ 一张标签模板表（尺寸、间隙、dpi、份数、绑 bizType）+ PC/App「标签打印中心」，把成品卷标、原料垛标、箱标、合格证四类先跑通，输出仍走现有飞鹅 + 可导出标准 TSPL 文本。这一步做完，无论以后买哪家机器，数据和模板都不用重写 —— 这是唯一不浪费的投入。」
+> 同一轮追加三条定范围的事实：「手上有印麦 ip-803 标签打印机，能蓝牙连接，主要打印 80*60 的标签纸。车间手机蓝牙连接打印。」／「合规要素暂时不上标签。」／「这个是工业生产许可证，证件号放上去吧。」
+
+设计在 [docs/32_标签层设计规格.md](32_标签层设计规格.md)，步骤在 [docs/33_标签层实施计划.md](33_标签层实施计划.md)（A1–A15 闸前 / B1–B7 闸后），真机取证在 [docs/34_印麦IP803指令集实测.md](34_印麦IP803指令集实测.md)。代码在分支 `v1.1.167-label-layer`：**44 个提交、79 文件 / +7672 / −25**（`git diff --stat d3be60b..HEAD`）。
+
+**先读这四条再看改动清单**（都是「读代码看不出来、不知道就会踩」的）：
+
+1. **换一台打印机要动的地方只有四处**，全在 [TsplLabelRenderer.java](../backend/src/main/java/com/industrial/erp/modules/base/label/TsplLabelRenderer.java) 与 [LabelGeometry.java](../backend/src/main/java/com/industrial/erp/modules/base/label/LabelGeometry.java)：`CHARSET = GBK`（渲染器 `:27`，`header()` 跟着它出 `CODEPAGE 936`）、中文字体号 `TSS24.BF2` 与 24 点/字（`LabelGeometry:25-26`）、ASCII 字体 `"2"` 与 12×20 点阵（`:21-23`）、以及 `QRCODE x,y,L,<cell>,0,A,"…"` 的**形参顺序**（渲染器 `:78-79`）。元素模型、模板表、日志、PC/App 页面都与厂商无关。三个结论来自 2026-11-05 的 IP-803 真机：
+   - **Q1 吃 TSPL** —— 样本①「只发指令头出空白张」**且** 样本②「发正文出英文字」两半都过才判「吃」⇒ 没写 `CpclLabelRenderer`，本期就一个主通道渲染器。
+   - **Q2 中文走机器内置字库** `TSS24.BF2`（③-a 那张 11 个字全出、无缺笔）⇒ 不需要位图渲染，docs/32 §9 预留的「工作量翻倍就重新拍板」没被触发。
+   - **Q3 字节是 GBK**（GB18030 对这 11 个字与 GBK 逐字节相同 ⇒ 同结论；GBK 已出字，UTF-8 排除张按表单规则不必发）⇒ 渲染器与蓝牙插件都按 GBK 发字节。
+   另有两条**纸面硬约束**（不在计划样本里，比样本有用）：`DIRECTION 1` 会把整张内容转 180°（纸面三次复现 ⇒ 模板用 `NORMAL/REVERSE` 两态 + 单测钉死，渲染器不偷偷翻坐标去「修正」）；**单行超出纸宽时固件静默丢掉尾巴，不折行、不报错**（② 那张 `abcdefg` 直接没了）⇒ 渲染器必须自己按 203dpi / 80mm=640 点量宽并**拆行**（选拆行不选缩字号，免得同一模板因内容长短打出两种字号），而 `print()` 回 `missingAcks=0` 只代表蓝牙发完了、**不代表印全了**。
+   ⚠️ 印麦 = 爱印 = 启锐（iprtapp.com），**公开型号页查不到 IP-803**（只列 IP-801 / IP-802 / IP80-BT），指令集只能实测 —— 别再想从厂商文档推参数。
+
+2. **飞鹅那条通道是「如实退化」的，不是排版丢了**。[FeieLabelRenderer.java](../backend/src/main/java/com/industrial/erp/modules/base/label/FeieLabelRenderer.java) 面对的是 58mm 流式点阵**小票机**，没有绝对定位：按 `y` 分行（容差 `ROW_TOLERANCE_DOT = 20` 点）、行内按 `x` 排序拼成文本行；`line`/`rect` 不在 `isPrintable()` 名单里 = **直接丢**；1D 条码的飞鹅指令未经真机验证 ⇒ 打 `(条码 内容)` **明文**，宁可不扫码也不打一张扫不出来的假码。退化写在三处：渲染器类注释、接口返回的 `note`（[BaseLabelController.java:231](../backend/src/main/java/com/industrial/erp/modules/base/controller/BaseLabelController.java#L231)，PC 侧 [LabelCenter.vue:355](../pc-web/src/views/base/LabelCenter.vue#L355) 把它当后端原文照抄显示、不改写）、以及「车间主出口是印麦蓝牙、飞鹅只是次通道」这句话。有人拿飞鹅当主通道打就会投诉「排版丢了」。
+
+3. **标签打印中心不阻断空必填项**（docs/32 §5）：检验员代号、贮存条件为空时照样出标签 —— 车间不能因为一个检验员代号没登记就不出纸。做法是渲染器**不抛异常**（[LabelTemplateRenderer.java:104-105](../backend/src/main/java/com/industrial/erp/modules/base/label/LabelTemplateRenderer.java#L104)），缺的字段标在 `ResolvedElement.missing` 上、汇总进 `RenderResult.missingRequired`，PC 预览把该元素标红并列字段名（[LabelCenter.vue:66-67](../pc-web/src/views/base/LabelCenter.vue#L66)），App 在画布下面一行橙字「必填项取值为空：…（不阻断打印）」（[label-print.vue:60](../app/src/pages/base/label-print.vue#L60)）。**看到红/橙提示是设计如此，不是坏了。** ⚠️ 一句与计划不符的实情要标明：`base_label_print_log` **没有 `missing_required` 列**（[sql/155](../sql/155_v11167_label_tables.sql) 建表里没有这一列），`logSuccess()` 的 `errorMsg` 恒为 `null`（[LabelPrintService.java:29-33](../backend/src/main/java/com/industrial/erp/modules/base/label/LabelPrintService.java#L29)）⇒ docs/33 里「日志记 `missing_required`」这句**没实现**，事后审计看不出哪张标签带着空必填项出过纸。已进下面的「⚠️ 遗留」第 1 条。
+
+4. **合格证（CERT）本期只出模板骨架，打不出来**。[BaseLabelController.java:155](../backend/src/main/java/com/industrial/erp/modules/base/controller/BaseLabelController.java#L155) 的 `/bills` 里是显式 `case CERT -> throw BizException.of(400, "合格证本期不出（docs/32 §11 第 4 条）")`（同一个 switch 刻意写成**表达式**：将来加第五类标签会编译不过，这是 A9 裁定 R2）；`context/` 目录下只有 `FgRoll` / `RawPallet` / `Carton` 三个 loader 加一个接口，**没有 `CertContextLoader`**，真去取数会被 [LabelContextService.java:33](../backend/src/main/java/com/industrial/erp/modules/base/label/LabelContextService.java#L33) 兜成「该标签类型还没有数据加载器」；而 `LabelBizType` 的 CERT 枚举位与 [LabelFieldDict.java:28](../backend/src/main/java/com/industrial/erp/modules/base/label/LabelFieldDict.java#L28) 的 CERT 字段名单都已备好 ⇒ 哪天合规要素定上标签，**只补一个 loader**，渲染器/模板表/页面都不动。用户拍板的是「合规要素暂时不上标签」，别以为这版能打合格证。
+
+**后端**（闸前 A1–A14 + 闸后 B2/B3b）
+- 两张新表（[sql/155](../sql/155_v11167_label_tables.sql)）：`base_label_template`（宽/高/间隙/dpi/份数/`biz_type`/元素 JSON，坐标一律存**点**，毫米只在表头出现）+ `base_label_print_log`（`channel` ∈ `BT_TSPL` 手机蓝牙 / `FEIE` 飞鹅云 / `EXPORT` 导出文本，成功与失败**都落一行**、带整张渲染内容快照 + `content_hash`；蓝牙的 `printer_name`/`printer_mac` 只在这一串日志里事后推）。**不复用 `sys_feie_print_log`** —— 那张绑死飞鹅 `device_sn`/订单号，蓝牙和导出通道根本没有。
+- 管道三段：上下文加载 → 取值/格式化 → 厂商渲染。loader 是 `context/FgRollLabelContextLoader`（成品卷标）、`context/RawPalletLabelContextLoader`（原料垛标，按勾选明细行逐行展开）、`context/CartonLabelContextLoader`（箱标**按单据出一张，不逐箱**）；[LabelContextService.java](../backend/src/main/java/com/industrial/erp/modules/base/label/LabelContextService.java) 按 `bizType` 找 loader 并把 `LABEL_MASTER` 的六个主数据字段并进每一行。[ResolvedElement.java](../backend/src/main/java/com/industrial/erp/modules/base/label/ResolvedElement.java) 是**唯一的中间接口**（docs/32 §4 约束 1）—— 「闸前/闸后分批」这个拆法就是靠它成立的：取证之前元素模型/模板表/日志/页面全部写完，B2 拿到 Q1/Q2/Q3 后只整块重写渲染器，上游一行没动。
+- 几何与字库度量收在 [LabelGeometry.java](../backend/src/main/java/com/industrial/erp/modules/base/label/LabelGeometry.java) 一个出口：mm↔点、`trueDpi(203)=203.2`（所以 80mm = **640 点，不是 800**）、拆行预算。B3b 之后**渲染器、保存闸、预览标橙三处调同一个函数**，不会出现「保存时说没事、打出来少一行」，也不会「闸把本来打得好的模板拦下来」。
+- 保存闸（[BaseLabelTemplateService.java](../backend/src/main/java/com/industrial/erp/modules/base/service/BaseLabelTemplateService.java) + `LabelElement.validate`）：未知字段名 / 元素形状非法 / 越界 ⇒ 400 且**点名元素下标**（与 PC 表格行号对得上）；判的是拆行之后的**实际盒**，横向超宽不再是错误（因为会自动拆行）。模板 `is_default` 只能由 `setDefault` 设（先清同 `bizType` 兄弟行再过闸），`add` 一律建 0。
+- 端点（`/base/label/*`）：`master`、`fields`、`bills`、`lines`、`template/list|add|update|delete|set-default`、`preview`（元素级结构 + 条码/二维码图给屏显）、`tspl`（`contentsBase64` = **GBK 原始字节**的 base64，`previewText` = TSPL 原文）、`feie/preview|print`、`print/log`、`logs`。字段名唯一名单 = [LabelFieldDict.java](../backend/src/main/java/com/industrial/erp/modules/base/label/LabelFieldDict.java)，PC 的 `/fields` 与它**同源同序**（有单测钉住）。
+- [SysUser.java:30-31](../backend/src/main/java/com/industrial/erp/modules/system/entity/SysUser.java#L30) 新增 `inspectorCode`（= `sys_user.inspector_code`，部署顺序铁律见 SQL 段）；[SysConfigController.java:63](../backend/src/main/java/com/industrial/erp/modules/system/controller/SysConfigController.java#L63) 的 `CLIENT_READABLE_KEYS` 加 `LABEL_MASTER` —— 这就是「为什么这个 key 普通登录用户能读」的答案：它和 `SYS_NAME` 一类只读品牌配置同口径，标签渲染两端都要它。
+- [backend/pom.xml:161-172](../backend/pom.xml#L161) 新增**本次唯一的新生产依赖** `com.google.zxing:core` + `:javase` `3.5.3`。⚠️ **只服务屏显预览** —— 真正出纸走打印机指令（docs/32 §4 约束 4，pom 里那两行注释也写了）；以后升 zxing 时别以为它在给硬件供货。
+
+**PC**
+- 新页 [LabelTemplate.vue](../pc-web/src/views/base/LabelTemplate.vue)（模板管理 = **元素表格**，不是画布拖拽，理由写在 docs/32 §6.1）+ [LabelCenter.vue](../pc-web/src/views/base/LabelCenter.vue)（打印中心：选单 → 选行 → 结构化预览 → 导出 TSPL / 发飞鹅 / 看打印日志）。
+- 导出**不让浏览器再编码一次**：`contentsBase64` → `atob` → `Uint8Array` → Blob 原样落盘（`b64ToBytes()`，[LabelCenter.vue:383](../pc-web/src/views/base/LabelCenter.vue#L383)）。一旦 `new Blob([previewText])` 就是让浏览器按 UTF-8 重编一遍，中文进打印机必乱 —— 编码只在服务端一处。
+
+**App**
+- [pages/base/label-print.vue](../app/src/pages/base/label-print.vue) = **车间主出口**：绑定打印机 → 选单/选行 → 打印 → 成功与失败**都回报** `POST /base/label/print/log`（`content` 送 TSPL 原文而不是 base64，与 `EXPORT` 行同形，审计材料才对得上；日志回报失败**绝不挡**车间出纸）。
+- 绑定关系（`{mac,name}`）存**手机本机 storage**，key `erp_label_printer`（[app/src/utils/labelPrinter.js:25](../app/src/utils/labelPrinter.js#L25)），**故意不落库**（docs/32 §7.3）：车间多台手机 × 多台机器是现场事实不是主数据、换班重绑比在 PC 改配置快、MAC 对服务端渲染毫无用处。代价也如实说：换手机要重绑，后台看不到「哪台手机绑了哪台机器」，只能从日志的 `printer_mac` 事后推。
+- 原生插件 [LabelBlePlugin.java](../app/android/app/src/main/java/com/pengcheng/erp/LabelBlePlugin.java) + [MainActivity.java:39](../app/android/app/src/main/java/com/pengcheng/erp/MainActivity.java#L39) 的 `registerPlugin`：本项目 App 是 **Capacitor 套壳 H5**、不是 DCloud 原生运行时 ⇒ 厂商「UniApp SDK」/插件市场一概用不上，蓝牙必须自写 Capacitor Android 插件（先例 `NativePrint`/`NativeScanner`/`NativeShare`）；**iOS 没有实现**，车间 iPhone 用不了这页（页面上写明了）。APK 只能走 `scripts/build-app.sh`。
+- 分片长度由**原生一处**决定：`min(MAX_WRITE_CHUNK=180, max(MIN_WRITE_CHUNK, mtu-3))`（`LabelBlePlugin.java:637`/`:694`；180 是取证定的默认值，**不是 MTU−3**，MTU 实测谈到 247）。本机 GATT 特征 `props=8` 只声明 write（无 write-no-response）⇒ 只能 `WRITE_TYPE_DEFAULT` **逐片等 ACK**，吞吐被往返卡不被带宽卡（实测 ≈57ms/片）；JS 侧默认片间 30ms（`labelPrinter.js:118`），插件自己的兜底是 20ms。**JS 不算片长、也不再编码 base64。**
+
+**标签层之外，这次动了别人的地盘**（部署和回归都要按这几条查，不然找不到）
+- [app/src/api/index.js](../app/src/api/index.js)：请求层的 `silent` 此前**只有 `:135` 那一条业务错误分支认它**，这次把 `:96`（非 JSON / 5xx）、`:147`（网络层失败）、`:189`（H5 `fetchRequest` 的业务错误，同时让 `request()` 把 `silent` 真正传进 `fetchRequest`）三条一起接上。⚠️ **这是共享层，影响每一个 App 页面**：打印日志回报是「纸出来之后」的 fire-and-forget，断网时弹一句「网络连接失败」等于把成功的一次打印报成失败。将来这条链回归，第一个该怀疑的就是拦截器，不是标签页。
+- [app/src/utils/permission.js](../app/src/utils/permission.js)：`SENSITIVE_PAGES`（`:41`）与 `PAGE_PERMS`（`:114`，`{perm:'base:label:list', module:'base'}`）**两处都加了** `/pages/base/label-print`。**App 端没有全局路由拦截器**，页面必须自己调 `checkPagePermission(...)`（先例 `count/index.vue`，落点在 `label-print.vue` 的 `onLoad`）；只进 `PAGE_PERMS` 不进 `SENSITIVE_PAGES` 就漏了「敏感页未声明权限 ⇒ 默认拒绝」那层语义（`:203`）。这是以后加 App 页的通用规矩。
+- [app/src/pages.json:21-24](../app/src/pages.json#L21)：注册两页 —— `pages/base/label-print`（**必须与工作台入口同批发布**，否则点了报「页面不存在」）和 `pages/base/label-ble-debug`（**取证专用页，B6 上线前删**）。
+- [app/src/pages/dashboard/index.vue:324-329](../app/src/pages/dashboard/index.vue#L324)：工作台多一个「🏷 标签打印」入口（按 perm 与模块开关决定出不出现）；[app/src/pages/profile/settings.vue](../app/src/pages/profile/settings.vue)：「标签蓝牙取证」卡片（同样 B6 删）。用户问「按钮哪来的」就指这两处。
+- PC 侧四个非标签文件：[router/index.js:29-30](../pc-web/src/router/index.js#L29) 两条路由（打印中心 `perm: base:label:list`、模板 `perm: base:label:template`）；[Role.vue:212-216](../pc-web/src/views/system/Role.vue#L212) App 权限白名单加 `base:label:list` + `base:label:print`（**白名单里没有的 perm 界面上根本授不出去**；`base:label:template` 有意不进 App —— 模板设计只在 PC）；[AppModules.vue](../pc-web/src/views/system/AppModules.vue) 「基础资料」模块说明补「标签打印」；[System.vue](../pc-web/src/views/system/System.vue)（**+92/−6，本次改动量最大的单文件之一**）把「系统设置-品牌与工厂」tab 六个此前**假成功**（保存回 200 但什么都没写）的字段接真：XK 证号与工厂地址按**读-改-写**并进 `LABEL_MASTER`（绝不整份覆盖），其余落独立 `sys_config` 键；载入失败的字段禁止写成空值。
+- [.gitignore](../.gitignore) 加 `.superpowers/`（SDD 的执行台账/评审包，过程性目录不入库 —— 它出现在 diff 里不是漏提交）。
+
+**SQL**
+- [sql/155_v11167_label_tables.sql](../sql/155_v11167_label_tables.sql)：两张新表 + **`sys_user.inspector_code VARCHAR(32) NULL`（列级 DDL，见下面第二条铁律）** + `LABEL_MASTER` 等 `sys_config` 种子 + 三条默认模板（固定 id `1167000000000000001/2/3`）；幂等写法（`CREATE TABLE IF NOT EXISTS` / `INSERT IGNORE` / `information_schema` 探测）。
+- [sql/156_v11167_label_perm_grant.sql](../sql/156_v11167_label_perm_grant.sql)：`base:label:list|print|template` 三个 F 型权限点 + 载体菜单（挂工作台 id=1；挂 `parent_id=0` 会挤到 root 找不到）+ **按端**镜像授权行，并带 `status=1` 自愈（本项目铁律：`sys_menu` 启用行与 `sys_role_menu` 授权行必须同批，只做一半必然出「隐形按钮」或「接口 403」）。
+- ⚠️ **两个脚本都带 INSERT，只能灌 `.150` 主库、只灌一次**：`.32` 是它的下游且 `binlog_format=ROW` ⇒ canary 先跑再灌主库，复制事件回备库撞 `1062`（`CREATE TABLE` 撞 `1050` 同理会把 `Slave_SQL_Running` 停掉），sql/142/143 翻过车。
+- ⚠️ **必须先灌 sql/155、再换 jar**：新 jar 的 `SysUser` 带 `inspectorCode` ⇒ MyBatis-Plus 生成的每条 `sys_user` 查询都显式列出 `inspector_code`。**列不存在不是「标签功能坏了」，是整站登录/用户查询全崩 `Unknown column 'inspector_code' in 'field list'`。** 反过来只回滚 jar 是安全的（旧 jar 无视多出来的列）。
+
+**版本 / 产物（全是本机构建物，线上一个字节都没换）**
+- 1.1.167 七处对齐（B5 = `79a0d37`，恰 7 个文件）：`bash scripts/check-version.sh 1.1.167` → **7×OK / EXIT=0**（本任务 2026-11-05 重跑同一命令，同样 7×OK / EXIT=0）。
+- 四套产物（本任务 2026-11-05 用 `md5 -q` 原地重算，四枚与 B5 记录逐枚相同）：jar `backend/target/industrial-erp-1.0.4.jar` = `13a2389ac0211d65a84a7be9ccf33616`（103,118,537 B，内嵌 `${ERP_VERSION:1.1.167}`）；PC `pc-web/dist/index.html` = `21e1031b19744a91f0034f944dc67100`（产物含 `LabelCenter-s2An1aj6.js` / `LabelTemplate-CvngFZMw.js`）；App H5 `app/dist/build/h5/index.html` = `2f80398e01f03b37fc6f4ff46be7fdd1`（含 `pages-base-label-print.0oaX0_lJ.js`）；APK `~/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20261105-1167.apk` = `260b2042a79299b7771e79eb61dc3b32`（4,507,672 B，versionName 1.1.167 / versionCode 1167）。
+
+**部署** —— **本批未做，一个站点都没动**（用户 2026-11-05 拍板「先把功能本身做完再上线」，部署归 B6 挂着）。`.32` / `.150` / 阿里云**仍是 v1.1.166 的 jar 与 dist**，sql/155/156 **一行都没灌**，上面那四枚 md5 是**本机构建物、不是线上物**，**不存在「三站一致」这件事**。代码只在本地分支 `v1.1.167-label-layer` 上，**未 push**。恢复上线的完整步骤（上面两条 SQL 顺序铁律、canary 试跑后的清理清单、`ERP_VERSION` 等运行时 env、删取证页与调试入口）在 `.superpowers/sdd/33_标签层实施计划/task-B6-brief.md`。
+
+**实测** —— 分两层，别混：
+- **已验（有命令可复跑）**：标签包单测 `mvn -Dtest="com.industrial.erp.modules.base.label.*Test" test` → **17 个测试类 / 125 用例 / 0 失败 0 错误**（本任务 2026-11-05 实跑，跑前 `rm -rf target/classes target/test-classes target/surefire-reports`；覆盖 GBK 字节回读、超宽拆行、保存闸、`/fields` 与字典同源、飞鹅退化、权限正负例）；`check-version.sh 1.1.167` 7×OK；四套产物 md5 重算一致；**IP-803 真机指令集取证**（docs/34 的 Q1/Q2/Q3，加多片完整性 547B=4 片 8 行齐全、`DIRECTION 1` 转 180°、超静默丢尾，纸面由用户拍照核对）。
+- **未验**：**四类标签一张纸都没正式打过**（B4 Step 5 的真机验收按裁定推给 B6）；二维码与条码的**手机扫读**（docs/34 的 ④/⑤ 两格按 Ruling 写码，纸面/扫码证据欠在真机验收）；超宽拆行的纸面效果；纯 App 端权限口径（只授 APP perm 的账号端到端）。这些全在 B6 的验收清单里。
+
+**⚠️ 遗留**
+1. **`missing_required` 没进日志**（见上面第 3 条）：界面与预览有提示，库里查不到「哪张标签带着空必填项出过纸」。
+2. `mes_batch.production_date` **没有写入方**（本任务 `grep -rn "setProductionDate" backend/src/main/java` 只有实体 setter 与别的实体的同名字段被赋值，`MesBatch` 没人写）⇒ 成品卷标的生产日期只能退到 `prd_finished_in.bill_date`（记账日），标签上那个日期到底算哪天，待用户拍板。
+3. 合格证无上下文加载器（第 4 条），本期 CERT 打不出来。
+4. iOS 蓝牙无实现；车间 iPhone 用不了这页。
+5. Logo 上服务端存储没做，仍只在本机预览（A13 只把六个文本字段接真）。
+6. 画布拖拽编辑不做（PC 用元素表格，docs/32 §6.1）；装箱台账与逐箱箱标不做（箱标按单据出一张）。
+7. `previewText` 与导出文件的 GBK 字节对**编不进 GBK 的字符**（emoji / CJK ext-B 生僻字）会不一致 —— 这条是按代码推出的，**未实测**，真机验收遇到生僻字时看一眼。
+8. **取证资产还没删**：`app/src/pages/base/label-ble-debug.vue` 整页 + `pages.json` 那行路由 + `profile/settings.vue` 里的入口卡片，B6 发布前必须删（**别**删 `LabelBlePlugin.java` 与 `AndroidManifest.xml` 的蓝牙权限行，那是生产前置）。
+9. **上面那枚 APK/H5 指纹对应 `79a0d37` 的树**：`8e63bdd`（#301，只改 `appModuleEnabled.js` 里一行 `//` 注释）落在 B5 构建**之后**，所以 H5/APK 产物里不含它。打包器会剥掉注释 ⇒ 重建大概率得到同一枚 md5，但**没有实测过** ⇒ **B6 若重建，指纹要重新记，别拿这串 md5 当验收标准**。
+
 ### v1.1.166 (2026-11-04 — App 端「新增商品」从坏 stub 改成真能用的表单：主单位落库 + 全字段校验 + 入口按新建权过滤)
 
 > **用户原话**: 「在 APP 端增加添加商品的功能。请实现完整的商品添加界面和逻辑，包括商品名称、价格、库存、分类等必要字段的输入和验证，以及提交到后端保存的功能。」
