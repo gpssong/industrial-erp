@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -465,6 +466,14 @@ public class MesReportService {
                 batchMapper.updateById(u);
             }
             return;
+        }
+        // 生产日期只在新建时登记, 且只给自产品: FG/SEMI 是成品/半成品入库审核当天产出的,
+        // 那天就是生产日期 (成品卷标的「生产日期」元素靠它取值)。RAW 刻意留空 —— 原料的真实
+        // 生产日期属于供应商 (pur_receipt_detail.production_date), 领料那天只是领用日, 把今天
+        // 写进食品接触材料的追溯记录等于编造日期, XK 检查时站不住。
+        if (Constants.BATCH_TYPE_FG.equals(b.getBatchType())
+                || Constants.BATCH_TYPE_SEMI.equals(b.getBatchType())) {
+            b.setProductionDate(LocalDate.now());
         }
         b.setCreateBy(SecurityContext.getUserId());
         batchMapper.insert(b);
