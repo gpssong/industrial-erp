@@ -98,7 +98,7 @@ class TsplLabelRendererTest {
         e.setH(60);
         assertThat(renderer.renderCommandText(of(e)))
                 .contains("BARCODE 20,320,\"128\",60,2,0,2,2,\"PFI0001\"\r\n");
-        // 真实种子模板 sql/155 三条 barcode 都只写 size:60、不写 h —— 之前这里兜成 10 点（1.25 mm），
+        // 真实种子模板 sql/155 的两条 barcode（成品卷标、原料垛标）都只写 size:60、不写 h —— 之前这里兜成 10 点（1.25 mm），
         // 纸面上是一条细到扫不出的黑带（docs/34 ⑤ 那条取证用的是 60）。
         ResolvedElement e2 = el("barcode", 20, 320, "PFI0001", 60);
         assertThat(renderer.renderCommandText(of(e2))).contains("\"128\",60,");

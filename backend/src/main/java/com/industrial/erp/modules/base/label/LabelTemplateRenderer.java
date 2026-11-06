@@ -180,8 +180,10 @@ public class LabelTemplateRenderer {
      *
      * <p>所有比较**升 long**：int 相加溢出成负数会把天大的越界判成合格（A6 I-2 / A7 R5）。
      *
-     * <p>validate 侧传的是元素自己的 `text` 字面量：声明了 `field` 的元素在这里必然拿不到值，
+     * <p>validate 侧传的是元素自己的 `text` 字面量：声明了 `field` 的**文本/多行**在这里必然拿不到值，
      * 空内容不出 `TEXT` 行、谈不上越界（返回空表），值的长度由 render 侧那一次调用负责。
+     * 其余类型（line/rect/barcode/qrcode）不看内容，几何越界照旧判 —— 所以带 `field` 的条码仍会因
+     * 「y + 高度越过下边界」被拦，这是想要的行为：那条越界与内容是什么无关。
      */
     private static List<String> overflowMessages(String type, int x, int y, int declaredW, int declaredH,
                                                  int size, String content, int canvasW, int canvasH) {
@@ -208,7 +210,7 @@ public class LabelTemplateRenderer {
 
         List<String> out = new ArrayList<>();
         // 条码的竖向占位是**可算的**（渲染器就按同一条公式发），所以这里不能免检：
-        // 种子模板三条 barcode 只写 size:60 不写 h，按老口径 vExtent=1 ⇒ 永不报越界，纸面下沿却被切。
+        // 种子模板两条 barcode 只写 size:60 不写 h，按老口径 vExtent=1 ⇒ 永不报越界，纸面下沿却被切。
         // 二维码仍免估算 —— 模块数随内容长度变，没有实测数据不猜（本函数上方原注）。
         int vExtent = "barcode".equals(type) ? LabelGeometry.barcodeHeightDots(declaredH, size)
                                              : Math.max(declaredH, 1);

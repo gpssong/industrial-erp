@@ -107,7 +107,7 @@ class LabelTemplateValidateTest {
         assertThat(v("[{\"type\":\"line\",\"x\":0,\"y\":470,\"w\":0,\"h\":30}]")).hasSize(1);
         assertThat(v("[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":700,\"h\":10}]")).hasSize(1);
         assertThat(v("[{\"type\":\"barcode\",\"x\":400,\"y\":320,\"field\":\"batchNo\",\"size\":60}]")).isEmpty();
-        // 条码没写 h 时，渲染器按 size 发高度（种子模板三条 barcode 就是这么写的）——
+        // 条码没写 h 时，渲染器按 size 发高度（种子模板两条 barcode 就是这么写的）——
         // 这条是可算的，所以保存闸必须一起算：不判就会出现「闸说放得下、纸上下沿被切」。
         List<ValidationIssue> low = v("[{\"type\":\"barcode\",\"x\":20,\"y\":440,\"field\":\"batchNo\",\"size\":60}]");
         assertThat(low).hasSize(1);

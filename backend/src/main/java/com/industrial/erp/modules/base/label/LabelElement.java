@@ -7,7 +7,12 @@ public class LabelElement {
     private int y;
     private String text;      // 字面量
     private String field;     // 或从上下文取值的字段名
-    private int size;         // text: 字号点高; barcode: 条码高; qrcode: 模块尺寸
+    // size 三种类型三种用法，别当成同一个「字号」：
+    //   text/multiline = 字符点高（再换算成字库放大倍率）
+    //   barcode        = 条码高度（没声明 h 时就是它，见 LabelGeometry#barcodeHeightDots）
+    //   qrcode         = **名义字号**，不是模块边长。渲染器换算 cell = clamp(2,8, round(max(12,size)/6))，
+    //                    所以 size 给到 24 才有 cell=4（约 10.5mm）；直接给 7 会兜到 cell=2、扫不出来。
+    private int size;
     private boolean bold;
     private String align;     // LEFT | CENTER | RIGHT
     private int w;

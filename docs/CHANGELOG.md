@@ -47,8 +47,8 @@
 **标签层之外，这次动了别人的地盘**（部署和回归都要按这几条查，不然找不到）
 - [app/src/api/index.js](../app/src/api/index.js)：请求层的 `silent` 此前**只有 `:135` 那一条业务错误分支认它**，这次把 `:96`（非 JSON / 5xx）、`:147`（网络层失败）、`:189`（H5 `fetchRequest` 的业务错误，同时让 `request()` 把 `silent` 真正传进 `fetchRequest`）三条一起接上。⚠️ **这是共享层，影响每一个 App 页面**：打印日志回报是「纸出来之后」的 fire-and-forget，断网时弹一句「网络连接失败」等于把成功的一次打印报成失败。将来这条链回归，第一个该怀疑的就是拦截器，不是标签页。
 - [app/src/utils/permission.js](../app/src/utils/permission.js)：`SENSITIVE_PAGES`（`:41`）与 `PAGE_PERMS`（`:114`，`{perm:'base:label:list', module:'base'}`）**两处都加了** `/pages/base/label-print`。**App 端没有全局路由拦截器**，页面必须自己调 `checkPagePermission(...)`（先例 `count/index.vue`，落点在 `label-print.vue` 的 `onLoad`）；只进 `PAGE_PERMS` 不进 `SENSITIVE_PAGES` 就漏了「敏感页未声明权限 ⇒ 默认拒绝」那层语义（`:203`）。这是以后加 App 页的通用规矩。
-- [app/src/pages.json:21-24](../app/src/pages.json#L21)：注册两页 —— `pages/base/label-print`（**必须与工作台入口同批发布**，否则点了报「页面不存在」）和 `pages/base/label-ble-debug`（**取证专用页，B6 上线前删**）。
-- [app/src/pages/dashboard/index.vue:324-329](../app/src/pages/dashboard/index.vue#L324)：工作台多一个「🏷 标签打印」入口（按 perm 与模块开关决定出不出现）；[app/src/pages/profile/settings.vue](../app/src/pages/profile/settings.vue)：「标签蓝牙取证」卡片（同样 B6 删）。用户问「按钮哪来的」就指这两处。
+- [app/src/pages.json:21-24](../app/src/pages.json#L21)：注册 `pages/base/label-print`（**必须与工作台入口同批发布**，否则点了报「页面不存在」）。取证专用页 `pages/base/label-ble-debug` 曾同批注册，**B6-pre 已整页删除**（路由、页面、入口卡片三处一起没了，2026-11-06 实查 `grep -c label-ble-debug` = 0）。
+- [app/src/pages/dashboard/index.vue:324-329](../app/src/pages/dashboard/index.vue#L324)：工作台多一个「🏷 标签打印」入口（按 perm 与模块开关决定出不出现）；[app/src/pages/profile/settings.vue](../app/src/pages/profile/settings.vue) 的「标签蓝牙取证」卡片同样已在 B6-pre 删掉。用户问「按钮哪来的」就指这两处。
 - PC 侧四个非标签文件：[router/index.js:29-30](../pc-web/src/router/index.js#L29) 两条路由（打印中心 `perm: base:label:list`、模板 `perm: base:label:template`）；[Role.vue:212-216](../pc-web/src/views/system/Role.vue#L212) App 权限白名单加 `base:label:list` + `base:label:print`（**白名单里没有的 perm 界面上根本授不出去**；`base:label:template` 有意不进 App —— 模板设计只在 PC）；[AppModules.vue](../pc-web/src/views/system/AppModules.vue) 「基础资料」模块说明补「标签打印」；[System.vue](../pc-web/src/views/system/System.vue)（**+92/−6，本次改动量最大的单文件之一**）把「系统设置-品牌与工厂」tab 六个此前**假成功**（保存回 200 但什么都没写）的字段接真：XK 证号与工厂地址按**读-改-写**并进 `LABEL_MASTER`（绝不整份覆盖），其余落独立 `sys_config` 键；载入失败的字段禁止写成空值。
 - [.gitignore](../.gitignore) 加 `.superpowers/`（SDD 的执行台账/评审包，过程性目录不入库 —— 它出现在 diff 里不是漏提交）。
 
@@ -62,22 +62,30 @@
 - 1.1.167 七处对齐（B5 = `79a0d37`，恰 7 个文件）：`bash scripts/check-version.sh 1.1.167` → **7×OK / EXIT=0**（本任务 2026-11-05 重跑同一命令，同样 7×OK / EXIT=0）。
 - 四套产物（本任务 2026-11-05 用 `md5 -q` 原地重算，四枚与 B5 记录逐枚相同）：jar `backend/target/industrial-erp-1.0.4.jar` = `13a2389ac0211d65a84a7be9ccf33616`（103,118,537 B，内嵌 `${ERP_VERSION:1.1.167}`）；PC `pc-web/dist/index.html` = `21e1031b19744a91f0034f944dc67100`（产物含 `LabelCenter-s2An1aj6.js` / `LabelTemplate-CvngFZMw.js`）；App H5 `app/dist/build/h5/index.html` = `2f80398e01f03b37fc6f4ff46be7fdd1`（含 `pages-base-label-print.0oaX0_lJ.js`）；APK `~/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20261105-1167.apk` = `260b2042a79299b7771e79eb61dc3b32`（4,507,672 B，versionName 1.1.167 / versionCode 1167）。
 
-**部署** —— **本批未做，一个站点都没动**（用户 2026-11-05 拍板「先把功能本身做完再上线」，部署归 B6 挂着）。`.32` / `.150` / 阿里云**仍是 v1.1.166 的 jar 与 dist**，sql/155/156 **一行都没灌**，上面那四枚 md5 是**本机构建物、不是线上物**，**不存在「三站一致」这件事**。代码只在本地分支 `v1.1.167-label-layer` 上，**未 push**。恢复上线的完整步骤（上面两条 SQL 顺序铁律、canary 试跑后的清理清单、`ERP_VERSION` 等运行时 env、删取证页与调试入口）在 `.superpowers/sdd/33_标签层实施计划/task-B6-brief.md`。
+**部署** —— **只到 canary**：`.32` 已换 v1.1.167 的 jar + PC dist + App H5，`sql/155/156` **只在 `.32` 灌过**（这正是 Step 7 灌主库前必须精确删干净的原因：ROW 事件带固定主键，`.150` 再跑一遍必撞 1062）。**`.150` 与阿里云仍是 v1.1.166 的 jar 与 dist，一行 SQL 都没灌，上面那四枚 md5 是本机构建物、不是线上物**，不存在「三站一致」。代码只在本地分支 `v1.1.167-label-layer`，**未 push**。恢复上线的完整步骤（SQL 顺序铁律、canary 清理清单、`ERP_VERSION` 等运行时 env、手机侧 `erp_api_base` 回落）在 `.superpowers/sdd/33_标签层实施计划/task-B6-brief.md`。
 
-**实测** —— 分两层，别混：
-- **已验（有命令可复跑）**：标签包单测 `mvn -Dtest="com.industrial.erp.modules.base.label.*Test" test` → **17 个测试类 / 125 用例 / 0 失败 0 错误**（本任务 2026-11-05 实跑，跑前 `rm -rf target/classes target/test-classes target/surefire-reports`；覆盖 GBK 字节回读、超宽拆行、保存闸、`/fields` 与字典同源、飞鹅退化、权限正负例）；`check-version.sh 1.1.167` 7×OK；四套产物 md5 重算一致；**IP-803 真机指令集取证**（docs/34 的 Q1/Q2/Q3，加多片完整性 547B=4 片 8 行齐全、`DIRECTION 1` 转 180°、超静默丢尾，纸面由用户拍照核对）。
-- **未验**：**四类标签一张纸都没正式打过**（B4 Step 5 的真机验收按裁定推给 B6）；二维码与条码的**手机扫读**（docs/34 的 ④/⑤ 两格按 Ruling 写码，纸面/扫码证据欠在真机验收）；超宽拆行的纸面效果；纯 App 端权限口径（只授 APP perm 的账号端到端）。这些全在 B6 的验收清单里。
+**实测** —— 分三层，别混：
+- **已验（有命令可复跑）**：标签包单测 `mvn -Dtest="com.industrial.erp.modules.base.label.*Test,BaseLabelControllerBillsTest" test` → **18 个测试类 / 129 用例 / 0 失败 0 错误**（2026-11-06 实跑），后端全量 `mvn -o test` → **445 / 0 失败**；覆盖 GBK 字节回读、超宽拆行、保存闸、`/fields` 与字典同源、飞鹅退化、权限正负例、条码高度、`/bills` 日期回落；`check-version.sh 1.1.167` 7×OK；**IP-803 真机指令集取证**（docs/34 的 Q1/Q2/Q3，加多片完整性 547B=4 片 8 行齐全、`DIRECTION 1` 转 180°、超静默丢尾，纸面由用户拍照核对）。
+- **已验（纸面）**：**成品卷标、原料垛标、箱标三类各在 `.32` + 印麦 IP-803 上真打过并逐条量过**（2026-11-05/06）。第一轮的纸上问题就是下面「纸面复验揪出的四处」，改完重打。
+- **未验**：二维码与 CODE128 的**手机扫读**（docs/34 的 ④/⑤ 两格按 Ruling 写码，扫码证据还欠着 —— 这是本轮复验的最后一格）；合格证 CERT（无加载器，本期打不出）；超宽拆行的纸面效果；纯 App 端权限口径端到端。这些全在 B6 的验收清单里。
+
+**纸面复验揪出的四处**（`b39eb12` / `c9aa000` + 评审回来的两处，2026-11-06）
+- 原料垛标/箱标的**数量与单位重叠**：size 24 的 ASCII 数字最宽 7 位 = 168 点，单位却写在 x=180 ⇒ 单位挪到 **x=280**（8 位数仍会碰，属于「元素互压」那类，见遗留 10）。
+- 成品卷标**二维码压在批号上、而且小到扫不动**：`x:440` 落在批号第 14 字之后（批号值占到 446），且 `size:7` 被渲染器的 `cell = clamp(2,8,round(max(12,size)/6))` 兜成 cell 2 ⇒ 42 点 ≈ 5.25 mm。改 `size:24`（cell 4 = 84 点 ≈ 10.5 mm）、挪进右侧空白列 `x:500,y:96`，分隔线随之从 600 收到 460 点，不压码下沿。**PC 模板编辑器「+ 二维码」的默认值原来是同一个根缺陷**（`size:7`），已一起改成 24 —— 否则用户手点一行出来的还是扫不出的码。
+- **三条种子 barcode 全打成 1.25 mm 的细带**：种子只写 `size:60`、不写 `h`，而渲染器只认 `h` ⇒ `size` 被整条忽略。高度算法收到 `LabelGeometry.barcodeHeightDots()` **一个出口**，渲染器与保存闸调同一个函数，「闸说放得下」仍然等于「纸放得下」（B3b 的规矩）。
+- **箱标的日期栏在任何一张单上都是空白**：`sal_delivery.delivery_date` 165/165 为 NULL（建单/审核都不写它）。`CartonLabelContextLoader.printableDate()` 按 `bill_date` 回落，且**`/base/label/bills` 的选单日期列调同一个函数** —— 屏幕与纸面只有一个口径。写入侧故意不动（那是销售出库自己的字段，等拍板）。
 
 **⚠️ 遗留**
 1. **`missing_required` 没进日志**（见上面第 3 条）：界面与预览有提示，库里查不到「哪张标签带着空必填项出过纸」。
-2. `mes_batch.production_date` **没有写入方**（本任务 `grep -rn "setProductionDate" backend/src/main/java` 只有实体 setter 与别的实体的同名字段被赋值，`MesBatch` 没人写）⇒ 成品卷标的生产日期只能退到 `prd_finished_in.bill_date`（记账日），标签上那个日期到底算哪天，待用户拍板。
+2. ~~`mes_batch.production_date` 没有写入方~~ —— **B6-pre（#296）已修**：建 FG/SEMI 批次时写当天，历史行由 [sql/157_v11167_backfill_batch_prod_date.sql](../sql/157_v11167_backfill_batch_prod_date.sql) 按 `DATE(create_time)` 回填。成品卷标侧 `FgRollLabelContextLoader.productionDateOf()` 只按批号回查 `mes_batch.production_date`、**没有其他回落**（列空 ⇒ 纸上那一栏就是空白），真机预览已验到非空（`PFI202611050010` → `2026-11-02`）。箱标日期的同类空白见上面「纸面复验揪出的四处」第 4 条。
 3. 合格证无上下文加载器（第 4 条），本期 CERT 打不出来。
 4. iOS 蓝牙无实现；车间 iPhone 用不了这页。
 5. Logo 上服务端存储没做，仍只在本机预览（A13 只把六个文本字段接真）。
 6. 画布拖拽编辑不做（PC 用元素表格，docs/32 §6.1）；装箱台账与逐箱箱标不做（箱标按单据出一张）。
 7. `previewText` 与导出文件的 GBK 字节对**编不进 GBK 的字符**（emoji / CJK ext-B 生僻字）会不一致 —— 这条是按代码推出的，**未实测**，真机验收遇到生僻字时看一眼。
-8. **取证资产还没删**：`app/src/pages/base/label-ble-debug.vue` 整页 + `pages.json` 那行路由 + `profile/settings.vue` 里的入口卡片，B6 发布前必须删（**别**删 `LabelBlePlugin.java` 与 `AndroidManifest.xml` 的蓝牙权限行，那是生产前置）。
-9. **上面那枚 APK/H5 指纹对应 `79a0d37` 的树**：`8e63bdd`（#301，只改 `appModuleEnabled.js` 里一行 `//` 注释）落在 B5 构建**之后**，所以 H5/APK 产物里不含它。打包器会剥掉注释 ⇒ 重建大概率得到同一枚 md5，但**没有实测过** ⇒ **B6 若重建，指纹要重新记，别拿这串 md5 当验收标准**。
+8. ~~取证资产还没删~~ —— **B6-pre 已删**：`label-ble-debug.vue` 整页、`pages.json` 的路由行、`profile/settings.vue` 的入口卡片三处一起清掉（2026-11-06 实查 `grep -c label-ble-debug` 在两个引用文件里均为 0）。`LabelBlePlugin.java` 与 `AndroidManifest.xml` 的蓝牙权限行**保留**，那是生产前置。
+9. **上面那四枚指纹已作废**：`8e63bdd`（#301，只改一行 `//` 注释）与 B6-pre/Step 6 的多次提交都落在 B5 构建之后，jar 在纸面复验修补（`b39eb12`/`c9aa000`）之后必然再变 ⇒ **别拿 `13a2389…` 当验收标准，每次重建后重新记**。
+10. **保存闸不查「元素压元素」**：闸只判单元素自己的越界（`LabelTemplateRenderer.overflowMessages`），不判两个元素在纸上叠不叠。**裁定：不补** —— 条码与二维码的实际宽度由固件按内容自适应，没有实测尺寸就没有可靠的矩形，硬编出来的是一个「有时报有时不报」的半截闸，比没有更误导。已知的两处会踩：规格超长拆行后横穿二维码那一列、数量给到 8 位数顶到单位（x=280）。出口是 PC 打印中心的结构化预览 + 换真数据再打一张，纸面为准。
 
 ### v1.1.166 (2026-11-04 — App 端「新增商品」从坏 stub 改成真能用的表单：主单位落库 + 全字段校验 + 入口按新建权过滤)
 

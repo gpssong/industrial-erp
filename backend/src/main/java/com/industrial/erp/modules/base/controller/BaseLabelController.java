@@ -21,6 +21,7 @@ import com.industrial.erp.modules.base.label.LabelPreviewRequest;
 import com.industrial.erp.modules.base.label.LabelPreviewService;
 import com.industrial.erp.modules.base.label.RenderResult;
 import com.industrial.erp.modules.base.label.TsplLabelRenderer;
+import com.industrial.erp.modules.base.label.context.CartonLabelContextLoader;
 import com.industrial.erp.modules.base.service.BaseLabelTemplateService;
 import com.industrial.erp.modules.production.client.FeiePrintClient;
 import com.industrial.erp.modules.production.entity.PrdFinishedIn;
@@ -150,7 +151,9 @@ public class BaseLabelController {
                             .and(!kw.isEmpty(), w -> w.like(SalDelivery::getBillNo, kw)
                                     .or().like(SalDelivery::getCustomerName, kw))
                             .orderByDesc(SalDelivery::getId).last("LIMIT " + n))
-                    .stream().map(b -> row(b.getId(), b.getBillNo(), dateStr(b.getDeliveryDate()),
+                    // 日期口径与箱标纸面同源（见 CartonLabelContextLoader.printableDate）：
+                    // delivery_date 库侧全空，这里不回落就会「屏幕空白、按下打印却有日期」。
+                    .stream().map(b -> row(b.getId(), b.getBillNo(), dateStr(CartonLabelContextLoader.printableDate(b)),
                             b.getCustomerName(), null, b.getBillStatus())).toList();
             case CERT -> throw BizException.of(400, "合格证本期不出（docs/32 §11 第 4 条）");
         };

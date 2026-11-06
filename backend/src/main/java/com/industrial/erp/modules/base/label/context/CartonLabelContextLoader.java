@@ -8,6 +8,7 @@ import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,9 +53,8 @@ public class CartonLabelContextLoader implements LabelContextLoader {
             m.put("deliveryPhone", s.getPhone());
             m.put("orderNo", s.getOrderNo());
             m.put("deliveryBillNo", s.getBillNo());
-            // 出库日期回落开单日期：库侧 sal_delivery.delivery_date 165/165 全 NULL（建单/审核链路都不写它），
-            // 而 bill_date 165/165 有值。不回落 ⇒ 箱标「日期」栏在任何一张单上都是空白。
-            m.put("deliveryDate", s.getDeliveryDate() != null ? s.getDeliveryDate() : s.getBillDate());
+            // 日期走 printableDate()：屏幕（/bills 选单列）与纸面必须是同一个口径，所以规则只写在一处。
+            m.put("deliveryDate", printableDate(s));
             m.put("productName", d.getProductName());
             m.put("spec", d.getSpec());
             m.put("unitName", d.getUnitName());
@@ -66,5 +66,18 @@ public class CartonLabelContextLoader implements LabelContextLoader {
         }
         if (out.isEmpty()) throw BizException.of(400, "该销售出库单没有可打印的明细行（或所选行不属于该单）");
         return out;
+    }
+
+    /**
+     * 这张出库单在标签层该显示哪一天 —— **唯一出口**：`/base/label/bills` 的日期列与箱标纸面都调它。
+     *
+     * <p>出库日期回落开单日期：库侧 `sal_delivery.delivery_date` 165/165 全 NULL（建单/审核链路都不写它），
+     * 而 `bill_date` 165/165 有值。不回落 ⇒ 箱标「日期」栏在任何一张单上都是空白。
+     *
+     * <p>写入侧（让建单/审核真的写 `delivery_date`）**故意不动** —— 那是销售出库自己的字段口径，不属于标签层。
+     * 哪天那边开始写了，这里的回落自动失效（有值就以它为准），不用改代码。
+     */
+    public static LocalDate printableDate(SalDelivery s) {
+        return s.getDeliveryDate() != null ? s.getDeliveryDate() : s.getBillDate();
     }
 }

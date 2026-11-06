@@ -210,7 +210,10 @@ async function onBizChange() { await loadFields(current.bizType) }
 function addRow(type) {
   rows.value.push({
     type, x: 20, y: rows.value.length ? (rows.value[rows.value.length - 1].y + 40) : 20,
-    text: '', field: '', size: type === 'qrcode' ? 7 : (type === 'barcode' ? 60 : 24),
+    // 二维码的「字号」不是点高，是渲染器换算模块边长的原料：cell = clamp(2..8, round(max(12,size)/6))。
+    // 给 7 会得到 cell=2 ⇒ 21 模块只有 42 点 ≈ 5.25mm，车间实际扫不出来；24 才落到 cell=4（84 点 ≈ 10.5mm）。
+    // 与载入/保存两处的默认值 (:192 / :231 的 24) 对齐，避免"新建一行"和"打开旧模板"给出两种尺寸。
+    text: '', field: '', size: type === 'barcode' ? 60 : 24,
     bold: false, align: 'LEFT', w: type === 'line' ? 600 : (type === 'rect' ? 620 : 0), h: type === 'line' ? 2 : 0,
     required: false
   })
