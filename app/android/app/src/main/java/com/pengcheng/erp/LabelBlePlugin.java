@@ -77,7 +77,9 @@ import java.util.Map;
  *   <li><b>§f 迟到写回调</b> (评审 I2) —— 超时后立刻放行下一片会让那片迟到的回调被当成<b>新片</b>的确认,
  *       于是两片同时在途 → {@code writeCharacteristic} 回 false → 整单「BLE 写队列忙」。
  *       现在超时后先清空在途标记、压一整窗再放行, 迟到回调必然落进既有的迟到分支被忽略
- *       (仍然绝不重发同一片)。</li>
+ *       (仍然绝不重发同一片)。<b>零确认例外</b>: 第 1 片超时且此前成功回执为 0 时已改判为
+ *       {@link #onAckTimeout} 当场失败, 不再压窗放行下一片 —— 取证数字: 死链路第 1 片 1537ms
+ *       无回执、3083ms 报「写队列忙」; {@code connect()} 重连后 6 片 missingAcks=0、608ms 发完。</li>
  *   <li><b>§g 超时回收句柄</b> (评审 M3) —— 连接超时过去只结 promise, GATT 句柄要等下次 connect/disconnect
  *       才还; 连续重试会把栈的连接预算白占掉。现在超时分支 disconnect+close, 并且句柄已释放时
  *       迟到的服务发现回调不再报「连接成功」(否则发字会撞「尚未连接打印机」这个假故障)。</li>
@@ -176,6 +178,8 @@ public class LabelBlePlugin extends Plugin {
     private int writeSeq;
     /** 正在等 ack 的片号, 0 = 没有在途片 */
     private int inFlightSeq;
+    /** 已经拿到 onCharacteristicWrite 成功回执的片数。0 = 这一笔连一片都没送进去过。 */
+    private int writeAckedChunks;
     private Runnable ackFallback;
     /**
      * §f: 某片超时后, 压住一整窗 (WRITE_ACK_TIMEOUT_MS) 再放行下一片。
@@ -699,6 +703,7 @@ public class LabelBlePlugin extends Plugin {
         writeOffset = 0;
         writeChunkCount = 0;
         writeMissingAcks = 0;
+        writeAckedChunks = 0;
         writeSeq = 0;
         inFlightSeq = 0;
         writeScheduled = false;
@@ -748,7 +753,10 @@ public class LabelBlePlugin extends Plugin {
             return;
         }
         if (!ok) {
-            failWrite("BLE 写队列忙, 在第 " + mySeq + " 片失败 — 请调大 chunkDelayMs 后重试");
+            failWrite(writeMissingAcks > 0
+                    ? "BLE 链路无响应, 第 " + mySeq + " 片排不进队列 (此前已有 " + writeMissingAcks
+                            + " 片没等到确认) — 请点「重连」后再打印"
+                    : "BLE 写队列忙, 在第 " + mySeq + " 片失败 — 请调大 chunkDelayMs 后重试");
             return;
         }
         // §c: 兜底只在「回调真的没来」时放行下一片, 绝不重发这一片。
@@ -775,6 +783,7 @@ public class LabelBlePlugin extends Plugin {
             failWrite("第 " + seq + " 片写入失败 (gattStatus=" + status + "), 已发 " + writeOffset + " 字节");
             return;
         }
+        writeAckedChunks++;
         scheduleNextSlice();
     }
 
@@ -782,6 +791,16 @@ public class LabelBlePlugin extends Plugin {
         ackFallback = null;
         if (pendingWrite == null || inFlightSeq != seq) return;
         writeMissingAcks++;
+        if (writeAckedChunks == 0) {
+            // 一片都没确认过 ⇒ 这不是「慢」，是链路已经死了（健康链路实测 57–101ms 就回一片，1500ms 是 15 倍余量）。
+            // 按 §f 硬闯下一片只会撞上第 1 片那条还没结束的 ATT 事务 ⇒ writeCharacteristic 回 false，
+            // 最后报成「写队列忙 / 调大 chunkDelayMs」，把车间的人支去调一个与故障无关的参数。
+            // 此刻零字节确认送达，当场失败不丢任何已打印内容，重连即可。
+            Log.w(TAG, "第 " + seq + " 片无回执且此前零确认 — 判链路已断, 当场失败 (不再放行下一片)");
+            failWrite("打印机没有回应第 " + seq + " 片 (" + WRITE_ACK_TIMEOUT_MS
+                    + "ms 内没有链路确认) — 多半已休眠或断开, 请点「重连」后再打印");
+            return;
+        }
         Log.w(TAG, "第 " + seq + " 片在 " + WRITE_ACK_TIMEOUT_MS + "ms 内没有 onCharacteristicWrite 回调"
                 + " — 按已发出继续 (重发会让打印机收到重复字节)");
         // §f: 这里不能立刻 scheduleNextSlice()。下一片若马上发出, 第 seq 片那条迟早会来的回调

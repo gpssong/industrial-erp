@@ -396,6 +396,12 @@ export default {
         await this.reportLog('SUCCESS', n, text, '')
       } catch (e) {
         const msg = errText(e)
+        // 链路死了，插件缓存的 connected 不会自己翻（本轮现场：界面「已连接」+ 第 1 片永不回执）
+        // ⇒ 失败后回读一次，别让车间的人对着假状态反复点打印
+        try {
+          const st = await status()
+          this.connected = !!(st && st.connected)
+        } catch (e2) { /* 状态读不到就维持原值，不能把主错误盖掉 */ }
         uni.showModal({ title: '打印失败', content: msg + '\n可把下面的 TSPL 原文复制去 PC 导出同一张', showCancel: false })
         await this.reportLog('FAIL', n, content ? text : '', msg)
       } finally { this.busy = false }
