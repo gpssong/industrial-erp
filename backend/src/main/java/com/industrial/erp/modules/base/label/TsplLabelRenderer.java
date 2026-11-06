@@ -73,7 +73,7 @@ public class TsplLabelRenderer {
             case "qrcode": {
                 String content = safe(e.getContent());
                 if (content.isEmpty()) return "";
-                int cell = Math.min(8, Math.max(2, Math.round((float) Math.max(12, e.getFontSize()) / 6f)));
+                int cell = LabelGeometry.qrCell(e.getFontSize());
                 // 形参顺序 = docs/34 ④ 写法 A：x,y,<纠错 L>,<模块宽>,<旋转 0>,<模式 A>,"内容"（Ruling，B4 真机补扫闭环）。
                 return "QRCODE " + e.getX() + "," + e.getY() + ",L," + cell + ",0,A,\"" + content + "\"\r\n";
             }

@@ -65,19 +65,20 @@
 **部署** —— **只到 canary**：`.32` 已换 v1.1.167 的 jar + PC dist + App H5，`sql/155/156` **只在 `.32` 灌过**（这正是 Step 7 灌主库前必须精确删干净的原因：ROW 事件带固定主键，`.150` 再跑一遍必撞 1062）。**`.150` 与阿里云仍是 v1.1.166 的 jar 与 dist，一行 SQL 都没灌，上面那四枚 md5 是本机构建物、不是线上物**，不存在「三站一致」。代码只在本地分支 `v1.1.167-label-layer`，**未 push**。恢复上线的完整步骤（SQL 顺序铁律、canary 清理清单、`ERP_VERSION` 等运行时 env、手机侧 `erp_api_base` 回落）在 `.superpowers/sdd/33_标签层实施计划/task-B6-brief.md`。
 
 **实测** —— 分三层，别混：
-- **已验（有命令可复跑）**：标签包单测 `mvn -Dtest="com.industrial.erp.modules.base.label.*Test,BaseLabelControllerBillsTest" test` → **18 个测试类 / 129 用例 / 0 失败 0 错误**（2026-11-06 实跑），后端全量 `mvn -o test` → **445 / 0 失败**；覆盖 GBK 字节回读、超宽拆行、保存闸、`/fields` 与字典同源、飞鹅退化、权限正负例、条码高度、`/bills` 日期回落；`check-version.sh 1.1.167` 7×OK；**IP-803 真机指令集取证**（docs/34 的 Q1/Q2/Q3，加多片完整性 547B=4 片 8 行齐全、`DIRECTION 1` 转 180°、超静默丢尾，纸面由用户拍照核对）。
+- **已验（有命令可复跑）**：标签包单测 `mvn -Dtest="com.industrial.erp.modules.base.label.*Test" test` → **18 个测试类 / 131 用例 / 0 失败 0 错误**（2026-11-06 实跑），后端全量 `mvn -o test` → **447 / 0 失败**；覆盖 GBK 字节回读、超宽拆行、保存闸、`/fields` 与字典同源、飞鹅退化、权限正负例、条码高度、二维码 cell 兜底（含"没声明字号"那条）、`/bills` 的日期回落与行键名契约；`check-version.sh 1.1.167` 7×OK；**IP-803 真机指令集取证**（docs/34 的 Q1/Q2/Q3，加多片完整性 547B=4 片 8 行齐全、`DIRECTION 1` 转 180°、超宽静默丢尾，纸面由用户拍照核对）。
 - **已验（纸面）**：**成品卷标、原料垛标、箱标三类各在 `.32` + 印麦 IP-803 上真打过并逐条量过**（2026-11-05/06）。第一轮的纸上问题就是下面「纸面复验揪出的四处」，改完重打。
 - **未验**：二维码与 CODE128 的**手机扫读**（docs/34 的 ④/⑤ 两格按 Ruling 写码，扫码证据还欠着 —— 这是本轮复验的最后一格）；合格证 CERT（无加载器，本期打不出）；超宽拆行的纸面效果；纯 App 端权限口径端到端。这些全在 B6 的验收清单里。
 
-**纸面复验揪出的四处**（`b39eb12` / `c9aa000` + 评审回来的两处，2026-11-06）
+**纸面复验揪出的问题**（三轮：`b39eb12`+`c9aa000` → 评审回来 `e2ee8ee` → 修补轮 3 把二维码兜底收进 `LabelGeometry.qrCell()` + 两处如实化，2026-11-06）
 - 原料垛标/箱标的**数量与单位重叠**：size 24 的 ASCII 数字最宽 7 位 = 168 点，单位却写在 x=180 ⇒ 单位挪到 **x=280**（8 位数仍会碰，属于「元素互压」那类，见遗留 10）。
 - 成品卷标**二维码压在批号上、而且小到扫不动**：`x:440` 落在批号第 14 字之后（批号值占到 446），且 `size:7` 被渲染器的 `cell = clamp(2,8,round(max(12,size)/6))` 兜成 cell 2 ⇒ 42 点 ≈ 5.25 mm。改 `size:24`（cell 4 = 84 点 ≈ 10.5 mm）、挪进右侧空白列 `x:500,y:96`，分隔线随之从 600 收到 460 点，不压码下沿。**PC 模板编辑器「+ 二维码」的默认值原来是同一个根缺陷**（`size:7`），已一起改成 24 —— 否则用户手点一行出来的还是扫不出的码。
 - **三条种子 barcode 全打成 1.25 mm 的细带**：种子只写 `size:60`、不写 `h`，而渲染器只认 `h` ⇒ `size` 被整条忽略。高度算法收到 `LabelGeometry.barcodeHeightDots()` **一个出口**，渲染器与保存闸调同一个函数，「闸说放得下」仍然等于「纸放得下」（B3b 的规矩）。
-- **箱标的日期栏在任何一张单上都是空白**：`sal_delivery.delivery_date` 165/165 为 NULL（建单/审核都不写它）。`CartonLabelContextLoader.printableDate()` 按 `bill_date` 回落，且**`/base/label/bills` 的选单日期列调同一个函数** —— 屏幕与纸面只有一个口径。写入侧故意不动（那是销售出库自己的字段，等拍板）。
+- **箱标的日期栏在任何一张单上都是空白**：`sal_delivery.delivery_date` 165/165 为 NULL（建单/审核都不写它）。`CartonLabelContextLoader.printableDate()` 按 `bill_date` 回落 —— **这才是看得见的病，在纸面上**。`/base/label/bills` 的 `billDate` 也调同一个函数，但如实记一件事：**这一列今天没有任何界面在渲染**（PC 下拉只拼 单号+客户/品名+批号，App 只显示单号），所以那里跟着回落钉的是**端点契约**（别留「只有纸有日期、端点回 null」的口径差，等哪天有人渲染它不必再决定一遍），不是修一个空列。写入侧故意不动（那是销售出库自己的字段，等拍板）。
+- **二维码「没声明字号」会兜到公式下限 cell 2**：PC 编辑器清空 `size` → 清洗成 0 → `max(12,0)/6` 夹到 2 ⇒ 21 模块只有 42 点 ≈ 5.25 mm，跟那三条 1.25 mm 的 CODE128 是同一类病（肉眼看得见、车间扫不出）。口径收进 `LabelGeometry.qrCell()` **一个出口**，未声明时先补种子值 24 再进公式 —— 兜底必须和「正常配出来的值」同一个数，否则同一张标签会有两种码宽。
 
 **⚠️ 遗留**
 1. **`missing_required` 没进日志**（见上面第 3 条）：界面与预览有提示，库里查不到「哪张标签带着空必填项出过纸」。
-2. ~~`mes_batch.production_date` 没有写入方~~ —— **B6-pre（#296）已修**：建 FG/SEMI 批次时写当天，历史行由 [sql/157_v11167_backfill_batch_prod_date.sql](../sql/157_v11167_backfill_batch_prod_date.sql) 按 `DATE(create_time)` 回填。成品卷标侧 `FgRollLabelContextLoader.productionDateOf()` 只按批号回查 `mes_batch.production_date`、**没有其他回落**（列空 ⇒ 纸上那一栏就是空白），真机预览已验到非空（`PFI202611050010` → `2026-11-02`）。箱标日期的同类空白见上面「纸面复验揪出的四处」第 4 条。
+2. ~~`mes_batch.production_date` 没有写入方~~ —— **B6-pre（#296）已修**：建 FG/SEMI 批次时写当天，历史行由 [sql/157_v11167_backfill_batch_prod_date.sql](../sql/157_v11167_backfill_batch_prod_date.sql) 按 `DATE(create_time)` 回填。成品卷标侧 `FgRollLabelContextLoader.productionDateOf()` 只按批号回查 `mes_batch.production_date`、**没有其他回落**（列空 ⇒ 纸上那一栏就是空白），真机预览已验到非空（`PFI202611050010` → `2026-11-02`）。箱标日期的同类空白见上面「纸面复验揪出的问题」第 4 条。
 3. 合格证无上下文加载器（第 4 条），本期 CERT 打不出来。
 4. iOS 蓝牙无实现；车间 iPhone 用不了这页。
 5. Logo 上服务端存储没做，仍只在本机预览（A13 只把六个文本字段接真）。

@@ -1,6 +1,6 @@
 package com.industrial.erp.modules.base.label;
 
-import com.industrial.erp.common.R;
+import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.controller.BaseLabelController;
 import com.industrial.erp.modules.base.service.BaseLabelTemplateService;
 import com.industrial.erp.modules.production.client.FeiePrintClient;
@@ -23,14 +23,17 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 /**
- * `/base/label/bills` 选单列表的日期列。
+ * `/base/label/bills` 选单端点的契约。
  *
  * <p>存在理由：箱标的「出库日期」在库里**从来没有值**（`sal_delivery.delivery_date` 全库 165/165 NULL，
- * 建单与审核链路都不写它），纸面侧已按 `bill_date` 回落；这里不跟着回落的话，
- * 操作工在打印中心看到的日期列是空的，按下打印出来的标签上却有一个日期 —— 屏幕和纸两个口径。
+ * 建单与审核链路都不写它），纸面侧按 `bill_date` 回落。这里跟着回落是为了让屏幕和纸是同一个口径 ——
+ * 但如实说：`billDate` 这一列**今天没有任何界面在渲染**（PC 下拉只拼单号+客户/品名+批号，
+ * App 只显示单号），所以这几条钉的是**端点契约**，不是一个看得见的空列。纸面上那一栏空白才是真问题，
+ * 那一条由 {@code CartonLabelContextLoaderTest} 钉。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -90,9 +93,23 @@ class BaseLabelControllerBillsTest {
     }
 
     @Test
-    @DisplayName("R.ok 的包装不变：bills 回的是 R，不是裸 List")
-    void billsWrapsInR() {
-        when(salDeliveryMapper.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
-        assertThat(controller.bills("CARTON", "", 30)).isInstanceOf(R.class);
+    @DisplayName("CERT 在选单这一步就明确 400 —— 不是回一个空列表（A9 裁定 R2：switch 必须是穷尽表达式）")
+    void certBillsIsRejectedNotSilentlyEmpty() {
+        // 空列表在界面上的表现是「这个类型没单」，和权限不足、数据真空一模一样；显式 400 才让人知道是本期没做。
+        assertThatThrownBy(() -> controller.bills("CERT", null, 30))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("合格证本期不出");
+    }
+
+    @Test
+    @DisplayName("选单行的键名是前端契约：PC 下拉拼 billNo+mainName+batchNo，改名等于下拉凭空变空")
+    void cartonRowKeysMatchWhatThePickerReads() {
+        when(salDeliveryMapper.selectList(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(delivery(null, LocalDate.of(2026, 11, 6))));
+
+        Map<String, Object> row = controller.bills("CARTON", null, 30).getData().get(0);
+
+        assertThat(row).containsKeys("id", "billNo", "mainName", "batchNo", "billDate", "billStatus");
+        assertThat(row).containsEntry("mainName", "宁波某包装");
     }
 }

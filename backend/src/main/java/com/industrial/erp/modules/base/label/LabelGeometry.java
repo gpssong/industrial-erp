@@ -26,6 +26,11 @@ public final class LabelGeometry {
     public static final int CJK_BASE = 24;
     /** 条码最低可扫高度 10 点 = 1.25 mm：这个高度纸面上已经是一条细黑带，再低不如不出。 */
     public static final int MIN_BARCODE_HEIGHT = 10;
+    /**
+     * 二维码**没声明字号**时按这个字号出。24 不是拍的：sql/155 三条种子模板的 qrcode 都写 `size:24`，
+     * PC 编辑器「新建一行」也给 24 —— 兜底值必须和「正常配出来的值」是同一个，否则同一条标签会有两种码宽。
+     */
+    public static final int DEFAULT_QR_FONT_SIZE = 24;
 
     /**
      * 名义 dpi → 真值。**203dpi 的打印机物理上就是 8 点/毫米**（真值 203.2 = 8 × 25.4），
@@ -54,6 +59,20 @@ public final class LabelGeometry {
      */
     public static int barcodeHeightDots(int declaredH, int fontSize) {
         return Math.max(MIN_BARCODE_HEIGHT, declaredH > 0 ? declaredH : fontSize);
+    }
+
+    /**
+     * 二维码的模块边长（点/模块）= TSPL `QRCODE` 的第 4 个形参。
+     * **渲染器和「没声明字号」的兜底只有这一个出口**（与 {@link #barcodeHeightDots} 同一处置）：
+     * 字号 ÷ 6 夹在 2..8，字号缺失（≤0，PC 编辑器清空 `size` 清洗后就是 0）先按
+     * {@link #DEFAULT_QR_FONT_SIZE} 补，再进公式。
+     *
+     * <p>为什么不能直接兜到公式下限 2：版本 1 的二维码是 21 模块，cell 2 ⇒ 42 点 ≈ 5.25 mm ——
+     * 和 2026-11-05 纸面上那三条 1.25 mm 高的 CODE128 是同一类病（肉眼看得见、车间扫不出）。
+     */
+    public static int qrCell(int fontSize) {
+        int size = fontSize > 0 ? fontSize : DEFAULT_QR_FONT_SIZE;
+        return Math.min(8, Math.max(2, Math.round((float) Math.max(12, size) / 6f)));
     }
 
     /** 一条 `TEXT` 用哪个内置字库、横纵各放大几倍。倍率是整数（TSPL 只认整数倍）。 */

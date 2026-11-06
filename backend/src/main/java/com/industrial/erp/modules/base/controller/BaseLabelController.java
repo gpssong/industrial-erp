@@ -151,8 +151,10 @@ public class BaseLabelController {
                             .and(!kw.isEmpty(), w -> w.like(SalDelivery::getBillNo, kw)
                                     .or().like(SalDelivery::getCustomerName, kw))
                             .orderByDesc(SalDelivery::getId).last("LIMIT " + n))
-                    // 日期口径与箱标纸面同源（见 CartonLabelContextLoader.printableDate）：
-                    // delivery_date 库侧全空，这里不回落就会「屏幕空白、按下打印却有日期」。
+                    // 日期口径与箱标纸面同源（见 CartonLabelContextLoader.printableDate）。
+                    // 如实说：这一列今天没有界面在渲染（PC 下拉只拼单号+客户/品名+批号，App 只显示单号），
+                    // 所以这里跟着回落钉的是**端点契约** —— 别留一个「只有纸有日期、屏幕给 null」的口径差，
+                    // 等哪天有人渲染这列时不必再决定一遍。真正看得见的病在纸面，由 printableDate 那侧治。
                     .stream().map(b -> row(b.getId(), b.getBillNo(), dateStr(CartonLabelContextLoader.printableDate(b)),
                             b.getCustomerName(), null, b.getBillStatus())).toList();
             case CERT -> throw BizException.of(400, "合格证本期不出（docs/32 §11 第 4 条）");

@@ -92,6 +92,15 @@ class TsplLabelRendererTest {
     }
 
     @Test
+    @DisplayName("二维码没声明字号（PC 编辑器把 size 清空 → 清洗成 0）：兜到种子的 24 点 = cell 4，不是公式下限 cell 2")
+    void qrCommandWithoutSize() {
+        // cell 2 就是 21 模块 × 2 点 = 42 点 ≈ 5.25 mm —— 和 2026-11-05 纸面上那三条 1.25 mm 高的 CODE128
+        // 同一类病：「没声明就兜公式下限」对条码是扫不出，对二维码同样是扫不出。口径与 barcodeHeightDots 一致。
+        assertThat(renderer.renderCommandText(of(el("qrcode", 500, 96, "PFI0001", 0))))
+                .contains("QRCODE 500,96,L,4,0,A,\"PFI0001\"\r\n");
+    }
+
+    @Test
     @DisplayName("条码：CODE128，高度优先取 h，没给 h 取 size（种子模板就是这么写的），人眼可读=2")
     void barcodeCommand() {
         ResolvedElement e = el("barcode", 20, 320, "PFI0001", 24);
