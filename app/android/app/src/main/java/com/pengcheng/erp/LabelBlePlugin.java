@@ -79,7 +79,9 @@ import java.util.Map;
  *       现在超时后先清空在途标记、压一整窗再放行, 迟到回调必然落进既有的迟到分支被忽略
  *       (仍然绝不重发同一片)。<b>零确认例外</b>: 第 1 片超时且此前成功回执为 0 时已改判为
  *       {@link #onAckTimeout} 当场失败, 不再压窗放行下一片 —— 取证数字: 死链路第 1 片 1537ms
- *       无回执、3083ms 报「写队列忙」; {@code connect()} 重连后 6 片 missingAcks=0、608ms 发完。</li>
+ *       无回执、3083ms 报「写队列忙」; {@code connect()} 重连后 6 片 missingAcks=0、608ms 发完。
+ *       该分支同时按 §g 回收 GATT 句柄 —— 死链路的 {@code STATE_DISCONNECTED} 可能根本不来,
+ *       不还句柄则 {@link #status} 永远回 connected=true, 界面挂着假「已连接」让人反复点打印。</li>
  *   <li><b>§g 超时回收句柄</b> (评审 M3) —— 连接超时过去只结 promise, GATT 句柄要等下次 connect/disconnect
  *       才还; 连续重试会把栈的连接预算白占掉。现在超时分支 disconnect+close, 并且句柄已释放时
  *       迟到的服务发现回调不再报「连接成功」(否则发字会撞「尚未连接打印机」这个假故障)。</li>
@@ -799,6 +801,12 @@ public class LabelBlePlugin extends Plugin {
             Log.w(TAG, "第 " + seq + " 片无回执且此前零确认 — 判链路已断, 当场失败 (不再放行下一片)");
             failWrite("打印机没有回应第 " + seq + " 片 (" + WRITE_ACK_TIMEOUT_MS
                     + "ms 内没有链路确认) — 多半已休眠或断开, 请点「重连」后再打印");
+            // 句柄必须当场还回去 (同 §g): 死链路的 STATE_DISCONNECTED 可能永远不来 (本轮现场就是这样),
+            // 留着过期 gatt 让 status() 继续回 connected=true ⇒ 界面挂着假「已连接」, 车间的人只会反复点打印,
+            // 每次再白等 1500ms。还了句柄后 status() 翻成未连接、下一次点打印立刻「尚未连接打印机」。
+            // 不动 connectionGeneration: 第 1 片那条迟到的写回调进来时 pendingWrite 已是 null, 直接被 onWriteAck 忽略。
+            // connectedMac/Name 保留 = 绑定关系不丢, 点「重连」仍用同一个 MAC。
+            releaseGattQuietly();
             return;
         }
         Log.w(TAG, "第 " + seq + " 片在 " + WRITE_ACK_TIMEOUT_MS + "ms 内没有 onCharacteristicWrite 回调"
