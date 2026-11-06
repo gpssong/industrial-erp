@@ -3,12 +3,12 @@
 
 ## changelog (倒序)
 
-### v1.1.167 (2026-11-05 — 标签打印层：结构化元素模板 + TSPL 主通道 + 印麦 IP-803 手机蓝牙直发 + PC/App 标签打印中心；代码与四套产物只在本机，三站一行 SQL 都没灌)
+### v1.1.167 (2026-11-06 — 标签打印层：结构化元素模板 + TSPL 主通道 + 印麦 IP-803 手机蓝牙直发 + PC/App 标签打印中心；**已灌主库、已上三站**)
 
 > **用户原话**: 「先做 A（本周就能开工）：补标签主数据（生产者名称/地址/XK 证号/执行标准/贮存条件/检验员代号，放 sys_config 或新表）+ 一张标签模板表（尺寸、间隙、dpi、份数、绑 bizType）+ PC/App「标签打印中心」，把成品卷标、原料垛标、箱标、合格证四类先跑通，输出仍走现有飞鹅 + 可导出标准 TSPL 文本。这一步做完，无论以后买哪家机器，数据和模板都不用重写 —— 这是唯一不浪费的投入。」
 > 同一轮追加三条定范围的事实：「手上有印麦 ip-803 标签打印机，能蓝牙连接，主要打印 80*60 的标签纸。车间手机蓝牙连接打印。」／「合规要素暂时不上标签。」／「这个是工业生产许可证，证件号放上去吧。」
 
-设计在 [docs/32_标签层设计规格.md](32_标签层设计规格.md)，步骤在 [docs/33_标签层实施计划.md](33_标签层实施计划.md)（A1–A15 闸前 / B1–B7 闸后），真机取证在 [docs/34_印麦IP803指令集实测.md](34_印麦IP803指令集实测.md)。代码在分支 `v1.1.167-label-layer`：**44 个提交、79 文件 / +7672 / −25**（`git diff --stat d3be60b..HEAD`）。
+设计在 [docs/32_标签层设计规格.md](32_标签层设计规格.md)，步骤在 [docs/33_标签层实施计划.md](33_标签层实施计划.md)（A1–A15 闸前 / B1–B7 闸后），真机取证在 [docs/34_印麦IP803指令集实测.md](34_印麦IP803指令集实测.md)。代码在分支 `v1.1.167-label-layer`：**58 个提交、87 文件 / +14898 / −28**（`git diff --stat d3be60b..HEAD`）。
 
 **先读这四条再看改动清单**（都是「读代码看不出来、不知道就会踩」的）：
 
@@ -58,16 +58,28 @@
 - ⚠️ **两个脚本都带 INSERT，只能灌 `.150` 主库、只灌一次**：`.32` 是它的下游且 `binlog_format=ROW` ⇒ canary 先跑再灌主库，复制事件回备库撞 `1062`（`CREATE TABLE` 撞 `1050` 同理会把 `Slave_SQL_Running` 停掉），sql/142/143 翻过车。
 - ⚠️ **必须先灌 sql/155、再换 jar**：新 jar 的 `SysUser` 带 `inspectorCode` ⇒ MyBatis-Plus 生成的每条 `sys_user` 查询都显式列出 `inspector_code`。**列不存在不是「标签功能坏了」，是整站登录/用户查询全崩 `Unknown column 'inspector_code' in 'field list'`。** 反过来只回滚 jar 是安全的（旧 jar 无视多出来的列）。
 
-**版本 / 产物（全是本机构建物，线上一个字节都没换）**
-- 1.1.167 七处对齐（B5 = `79a0d37`，恰 7 个文件）：`bash scripts/check-version.sh 1.1.167` → **7×OK / EXIT=0**（本任务 2026-11-05 重跑同一命令，同样 7×OK / EXIT=0）。
-- 四套产物（本任务 2026-11-05 用 `md5 -q` 原地重算，四枚与 B5 记录逐枚相同）：jar `backend/target/industrial-erp-1.0.4.jar` = `13a2389ac0211d65a84a7be9ccf33616`（103,118,537 B，内嵌 `${ERP_VERSION:1.1.167}`）；PC `pc-web/dist/index.html` = `21e1031b19744a91f0034f944dc67100`（产物含 `LabelCenter-s2An1aj6.js` / `LabelTemplate-CvngFZMw.js`）；App H5 `app/dist/build/h5/index.html` = `2f80398e01f03b37fc6f4ff46be7fdd1`（含 `pages-base-label-print.0oaX0_lJ.js`）；APK `~/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20261105-1167.apk` = `260b2042a79299b7771e79eb61dc3b32`（4,507,672 B，versionName 1.1.167 / versionCode 1167）。
+**版本 / 产物（Step 8 之后 = 线上物，三站逐枚核对过）**
+- 1.1.167 七处对齐（B5 = `79a0d37`，恰 7 个文件）：`bash scripts/check-version.sh 1.1.167` → **7×OK / EXIT=0**。
+- 四套产物（2026-11-06 Step 8 部署时实算，**不是 B5 那批** —— B5/11-05 的 `13a2389…` / `21e1031b…` / `2f80398e…` / `260b2042…` 已随纸面复验修补作废）：
+  - jar `backend/target/industrial-erp-1.0.4.jar` = `84671c86246f731dbd19d3f7aff2e808`（103,118,886 B）。三站取值方式不同，但都是**镜像/容器内的实际字节**：`.150` 用 `docker build` 重打后从镜像里取（compose 不挂 jar 目录，光换 host 文件无效）、`.32` 从 `erp-backend-failover` 取、阿里云从 `erp-backend:${ERP_VERSION}` 镜像取，三处同为 `84671c86…`。
+  - PC `pc-web/dist/index.html` = `90ae7dde3018356024f6fe50e1888d27`（`.32` `dist-new`、`.150` `pc-web/dist`、阿里云 `/opt/erp-system/pc-web` 三处解包后内层 `index.html` 同值）。
+  - App H5 `app/dist/build/h5/index.html` = `062e9fdad81dafae03c93aea26f4ab0a`（`.32` + 阿里云；**`.150` 没有 H5 容器**，设计如此）。
+  - APK `~/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-20261106.apk` = `4cc4ab79a503aad6bd1b7300611f3e1e`（4,537,349 B，versionName 1.1.167 / versionCode 1167）。构建时间 13:06 紧跟 `57a2de1`(13:05) ⇒ 含全部代码提交（`5dbc3b5` 只动文档）。
+  - 运行时 `ERP_VERSION` 也各站改到位：`.150` 是 `docker-compose.yml` YAML 里的硬编码（`1.1.166`→`1.1.167`）、阿里云是 `/opt/erp-system/.env` 第 5 行（它同时驱动镜像 tag）、`.32` 是容器 env。
 
-**部署** —— **只到 canary**：`.32` 已换 v1.1.167 的 jar + PC dist + App H5，`sql/155/156` **只在 `.32` 灌过**（这正是 Step 7 灌主库前必须精确删干净的原因：ROW 事件带固定主键，`.150` 再跑一遍必撞 1062）。**`.150` 与阿里云仍是 v1.1.166 的 jar 与 dist，一行 SQL 都没灌，上面那四枚 md5 是本机构建物、不是线上物**，不存在「三站一致」。代码只在本地分支 `v1.1.167-label-layer`，**未 push**。恢复上线的完整步骤（SQL 顺序铁律、canary 清理清单、`ERP_VERSION` 等运行时 env、手机侧 `erp_api_base` 回落）在 `.superpowers/sdd/33_标签层实施计划/task-B6-brief.md`。
+**部署** —— **三站已上（2026-11-06 Step 8）**：
+- **SQL**：`sql/155`/`156`/`157` **只在 `.150` 主库灌一次**（顺序铁律：先灌 155 再换 jar，否则 `sys_user.inspector_code` 缺列 = 整站登录崩），`.32` 由复制追平。灌主库前先在 canary 精确删掉那 5 行模板（3 条 DEFAULT + 2 条 B6 测试行）—— 否则 ROW 事件带固定主键回备库必撞 1062（本轮已经这么停过一次）。复核：`.32` `Slave_IO_Running/SQL_Running` 均 Yes、`Seconds_Behind_Master: 0`、`Last_Error` 与 `Last_SQL_Error` 均空。
+- **主库那三条种子模板带的是修补后的坐标**（不是 canary 手工 UPDATE 的孤本）：`.32` 与 `.150` 的 `MD5(elements)` 三行逐一相同（FG `dd46a35b…` / RAW `23ecc3b2…` / CARTON `6a9239b8…`），且等于 **git HEAD 的 sql/155** 提取值、与 `b39eb12~1` 版不同（`c6e2d1af…`/`90030e16…`/`db3e7184…`）⇒ canary 上验过的纸面效果 = 生产纸面。
+- **产物**：上表四枚已在三站落地并比对一致（`.150` 无 H5 容器）。
+- **回退件**（全部同目录留齐，改名即可回滚）：`.150` `backend/industrial-erp-1.0.4.jar.bak_v1166`（`1e90845e…`）+ `docker-compose.yml.bak_v1167` + `pc-web/dist.bak_v1167_20261106_150143`；阿里云 `.env.bak_v1167` + `backend/industrial-erp-1.1.166.jar.bak_v1167_20261106` + `pc-web.bak_20261106_v1167` + `app-h5.bak_20261106_v1167`。⚠️ 回滚 jar 时**别回滚 sql/155 建的列**（旧 jar 无视多出来的列，反过来会整站崩）。
+- **APK 分发**：正式包留在同步盘根目录；三枚不可发的构建移入 `erp/do-not-ship/`（`erp-app-20261105-labelble-evidence.apk`、`erp-app-20261105-labelble-fix1.apk` 是取证构建，`erp-app-20261105-1167.apk` 已被 11-06 包取代）—— **没删，可回退**。
+- 代码只在本地分支 `v1.1.167-label-layer`，**仍未 push**（等 Thread A 脱敏 #262–#266 收口）。完整的上线步骤与手机侧 `erp_api_base` 回落仍在 `.superpowers/sdd/33_标签层实施计划/task-B6-brief.md`。
 
 **实测** —— 分三层，别混：
 - **已验（有命令可复跑）**：标签包单测 `mvn -Dtest="com.industrial.erp.modules.base.label.*Test" test` → **18 个测试类 / 131 用例 / 0 失败 0 错误**（2026-11-06 实跑），后端全量 `mvn -o test` → **447 / 0 失败**；覆盖 GBK 字节回读、超宽拆行、保存闸、`/fields` 与字典同源、飞鹅退化、权限正负例、条码高度、二维码 cell 兜底（含"没声明字号"那条）、`/bills` 的日期回落与行键名契约；`check-version.sh 1.1.167` 7×OK；**IP-803 真机指令集取证**（docs/34 的 Q1/Q2/Q3，加多片完整性 547B=4 片 8 行齐全、`DIRECTION 1` 转 180°、超宽静默丢尾，纸面由用户拍照核对）。
-- **已验（纸面）**：**成品卷标、原料垛标、箱标三类各在 `.32` + 印麦 IP-803 上真打过并逐条量过**（2026-11-05/06）。第一轮的纸上问题就是下面「纸面复验揪出的四处」，改完重打。
-- **未验**：二维码与 CODE128 的**手机扫读**（docs/34 的 ④/⑤ 两格按 Ruling 写码，扫码证据还欠着 —— 这是本轮复验的最后一格）；合格证 CERT（无加载器，本期打不出）；超宽拆行的纸面效果；纯 App 端权限口径端到端。这些全在 B6 的验收清单里。
+- **已验（纸面）**：**成品卷标、原料垛标、箱标三类各在 `.32` + 印麦 IP-803 上真打过并逐条量过**（2026-11-05/06）。第一轮的纸上问题就是下面「纸面复验揪出的四处」，改完重打。**二维码与 CODE128 的手机扫读也已闭合**（用户 11-06 逐条回「二维码正确」「code128正确」）⇒ docs/34 的 ④/⑤ 两格由「按 Ruling 写码」升级为真机实测，取证全绿收口（`5dbc3b5`）。
+- **已验（生产站、真非超管）**：`.150` 上用 **gpssong1**（角色 `WAREHOUSE_MGR`+`FINANCE`，183 perms）的既有会话跑只读链：`/auth/me` 认出身份 → `GET /base/label/master` 200 且回真主数据（舟山市鹏程包装有限公司 / 浙 XK16-204-01155 / Q/ZPC 1-2017）→ `GET /base/label/bills?bizType=FG_ROLL` 200 回真实 PFI 单 → `GET /base/label/template/list` 200；负例 `POST /base/label/template` ⇒ **403 无权限访问**，与 sql/156 的授权面设计吻合（读 OR `base:label:list`，写只认 `base:label:template`）。**没有新建/销毁任何生产会话**，也没有对生产库做过一次写。
+- **未验**：车间现场用自己的手机 + 自己的 IP-803 打正式站（`.150`）—— 功能与纸面已在 canary 用**同一枚 jar** 验过，但"手机现在指生产站"这一档没有实拍；合格证 CERT（无加载器，本期打不出）；超宽拆行的纸面效果；纯 App 端权限口径端到端。
 
 **纸面复验揪出的问题**（三轮：`b39eb12`+`c9aa000` → 评审回来 `e2ee8ee` → 修补轮 3 把二维码兜底收进 `LabelGeometry.qrCell()` + 两处如实化，2026-11-06）
 - 原料垛标/箱标的**数量与单位重叠**：size 24 的 ASCII 数字最宽 7 位 = 168 点，单位却写在 x=180 ⇒ 单位挪到 **x=280**（8 位数仍会碰，属于「元素互压」那类，见遗留 10）。
@@ -85,7 +97,7 @@
 6. 画布拖拽编辑不做（PC 用元素表格，docs/32 §6.1）；装箱台账与逐箱箱标不做（箱标按单据出一张）。
 7. `previewText` 与导出文件的 GBK 字节对**编不进 GBK 的字符**（emoji / CJK ext-B 生僻字）会不一致 —— 这条是按代码推出的，**未实测**，真机验收遇到生僻字时看一眼。
 8. ~~取证资产还没删~~ —— **B6-pre 已删**：`label-ble-debug.vue` 整页、`pages.json` 的路由行、`profile/settings.vue` 的入口卡片三处一起清掉（2026-11-06 实查 `grep -c label-ble-debug` 在两个引用文件里均为 0）。`LabelBlePlugin.java` 与 `AndroidManifest.xml` 的蓝牙权限行**保留**，那是生产前置。
-9. **上面那四枚指纹已作废**：`8e63bdd`（#301，只改一行 `//` 注释）与 B6-pre/Step 6 的多次提交都落在 B5 构建之后，jar 在纸面复验修补（`b39eb12`/`c9aa000`）之后必然再变 ⇒ **别拿 `13a2389…` 当验收标准，每次重建后重新记**。
+9. ~~上面那四枚指纹已作废~~ —— **Step 8 已按线上实算重记**（见上面「版本 / 产物」）。规矩不变：**jar 每吃一次标签修补就变，别拿旧 md5 当验收标准，每次重建后重新记**。顺带留一条能省一次重发的判断：`56ce489`/`57a2de1`（13:00/13:05 那两枚 BLE 修补）只动 `app/android/…/LabelBlePlugin.java` + `app/src/pages/base/label-print.vue` ⇒ **作废的是 APK 与 H5，jar 不必重打**（jar 11:39 构建，最后一个后端提交是 `daca385` 11:38）。BT_TSPL 的正文由服务端渲染 ⇒ 同类「只改原生/前端」的几何修复不用重出 APK 也能到手机，反过来不成立。
 10. **保存闸不查「元素压元素」**：闸只判单元素自己的越界（`LabelTemplateRenderer.overflowMessages`），不判两个元素在纸上叠不叠。**裁定：不补** —— 条码与二维码的实际宽度由固件按内容自适应，没有实测尺寸就没有可靠的矩形，硬编出来的是一个「有时报有时不报」的半截闸，比没有更误导。已知的两处会踩：规格超长拆行后横穿二维码那一列、数量给到 8 位数顶到单位（x=280）。出口是 PC 打印中心的结构化预览 + 换真数据再打一张，纸面为准。
 
 ### v1.1.166 (2026-11-04 — App 端「新增商品」从坏 stub 改成真能用的表单：主单位落库 + 全字段校验 + 入口按新建权过滤)
