@@ -52,7 +52,9 @@ public class CartonLabelContextLoader implements LabelContextLoader {
             m.put("deliveryPhone", s.getPhone());
             m.put("orderNo", s.getOrderNo());
             m.put("deliveryBillNo", s.getBillNo());
-            m.put("deliveryDate", s.getDeliveryDate());
+            // 出库日期回落开单日期：库侧 sal_delivery.delivery_date 165/165 全 NULL（建单/审核链路都不写它），
+            // 而 bill_date 165/165 有值。不回落 ⇒ 箱标「日期」栏在任何一张单上都是空白。
+            m.put("deliveryDate", s.getDeliveryDate() != null ? s.getDeliveryDate() : s.getBillDate());
             m.put("productName", d.getProductName());
             m.put("spec", d.getSpec());
             m.put("unitName", d.getUnitName());

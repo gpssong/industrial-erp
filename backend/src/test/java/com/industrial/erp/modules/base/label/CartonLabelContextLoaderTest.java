@@ -113,6 +113,22 @@ class CartonLabelContextLoaderTest {
     }
 
     @Test
+    @DisplayName("出库日期为空回落开单日期 —— 库里 delivery_date 165/165 全 NULL，不回落日期栏永远空白")
+    void fallsBackToBillDateWhenDeliveryDateMissing() {
+        SalDelivery s = delivery();
+        s.setDeliveryDate(null);
+        s.setBillDate(LocalDate.of(2026, 11, 6));
+        when(deliveryMapper.selectById(20L)).thenReturn(s);
+        when(detailMapper.selectByDeliveryId(20L)).thenReturn(List.of(
+                detail(201L, "PE 平口袋", "B1", "500")));
+
+        List<Map<String, Object>> ctx = new CartonLabelContextLoader(deliveryMapper, detailMapper)
+                .load(20L, null);
+
+        assertThat(ctx.get(0)).containsEntry("deliveryDate", LocalDate.of(2026, 11, 6));
+    }
+
+    @Test
     @DisplayName("单据查不到 → 404")
     void missingDeliveryThrows404() {
         when(deliveryMapper.selectById(99L)).thenReturn(null);
