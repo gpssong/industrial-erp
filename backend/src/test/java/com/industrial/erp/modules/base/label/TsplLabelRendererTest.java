@@ -92,14 +92,19 @@ class TsplLabelRendererTest {
     }
 
     @Test
-    @DisplayName("条码：CODE128，高度取元素 h（没给就 10 点），人眼可读=2")
+    @DisplayName("条码：CODE128，高度优先取 h，没给 h 取 size（种子模板就是这么写的），人眼可读=2")
     void barcodeCommand() {
         ResolvedElement e = el("barcode", 20, 320, "PFI0001", 24);
         e.setH(60);
         assertThat(renderer.renderCommandText(of(e)))
                 .contains("BARCODE 20,320,\"128\",60,2,0,2,2,\"PFI0001\"\r\n");
-        ResolvedElement e2 = el("barcode", 20, 320, "PFI0001", 24);
-        assertThat(renderer.renderCommandText(of(e2))).contains("\"128\",10,");
+        // 真实种子模板 sql/155 三条 barcode 都只写 size:60、不写 h —— 之前这里兜成 10 点（1.25 mm），
+        // 纸面上是一条细到扫不出的黑带（docs/34 ⑤ 那条取证用的是 60）。
+        ResolvedElement e2 = el("barcode", 20, 320, "PFI0001", 60);
+        assertThat(renderer.renderCommandText(of(e2))).contains("\"128\",60,");
+        // size 也没给（或小到不成条码）时仍留 10 点下限
+        ResolvedElement e3 = el("barcode", 20, 320, "PFI0001", 4);
+        assertThat(renderer.renderCommandText(of(e3))).contains("\"128\",10,");
     }
 
     @Test

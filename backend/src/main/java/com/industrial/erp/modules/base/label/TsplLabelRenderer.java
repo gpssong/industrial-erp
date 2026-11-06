@@ -27,7 +27,6 @@ public class TsplLabelRenderer {
     public static final Charset CHARSET = Charset.forName("GBK");
 
     private static final int LINE_THICKNESS = 2;
-    private static final int MIN_BARCODE_HEIGHT = 10;
 
     public static Charset charset() { return CHARSET; }
 
@@ -81,7 +80,7 @@ public class TsplLabelRenderer {
             case "barcode": {
                 String content = safe(e.getContent());
                 if (content.isEmpty()) return "";
-                int h = Math.max(MIN_BARCODE_HEIGHT, e.getH());
+                int h = LabelGeometry.barcodeHeightDots(e.getH(), e.getFontSize());
                 return "BARCODE " + e.getX() + "," + e.getY() + ",\"128\"," + h + ",2,0,2,2,\"" + content + "\"\r\n";
             }
             case "line":

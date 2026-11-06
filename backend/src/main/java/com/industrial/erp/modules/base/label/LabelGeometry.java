@@ -24,6 +24,8 @@ public final class LabelGeometry {
     /** Q2 取证结论：中文内置字库名与基准点阵 TSS24.BF2 = 24×24 点简中。 */
     public static final String CHINESE_FONT = "TSS24.BF2";
     public static final int CJK_BASE = 24;
+    /** 条码最低可扫高度 10 点 = 1.25 mm：这个高度纸面上已经是一条细黑带，再低不如不出。 */
+    public static final int MIN_BARCODE_HEIGHT = 10;
 
     /**
      * 名义 dpi → 真值。**203dpi 的打印机物理上就是 8 点/毫米**（真值 203.2 = 8 × 25.4），
@@ -42,6 +44,16 @@ public final class LabelGeometry {
     /** dots → mm（四舍五入）。TSPL 的 SIZE/GAP 只认毫米，元素坐标是点，两头都要换算。分母必须是 trueDpi，否则正反映射不自洽。 */
     public static int mm(int dots, int dpi) {
         return (int) Math.round(dots * 25.4d / trueDpi(dpi));
+    }
+
+    /**
+     * `BARCODE` 这条指令实际发出去的高度（点）。**渲染器和保存闸必须用同一个函数**（B3b）：
+     * 元素没声明 `h` 时按 `size` 给（种子模板 sql/155 三条 barcode 全部只写 `size:60`），
+     * 两头都不声明才会兜到 10 点。之前渲染器只认 `h`，`size:60` 被整条忽略 ⇒
+     * 2026-11-05 三张纸上的 CODE128 全是 1.25 mm 高的细带，肉眼可读但没人扫得动。
+     */
+    public static int barcodeHeightDots(int declaredH, int fontSize) {
+        return Math.max(MIN_BARCODE_HEIGHT, declaredH > 0 ? declaredH : fontSize);
     }
 
     /** 一条 `TEXT` 用哪个内置字库、横纵各放大几倍。倍率是整数（TSPL 只认整数倍）。 */

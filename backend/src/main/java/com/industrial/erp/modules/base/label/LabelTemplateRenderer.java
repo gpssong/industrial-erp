@@ -174,9 +174,9 @@ public class LabelTemplateRenderer {
      * ① 右侧连一个字符都放不下（那种情况渲染器**不拆**，尾巴被吞，见 `lineSegments` 的守卫）；
      * ② 拆完的总高越过下边界。
      *
-     * <p>**其余类型**：line/rect 两个轴都按声明尺寸查；barcode/qrcode 免估算（TSPL 按内容自适应），
-     * 只认显式 `w`（A7 裁定 R2）；竖向对它们只按 `h`（没声明 h 就按 1 点，等于只查原点）——
-     * 条码/二维码自适应排出来的真实高度没有实测数据，不猜。
+     * <p>**其余类型**：line/rect 两个轴都按声明尺寸查；条码的竖向按 {@link LabelGeometry#barcodeHeightDots}
+     * 查（渲染器发的就是那个高度），二维码免估算 —— 它的模块数随内容长度变，没有实测数据不猜；
+     * 两者的横向只认显式 `w`（A7 裁定 R2，TSPL 按内容自适应）。
      *
      * <p>所有比较**升 long**：int 相加溢出成负数会把天大的越界判成合格（A6 I-2 / A7 R5）。
      *
@@ -207,11 +207,14 @@ public class LabelTemplateRenderer {
         }
 
         List<String> out = new ArrayList<>();
-        int vExtent = Math.max(declaredH, 1);
+        // 条码的竖向占位是**可算的**（渲染器就按同一条公式发），所以这里不能免检：
+        // 种子模板三条 barcode 只写 size:60 不写 h，按老口径 vExtent=1 ⇒ 永不报越界，纸面下沿却被切。
+        // 二维码仍免估算 —— 模块数随内容长度变，没有实测数据不猜（本函数上方原注）。
+        int vExtent = "barcode".equals(type) ? LabelGeometry.barcodeHeightDots(declaredH, size)
+                                             : Math.max(declaredH, 1);
         long beyondY = (long) y + vExtent - canvasH;
         if (beyondY > 0) {
-            out.add("y=" + y + (declaredH > 0 ? " 起高 " + declaredH + " 点" : "")
-                    + " 越过下边界 " + canvasH + " 点，越界 " + beyondY + " 点");
+            out.add("y=" + y + " 起高 " + vExtent + " 点，越过下边界 " + canvasH + " 点，越界 " + beyondY + " 点");
         }
         // 横向只查「尺寸是确定的」那两类：line/rect 的 w 就是它自己声明的；条码/二维码只有显式声明才查。
         Integer codeW;
