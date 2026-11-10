@@ -12,6 +12,8 @@ const routes = [
       { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/dashboard/Index.vue'), meta: { title: '工作台', icon: 'Odometer' } },
       // 购销存管理 hub 页 (聚合全部原 ERP 模块入口, Figma 视觉)
       { path: 'erp', name: 'ErpHub', component: () => import('@/views/erp/Hub.vue'), meta: { title: '购销存管理', icon: 'Document' } },
+      // 打印管理 (标签打印 / 单据打印模板 / 飞鹅打印 三 tab 聚合; tab 内部按现有 perm 显隐, 路由壳不设门禁)
+      { path: 'print', name: 'PrintManagement', component: () => import('@/views/print/PrintManagement.vue'), meta: { title: '打印管理', icon: 'Printer' } },
       // 系统管理
       { path: 'system/user', name: 'SysUser', component: () => import('@/views/system/User.vue'), meta: { title: '用户管理', icon: 'User', perm: 'system:user:list' } },
       { path: 'system/role', name: 'SysRole', component: () => import('@/views/system/Role.vue'), meta: { title: '角色管理', icon: 'UserFilled', perm: 'system:role:list' } },

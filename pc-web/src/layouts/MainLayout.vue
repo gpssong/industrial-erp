@@ -232,7 +232,7 @@ const menuTree = computed(() => {
 const showHubSidebar = computed(() => {
   const p = route.path
   if (p === '/erp') return true
-  return /^\/(base|purchase|sales|inventory|production|finance|report|system|xk\/(material|trace))/.test(p)
+  return /^\/(base|purchase|sales|inventory|production|finance|report|system|print|xk\/(material|trace))/.test(p)
 })
 
 // el-sub-menu 展开状态 (供箭头 icon 用): 默认 ERP 子菜单展开
@@ -541,5 +541,15 @@ onUnmounted(() => {
   .mobile-current span { font-size: 14px; font-weight: 750; color: var(--text); }
   .mobile-current small { color: var(--muted); font-size: 10px; margin-top: 2px; }
   .global-search, .shift { display: none; }
+}
+
+/* 单据打印时隐藏全局壳, 只保留纸张内容 */
+@media print {
+  .app-shell { display: block !important; width: 100% !important; }
+  .sidebar, .topbar, .mobile-scrim, .side-footer, .brand { display: none !important; }
+  .main-shell { margin: 0 !important; width: 100% !important; padding: 0 !important; }
+  /* 屏幕上的 24px 28px 60px 内边距在打印时会把纸张右缘顶出 @page 内容区被裁 */
+  .content { padding: 0 !important; max-width: none !important; width: 100% !important; }
+  .content-shell, .content-shell.with-hub { padding: 0 !important; gap: 0 !important; }
 }
 </style>

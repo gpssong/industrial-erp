@@ -209,6 +209,12 @@ export const xkMock = {
     return empty(r.code, r.data || {}, r.msg)
   },
 
+  // 统一打印详情出口: 检验项/缺陷/照片/关联订单原料一次取全 (与 App 同一端点)
+  async printDocDetail(docType, id) {
+    const r = await request.get('/xk/print/docs/' + encodeURIComponent(docType) + '/' + id)
+    return empty(r.code, r.data || {}, r.msg)
+  },
+
   async printAudit(payload) {
     const r = await request.post('/xk/print/audit', payload)
     return empty(r.code, r.data, r.msg)

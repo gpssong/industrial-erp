@@ -15,6 +15,7 @@ import com.industrial.erp.modules.production.entity.PrdFinishedIn;
 import com.industrial.erp.modules.production.entity.PrdOrder;
 import com.industrial.erp.modules.production.entity.PrdSemiIn;
 import com.industrial.erp.modules.production.mapper.*;
+import com.industrial.erp.modules.purchase.entity.PurOrderDetail;
 import com.industrial.erp.modules.purchase.mapper.*;
 import com.industrial.erp.modules.qms.dto.InspectionCreateDTO;
 import com.industrial.erp.modules.qms.dto.ProcessInspectionRecordDTO;
@@ -59,6 +60,7 @@ class QmsInspectionServiceTest {
     private final SysOperLogMapper audit = mock(SysOperLogMapper.class);
     private final PrdSemiInMapper semiIns = mock(PrdSemiInMapper.class);
     private final PrdFinishedInMapper finishedIns = mock(PrdFinishedInMapper.class);
+    private final PurOrderDetailMapper purOrderDetails = mock(PurOrderDetailMapper.class);
     private final BillNoGenerator numbers = mock(BillNoGenerator.class);
     private final Map<Long, MesQualityInspection> heads = new ConcurrentHashMap<>();
     private final Map<Long, List<QmsIqcItem>> rows = new ConcurrentHashMap<>();
@@ -82,7 +84,7 @@ class QmsInspectionServiceTest {
         service = new QmsInspectionService(inspections, mock(MesQualityDefectMapper.class), batches, links, audit,
                 numbers, mock(PurReceiptDetailMapper.class), mock(PurReceiptMapper.class), items,
                 mock(QmsIqcAttachmentMapper.class), products, mock(PurInboundPlanMapper.class),
-                mock(PurOrderMapper.class), mock(PurOrderDetailMapper.class), semiIns, finishedIns,
+                mock(PurOrderMapper.class), purOrderDetails, semiIns, finishedIns,
                 orders, processes, itemService);
         order = new PrdOrder();
         order.setId(10L);
@@ -908,6 +910,48 @@ class QmsInspectionServiceTest {
         assertThatThrownBy(() -> service.detailForPrint(999999L))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("检验单不存在");
+    }
+
+    /**
+     * 订单版 IQC 单头只存第一个原料名, 但一张采购订单可能含多原料.
+     * 打印报告必须列出关联订单的全部原料行, 不能只显示单头那一个.
+     */
+    @Test
+    void detailForPrintReturnsAllOrderMaterialsForPurOrderIqc() {
+        MesQualityInspection iqc = headRow(7001L, "PUR_ORDER", 555L, "IQC");
+        iqc.setProductName("赛科0220kj");
+        heads.put(7001L, iqc);
+        PurOrderDetail m1 = new PurOrderDetail();
+        m1.setProductName("赛科0220kj");
+        m1.setSpec("S1");
+        m1.setQty(new BigDecimal("1500"));
+        m1.setUnitName("kg");
+        PurOrderDetail m2 = new PurOrderDetail();
+        m2.setProductName("扬巴ldpe2426h");
+        m2.setSpec("S2");
+        m2.setQty(new BigDecimal("1500"));
+        m2.setUnitName("kg");
+        when(purOrderDetails.selectByOrderId(555L)).thenReturn(List.of(m1, m2));
+
+        Map<String, Object> detail = service.detailForPrint(7001L);
+
+        assertThat(detail).containsKey("orderMaterials");
+        List<?> materials = (List<?>) detail.get("orderMaterials");
+        assertThat(materials).hasSize(2);
+        assertThat(materials).extracting(o -> ((PurOrderDetail) o).getProductName())
+                .containsExactly("赛科0220kj", "扬巴ldpe2426h");
+    }
+
+    /** 非订单源 (如 PUR_RECEIPT / PRD_ORDER) 不回传 orderMaterials, 避免误挂订单明细. */
+    @Test
+    void detailForPrintOmitsOrderMaterialsForNonPurOrderSource() {
+        MesQualityInspection iqc = headRow(7002L, "PUR_RECEIPT", 666L, "IQC");
+        heads.put(7002L, iqc);
+
+        Map<String, Object> detail = service.detailForPrint(7002L);
+
+        assertThat(detail).doesNotContainKey("orderMaterials");
+        verify(purOrderDetails, never()).selectByOrderId(anyLong());
     }
 
     private MesQualityInspection headRow(Long id, String sourceBillType, Long sourceBillId, String type) {

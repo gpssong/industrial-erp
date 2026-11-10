@@ -1,5 +1,8 @@
 package com.industrial.erp.modules.purchase.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.industrial.erp.modules.base.entity.BaseSupplier;
 import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
 import com.industrial.erp.modules.purchase.entity.PurOrder;
@@ -13,6 +16,7 @@ import com.industrial.erp.utils.BillNoGenerator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -26,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
 
 /**
  * v1.1.19+: 采购订单公式单元测试 (含税单价口径, 订单不写 AP).
@@ -100,5 +105,20 @@ class PurOrderServiceTest {
         assertThat(order.getTotalAmount()).isEqualByComparingTo("200.0000");
         assertThat(order.getTotalAmountTax()).isEqualByComparingTo("200.0000");
         assertThat(order.getTaxAmount()).isEqualByComparingTo("0.0000");
+    }
+
+    @Test
+    @DisplayName("page 自带软删过滤: 自定义 @Select 不吃 @TableLogic, 漏了会把已删单留在列表里")
+    @SuppressWarnings("rawtypes")
+    void page_filtersSoftDeletedRows() {
+        ArgumentCaptor<QueryWrapper> captor = ArgumentCaptor.forClass(QueryWrapper.class);
+        when(orderMapper.selectPageWithProduct(any(IPage.class), captor.capture()))
+                .thenReturn(new Page<PurOrder>());
+
+        service.page(1, 20, null, null, null);
+
+        QueryWrapper<?> w = captor.getValue();
+        assertThat(w.getCustomSqlSegment()).contains("o.deleted =");
+        assertThat(w.getParamNameValuePairs().values()).contains(0);
     }
 }

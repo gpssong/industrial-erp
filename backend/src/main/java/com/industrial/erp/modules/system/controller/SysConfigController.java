@@ -67,6 +67,7 @@ public class SysConfigController {
             "SYS_FACTORY",
             "SYS_FACTORY_CODE",
             "SYS_FOOTER",
+            "SYS_LOGO",
             "SYS_NAME",
             "SYSTEM_VERSION_INFO",
             "XK_AUDIT_RETENTION_YEARS",

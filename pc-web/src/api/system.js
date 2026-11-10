@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { API_BASE } from '@/utils/request'
 
 export const userApi = {
   page: (params) => request.get('/system/user/page', { params }),
@@ -91,7 +91,10 @@ export const backupApi = {
   restore: (id) => request.post(`/system/backup/restore/${id}`),
   delete: (id) => request.delete(`/system/backup/${id}`),
   factoryReset: () => request.post('/system/backup/factory-reset'),
-  clearData: (tables) => request.post('/system/backup/clear', tables)
+  clearData: (tables) => request.post('/system/backup/clear', tables),
+  // 二进制下载不走 axios (拦截器只认 {code:200} JSON), 由页面 fetch(...,credentials)
+  downloadUrl: (id) => `${API_BASE}/system/backup/download/${id}`,
+  deleteByTime: (params) => request.post('/system/backup/delete-by-time', params)
 }
 
 // 操作日志 (含删除数据快照)

@@ -1,9 +1,10 @@
 import { ref } from 'vue'
 import { configApi } from '@/api/system'
 
-// 品牌 (SYS_NAME) + 工厂名 (SYS_FACTORY) 两个 module-singleton ref, 全局共享
+// 品牌 (SYS_NAME) + 工厂名 (SYS_FACTORY) + 图标 (SYS_LOGO) 三个 module-singleton ref, 全局共享
 const systemName = ref('工业ERP')
 const factoryName = ref('华东一厂')
+const systemLogo = ref('')
 
 // 通用: 从 sys_config 读一个键, 有值则覆盖 ref
 // v1.1.130: 登录页也会调用 (品牌名), 此时未登录 → 配置接口 401 属预期, silent401 避免弹框和 redirect=/login
@@ -21,7 +22,8 @@ export function useSystemName() {
   async function loadSystemName() {
     await Promise.all([
       loadKey('SYS_NAME', systemName, '工业ERP'),
-      loadKey('SYS_FACTORY', factoryName, '华东一厂')
+      loadKey('SYS_FACTORY', factoryName, '华东一厂'),
+      loadKey('SYS_LOGO', systemLogo, '')
     ])
   }
 
@@ -35,5 +37,10 @@ export function useSystemName() {
     factoryName.value = name
   }
 
-  return { systemName, factoryName, loadSystemName, saveSystemName, saveFactoryName }
+  async function saveSystemLogo(logo) {
+    await configApi.updateValue('SYS_LOGO', logo || '')
+    systemLogo.value = logo || ''
+  }
+
+  return { systemName, factoryName, systemLogo, loadSystemName, saveSystemName, saveFactoryName, saveSystemLogo }
 }

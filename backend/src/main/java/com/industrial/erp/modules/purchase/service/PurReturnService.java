@@ -68,6 +68,9 @@ public class PurReturnService {
         permService.requirePerm("purchase:return:list");
         Page<PurReturn> p = new Page<>(pageNum, pageSize);
         QueryWrapper<PurReturn> w = new QueryWrapper<>();
+        // 自定义 @Select 不吃 MyBatis-Plus 的 @TableLogic 自动过滤, 软删行会留在列表里; 别名限定是
+        // 因为外层还有 LEFT JOIN base_warehouse, 裸写 deleted 会 "Column is ambiguous"
+        w.eq("r.deleted", 0);
         if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
         if (supplierId != null) w.eq("supplier_id", supplierId);
         if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);

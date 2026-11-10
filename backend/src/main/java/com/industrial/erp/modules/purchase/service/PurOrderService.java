@@ -63,6 +63,9 @@ public class PurOrderService {
         // v1.1.131: 用 QueryWrapper (非 Lambda) 配合 @Select 的 ${ew.customSqlSegment},
         // 以便在 SQL 里带上 firstProductName 子查询 (App 选单器显示「单号 · 品名」)
         QueryWrapper<PurOrder> w = new QueryWrapper<>();
+        // 自定义 @Select 不享受 MyBatis-Plus 的 @TableLogic 自动过滤, 软删行会照常出现在列表里,
+        // 再点删除时 selectById (带过滤) 查不到 → 误报「订单不存在或已删除」. 条件必须手写.
+        w.eq("o.deleted", 0);
         if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
         if (supplierId != null) w.eq("supplier_id", supplierId);
         if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);

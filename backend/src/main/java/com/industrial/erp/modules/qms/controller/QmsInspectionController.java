@@ -144,6 +144,18 @@ public class QmsInspectionController {
     }
 
     /**
+     * v1.1.174 超管将已审核检验单重置为草稿 (允许修改填错的数据).
+     * 仅超管可操作 (service 层双保险校验 isAdmin).
+     */
+    @Operation(summary = "超管: 重置检验单为草稿 (回滚审核)")
+    @SaCheckPermission(value = {"quality:inspection:check"}, mode = SaMode.OR, orRole = "admin")
+    @PostMapping("/{id}/reset-to-draft")
+    public R<Void> resetToDraft(@PathVariable Long id) {
+        qms.resetToDraft(id);
+        return R.ok();
+    }
+
+    /**
      * v1.1.95 XK 三步采购入库 — 为采购入库单「签署合格检验报告」.
      * 一步建成/审核该入库单关联的 IQC 为 PASS, 并冗余快照写回入库单.
      * 之后前端调 purchase/receipt/{id}/check 完成入库 (门禁已在 check() 里).

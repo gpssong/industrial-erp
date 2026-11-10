@@ -73,7 +73,7 @@ done
 echo -e "${BLUE}[4/6] 配置环境变量...${NC}"
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo -e "${YELLOW}  ! 已生成 .env (默认密码 ***REMOVED_CREDENTIAL***, 请尽快修改!)${NC}"
+  echo -e "${YELLOW}  ! 已生成 .env (MYSQL_ROOT_PASSWORD 还是占位值, 请尽快改成强密码!)${NC}"
 else
   echo -e "${GREEN}  ✓ .env 已存在, 跳过${NC}"
 fi

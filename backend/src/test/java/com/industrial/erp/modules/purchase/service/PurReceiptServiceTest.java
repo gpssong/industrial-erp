@@ -246,4 +246,87 @@ class PurReceiptServiceTest {
         assertThat(PurReceiptService.lineBatch(map, null, "兜底")).isEqualTo("兜底");
         assertThat(PurReceiptService.lineBatch(java.util.Map.of(1L, longBatch.toString()), 1L, null)).hasSize(64);
     }
+
+    // ===== v1.1.172: 入库审核食品级门禁回落 PUR_ORDER 键 (App 订单版签署的 IQC 挂在 PUR_ORDER) =====
+
+    @Test
+    @DisplayName("check: 食品级入库单, IQC 挂 PUR_ORDER 键 (App 订单版签署) → 门禁应回落放行, 不再报「未关联 IQC」")
+    void check_foodGrade_iqcOnPurOrderKey_fallsBackAndPasses() {
+        Long receiptId = 777L;
+        PurReceipt receipt = new PurReceipt();
+        receipt.setId(receiptId);
+        receipt.setBillNo("RKP202611080001");
+        receipt.setBillStatus("DRAFT");
+        receipt.setOrderId(900L);
+        receipt.setSupplierId(60L);
+        receipt.setWarehouseId(1L);
+        lenient().when(receiptMapper.selectById(receiptId)).thenReturn(receipt);
+
+        PurReceiptDetail d = new PurReceiptDetail();
+        d.setReceiptId(receiptId);
+        d.setProductId(200L);
+        d.setQty(new BigDecimal("10"));
+        d.setPrice(BigDecimal.ZERO);
+        lenient().when(receiptDetailMapper.selectByReceiptId(receiptId)).thenReturn(Arrays.asList(d));
+
+        lenient().when(qmsInspectionService.isFoodGradeProduct(200L)).thenReturn(true);
+
+        com.industrial.erp.modules.qms.entity.MesQualityInspection orderIqc = new com.industrial.erp.modules.qms.entity.MesQualityInspection();
+        orderIqc.setId(500L);
+        orderIqc.setBillNo("QI202611080001");
+        orderIqc.setSourceBillType("PUR_ORDER");
+        orderIqc.setSourceBillId(900L);
+        orderIqc.setStatus("CHECKED");
+        orderIqc.setResult("PASS");
+        orderIqc.setSampleQty(new BigDecimal("10"));
+        orderIqc.setInspectorName("gpssong1");
+        lenient().when(qmsInspectionService.findIqcForReceiptGate(receipt)).thenReturn(orderIqc);
+
+        BaseSupplier s = new BaseSupplier();
+        s.setId(60L); s.setSupplierName("浙江宁杨石化"); s.setStatus(1); s.setTaxRate(new BigDecimal("13.00"));
+        lenient().when(supplierMapper.selectById(60L)).thenReturn(s);
+        BaseWarehouse w = new BaseWarehouse();
+        w.setId(1L); w.setWarehouseName("原料仓");
+        lenient().when(warehouseMapper.selectById(1L)).thenReturn(w);
+
+        service.check(receiptId);
+
+        ArgumentCaptor<PurReceipt> upd = ArgumentCaptor.forClass(PurReceipt.class);
+        verify(receiptMapper).updateById(upd.capture());
+        assertThat(upd.getValue().getBillStatus()).isEqualTo("CHECKED");
+        assertThat(upd.getValue().getInspectorName()).isEqualTo("gpssong1");
+    }
+
+    @Test
+    @DisplayName("check: 食品级入库单, PUR_RECEIPT 键无 IQC 且 PUR_ORDER 键也无 → 仍报「未关联 IQC」")
+    void check_foodGrade_noIqcAnywhere_stillBlocked() {
+        Long receiptId = 778L;
+        PurReceipt receipt = new PurReceipt();
+        receipt.setId(receiptId);
+        receipt.setBillNo("RKP202611080002");
+        receipt.setBillStatus("DRAFT");
+        receipt.setOrderId(901L);
+        receipt.setSupplierId(60L);
+        receipt.setWarehouseId(1L);
+        lenient().when(receiptMapper.selectById(receiptId)).thenReturn(receipt);
+
+        PurReceiptDetail d = new PurReceiptDetail();
+        d.setReceiptId(receiptId);
+        d.setProductId(200L);
+        d.setQty(new BigDecimal("5"));
+        d.setPrice(BigDecimal.ZERO);
+        lenient().when(receiptDetailMapper.selectByReceiptId(receiptId)).thenReturn(Arrays.asList(d));
+
+        lenient().when(qmsInspectionService.isFoodGradeProduct(200L)).thenReturn(true);
+        lenient().when(qmsInspectionService.hasPassedIqc(receiptId)).thenReturn(false);
+        lenient().when(qmsInspectionService.findIqcByOrderId(901L)).thenReturn(null);
+
+        BaseSupplier s = new BaseSupplier();
+        s.setId(60L); s.setSupplierName("浙江宁杨石化"); s.setStatus(1);
+        lenient().when(supplierMapper.selectById(60L)).thenReturn(s);
+
+        assertThatThrownBy(() -> service.check(receiptId))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("未关联 IQC");
+    }
 }

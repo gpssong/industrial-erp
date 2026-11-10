@@ -95,10 +95,11 @@
       <div class="paper-wrap" :class="'size-' + paper">
         <article v-if="paperDoc" class="paper">
           <div class="paper-brand">
-            <span class="brand-symbol"><i /><i /><i /></span>
+            <img v-if="systemLogo" :src="systemLogo" class="brand-logo" alt="logo" />
+            <span v-else class="brand-symbol"><i /><i /><i /></span>
             <div>
               <strong>{{ systemName }}</strong>
-              <small>华塑包装 · 吹膜成膜</small>
+              <small>{{ factoryName }}</small>
             </div>
             <el-tag :type="paperDoc.audited ? 'success' : 'warning'" effect="light">{{ paperDoc.statusText }}</el-tag>
           </div>
@@ -117,6 +118,17 @@
           </div>
 
           <div v-if="sections.details" class="paper-body">
+            <template v-if="paperDoc.materials && paperDoc.materials.length">
+              <div class="paper-section-title">关联订单原料明细（共 {{ paperDoc.materials.length }} 项）</div>
+              <table class="paper-table detail">
+                <thead><tr><th v-for="h in paperDoc.materialHeaders" :key="h">{{ h }}</th></tr></thead>
+                <tbody>
+                  <tr v-for="(row, i) in paperDoc.materials" :key="'mat' + i">
+                    <td v-for="(c, j) in row" :key="j">{{ c }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
             <table class="paper-table detail">
               <thead><tr><th v-for="h in paperDoc.headers" :key="h">{{ h }}</th></tr></thead>
               <tbody>
@@ -171,7 +183,7 @@ import { purOrderApi } from '@/api/purchase'
 import { prdOrderApi, prdRequisitionApi } from '@/api/production'
 import { maintainRecordApi, maintainPlanApi } from '@/api/equipment'
 
-const { systemName } = useSystemName()
+const { systemName, factoryName, systemLogo, loadSystemName } = useSystemName()
 
 const printing = ref(false)
 const paper = ref('A4P')
@@ -370,7 +382,8 @@ async function loadDetail() {
   const withRow = (data) => ({ ...(rawRow.value || {}), ...(data || {}) })
   try {
     if (s.kind === 'inspection') {
-      const r = await inspectionApi.detail(id)
+      // 统一打印详情出口 (与 App 同端点): 普通 QMS 详情不回 orderMaterials, 会漏掉关联订单的多原料
+      const r = await xkMock.printDocDetail(docType.value, id)
       const head = r.data?.head || r.data || {}
       let items = r.data?.items || []
       if (!items.length) {
@@ -381,6 +394,7 @@ async function loadDetail() {
       }
       detail.value = {
         head, items, defects: r.data?.defects || [],
+        orderMaterials: r.data?.orderMaterials || [],
         stage: r.data?.stage || head.stage, processName: r.data?.processName || head.processName
       }
     } else if (s.kind === 'env') {
@@ -449,6 +463,7 @@ function buildInspection(s, d) {
   parsePhotos(head.photoUrls).forEach((url, i) => photos.push({ url, caption: '检验照片 ' + (i + 1) }))
   ;(d.defects || []).forEach(x => parsePhotos(x.photoUrl).forEach(url => photos.push({ url, caption: '不良品照片' })))
 
+  const orderMaterials = d.orderMaterials || []
   return {
     title: s.title,
     code: S(head.billNo),
@@ -456,6 +471,8 @@ function buildInspection(s, d) {
     statusText: head.status === 'CHECKED' ? '已审核 · 只读' : (BILL_STATUS_TEXT[head.status] || S(head.status)),
     audited: head.status === 'CHECKED',
     meta,
+    materialHeaders: ['序号', '原料名称', '规格型号', '数量'],
+    materials: orderMaterials.map((m, i) => [i + 1, S(m.productName), S(m.spec), qtyText(m.qty, m.unitName)]),
     headers: useItems ? ['序号', '检验项目', '技术要求', '检验方法', '实测值', '单项判定'] : ['缺陷', '类型', '严重度', '数量', '处置'],
     rows: useItems ? itemRows : (defectRows.length ? defectRows : [['—', '暂无检验项明细', '—', '—', '—']]),
     photos,
@@ -754,7 +771,7 @@ watch(recordId, (v, old) => {
   }
 })
 
-onMounted(() => { loadList() })
+onMounted(() => { loadSystemName(); loadList() })
 onBeforeUnmount(() => {
   removePageRule()
   window.removeEventListener('afterprint', removePageRule)
@@ -809,13 +826,17 @@ window.addEventListener('afterprint', removePageRule)
 
 // Figma .paper-wrap + .paper
 .paper-wrap {
-  padding: 35px; background: #dce3ea; border-radius: 14px; overflow: auto;
-  display: flex; justify-content: center; min-height: 420px;
+  padding: 35px; background: #dce3ea; border-radius: 14px;
+  overflow: auto;
+  display: flex; justify-content: center;
+  min-height: 420px;
+  max-height: calc(100vh - 220px);
 }
 .paper {
   width: 680px; min-height: 900px; margin: auto; padding: 44px 48px 30px;
   background: #fff; box-shadow: 0 10px 30px rgba(28, 48, 69, .14); color: #182331;
   font-family: -apple-system, "PingFang SC", sans-serif; font-size: 13px; position: relative;
+  flex-shrink: 0;
 }
 .size-A4L .paper { width: 900px; min-height: 620px; }
 
@@ -833,6 +854,7 @@ window.addEventListener('afterprint', removePageRule)
   i { flex: 1; background: #fff; border-radius: 2px 2px 0 0; transform: skewY(-18deg); }
   i:nth-child(1) { height: 50%; } i:nth-child(2) { height: 72%; } i:nth-child(3) { height: 94%; }
 }
+.brand-logo { width: 34px; height: 34px; object-fit: contain; border-radius: 9px; }
 .paper-brand > div { flex: 1; }
 .paper-brand strong { display: block; font-size: 14px; font-weight: 750; color: var(--text); }
 .paper-brand small { display: block; font-size: 8px; letter-spacing: .13em; color: #748194; }
@@ -859,7 +881,7 @@ window.addEventListener('afterprint', removePageRule)
 .paper-photo-block { margin-top: 18px; }
 .paper-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .paper-photos figure { margin: 0; border: 1px solid #d3dae1; padding: 6px; }
-.paper-photos img { width: 100%; height: 145px; object-fit: cover; display: block; }
+.paper-photos img { width: 100%; height: 100px; object-fit: cover; display: block; }
 .paper-photos figcaption { color: #687588; text-align: center; font-size: 11px; margin: 5px 0 1px; }
 .paper-no-photo {
   min-height: 58px; margin-top: 18px; display: flex; align-items: center; justify-content: center; gap: 7px;
@@ -879,13 +901,21 @@ window.addEventListener('afterprint', removePageRule)
   border-top: 1px solid #cfd6dd; text-align: center; color: #8792a0; font-size: 10px; padding-top: 9px; margin-top: 18px;
 }
 
-// 打印时隐藏壳、只留纸张
+// 打印时隐藏壳、只留纸张 (MainLayout 的全局 @media print 负责隐藏 sidebar/topbar)
 @media print {
   .xk-page-heading, .xk-compliance-strip, .print-settings { display: none !important; }
-  .print-workspace { display: block; }
-  .paper-wrap { background: #fff; padding: 0; border-radius: 0; display: block; overflow: visible; min-height: 0; }
-  .paper { box-shadow: none; margin: 0 auto; width: 100% !important; min-height: 0; padding: 0; }
+  .xk-print { display: block; width: 100%; padding: 0; }
+  .print-workspace { display: block; width: 100%; padding: 0; }
+  .paper-wrap { background: #fff; padding: 0; border-radius: 0; display: block; overflow: visible; min-height: 0; max-height: none; }
+  /* 纸张宽度跟随 @page 内容区 (A4 横向可打印宽 ~190mm≈781px@96dpi)，
+     去掉 900px/680px 固定宽，避免横向右缘溢出被裁 */
+  .paper { box-shadow: none; margin: 0; width: 100% !important; max-width: 100% !important; min-height: 0; padding: 0; }
+  .paper-info { grid-template-columns: repeat(4, 1fr) !important; }
+  .paper-body table, .paper-table { width: 100% !important; table-layout: fixed; }
+  .paper-body th, .paper-body td, .paper-table th, .paper-table td { word-break: break-word; }
+  /* 照片自适应, 不撑爆单页; 表格/照片块允许跨页 */
   .paper-body tr, .paper-photos figure { page-break-inside: avoid; }
-  .paper-photos img { height: auto; max-height: 150px; object-fit: contain; }
+  .paper-photos { page-break-inside: auto; }
+  .paper-photos img { height: auto; max-height: 120px; object-fit: contain; }
 }
 </style>

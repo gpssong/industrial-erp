@@ -182,6 +182,20 @@ public class BackupService {
         if (f.exists()) f.delete();
     }
 
+    /** 下载前校验: 文件存在且 canonical 路径落在 backupPath 内 (防路径穿越). */
+    public File resolveBackupFile(String filePath) {
+        if (filePath == null) throw new com.industrial.erp.exception.BizException("备份文件路径为空");
+        File f = new File(filePath);
+        if (!f.exists() || !f.isFile()) throw new com.industrial.erp.exception.BizException("备份文件不存在: " + filePath);
+        try {
+            String base = new File(backupPath).getCanonicalPath() + File.separator;
+            if (!f.getCanonicalPath().startsWith(base)) throw new com.industrial.erp.exception.BizException("非法备份路径");
+        } catch (IOException e) {
+            throw new com.industrial.erp.exception.BizException("备份路径校验失败: " + e.getMessage());
+        }
+        return f;
+    }
+
     /** 恢复出厂设置：清空数据+重跑SQL脚本 */
     public void factoryReset() {
         String[] scripts = {

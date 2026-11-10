@@ -53,7 +53,8 @@ export const labelApi = {
   feiePreview: (data) => request.post('/base/label/feie/preview', data),
   feiePrint: (data) => request.post('/base/label/feie/print', data),
   logs: (params) => request.get('/base/label/logs', { params }),
-  tspl: (data) => request.post('/base/label/tspl', data)
+  tspl: (data) => request.post('/base/label/tspl', data),
+  resolve: data => request.post('/base/label/resolve', data)
 }
 
 export const labelTemplateApi = {
@@ -63,5 +64,8 @@ export const labelTemplateApi = {
   add: (data) => request.post('/base/label/template', data),
   update: (data) => request.put('/base/label/template', data),
   delete: (id) => request.delete(`/base/label/template/${id}`),
-  setDefault: (id) => request.put(`/base/label/template/${id}/default`)
+  setDefault: (id) => request.put(`/base/label/template/${id}/default`),
+  history: id => request.get(`/base/label/template/${id}/history`),
+  historyOne: (id, seq) => request.get(`/base/label/template/${id}/history/${seq}`),
+  rollback: (id, seq) => request.post(`/base/label/template/${id}/rollback`, { seq })
 }

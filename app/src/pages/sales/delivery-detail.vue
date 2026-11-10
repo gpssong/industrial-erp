@@ -156,38 +156,146 @@ function formatMoney(v) {
 }
 
 // v1.1.54+: 二次确认 + 调后端 /{id}/check 或 /{id}/uncheck, 与 PC 端 onCheck/onUncheck 行为对齐
+// v1.1.174: 审核走「自动批次分配」路径, 与 PC 端 autoAllocateAll 口径一致 (savedBatches 优先 → 其余按库存 qty DESC 补齐, 跨行去重).
+// 库存不足时弹提示阻止审核; 分配成功则把 {details:[{detailId,allocations:[{batchNo,qty}]}]} 发给后端.
+async function buildAutoAllocations() {
+  const wh = order.value.warehouseId
+  const details = order.value.details || []
+  const stockCache = {}
+  const used = {}
+  const lines = []
+  let anyShort = false
+  for (const det of details) {
+    const pid = det.productId
+    if (!(pid in stockCache)) {
+      try {
+        const r = await api.stockBatches(wh, pid)
+        stockCache[pid] = (r && (r.data || r)) || []
+      } catch (e) { stockCache[pid] = [] }
+    }
+    const saved = det.batchNo ? String(det.batchNo).split('|').filter(x => x !== '') : []
+    const need = Number(det.qty || 0)
+    const opts = (stockCache[pid] || [])
+      .filter(b => Number(b.qty) > 0 || saved.includes(b.batchNo || ''))
+    // 与 PC 端 fillLine 一致: saved 优先 (按 saved 顺序), 其余按接口返回顺序 (qty DESC)
+    opts.sort((a, b) => {
+      const ai = saved.indexOf(a.batchNo || '')
+      const bi = saved.indexOf(b.batchNo || '')
+      return (ai < 0 ? 9999 : ai) - (bi < 0 ? 9999 : bi)
+    })
+    let remaining = need
+    const allocations = []
+    for (const o of opts) {
+      if (remaining <= 0) break
+      const bn = o.batchNo || ''
+      const k = pid + '|' + bn
+      const left = +(((Number(o.qty) || 0) - (used[k] || 0))).toFixed(4)
+      if (left <= 0) continue
+      const take = +Math.min(remaining, left).toFixed(4)
+      used[k] = +(((used[k] || 0) + take)).toFixed(4)
+      remaining = +(remaining - take).toFixed(4)
+      allocations.push({ batchNo: bn, qty: take })
+    }
+    if (remaining > 0.0001) anyShort = true
+    lines.push({
+      detailId: det.id,
+      productName: det.productName || det.productCode || String(pid),
+      unitName: det.unitName || '',
+      need,
+      allocations,
+      shortage: +remaining.toFixed(4)
+    })
+  }
+  return { lines, anyShort }
+}
+
+function formatAllocationSummary(lines) {
+  return lines.map(l => {
+    const allocs = l.allocations.filter(a => a.qty > 0)
+    if (!allocs.length) return `· ${l.productName}: ${l.need}${l.unitName} (无批次, 按库存扣)`
+    const parts = allocs.map(a => `${a.batchNo || '无批次'} ${a.qty}${l.unitName}`).join(', ')
+    return `· ${l.productName}: ${l.need}${l.unitName} → ${parts}`
+  }).join('\n')
+}
+
+function formatShortage(lines) {
+  return lines
+    .filter(l => l.shortage > 0)
+    .map(l => `· ${l.productName}: 缺 ${l.shortage}${l.unitName}`)
+    .join('\n')
+}
+
 function onAudit(action) {
   if (busy.value) return
   const isUncheck = action === 'uncheck'
-  const content = isUncheck
-    ? `确认反审核销售出库单 ${order.value.billNo}?\n\n此操作仅回退单据状态至「草稿」, 不会自动回退已扣减的库存或应收账款. 如需调整, 请走后继红冲单.`
-    : `确认审核销售出库单 ${order.value.billNo}?\n\n审核后将:\n• 扣减库存\n• 更新商品成本\n• 生成应收 (AR → 客户)`
-  uni.showModal({
-    title: isUncheck ? '反审核确认' : '审核确认',
-    content,
-    confirmText: isUncheck ? '确认反审核' : '确认审核',
-    cancelText: '取消',
-    confirmColor: isUncheck ? '#e6a23c' : '#67c23a',
-    success: async (res) => {
-      if (!res.confirm) return
-      busy.value = true
-      try {
-        if (isUncheck) {
+  if (isUncheck) {
+    // 反审核保持原路径 (无需批次分配)
+    uni.showModal({
+      title: '反审核确认',
+      content: `确认反审核销售出库单 ${order.value.billNo}?\n\n此操作仅回退单据状态至「草稿」, 不会自动回退已扣减的库存或应收账款. 如需调整, 请走后继红冲单.`,
+      confirmText: '确认反审核',
+      cancelText: '取消',
+      confirmColor: '#e6a23c',
+      success: async (res) => {
+        if (!res.confirm) return
+        busy.value = true
+        try {
           await api.salesDeliveryUncheck(order.value.id)
           uni.showToast({ title: '反审核成功', icon: 'success' })
-        } else {
-          await api.salesDeliveryCheck(order.value.id)
-          uni.showToast({ title: '审核成功', icon: 'success' })
-        }
-        await reload()
-      } catch (e) {
-        // v1.1.61 R13 全局重塑: 拦截器已弹后端 msg (如"反审核需要无已核销记录"), catch 不重复弹
-        console.warn('[sales-delivery-detail.onAudit] 失败:', e)
-        if (e && e.code === 401) return
-      } finally {
-        busy.value = false
+          await reload()
+        } catch (e) {
+          console.warn('[sales-delivery-detail.onAudit uncheck] 失败:', e)
+          if (e && e.code === 401) return
+        } finally { busy.value = false }
       }
+    })
+    return
+  }
+  // 审核: 先算自动批次分配
+  busy.value = true
+  uni.showLoading({ title: '匹配批次...', mask: true })
+  buildAutoAllocations().then(({ lines, anyShort }) => {
+    uni.hideLoading()
+    busy.value = false
+    if (anyShort) {
+      uni.showModal({
+        title: '库存不足',
+        content: '以下商品可用库存不足以完成本次出库, 请先入库或调整单据数量:\n\n' + formatShortage(lines),
+        showCancel: false,
+        confirmText: '知道了'
+      })
+      return
     }
+    uni.showModal({
+      title: '审核确认',
+      content: `确认审核销售出库单 ${order.value.billNo}?\n\n已按库存自动匹配批次:\n${formatAllocationSummary(lines)}\n\n审核后将扣减库存 / 更新成本 / 生成应收.`,
+      confirmText: '确认审核',
+      cancelText: '取消',
+      confirmColor: '#67c23a',
+      success: async (res) => {
+        if (!res.confirm) return
+        busy.value = true
+        try {
+          const payload = {
+            details: lines.map(l => ({
+              detailId: l.detailId,
+              allocations: l.allocations.filter(a => a.qty > 0).map(a => ({ batchNo: a.batchNo || '', qty: a.qty }))
+            }))
+          }
+          await api.salesDeliveryCheck(order.value.id, payload)
+          uni.showToast({ title: '审核成功', icon: 'success' })
+          await reload()
+        } catch (e) {
+          console.warn('[sales-delivery-detail.onAudit check] 失败:', e)
+          if (e && e.code === 401) return
+        } finally { busy.value = false }
+      }
+    })
+  }).catch((e) => {
+    uni.hideLoading()
+    busy.value = false
+    console.warn('[sales-delivery-detail.buildAutoAllocations] 失败:', e)
+    uni.showModal({ title: '批次匹配失败', content: (e && (e.msg || e.message)) || '加载批次库存失败, 请稍后重试', showCancel: false })
   })
 }
 

@@ -39,7 +39,7 @@ done
 # 2. 实体字段 vs DDL 对账 (离线 sql/ + 集合字段必查)
 # 离线模式: 集合字段没标 exist=false → 硬 fail (真 500 风险, 与 DDL 完整性无关);
 #          scalar 缺列只在离线 DDL 不全时误报 → 仅提示, 不 fail.
-# 需要权威对账时手动: DB_PWD=***REMOVED_CREDENTIAL*** scripts/entity-schema-check.py --live-ssh
+# 需要权威对账时手动: scripts/entity-schema-check.py --live-ssh (口令取自 ops-env, 见 scripts/ops-env.example)
 # -----------------------------------------------------------
 echo ""
 echo "==> [pre-commit] 实体字段 vs DDL 对账 (scripts/entity-schema-check.py)..."
@@ -50,7 +50,7 @@ if [ -f "scripts/entity-schema-check.py" ]; then
     # 离线模式下, 只有 error (集合字段/表缺失) 才 fail; 纯 warning 不 fail.
     # 上面的脚本: 有 error → exit 1, 只有 warning → exit 0. 所以 exit 1 = 真有问题.
     echo "  ❌ 实体有字段在 DDL 里不存在 / 集合字段没标 exist=false → 会 500"
-    echo "     权威确认: DB_PWD=***REMOVED_CREDENTIAL*** scripts/entity-schema-check.py --live-ssh"
+    echo "     权威确认: scripts/entity-schema-check.py --live-ssh (口令取自 ops-env, 见 scripts/ops-env.example)"
     FAILED=1
   fi
 else

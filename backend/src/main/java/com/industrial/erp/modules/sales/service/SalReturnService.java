@@ -73,6 +73,9 @@ public class SalReturnService {
         permService.requirePerm("sales:return:list");
         Page<SalReturn> p = new Page<>(pageNum, pageSize);
         QueryWrapper<SalReturn> w = new QueryWrapper<>();
+        // 同 PurReturnService: 自定义 @Select 不吃 @TableLogic 自动过滤, 且外层 LEFT JOIN base_warehouse
+        // 使裸列名 deleted 产生歧义 → 必须带别名手写软删过滤
+        w.eq("r.deleted", 0);
         if (StrUtil.isNotBlank(billNo)) w.like("bill_no", billNo);
         if (customerId != null) w.eq("customer_id", customerId);
         if (StrUtil.isNotBlank(billStatus)) w.eq("bill_status", billStatus);

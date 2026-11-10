@@ -563,16 +563,9 @@
         </div>
       </el-tab-pane>
 
-      <!-- 3.5 v1.1.101 XK — 进货查验 (IQC) — 跳到独立台账页 -->
-      <el-tab-pane label="进货查验 (IQC)" name="iqc">
-        <div class="rec-ledger" style="padding: 16px">
-          <el-alert title="进货查验详情请进入独立台账" type="info" show-icon :closable="false" style="margin-bottom: 16px">
-            v1.1.101 XK — 原料进货检验 (IQC) 已从 5 类检验单中独立, 详情见独立台账页
-          </el-alert>
-          <el-button type="primary" @click="$router.push('/xk/iqc-ledger')">
-            打开进货查验台账
-          </el-button>
-        </div>
+      <!-- 3.5 v1.1.174 XK — 进货查验 (IQC) 内嵌工作流 -->
+      <el-tab-pane label="进货查验 (IQC)" name="iqc" lazy>
+        <IqcInline />
       </el-tab-pane>
 
       <!-- 4. 检验记录与报告 (对齐 image #11) -->
@@ -1012,6 +1005,7 @@ import { envCheckApi } from '@/api/xk'
 import { calibrationEquipmentApi, calibrationRecordApi } from '@/api/qa'
 import { uploadFile } from '@/api/workflow'
 import { useUserStore } from '@/store/user'
+import IqcInline from './IqcInline.vue'
 
 const userStore = useUserStore()
 const currentUserName = () => userStore.userInfo?.nickname || userStore.userInfo?.username || ''

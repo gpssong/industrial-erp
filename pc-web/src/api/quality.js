@@ -35,12 +35,20 @@ export const inspectionApi = {
   ensureTemplate: (id) => request.post(`/qms/inspection/${id}/ensure-template`),
   /** v1.1.131 — 找/建某成品入库单的 OQC 草稿 + 灌成品检验模板, 回传 {head, items, finishedIn} */
   ensureOqcForFinishedIn: (finishedInId) => request.post('/qms/inspection/ensure-oqc-for-finished-in', { finishedInId }),
-  /** 采购计划触发建/复用 IQC */
+  /** v1.1.131 — 采购计划触发建/复用 IQC */
   iqcCreateFromPlan: (planId) => request.post('/qms/inspection/create-from-plan', { planId }),
+  /** v1.1.159 — 采购订单触发建/复用 IQC (App scan/in 主流程，PC 端同步接入) */
+  iqcCreateFromOrder: (orderId) => request.post('/qms/inspection/create-from-order', { orderId }),
+  /** v1.1.159 — IQC 详情 (订单版: head + items + attachments + order) */
+  iqcDetailForOrder: (iqcId) => request.get(`/qms/inspection/${iqcId}/detail-for-order`),
+  /** v1.1.159 — 签署合格 IQC + 放行 (订单版) */
+  iqcSignForOrder: (orderId, iqcId, body) => request.post('/qms/inspection/sign-for-order', { orderId, iqcId, ...body }),
   /** 签署合格 + 自动建 DRAFT 入库单 (App 端"生成报告并自动入库" 走这里) */
   iqcSignForPlan: (body) => request.post('/qms/inspection/sign-for-plan', body),
   /** 从 IQC 自动建 DRAFT 采购入库单 */
-  iqcCreateReceipt: (planId, iqcId) => request.post('/purchase/receipt/create-from-iqc', { planId, iqcId })
+  iqcCreateReceipt: (planId, iqcId) => request.post('/purchase/receipt/create-from-iqc', { planId, iqcId }),
+  /** v1.1.174 — 超管将已审核检验单重置为草稿 (回滚审核, 允许修改填错的数据) */
+  resetToDraft: (id) => request.post(`/qms/inspection/${id}/reset-to-draft`)
 }
 
 // 后续 v1.1.91: 质量报表

@@ -7,38 +7,6 @@
 
     <view v-if="loading" class="empty">加载中...</view>
     <template v-else>
-      <!-- 成品入库列表 (对齐 PC 端 FinishedIn.vue) -->
-      <view class="card">
-        <view class="section-title">成品入库列表</view>
-        <view v-if="listLoading" class="list-state">加载中...</view>
-        <view v-else-if="!inRecords.length" class="list-state empty-mini">暂无成品入库记录</view>
-        <template v-else>
-          <view v-for="r in inRecords" :key="r.id" class="in-row">
-            <view class="in-main">
-              <text class="in-no">{{ r.billNo || '-' }}</text>
-              <text class="in-st" :class="r.billStatus === 'CHECKED' ? 'ok' : 'draft'">
-                {{ r.billStatus === 'CHECKED' ? '已审核' : '草稿' }}
-              </text>
-            </view>
-            <view class="in-sub">
-              <text>{{ r.productName || '-' }}</text>
-              <text v-if="r.spec"> · {{ r.spec }}</text>
-            </view>
-            <view class="in-sub">
-              <text>数量: {{ r.qty || 0 }}</text>
-              <text v-if="r.unitName"> {{ r.unitName }}</text>
-              <text v-if="r.batchNo"> · 批号 {{ r.batchNo }}</text>
-            </view>
-            <!-- 列表行内审核/反审核 (DRAFT 绿, CHECKED 橙) -->
-            <view v-if="canCheck || canUncheck" class="in-actions">
-              <button v-if="r.billStatus !== 'CHECKED' && canCheck" class="row-btn row-btn-ok" :disabled="rowActing" @click="onRowCheck(r)">审核</button>
-              <button v-else-if="r.billStatus === 'CHECKED' && canUncheck" class="row-btn row-btn-warn" :disabled="rowActing" @click="onRowUncheck(r)">反审核</button>
-            </view>
-          </view>
-          <button class="btn-reload" @click="loadInList">刷新列表</button>
-        </template>
-      </view>
-
       <!-- 选生产工单 → 带出 成品/规格/数量/仓库 -->
       <view class="card">
         <view class="section-title">关联生产工单</view>
@@ -85,6 +53,39 @@
         <view class="gate-title">🔒 XK 门禁</view>
         <view class="muted">食品级成品须: ① 该工单全部工序已完工 (工序门禁); ② 若已关联 OQC 成品检, 须已签合格 (软门禁)。
           工业品商品免检, 可直接入库。</view>
+      </view>
+
+      <!-- 成品入库列表 (v1.1.174: 移到添加表单下方) -->
+      <view class="card">
+        <view class="section-title">成品入库列表</view>
+        <view v-if="listLoading" class="list-state">加载中...</view>
+        <view v-else-if="!inRecords.length" class="list-state empty-mini">暂无成品入库记录</view>
+        <template v-else>
+          <view v-for="r in inRecords" :key="r.id" class="in-row">
+            <view class="in-main">
+              <text class="in-no">{{ r.billNo || '-' }}</text>
+              <text class="in-st" :class="r.billStatus === 'CHECKED' ? 'ok' : 'draft'">
+                {{ r.billStatus === 'CHECKED' ? '已审核' : '草稿' }}
+              </text>
+            </view>
+            <view class="in-sub">
+              <text>{{ r.productName || '-' }}</text>
+              <text v-if="r.spec"> · {{ r.spec }}</text>
+            </view>
+            <view class="in-sub">
+              <text>数量: {{ r.qty || 0 }}</text>
+              <text v-if="r.unitName"> {{ r.unitName }}</text>
+              <text v-if="r.batchNo"> · 批号 {{ r.batchNo }}</text>
+            </view>
+            <!-- 列表行内审核/反审核/删除 (DRAFT 绿/红, CHECKED 橙) -->
+            <view v-if="canCheck || canUncheck || canDelete" class="in-actions">
+              <button v-if="r.billStatus !== 'CHECKED' && canCheck" class="row-btn row-btn-ok" :disabled="rowActing" @click="onRowCheck(r)">审核</button>
+              <button v-else-if="r.billStatus === 'CHECKED' && canUncheck" class="row-btn row-btn-warn" :disabled="rowActing" @click="onRowUncheck(r)">反审核</button>
+              <button v-if="r.billStatus !== 'CHECKED' && canDelete" class="row-btn row-btn-del" :disabled="rowActing" @click="onDelete(r)">删除</button>
+            </view>
+          </view>
+          <button class="btn-reload" @click="loadInList">刷新列表</button>
+        </template>
       </view>
 
       <view class="foot">
@@ -161,6 +162,10 @@ export default {
     canUncheck() {
       const perms = this.getMyAppPerms()
       return perms.includes('production:finished-in:uncheck') || perms.includes('admin') || this.isMyAdmin()
+    },
+    canDelete() {
+      const perms = this.getMyAppPerms()
+      return perms.includes('production:finished-in:delete') || perms.includes('admin') || this.isMyAdmin()
     }
   },
   async onLoad(query) {
@@ -249,6 +254,23 @@ export default {
       } catch (e) {
         if (e && e.code === 401) { this.rowActing = false; return }
         uni.showModal({ title: '反审核失败', content: (e && e.msg) || '反审核失败', showCancel: false })
+      } finally { this.rowActing = false }
+    },
+    // v1.1.174: 删除草稿状态的成品入库单
+    async onDelete(row) {
+      const ok = await new Promise((resolve) => {
+        uni.showModal({ title: '删除确认', content: `确认删除草稿入库单 ${row.billNo}? 删除后不可恢复。`, confirmText: '确认删除', cancelText: '取消',
+          success: (r) => resolve(r.confirm), fail: () => resolve(false) })
+      })
+      if (!ok) return
+      this.rowActing = true
+      try {
+        await api.prdFinishedInDelete(row.id)
+        uni.showToast({ title: '已删除', icon: 'success' })
+        this.loadInList()
+      } catch (e) {
+        if (e && e.code === 401) { this.rowActing = false; return }
+        uni.showModal({ title: '删除失败', content: (e && e.msg) || '删除失败', showCancel: false })
       } finally { this.rowActing = false }
     },
     // 成品入库列表 (对齐 PC 端, 只显示最近 50 条)
@@ -481,6 +503,7 @@ export default {
 .row-btn { font-size: 12px; line-height: 26px; height: 26px; padding: 0 12px; border: none; border-radius: 4px; }
 .row-btn-ok { background: #67c23a; color: #fff; }
 .row-btn-warn { background: #e6a23c; color: #fff; }
+.row-btn-del { background: #f56c6c; color: #fff; }
 .btn-reload { margin-top: 6px; width: 100%; background: #fff; border: 1px solid #dcdfe6; color: #606266; font-size: 13px; border-radius: 6px; }
 .empty { text-align: center; color: #999; padding: 60px; font-size: 14px; }
 .foot { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; padding: 10px 12px; box-shadow: 0 -2px 8px rgba(0,0,0,.06); display: flex; gap: 8px; }

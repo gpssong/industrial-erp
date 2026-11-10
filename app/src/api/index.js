@@ -264,7 +264,7 @@ export const api = {
   // 复用后端 POST /purchase/receipt/{id}/check 等, 后端 perm 用 xxx:check (反审核也复用同一 perm)
   purchaseReceiptCheck:   (id) => request({ url: '/purchase/receipt/' + id + '/check',   method: 'POST' }),
   purchaseReceiptUncheck: (id) => request({ url: '/purchase/receipt/' + id + '/uncheck', method: 'POST' }),
-  salesDeliveryCheck:     (id) => request({ url: '/sales/delivery/'   + id + '/check',   method: 'POST' }),
+  salesDeliveryCheck:     (id, body) => request({ url: '/sales/delivery/'   + id + '/check',   method: 'POST', data: body, contentType: 'json' }),
   salesDeliveryUncheck:   (id) => request({ url: '/sales/delivery/'   + id + '/uncheck', method: 'POST' }),
   // 生产
   prdOrderPage: (params) => request({ url: '/production/order/page', data: params }),

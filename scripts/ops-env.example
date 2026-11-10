@@ -1,0 +1,21 @@
+# 运维凭据 — 复制到 ~/.config/erp-ops/env 并 chmod 600，**永远不要提交真值**。
+#
+#   mkdir -p ~/.config/erp-ops
+#   cp scripts/ops-env.example ~/.config/erp-ops/env
+#   chmod 600 ~/.config/erp-ops/env
+#   $EDITOR ~/.config/erp-ops/env
+#
+# 仓库内所有部署脚本改读这里；文件缺失或缺键时脚本会大声失败退出，
+# 绝不会退回某个"能跑通的默认口令"（那正是本次清理要消灭的东西）。
+#
+# 与 .env 的分工：.env 只装容器运行时配置（compose / backend 用），
+# 本文件只装**人的登录凭据**（SSH / DBA 口令），供 Mac 侧运维脚本使用。
+
+# 飞牛 NAS 192.168.0.32 — gpssong 登录口令（sshpass 用）
+ERP_FN_SSH_PASS=REPLACE_ME
+
+# home/群晖 NAS 192.168.0.150 — gpssong 登录口令（sshpass + sudo -S 用）
+ERP_HOME_SSH_PASS=REPLACE_ME
+
+# MySQL root 口令（.150 与 .32 目前同值；阿里云另有强口令，走该机 .env）
+ERP_MYSQL_ROOT_PWD=REPLACE_ME

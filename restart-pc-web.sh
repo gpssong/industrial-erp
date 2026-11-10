@@ -4,16 +4,19 @@
 #       grep dashboard:kpi 命中 Index-DadcDsRj.js ✅
 # 剩余: docker restart erp-pc-web (bind mount 自动生效,无需 rebuild)
 #
-# 用法: 在 mac 终端执行
-#   sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 \
-#     'printf "***REMOVED_CREDENTIAL***\n" | sudo -S -p "" /usr/local/bin/docker restart erp-pc-web'
+# 用法: 在 mac 终端执行 (口令从 ~/.config/erp-ops/env 取, 见 scripts/ops-env.example)
+#   sshpass -p "$ERP_HOME_SSH_PASS" ssh gpssong@192.168.0.150 \
+#     'printf "$ERP_HOME_SSH_PASS\n" | sudo -S -p "" /usr/local/bin/docker restart erp-pc-web'
 #   或者 (如果 sudo 需要 tty):
-#   sshpass -p '***REMOVED_CREDENTIAL***' ssh -tt gpssong@192.168.0.150 \
-#     "echo '***REMOVED_CREDENTIAL***' | sudo -S /usr/local/bin/docker restart erp-pc-web"
+#   sshpass -p "$ERP_HOME_SSH_PASS" ssh -tt gpssong@192.168.0.150 \
+#     "echo \"$ERP_HOME_SSH_PASS\" | sudo -S /usr/local/bin/docker restart erp-pc-web"
+
+. "$(dirname "$0")/scripts/ops-env.sh"
+erp_ops_load ERP_HOME_SSH_PASS || exit 1
 
 HOST=192.168.0.150
 USER=gpssong
-PASS=***REMOVED_CREDENTIAL***
+PASS="$ERP_HOME_SSH_PASS"
 
 echo "===== 重启 home pc-web 容器 ====="
 sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no $USER@$HOST \

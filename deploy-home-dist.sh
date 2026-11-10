@@ -5,6 +5,10 @@
 
 set -e
 
+. "$(dirname "$0")/scripts/ops-env.sh"
+erp_ops_load ERP_HOME_SSH_PASS || exit 1
+PASS="$ERP_HOME_SSH_PASS"
+
 LOCAL_DIST="/Users/tongban/Documents/根据前端开发erp 2/erp-system/pc-web/dist"
 UPLOAD_DIR="/volume3/docker/erp-system/upload"
 TAR_FILE="pc-web-v1153.tar.gz"
@@ -18,15 +22,15 @@ ls -la /tmp/$TAR_FILE
 
 echo ""
 echo "===== Step 2: 上传到 home NAS ====="
-sshpass -p '***REMOVED_CREDENTIAL***' scp -o StrictHostKeyChecking=no \
+sshpass -p "$PASS" scp -o StrictHostKeyChecking=no \
   /tmp/$TAR_FILE gpssong@192.168.0.150:$UPLOAD_DIR/$TAR_FILE
 
 echo ""
 echo "===== Step 3: SSH 到 NAS 解压 + 重启 ====="
-sshpass -p '***REMOVED_CREDENTIAL***' ssh -o StrictHostKeyChecking=no \
+sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no \
   gpssong@192.168.0.150 'bash --noprofile --norc' <<REMOTE_EOF
 export LANG=C LC_ALL=C PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-printf '***REMOVED_CREDENTIAL***\n' | sudo -S -p '' bash -c '
+printf '$PASS\n' | sudo -S -p '' bash -c '
 set -e
 echo "--- 备份旧版 ---"
 if [ -d $REMOTE_FINAL ]; then

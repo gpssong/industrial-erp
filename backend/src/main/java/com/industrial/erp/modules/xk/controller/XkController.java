@@ -301,6 +301,17 @@ public class XkController {
         String retention = sysConfigService.getByKey("XK_AUDIT_RETENTION_YEARS");
         data.put("retentionYears", retention == null ? "2" : retention);
         data.put("serverTime", java.time.LocalDateTime.now().toString());
+        // 报告抬头品牌/工厂/图标读项目配置 (超管可在「品牌与工厂」改), 不再写死华塑智造
+        Map<String, Object> brand = new HashMap<>();
+        String name = sysConfigService.getByKey("SYS_NAME");
+        String enName = sysConfigService.getByKey("SYS_EN_NAME");
+        String factory = sysConfigService.getByKey("SYS_FACTORY");
+        String logo = sysConfigService.getByKey("SYS_LOGO");
+        brand.put("name", name == null || name.isBlank() ? "工业ERP" : name);
+        brand.put("enName", enName == null ? "" : enName);
+        brand.put("factory", factory == null ? "" : factory);
+        brand.put("logo", logo == null ? "" : logo);
+        data.put("brand", brand);
         // 返回 XK 合规水印所需配置 (XK16-204 R5 服务器时间戳)
         return R.ok(data);
     }
@@ -482,7 +493,8 @@ public class XkController {
     }
 
     @Operation(summary = "XK 单据打印 — 单据详情 (App, 检验项/缺陷/照片一次取全)")
-    @SaCheckPermission(value = {"report:print"}, orRole = "admin")
+    // PC 打印页详情原走 quality:inspection:list; 统一接本出口后 OR 上该 perm, 避免仅有检验读取权的角色 403
+    @SaCheckPermission(value = {"report:print", "quality:inspection:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/print/docs/{docType}/{id}")
     public R<Map<String, Object>> printDocDetail(@PathVariable String docType,
                                                  @PathVariable Long id) {

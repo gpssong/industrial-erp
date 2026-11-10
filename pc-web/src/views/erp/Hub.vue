@@ -177,6 +177,15 @@ const categories = [
     ]
   },
   {
+    key: 'print', title: '打印管理', icon: 'Printer',
+    sub: '标签打印 · 打印模板 · 飞鹅打印',
+    links: [
+      { path: '/print?tab=label', title: '标签打印', icon: 'Printer' },
+      { path: '/print?tab=template', title: '打印模板', icon: 'Tickets' },
+      { path: '/print?tab=feie', title: '飞鹅打印', icon: 'Printer' }
+    ]
+  },
+  {
     key: 'system', title: '系统管理', icon: 'Menu',
     sub: '用户管理 · 角色管理 · 菜单管理 · 部门管理 · 系统设置',
     links: [
@@ -184,8 +193,7 @@ const categories = [
       { path: '/system/role', title: '角色管理' },
       { path: '/system/menu', title: '菜单管理' },
       { path: '/system/dept', title: '部门管理' },
-      { path: '/system/settings', title: '系统设置' },
-      { path: '/system/print-template', title: '打印模板' }
+      { path: '/system/settings', title: '系统设置' }
     ]
   }
 ]
@@ -356,7 +364,9 @@ function pillClass(status) {
 }
 function goLink(l) {
   // 路由不存在时 (未来若有新分类待接入), 给出友好提示而不让用户跳 404
-  const exists = router.getRoutes().some(r => r.path === l.path)
+  // 深链可能带 ?tab=xxx, 校验存在性时剥掉 query (router.push 字符串会自行解析 query)
+  const pathname = l.path.split('?')[0]
+  const exists = router.getRoutes().some(r => r.path === pathname)
   if (exists) router.push(l.path)
   else ElMessage.info(`「${l.title}」功能建设中, 请等待后续版本接入`)
 }

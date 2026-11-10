@@ -14,24 +14,27 @@
 #   ./scripts/sql-drift-check.sh --host 192.168.0.32  # 连飞牛
 #   ./scripts/sql-drift-check.sh --extra               # 同时报"live 多出的表/列"
 #   ./scripts/sql-drift-check.sh --dry-run             # 只推导期望清单, 不连库 (离线自检)
-#   DB_USER=root DB_PWD=***REMOVED_CREDENTIAL*** ./scripts/sql-drift-check.sh --host 192.168.0.150
+#   DB_PWD=xxx ./scripts/sql-drift-check.sh --host 192.168.0.150   # 临时覆盖口令
 #
-# 环境变量 (可覆盖默认):
+# 环境变量:
 #   DB_HOST     默认 192.168.0.150
 #   DB_PORT     默认 3306
 #   DB_USER     默认 root
-#   DB_PWD      默认 ***REMOVED_CREDENTIAL***
+#   DB_PWD      默认取 ~/.config/erp-ops/env 的 ERP_MYSQL_ROOT_PWD (见 scripts/ops-env.example)
 #   DB_NAME     默认 industrial_erp
 #
 # 说明: 这是"报告型"脚本 — 要完整打印报告, 即使某个子检查 grep 无命中(返回 1) 也不该中断。
 # 所以只用 set -u (抓未定义变量), 不用 set -e / pipefail 去挡 grep 的退出码。
 set -uo pipefail
 
+. "$(dirname "$0")/ops-env.sh"
+erp_ops_load ERP_MYSQL_ROOT_PWD || exit 1
+
 # ---------- 参数 ----------
 DB_HOST="${DB_HOST:-192.168.0.150}"
 DB_PORT="${DB_PORT:-3306}"
 DB_USER="${DB_USER:-root}"
-DB_PWD="${DB_PWD:-***REMOVED_CREDENTIAL***}"
+DB_PWD="${DB_PWD:-$ERP_MYSQL_ROOT_PWD}"
 DB_NAME="${DB_NAME:-industrial_erp}"
 
 DRY_RUN=0

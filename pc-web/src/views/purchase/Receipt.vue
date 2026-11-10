@@ -183,7 +183,8 @@
                 </div>
                 <div class="xk-qa-row" v-for="q in qaChecks" :key="q.item">
                   <span>{{ q.item }}</span><span>{{ q.req }}</span><span>{{ q.method }}</span><span>{{ q.result }}</span>
-                  <el-check-tag :checked="q.ok" @change="v => toggleQaOk(q, v)" type="success">{{ q.ok ? '合格' : '不合格' }}</el-check-tag>
+                  <el-tag v-if="q.na" type="info" effect="plain">不适用</el-tag>
+                  <el-check-tag v-else :checked="q.ok" @change="v => toggleQaOk(q, v)" type="success">{{ q.ok ? '合格' : '不合格' }}</el-check-tag>
                 </div>
               </div>
             </div>
@@ -225,7 +226,7 @@
             <div class="xk-kv">
               <div><small>检验日期</small><b>{{ form.billDate || '—' }}</b></div>
               <div><small>判定人员</small><b>{{ inspectForm.inspector || '—' }}</b></div>
-              <div><small>判定结论</small><b :class="allQaOk ? 'xk-verdict-ok' : 'xk-verdict-bad'">{{ allQaOk ? (qaChecks.length + ' 项关键项合格') : ((qaChecks.filter(q=>!q.ok).length) + ' 项关键项不合格') }}</b></div>
+              <div><small>判定结论</small><b :class="allQaOk ? 'xk-verdict-ok' : 'xk-verdict-bad'">{{ allQaOk ? (qaChecks.filter(q=>!q.na).length + ' 项关键项合格') : ((qaChecks.filter(q=>!q.na && !q.ok).length) + ' 项关键项不合格') }}</b></div>
             </div>
             <div class="xk-note">综合外观、密度、熔融指数等指标，均可依据批次判定为合格。</div>
           </aside>
@@ -664,21 +665,21 @@ async function onNfSave() {
   } finally { nfSubmitting.value = false }
 }
 
-// ===== 检验项目判定表 (XK 受控展示, 判定可点击 合格↔不合格) =====
+// ===== 检验项目判定表 (XK 受控展示, 判定可点击 合格↔不合格; v1.1.175: na=true 表示不适用) =====
 const qaChecks = reactive([
   { item: '外观与感官', req: '颗粒均匀、无杂质、无异物混入', method: '目测/感官', result: '符合', ok: true },
-  { item: '熔指密度', req: '2.1 – 2.5 g/10min', method: 'MFR 密度测试', result: '2.18', ok: true },
-  { item: '熔融质量流动速率', req: '2.0 ± 0.5 g/10min', method: '熔融指数仪', result: '2.18', ok: true },
-  { item: '密度', req: '0.918 ± 0.003 g/cm³', method: '密度法', result: '0.919', ok: true },
+  { item: '熔指密度', req: '2.1 – 2.5 g/10min', method: 'MFR 密度测试', result: '—', ok: true, na: true },
+  { item: '熔融质量流动速率', req: '2.0 ± 0.5 g/10min', method: '熔融指数仪', result: '—', ok: true, na: true },
+  { item: '密度', req: '0.918 ± 0.003 g/cm³', method: '密度法', result: '—', ok: true, na: true },
   { item: '供应商检验报告', req: '批号一致，检验项目及结论完整', method: '文件核验', result: '已核验', ok: true },
   { item: '采购合同', req: '合同编号、供应商、原料及数量与订单一致', method: '文件核验', result: '已核验', ok: true },
   { item: '采购发票', req: '发票金额及货物信息与合同一致', method: '文件核验', result: '已核验', ok: true }
 ])
-function toggleQaOk(q, checked) { q.ok = checked }
-// 综合判定 = 所有关键项均合格
-const allQaOk = computed(() => qaChecks.every(q => q.ok))
-// 一键切换: 综合判定开关 (合格→全部合格, 不合格→全部不合格)
-function toggleAllQa(v) { qaChecks.forEach(q => { q.ok = v }) }
+function toggleQaOk(q, checked) { if (!q.na) q.ok = checked }
+// 综合判定 = 所有关键项 (非 na) 均合格
+const allQaOk = computed(() => qaChecks.filter(q => !q.na).every(q => q.ok))
+// 一键切换: 综合判定开关 (合格→全部合格, 不合格→全部不合格); na 项保持不动
+function toggleAllQa(v) { qaChecks.forEach(q => { if (!q.na) q.ok = v }) }
 
 // ===== 加载选项 =====
 async function loadSuppliers() {

@@ -9,6 +9,13 @@ BRANCH="${1:-main}"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
+# MySQL root 口令只从本项目 .env 读 (compose 里 MYSQL_ROOT_PASSWORD 是 :? 必填, .env 必须有)
+MYSQL_PWD=$(grep -m1 '^MYSQL_ROOT_PASSWORD=' .env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d ' ')
+if [ -z "$MYSQL_PWD" ]; then
+  echo "[ERROR] 取不到 MySQL root 口令: $PROJECT_DIR/.env 里没有 MYSQL_ROOT_PASSWORD" >&2
+  exit 1
+fi
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -81,9 +88,9 @@ run_incremental_sql() {
         echo -e "  ${YELLOW}⏭ $bn (已记录, 跳过)${NC}"
         return 0
     fi
-    # 执行 (docker compose exec + 默认字符集)
-    if docker compose exec -T erp-mysql mysql \
-        -uroot -p***REMOVED_CREDENTIAL*** \
+    # 执行 (口令走容器内 MYSQL_PWD 环境变量, 不落在命令行 argv 上)
+    if docker exec -i -e MYSQL_PWD="$MYSQL_PWD" erp-mysql mysql \
+        -uroot \
         --default-character-set=utf8mb4 \
         industrial_erp < "$f" 2>&1 | grep -v "Using a password" | grep -v "Warning"; then
         echo -e "  ${GREEN}✓ $bn${NC}"
@@ -106,7 +113,8 @@ if [ $SQL_FAILED -eq 1 ]; then
     echo -e "  ${YELLOW}回滚命令:${NC}"
     echo -e "    ${BLUE}git reset --hard ${CURRENT}${NC}"
     echo -e "    ${BLUE}docker compose up -d --build${NC}"
-    echo -e "  ${YELLOW}修复后再手动跑: docker compose exec -T erp-mysql mysql -uroot -p***REMOVED_CREDENTIAL*** industrial_erp < sql/<文件>.sql${NC}"
+    echo -e "  ${YELLOW}修复后再手动跑 (口令取自 .env 的 MYSQL_ROOT_PASSWORD):${NC}"
+    echo -e "    ${BLUE}docker exec -i -e MYSQL_PWD=\"\$(grep -m1 '^MYSQL_ROOT_PASSWORD=' .env | cut -d= -f2-)\" erp-mysql mysql -uroot --default-character-set=utf8mb4 industrial_erp < sql/<文件>.sql${NC}"
     exit 1
 fi
 echo ""
@@ -149,5 +157,5 @@ echo ""
 echo "  ${YELLOW}如遇问题, 回滚:${NC}"
 echo -e "    ${BLUE}git reset --hard ${CURRENT}${NC}"
 echo -e "    ${BLUE}docker compose up -d --build${NC}"
-echo -e "    ${BLUE}docker compose exec -T erp-mysql mysql -uroot -p***REMOVED_CREDENTIAL*** industrial_erp < /path/to/snapshot.sql${NC}"
+echo -e "    ${BLUE}docker exec -i -e MYSQL_PWD=\"\$(grep -m1 '^MYSQL_ROOT_PASSWORD=' .env | cut -d= -f2-)\" erp-mysql mysql -uroot --default-character-set=utf8mb4 industrial_erp < /path/to/snapshot.sql${NC}"
 echo ""

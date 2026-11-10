@@ -61,10 +61,10 @@
       <view class="paper">
         <view class="paper-head">
           <view class="logo">
-            <view class="logo-icon">📊</view>
+            <image :src="displayBrandLogo" mode="aspectFit" class="logo-img" />
             <view>
-              <view class="logo-name">华塑智造</view>
-              <view class="logo-en">HUASU INTELLIGENT MANUFACTURING</view>
+              <view class="logo-name">{{ displayBrandName }}</view>
+              <view class="logo-en">{{ brandFactory || displayBrandEn }}</view>
             </view>
           </view>
           <text :class="['stamp', paperDoc.audited ? '' : 'stamp-gray']">{{ paperDoc.statusText }}</text>
@@ -81,6 +81,18 @@
             <text class="pt-td">{{ pair[0][1] }}</text>
             <text class="pt-th">{{ pair[1] ? pair[1][0] : '' }}</text>
             <text class="pt-td">{{ pair[1] ? pair[1][1] : '' }}</text>
+          </view>
+        </view>
+
+        <view v-if="paperDoc.materials && paperDoc.materials.length" class="materials-block">
+          <view class="section-title">关联订单原料明细（共 {{ paperDoc.materials.length }} 项）</view>
+          <view class="detail-table">
+            <view class="dt-head">
+              <text v-for="(h, j) in paperDoc.materialHeaders" :key="j" :class="headClass(j)">{{ h }}</text>
+            </view>
+            <view v-for="(row, i) in paperDoc.materials" :key="'mat' + i" class="dt-body">
+              <text v-for="(c, j) in row" :key="j" :class="cellClass(j)">{{ c }}</text>
+            </view>
           </view>
         </view>
 
@@ -240,6 +252,7 @@ function buildInspection(s, d) {
   const otherAtts = attachments.filter(a => !/PHOTO/i.test(a.attachType || '') && a.attachName)
   if (otherAtts.length) meta.push(['检验附件', otherAtts.map(a => a.attachName).join('、')])
 
+  const orderMaterials = d.orderMaterials || []
   return {
     title: s.title,
     code: S(head.billNo),
@@ -247,6 +260,8 @@ function buildInspection(s, d) {
     statusText: head.status === 'CHECKED' ? '已审核 · 只读' : (BILL_STATUS_TEXT[head.status] || S(head.status)),
     audited: head.status === 'CHECKED',
     meta,
+    materialHeaders: ['序号', '原料名称', '规格型号', '数量'],
+    materials: orderMaterials.map((m, i) => [i + 1, S(m.productName), S(m.spec), qtyText(m.qty, m.unitName)]),
     headers: useItems
       ? ['序号', '检验项目', '技术要求', '检验方法', '实测值', '判定']
       : ['缺陷', '类型', '严重度', '数量', '处置'],
@@ -350,6 +365,10 @@ export default {
       detail: null,
       retentionYears: '2',
       serverTimeText: '',
+      brandName: '',
+      brandEn: '',
+      brandFactory: '',
+      brandLogo: '',
       includePhotos: true,
       includeSign: true,
       includeServerTime: true,
@@ -362,6 +381,9 @@ export default {
     recordOptions() { return this.records.map(r => r.label) },
     currentRecord() { return this.records[this.recordIndex] || null },
     generatedText() { return this.serverTimeText || new Date().toLocaleString('zh-CN', { hour12: false }) },
+    displayBrandName() { return this.brandName || '工业ERP' },
+    displayBrandEn() { return this.brandEn || '' },
+    displayBrandLogo() { return this.brandLogo || '/static/icons/icon-192.png' },
     printButtonText() {
       if (this.printing) return '正在调起打印...'
       return isNativeApp() ? '🖨 打印单据（系统打印）' : '🖨 打印单据'
@@ -396,6 +418,11 @@ export default {
       if (p && p.code === 200) {
         this.retentionYears = p.data.retentionYears || '2'
         this.serverTimeText = p.data.serverTime ? String(p.data.serverTime).replace('T', ' ').slice(0, 16) : ''
+        const b = p.data.brand || {}
+        this.brandName = b.name || ''
+        this.brandEn = b.enName || ''
+        this.brandFactory = b.factory || ''
+        this.brandLogo = b.logo || ''
       }
       await this.loadRecords()
     },
@@ -500,6 +527,7 @@ export default {
 .paper-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .logo { display: flex; align-items: center; gap: 8px; }
 .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #1e6091, #27ae60); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 16px; }
+.logo-img { width: 32px; height: 32px; border-radius: 4px; }
 .logo-name { font-size: 14px; font-weight: 700; color: #1e6091; }
 .logo-en { font-size: 8px; color: #999; letter-spacing: 1px; }
 .stamp { background: #27ae60; color: #fff; padding: 2px 8px; border-radius: 3px; font-size: 11px; }

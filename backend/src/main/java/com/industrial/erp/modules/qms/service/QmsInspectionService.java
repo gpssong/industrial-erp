@@ -342,6 +342,92 @@ public class QmsInspectionService {
     }
 
     /**
+     * v1.1.174 超管将已审核检验单重置为草稿 (允许修改填错的数据).
+     *
+     * <p>逻辑:
+     * <ol>
+     *   <li>校验当前用户是超管 (controller 层 @SaCheckRole 已做, 这里双保险)</li>
+     *   <li>锁定检验单, 确保状态是 CHECKED</li>
+     *   <li>回滚批次联动: 如果关联了批次冻结/报废, 将批次状态改回 NORMAL, 删除 frozen_inspection_id</li>
+     *   <li>删除 mes_batch_link 留痕记录</li>
+     *   <li>清空审核字段: result/disposition/dispositionReason/checkTime/reviewer/approver/retainNo 等</li>
+     *   <li>将 status 改回 DRAFT</li>
+     *   <li>写审计日志</li>
+     * </ol>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void resetToDraft(Long id) {
+        // 1) 双保险: 校验超管
+        if (!SecurityContext.isSuperAdmin()) {
+            throw BizException.of("仅超级管理员可重置检验单");
+        }
+
+        // 2) 锁定检验单 (SELECT FOR UPDATE)
+        MesQualityInspection rec = inspectionMapper.selectByIdForUpdate(id);
+        if (rec == null) throw BizException.of("检验单不存在: " + id);
+        if (!Constants.STATUS_CHECKED.equals(rec.getStatus())) {
+            throw BizException.of("只有已审核的检验单才能重置为草稿 (当前状态: " + rec.getStatus() + ")");
+        }
+
+        // 3) 回滚批次联动
+        rollbackBatchDisposition(rec);
+
+        // 4) 删除 mes_batch_link 留痕
+        linkMapper.delete(new LambdaQueryWrapper<MesBatchLink>()
+                .eq(MesBatchLink::getInspectionId, id));
+
+        // 5) 清空审核字段
+        rec.setResult(null);
+        rec.setDisposition(null);
+        rec.setDispositionReason(null);
+        rec.setCheckTime(null);
+        rec.setReviewer(null);
+        rec.setReviewerName(null);
+        rec.setApprover(null);
+        rec.setApproverName(null);
+        rec.setRetainNo(null);
+        rec.setRetainLoc(null);
+        rec.setRetainDueDate(null);
+        rec.setSampleQty(null);
+        rec.setQualifiedQty(null);
+        rec.setUnqualifiedQty(null);
+
+        // 6) 状态改回 DRAFT
+        rec.setStatus(Constants.STATUS_DRAFT);
+
+        // 7) 更新数据库
+        if (inspectionMapper.updateById(rec) != 1) {
+            throw BizException.of("检验单已变化，请刷新后重试");
+        }
+
+        // 8) 写审计日志
+        writeAudit("RESET_TO_DRAFT", 1, "billNo=" + rec.getBillNo() + " id=" + id, null);
+        log.info("[QMS] 超管重置检验单为草稿 billNo={} id={}", rec.getBillNo(), id);
+    }
+
+    /**
+     * 回滚批次联动: 如果检验单关联了批次冻结/报废, 将批次状态改回 NORMAL.
+     */
+    private void rollbackBatchDisposition(MesQualityInspection ins) {
+        if (StrUtil.isBlank(ins.getBatchNo())) return;
+
+        MesBatch b = batchMapper.selectOne(new LambdaQueryWrapper<MesBatch>()
+                .eq(MesBatch::getBatchNo, ins.getBatchNo())
+                .eq(MesBatch::getDeleted, 0)
+                .last("LIMIT 1"));
+        if (b == null) return;
+
+        // 只回滚本检验单冻结的批次 (frozen_inspection_id = this.id)
+        if (Objects.equals(b.getFrozenInspectionId(), ins.getId())) {
+            b.setStatus(Constants.BATCH_ACTIVE);
+            b.setFrozenInspectionId(null);
+            b.setHoldReason(null);
+            batchMapper.updateById(b);
+            log.info("[QMS] 回滚批次状态 batchNo={} inspectionId={}", b.getBatchNo(), ins.getId());
+        }
+    }
+
+    /**
      * 批次联动: 锁批 / 放行 / 报废.
      *
      * <p>一期不联动 affected_batches 自动收集 (依赖源单据 detail 联动, 复杂, 留二期);
@@ -511,6 +597,10 @@ public class QmsInspectionService {
         m.put("items", iqcItemMapper.selectByIqcId(id));
         m.put("defects", defectMapper.selectByInspectionId(id));
         m.put("attachments", iqcAttachmentMapper.selectByIqcId(id));
+        // 订单版 IQC 单头只存第一个原料名; 报告需列出关联采购订单的全部原料行
+        if ("PUR_ORDER".equals(head.getSourceBillType()) && head.getSourceBillId() != null) {
+            m.put("orderMaterials", orderDetailMapper.selectByOrderId(head.getSourceBillId()));
+        }
         return m;
     }
 
@@ -955,6 +1045,29 @@ public class QmsInspectionService {
     }
 
     /**
+     * v1.1.172: 入库审核门禁专用 — 找该入库单关联的合格 IQC, 支持 App 订单版签署 (PUR_ORDER 键回落).
+     *
+     * <p>App「生成验放单并入库」走订单版: IQC 的 source_bill_type=PUR_ORDER, source_bill_id=orderId.
+     * 入库审核门禁原先只查 PUR_RECEIPT 键 → 查不到 → 误报「未关联 IQC」.
+     * 本方法先查 PUR_RECEIPT 键, 没命中再按 receipt.orderId 回落查 PUR_ORDER 键 (同一订单可能多次入库,
+     * 取最新一条已签署的 IQC).</p>
+     *
+     * @param receipt 采购入库单 (须有 id 与 orderId)
+     * @return 关联的 IQC, 无则 null
+     */
+    @Transactional(readOnly = true)
+    public MesQualityInspection findIqcForReceiptGate(com.industrial.erp.modules.purchase.entity.PurReceipt receipt) {
+        if (receipt == null || receipt.getId() == null) return null;
+        MesQualityInspection ins = findIqcByReceiptId(receipt.getId());
+        if (ins != null) return ins;
+        if (receipt.getOrderId() != null) {
+            ins = findIqcByOrderId(receipt.getOrderId());
+            if (ins != null) return ins;
+        }
+        return null;
+    }
+
+    /**
      * 该入库单是否已关联"合格"的 IQC (result=PASS 或 PASS_DISPOSITION, status=CHECKED).
      * <p>XK 门禁: 检验合格才允许审核入库. 无关联 / 未检(HOLD) / 不合格(FAIL*) 均返回 false.</p>
      */
@@ -1259,12 +1372,15 @@ public class QmsInspectionService {
     //    流程: ① 采购计划 → ② 到货与原料检验 (本 IQC) → ③ 自动入库
     // ==================================================================
 
-    /** 通用检验项模板 — 工业级 (4 项). 顺序/编码/单位固定. */
+    /** 通用检验项模板 — 与 PC 端 Receipt.vue qaChecks 7 项对齐 (v1.1.175). */
     private static final String[][] DEFAULT_IQC_ITEMS_COMMON = {
-            {"PACKAGING",  "包装与标签", "包装完好、名称、批号清晰一致", "目测核对",      null,    "PASS"},
-            {"SENSORY",    "外观与感官", "颗粒均匀、无异物、异常气味", "目测/感官",     null,    "PASS"},
-            {"DENSITY",    "密度",       "0.918 ± 0.003 g/cm³",        "密度计",        "g/cm³", "PASS"},
-            {"MFR",        "熔体质量流动速率", "2.0 ± 0.5 g/10min",   "熔融指数仪",     "g/10min", "PASS"}
+            {"SENSORY",           "外观与感官",         "颗粒均匀、无杂质、无异物混入",           "目测/感官",     null,      "PASS"},
+            {"MFR_DENSITY",       "熔指密度",           "2.1 – 2.5 g/10min",                      "MFR 密度测试",  "g/10min", "N/A"},
+            {"MFR",               "熔体质量流动速率",   "2.0 ± 0.5 g/10min",                      "熔融指数仪",    "g/10min", "N/A"},
+            {"DENSITY",           "密度",               "0.918 ± 0.003 g/cm³",                    "密度法",        "g/cm³",   "N/A"},
+            {"SUPPLIER_REPORT",   "供应商检验报告",     "批号一致，检验项目及结论完整",           "文件核验",      null,      "PASS"},
+            {"PURCHASE_CONTRACT", "采购合同",           "合同编号、供应商、原料及数量与订单一致", "文件核验",      null,      "PASS"},
+            {"PURCHASE_INVOICE",  "采购发票",           "发票金额及货物信息与合同一致",           "文件核验",      null,      "PASS"}
     };
 
     /** 食品级专用检验项模板 (3 项, 仅 is_food_grade=1 商品加载). */
@@ -1342,6 +1458,8 @@ public class QmsInspectionService {
         for (String[] r : DEFAULT_IQC_ITEMS_COMMON) tpl.add(r);
         if (isFoodGrade) for (String[] r : DEFAULT_IQC_ITEMS_FOOD) tpl.add(r);
         int line = 1;
+        // v1.1.175: 熔指密度/熔体质量流动速率/密度 — 进货检验现场不具备检测条件, 默认标记"不适用"
+        Set<String> NA_ITEMS = Set.of("MFR_DENSITY", "MFR", "DENSITY", "FOOD_CONTACT_HEAVY_METAL");
         for (String[] r : tpl) {
             QmsIqcItem it = new QmsIqcItem();
             it.setIqcId(ins.getId());
@@ -1351,7 +1469,7 @@ public class QmsInspectionService {
             it.setRequirement(r[2]);
             it.setMethod(r[3]);
             it.setUnit(r[4]);
-            it.setPassFlag(1);  // 默认 PASS, App 端按实情改
+            it.setPassFlag(NA_ITEMS.contains(r[0]) ? 2 : 1);  // 2=不适用, 1=PASS(默认)
             it.setIsFoodGradeItem(isFoodGrade ? 1 : 0);
             it.setSource("TEMPLATE");
             iqcItemMapper.insert(it);

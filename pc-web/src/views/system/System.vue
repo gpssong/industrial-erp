@@ -134,7 +134,7 @@
             <div class="brand-note">
               <b>Logo 上传要求</b>
               <small>建议使用透明背景 PNG 或 SVG，尺寸不小于 256×256。修改后将同步更新登录页、导航栏和打印单据。</small>
-              <small>执行标准编号与贮存条件由「标签主数据」维护（本期无输入框）；Logo 仅本机预览，不上传服务端。</small>
+              <small>执行标准编号与贮存条件由「标签主数据」维护（本期无输入框）；Logo 保存后存入服务端，登录页、导航与打印单据同步读取。</small>
             </div>
 
             <div class="brand-foot">
@@ -157,18 +157,6 @@
             <div class="svc-text"><b>操作日志</b><small>登录记录与关键操作审计留痕</small></div>
           </div>
           <OperationLog />
-        </div>
-        <div v-else-if="activeTab === 'feie'" class="sys-feie">
-          <div class="svc-banner">
-            <span class="svc-icon"><el-icon :size="20"><Printer /></el-icon></span>
-            <div class="svc-text"><b>飞鹅云打印服务</b><small>当前已连接 2 台打印机，支持采购单、标签和生产单自动打印</small></div>
-            <span class="svc-tag ok">服务正常</span>
-          </div>
-          <el-tabs v-model="feieTab">
-            <el-tab-pane label="打印机配置" name="cfg"><FeiePrinterConfig /></el-tab-pane>
-            <el-tab-pane label="打印模板" name="tpl"><FeiePrintTemplate /></el-tab-pane>
-            <el-tab-pane label="打印日志" name="log"><FeiePrintLog /></el-tab-pane>
-          </el-tabs>
         </div>
         <div v-else-if="activeTab === 'app'" class="sys-app">
           <div class="svc-banner">
@@ -207,9 +195,9 @@
         </div>
         <div v-else class="sys-extras">
             <div class="sys-extras-card">
-            <div class="sys-extras-card-head"><b>扩展设置</b><small>打印模板 / 工作台 / 飞鹅相关配置</small></div>
+            <div class="sys-extras-card-head"><b>扩展设置</b><small>打印模板 / 工作台相关配置</small></div>
             <div class="sys-extras-grid">
-              <div class="sys-extra-item" @click="router.push('/system/print-template')"><el-icon><Printer /></el-icon><div><strong>打印模板</strong><small>可视化设计单据打印</small></div><el-icon><ArrowRight /></el-icon></div>
+              <div class="sys-extra-item" @click="router.push('/print?tab=template')"><el-icon><Printer /></el-icon><div><strong>打印模板</strong><small>可视化设计单据打印</small></div><el-icon><ArrowRight /></el-icon></div>
               <div class="sys-extra-item" @click="activeTab = 'dashboard'"><el-icon><Odometer /></el-icon><div><strong>经营驾驶舱管理</strong><small>驾驶舱模块开关</small></div><el-icon><ArrowRight /></el-icon></div>
             </div>
           </div>
@@ -226,8 +214,6 @@
             <el-tab-pane label="App 工作台" name="app"><AppDashboardConfig /></el-tab-pane>
           </el-tabs>
         </div>
-        <FeiePrintTemplate v-if="activeTab === 'feieTemplate'" />
-        <FeiePrintLog v-if="activeTab === 'feieLog'" />
       </section>
     </div>
   </div>
@@ -245,9 +231,6 @@ import {
 import Settings from './Settings.vue'
 import Backup from './Backup.vue'
 import OperationLog from './OperationLog.vue'
-import FeiePrinterConfig from './FeiePrinterConfig.vue'
-import FeiePrintTemplate from './FeiePrintTemplate.vue'
-import FeiePrintLog from './FeiePrintLog.vue'
 import AppModules from './AppModules.vue'
 import DashboardConfig from './DashboardConfig.vue'
 import AppDashboardConfig from './AppDashboardConfig.vue'
@@ -258,8 +241,7 @@ const router = useRouter()
 const route = useRoute()
 const activeTab = ref('config')
 
-// ——— 内层 tab 状态 (飞鹅: 配置/模板/日志; App: 版本/模板; 驾驶舱: PC/App) ———
-const feieTab = ref('cfg')
+// ——— 内层 tab 状态 (App: 版本/模板; 驾驶舱: PC/App) ———
 const appTab = ref('ver')
 const dashTab = ref('pc')
 
@@ -287,11 +269,11 @@ async function saveConfig() {
   } catch (e) { ElMessage.error(e.message || '保存失败') }
 }
 
-const { systemName, factoryName, saveSystemName, saveFactoryName, loadSystemName } = useSystemName()
+const { systemName, factoryName, systemLogo, saveSystemName, saveFactoryName, saveSystemLogo, loadSystemName } = useSystemName()
 onMounted(async () => {
   // v1.1.130+: URL 深链 ?tab=xxx 支持 (如经营驾驶舱管理 ?tab=dashboard) — 与侧栏点击共用 activeTab
   const qTab = route?.query?.tab
-  if (qTab && ['config','brand','backup','log','feie','app','ai','dashboard','feieTemplate','feieLog'].includes(qTab)) {
+  if (qTab && ['config','brand','backup','log','app','ai','dashboard'].includes(qTab)) {
     activeTab.value = qTab
   }
   await loadCfgInfo()
@@ -306,7 +288,6 @@ const tabs = [
   { key: 'brand',    title: '品牌与工厂', sub: 'Logo、名称及工厂', icon: 'OfficeBuilding' },
   { key: 'backup',   title: '数据备份',  sub: '备份、恢复与保留', icon: 'Collection' },
   { key: 'log',      title: '操作日志',  sub: '登录与操作审计', icon: 'Clock' },
-  { key: 'feie',     title: '飞鹅打印机', sub: '云打印设备配置', icon: 'Printer' },
   { key: 'app',      title: 'App 管理',  sub: '版本发布与更新', icon: 'Iphone' },
   { key: 'ai',       title: 'AI 对接',   sub: '模型与接口配置', icon: 'Link' },
   { key: 'dashboard', title: '经营驾驶舱管理', sub: '驾驶舱模块开关', icon: 'Odometer' }
@@ -322,6 +303,7 @@ const loadFailed = new Set()
 async function loadBrand() {
   brandForm.systemName = systemName.value
   brandForm.factory = factoryName.value
+  logoPreview.value = systemLogo.value
   const read = async (key) => {
     try { const r = await configApi.getByKey(key); loadFailed.delete(key); return r?.data || '' }
     catch { loadFailed.add(key); return '' }
@@ -342,17 +324,33 @@ async function loadBrand() {
 const logoInput = ref(null)
 const logoPreview = ref('')
 function triggerLogoUpload() { logoInput.value?.click() }
-function onLogoPick(e) {
-  const f = e.target.files?.[0]
+// sys_config.config_value 是 TEXT(64KB), 原图 base64 可能超限 → 缩到 ≤160px PNG 再存
+function readLogoFile(f) {
   if (!f) return
   const reader = new FileReader()
-  reader.onload = (ev) => { logoPreview.value = ev.target.result; brandForm.systemName = brandForm.systemName || systemName.value }
+  reader.onload = (ev) => {
+    const img = new Image()
+    img.onload = () => {
+      const max = 160
+      const scale = Math.min(1, max / Math.max(img.width, img.height))
+      const w = Math.max(1, Math.round(img.width * scale))
+      const h = Math.max(1, Math.round(img.height * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = w; canvas.height = h
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+      logoPreview.value = canvas.toDataURL('image/png')
+      brandForm.systemName = brandForm.systemName || systemName.value
+    }
+    img.src = ev.target.result
+  }
   reader.readAsDataURL(f)
+}
+function onLogoPick(e) {
+  readLogoFile(e.target.files?.[0])
   e.target.value = ''
 }
 function onLogoDrop(e) {
-  const f = e.dataTransfer?.files?.[0]
-  if (f) { const r = new FileReader(); r.onload = (ev) => (logoPreview.value = ev.target.result); r.readAsDataURL(f) }
+  readLogoFile(e.dataTransfer?.files?.[0])
 }
 // 业务错误的中文在 e.msg; HTTP 403/401 走 axios 原始错误(拦截器静默 reject, 只有 status), 直接用 e.message 只剩英文
 function errText(e) {
@@ -376,6 +374,12 @@ async function saveBrand() {
     if (brandForm.factory.trim()) await saveFactoryName(brandForm.factory.trim())
     else errors.push('工厂名称: 留空不会保存')
   } catch (e) { errors.push('系统/工厂名称: ' + (errText(e) || '失败')) }
+
+  // Logo 持久化到 SYS_LOGO (打印单据抬头读它); 空预览不写, 避免把已有图标抹掉
+  if (logoPreview.value) {
+    try { await saveSystemLogo(logoPreview.value) }
+    catch (e) { errors.push('Logo: ' + (errText(e) || '失败')) }
+  }
 
   // R-A13-3：载入失败的字段禁止写成空值 —— 读失败回显成空框与"用户清空"不可区分，
   // 宁可拒绝这一次覆盖，也不能把网络抖动变成丢配置（载入成功+用户清空 仍照常写空）。
@@ -455,7 +459,7 @@ function goPrint() { router.push('/system/print-template') }
   &.warn { background: #fff3e6; color: #d9822b; }
 }
 /* 内层 el-tabs 与横幅间距收紧 */
-.sys-feie .el-tabs__header, .sys-app .el-tabs__header { margin-bottom: 12px; }
+.sys-app .el-tabs__header { margin-bottom: 12px; }
 
 .sys-settings { position: relative; }
 

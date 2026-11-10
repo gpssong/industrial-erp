@@ -331,8 +331,12 @@ public class PurReceiptService {
         // 须存在该入库单关联的 IQC 检验单且 result=PASS(或 PASS_DISPOSITION, status=CHECKED);
         // 未检验 / 不合格 / 未审核的 IQC 一律拒绝入库. 仅对含食品级行的单生效.
         if (anyFood) {
-            if (!qmsInspectionService.hasPassedIqc(id)) {
-                com.industrial.erp.modules.qms.entity.MesQualityInspection iqc = qmsInspectionService.findIqcByReceiptId(id);
+            // v1.1.172: 门禁查 IQC 支持 PUR_ORDER 键回落 (App 订单版签署的 IQC 挂在 PUR_ORDER, 不是 PUR_RECEIPT)
+            com.industrial.erp.modules.qms.entity.MesQualityInspection iqc = qmsInspectionService.findIqcForReceiptGate(r);
+            boolean passed = iqc != null
+                    && Constants.STATUS_CHECKED.equals(iqc.getStatus())
+                    && (Constants.RESULT_PASS.equals(iqc.getResult()) || Constants.RESULT_PASS_DISPOSITION.equals(iqc.getResult()));
+            if (!passed) {
                 if (iqc == null) {
                     throw BizException.of("XK 合规: 该单含食品级原料, 未关联 IQC 来料检验, 不能入库; 请先完成「到货与原料检验」并判定合格 (PASS)");
                 }
@@ -341,7 +345,12 @@ public class PurReceiptService {
                         + ", 不合格/未放行不能入库; 请拒收或放行后重试");
             }
             // 冗余快照: 把关联 IQC 的判定结果/报告号/抽样数/检验人 写回入库单 (供 XK 前端展示 + 审计留痕)
-            qmsInspectionService.snapshotXkGate(r);
+            if (iqc != null) {
+                r.setInspectionResult(iqc.getResult());
+                r.setInspectionReportNo(iqc.getBillNo());
+                r.setSampleQty(iqc.getSampleQty());
+                r.setInspectorName(iqc.getInspectorName());
+            }
         } else {
             log.info("采购入库 XK 豁免: billNo={} 全部行非食品级, 跳过 IQC 门禁直接入库", r.getBillNo());
         }

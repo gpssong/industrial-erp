@@ -11,7 +11,7 @@ if ! command -v docker &>/dev/null; then
 fi
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo "[INFO] 已创建 .env, 默认密码: ***REMOVED_CREDENTIAL***, 生产环境请修改"
+  echo "[INFO] 已创建 .env, 请把 MYSQL_ROOT_PASSWORD 从占位值改成强密码再启动"
 fi
 docker compose up -d --build
 echo ""

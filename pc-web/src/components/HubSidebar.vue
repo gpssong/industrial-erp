@@ -56,6 +56,7 @@ const categories = [
   { key: 'production', title: '生产管理',   icon: 'Files',         sub: 'BOM 清单 · 生产加工单 · 领料记录 · 成...', path: '/erp',       firstLink: '/production/order' },
   { key: 'arap',       title: '应收应付',   icon: 'Money',         sub: '客户应收 · 供应商应付 · 收款记录 · 付款...', path: '/erp',    firstLink: '/finance/arap' },
   { key: 'report',     title: '报表中心',   icon: 'TrendCharts',   sub: '销售报表 · 库存报表 · 采购报表 · 经营...', path: '/erp',     firstLink: '/report/sales' },
+  { key: 'print',      title: '打印管理',   icon: 'Printer',       sub: '标签打印 · 打印模板 · 飞鹅打印',     path: '/erp',       firstLink: '/print?tab=label' },
   { key: 'system',     title: '系统管理',   icon: 'Menu',          sub: '用户管理 · 角色管理 · 菜单管理 · 部门...', path: '/erp',       firstLink: '/system/user' }
 ]
 
@@ -64,6 +65,7 @@ const activeKey = computed(() => {
   const q = route.query.cat
   if (q && categories.some(c => c.key === q)) return q
   const p = route.path
+  if (p.startsWith('/print') || p.startsWith('/base/label-') || p.startsWith('/system/print-template')) return 'print'
   if (p.startsWith('/base/') || p === '/erp') return 'base'
   if (p.startsWith('/xk/material')) return 'purchase'
   if (p.startsWith('/purchase/')) return 'purchase'

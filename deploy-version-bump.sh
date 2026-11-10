@@ -22,9 +22,12 @@
 
 set -e
 
+. "$(dirname "$0")/scripts/ops-env.sh"
+erp_ops_load ERP_HOME_SSH_PASS || exit 1
+
 HOST=192.168.0.150
 USER=gpssong
-PASS=***REMOVED_CREDENTIAL***
+PASS="$ERP_HOME_SSH_PASS"
 # ⚠️ 关键: pc-web 容器 bind mount 的实际路径是 /tmp/pc-web-new, 不是 /volume3/...
 # 历史 docker run 用的是 -v /tmp/pc-web-new:/usr/share/nginx/html:ro (Sep 6 初次部署命令)
 # 后续 v1.1.53 部署也延续这个路径 — docker-compose.yml 写的是 /volume3/... 是失效声明.

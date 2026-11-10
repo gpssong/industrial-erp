@@ -51,13 +51,17 @@ echo -e "${GREEN}  ✓ compose / backend / sql 齐全${NC}"
 echo -e "${BLUE}[3/5] 配置环境变量...${NC}"
 if [ ! -f .env ]; then
   cp .env.example .env
-  echo -e "${YELLOW}  ! 已生成 .env, 默认密码 ***REMOVED_CREDENTIAL***, 请尽快修改${NC}"
+  echo -e "${YELLOW}  ! 已从 .env.example 生成 .env, 请把 MYSQL_ROOT_PASSWORD 改成强密码再启动${NC}"
 fi
 
-# 自动读取密码并显示
-MYSQL_PWD=$(grep '^MYSQL_ROOT_PASSWORD=' .env | cut -d= -f2 | tr -d '"' | tr -d ' ')
-if [ "$MYSQL_PWD" = "***REMOVED_CREDENTIAL***" ]; then
-  echo -e "${YELLOW}  ! 警告: MySQL 密码是默认值, 生产环境务必修改!${NC}"
+# 检查是否还在用示例占位值 (不打印口令本身)
+MYSQL_PWD=$(grep -m1 '^MYSQL_ROOT_PASSWORD=' .env | cut -d= -f2- | tr -d '"' | tr -d ' ')
+if [ -z "$MYSQL_PWD" ]; then
+  echo -e "${RED}[ERROR] .env 里 MYSQL_ROOT_PASSWORD 为空, compose 会启动失败${NC}"
+  exit 1
+fi
+if [ "$MYSQL_PWD" = "CHANGE_ME_STRONG_PASSWORD" ]; then
+  echo -e "${YELLOW}  ! 警告: MySQL 密码还是 .env.example 的占位值, 生产环境务必修改!${NC}"
 fi
 
 # 4. 启动

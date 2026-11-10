@@ -5,6 +5,7 @@
         <el-button type="primary" @click="doBackup" :loading="backingUp">立即备份</el-button>
         <el-button type="danger" @click="showClearDialog">选择性清空数据</el-button>
         <el-button type="warning" @click="doFactoryReset" :loading="resetting">恢复出厂设置</el-button>
+        <el-button type="danger" plain @click="showDeleteByTimeDialog">按时间删除</el-button>
         <span class="tip">自动备份: 每天凌晨3点 | 恢复会覆盖当前数据，请谨慎操作</span>
       </div>
       <el-table :data="data.records" border stripe v-loading="loading">
@@ -23,8 +24,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="createTime" label="备份时间" width="160" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="doDownload(row)" :loading="row._downloading">下载</el-button>
             <el-button link type="primary" @click="doRestore(row)" :loading="row._restoring">恢复</el-button>
             <el-button link type="danger" @click="doDelete(row)">删除</el-button>
           </template>
@@ -60,6 +62,18 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 按时间删除备份对话框 -->
+    <el-dialog v-model="deleteByTimeVisible" title="按时间删除备份" width="480px" destroy-on-close>
+      <div class="clear-tip">删除所选时间范围内的备份文件与记录，不可恢复，请谨慎操作！</div>
+      <el-date-picker v-model="deleteRange" type="daterange" value-format="YYYY-MM-DD"
+        range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" style="width:100%" />
+      <template #footer>
+        <el-button @click="deleteByTimeVisible=false">取消</el-button>
+        <el-button type="danger" @click="doDeleteByTime" :loading="deletingByTime"
+          :disabled="!deleteRange || deleteRange.length!==2">确认删除</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 <script setup>
@@ -76,6 +90,9 @@ const clearing = ref(false)
 const clearDialogVisible = ref(false)
 const selectedTables = ref([])
 const checkAll = ref(false)
+const deleteByTimeVisible = ref(false)
+const deleteRange = ref(null)
+const deletingByTime = ref(false)
 
 // 按类别分组的数据表
 const tableGroups = [
@@ -209,6 +226,57 @@ async function doDelete(row) {
   await backupApi.delete(row.id)
   ElMessage.success('删除成功')
   loadData()
+}
+async function doDownload(row) {
+  row._downloading = true
+  try {
+    const resp = await fetch(backupApi.downloadUrl(row.id), { credentials: 'include' })
+    const ctype = resp.headers.get('content-type') || ''
+    if (!resp.ok || ctype.indexOf('json') >= 0) {
+      let msg = '下载失败 (HTTP ' + resp.status + ')'
+      try { const j = await resp.json(); if (j && j.msg) msg = j.msg } catch (e) { /* 非 JSON 错误体 */ }
+      ElMessage.error(msg)
+      return
+    }
+    const blob = await resp.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = row.backupName || 'backup.sql'
+    a.click()
+    URL.revokeObjectURL(a.href)
+    ElMessage.success('已下载 ' + a.download)
+  } catch (e) {
+    ElMessage.error('下载失败: ' + (e && e.message ? e.message : e))
+  } finally {
+    row._downloading = false
+  }
+}
+function showDeleteByTimeDialog() {
+  deleteRange.value = null
+  deleteByTimeVisible.value = true
+}
+async function doDeleteByTime() {
+  if (!deleteRange.value || deleteRange.value.length !== 2) {
+    ElMessage.warning('请选择起止日期')
+    return
+  }
+  const [d0, d1] = deleteRange.value
+  await ElMessageBox.confirm(
+    `确定删除 ${d0} 至 ${d1} 之间的备份吗？文件与记录将被删除，不可恢复！`,
+    '按时间删除确认',
+    { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+  )
+  deletingByTime.value = true
+  try {
+    const n = (await backupApi.deleteByTime({ startTime: d0 + 'T00:00:00', endTime: d1 + 'T23:59:59' })).data
+    ElMessage.success('已删除 ' + n + ' 条备份')
+    deleteByTimeVisible.value = false
+    loadData()
+  } catch (e) {
+    ElMessage.error(e.message || '删除失败')
+  } finally {
+    deletingByTime.value = false
+  }
 }
 async function doFactoryReset() {
   await ElMessageBox.confirm(
