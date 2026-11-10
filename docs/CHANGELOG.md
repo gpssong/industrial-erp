@@ -38,10 +38,18 @@
 **⚠️ 本轮实测出的拓扑事实：App H5 已无公网入口，手机侧唯一通道是 APK。**（下次再改 App 代码前先看这条，别把"发了 H5"当成"手机更新了"）
 - `app/capacitor.config.json`：`webDir: "dist/build/h5"` 且**没有 `server.url`** ⇒ APK 加载**内嵌** H5，dist 发到任何站点都不会更新用户手机上那个 App。
 - 阿里云 `/www/server/panel/vhost/nginx/erp-aliyun.conf` 只有 `location = /api` / `/api/` / `/` 三条，全部 `proxy_pass http://$erp_primary:8088`（= `.150` 的 PC），**没有一条指向 app-h5**；那台 `erp-app-h5` 容器 healthy 但只听 `127.0.0.1:18090` ⇒ **不在请求链路上**。
-- `.150` 无 H5 容器（设计如此）；`.32` 的 `erp-app-h5` 听 `0.0.0.0:18090`（局域网可直连）。两站宿主 `index.html` 目前同为 v1.1.175 的 `df4e6585194b440b075ecb0bc29d4944`（Nov 9 23:13）。
+- `.150` 无 H5 容器（设计如此）；`.32` 的 `erp-app-h5` 听 `0.0.0.0:18090`（局域网可直连）。两站宿主 `index.html` 发版前同为 v1.1.175 的 `df4e6585194b440b075ecb0bc29d4944`（Nov 9 23:13）。
 ⇒ **发 H5 只服务"浏览器直接开 :18090"这一小众用法；框选要落到车间手机必须装 1177 APK** —— 与 v1.1.170 那次「H5 更新只覆盖浏览器入口，用户旧 APK 手机同日仍复现」是同一个坑。
 
-**部署状态：未发任何站点、未动手机、未 commit。** 待授权三件：① 两处 H5 整目录替换（`.32:/vol2/erp-system/app-h5/dist/build/h5` + 阿里云 `/opt/erp-system/app-h5`，回退件照旧 `*.retired` / `backup/*.tgz`）；② APK 分发到 `/vol1/1000/mac使用/erp/erp-app-v1.1.177.apk`（用户指定的分发目录）；③ **真机验收**：框选手势（拖动/单把手缩放）+ 一枚真实原料标签照片 + 多原料同框时"框谁识别谁"，这些单测证不了。
+**部署状态（2026-11-10 晚，用户原话「这些都做掉」）：H5 两站已发、APK 已分发、三批改动已 commit。真机验收仍在用户手上（见下）。**
+
+- **H5 整目录替换**：`.32:/vol2/erp-system/app-h5/dist/build/h5`（bind-mount inode `100619` 替换前后同值，容器 `erp-app-h5` restart 后 `Up`）+ 阿里云 `/opt/erp-system/app-h5`（inode `426052` 同值）。回退件：`.32:/vol2/erp-system/upload/h5.bak_v1176_20261110.tgz`、阿里云 `/opt/erp-system/backup/app-h5-before-v1177.tgz`。
+- **落地取证（从服务它的端口 curl 回，比宿主文件）**：`index.html` `0b2e283e4b4aa4fe909045692b7e1f7a`、`assets/RegionCropper.BflnjUUi.js` `243263f9bdc9c7229d19592ce2641e4b`、`assets/pages-scan-in.DeGyzzjZ.js` `d721898c3204ff1c4654e38cde2c48e6`、`assets/upload.CnDjY1-N.js` `3acf24756445e71043d57f8128c9bdba` —— 本地构建 / `.32:18090` / 阿里云 `127.0.0.1:18090` 三处逐枚一致。再抽内容标记：scan-in 里 `ocrCandidates` ×5、material 里 `拍照框选识别` + `cropAndUpload` ×3、`RegionCropper-BPgt4npc.css` 200。
+- **⚠️ 本轮实测出的新地雷（改前必须先读）**：阿里云重启 `erp-app-h5` 直接进 **restart loop** —— `/opt/erp-system/nginx/h5.conf` 两处 `proxy_pass http://erp-backend:8080;` 是**字面量主机名**，nginx 在**配置解析期**就要解析它；而 v1.1.176 拓扑降级把那台 `erp-backend` 容器**停机**了（`Exited (143) 5 hours ago`），Docker 内嵌 DNS 只解析在跑的名字 ⇒ 解析失败即 `[emerg] host not found in upstream` 退出。**旧容器活着只是因为它是 backend 还在跑的时候启动的**，配置早就埋了雷，重启才炸。修法：`resolver 127.0.0.11 valid=60s ipv6=off;` + `set $erp_api_upstream n150.93gushi.com:8088;` + `proxy_pass http://$erp_api_upstream$request_uri;`（变量 ⇒ 运行时解析；`$request_uri` 保住原「URI 原样透传含 /api 前缀」的口径）。先在**临时容器**里 `nginx -t` 验过语法再落盘，再用 `cp` 覆盖**保 inode**（文件 bind-mount 认 inode，`mv` 会让容器继续看旧内容），改后 `erp-app-h5 Up` + 三枚 md5 一致 + 桥接实测 `GET :18090/api/auth/captcha` 回 `{"code":200,…,"captchaKey":"9511a817…"}`。回退件 `/opt/erp-system/nginx/h5.conf.bak_v1177_20261110`。
+  **⚠️ 同一颗雷还埋在 `/opt/erp-system/nginx/pc.conf` 里（第 15、28 行同样两条字面量 `erp-backend:8080`），而 `erp-pc-web` 已 `Up 17 hours` 且 off 公网链路（公网 `/` 由宝塔 `erp-aliyun.conf` 桥到 `.150:8088`）⇒ 它下一次被重启就会一样崩。本轮刻意没动它**（一次只动一个变量；它现在是活的），下次要动 `.150` 之外的 PC 容器前先照 h5.conf 的写法改掉。
+- **APK 分发**：`app/erp-app-v1.1.177.apk` → `gpssong@192.168.0.32:/vol1/1000/mac使用/erp/erp-app-v1.1.177.apk`，两端 md5 均 `b98af1e68620bcb83b940b6269e13f91`、大小均 4,517,756 B（`cat | ssh "cat >"` 管道退出码非 0 是 grep 过滤所致，只认 md5/size）。
+- **commit**：三笔入账 `b8858a3`（v1.1.176 标签画布+模板历史）、`12b140f`（v1.1.173~176 后端/PC/App 修补 + 运维脚本脱敏）、`1cfa9fa`（v1.1.177 App 框选）。**`erp-system/` 之外的外层 `.git` 仍是误建的那个，没碰**；五枚 `app/erp-app-v*.apk`（共 ~22 MB 构建产物）**刻意不入库**，`.gitignore` 里目前没有 `*.apk` 规则，别以后 `git add -A` 把它们捎进去。**未 push**（当前分支 `v1.1.167-label-layer` 在 `origin` 上**根本不存在** —— `git ls-remote --heads origin` 只有 `main`@`e2514d9` 与 `v1.1.112-pagination-scan`@`d3be60b`，这条分支从建出来就只在本地；push 要单独授权）。
+- **仍待真机验收（我做不了，必须用户手机）**：① 装 1177 APK（旧 APK 内嵌的是旧 H5，不装就看不到框选）；② 框选手势 —— 拖动取景框、右下单一把手缩放，`node:test` 只证几何换算，证不了真实触摸；③ 一枚**真实原料标签**照片 + 多原料同框时「框谁识别谁」；④ 桌面浏览器里 `chooseImage` 走文件选择器、`canvas` 同源可用，但车间手机才是目标环境。
 
 ### v1.1.176 (2026-11-10 — 标签「可视化设计又没了」根因修复：v1.1.168 那批**从未提交**的画布编辑器从 worktree 合回主线重新上线；同批补记 v1.1.175 未入账的备份下载/按时间删除 + 采购订单软删过滤；**已上 .150 主站 + 公网实测**)
 
