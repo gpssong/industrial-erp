@@ -34,7 +34,7 @@ class LabelTemplateValidateTest {
     @Test
     @DisplayName("引用上下文中不存在的 field → 保存时报错并指出下标 (docs/32 §5，别把错误留到打印那一刻)")
     void rejectsUnknownField() {
-        List<ValidationIssue> issues = v("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"nonsense\",\"size\":24}]");
+        List<ValidationIssue> issues = v("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"nonsense\",\"size\":24}]");
         assertThat(issues).hasSize(1);
         assertThat(issues.get(0).index()).isZero();
         assertThat(issues.get(0).field()).isEqualTo("nonsense");
@@ -44,20 +44,20 @@ class LabelTemplateValidateTest {
     @Test
     @DisplayName("bizType 本身写错 → 报「不支持的标签类型」，不能让它退化成一屏「字段不存在」(A4 裁定：先 of() 再查字典)")
     void unknownBizTypeIsNotBlamedOnFields() {
-        assertThatThrownBy(() -> renderer.validate("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24}]",
+        assertThatThrownBy(() -> renderer.validate("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"batchNo\",\"size\":24}]",
                 "NO_SUCH_TYPE", 80, 60, 203)).isInstanceOf(com.industrial.erp.exception.BizException.class)
                 .hasMessageContaining("不支持的标签类型");
         // 大小写宽容的那条路仍由 LabelFieldDict.key() 兜住，不该在这里误杀
-        assertThat(renderer.validate("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24}]",
+        assertThat(renderer.validate("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"batchNo\",\"size\":24}]",
                 "fg_roll", 80, 60, 203)).isEmpty();
     }
 
     @Test
     @DisplayName("主数据字段对任意 bizType 都合法（以后上合规要素只改模板，不改库不改后端）")
     void masterFieldsAlwaysKnown() {
-        assertThat(v("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"producerName\",\"size\":24}]")).isEmpty();
-        assertThat(v("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"xkNo\",\"size\":24}]")).isEmpty();
-        assertThat(v("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"inspectorCode\",\"size\":24}]")).isEmpty();
+        assertThat(v("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"producerName\",\"size\":24}]")).isEmpty();
+        assertThat(v("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"xkNo\",\"size\":24}]")).isEmpty();
+        assertThat(v("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"inspectorCode\",\"size\":24}]")).isEmpty();
     }
 
     @Test
@@ -104,8 +104,8 @@ class LabelTemplateValidateTest {
     @Test
     @DisplayName("line/rect 的 w 越界、任意元素 y 越下边界都要拦；条码宽度不拦（TSPL 按内容自适应）")
     void rejectsVerticalAndShapeOverflow() {
-        assertThat(v("[{\"type\":\"line\",\"x\":0,\"y\":470,\"w\":0,\"h\":30}]")).hasSize(1);
-        assertThat(v("[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":700,\"h\":10}]")).hasSize(1);
+        assertThat(v("[{\"type\":\"line\",\"x\":1,\"y\":470,\"w\":0,\"h\":30}]")).hasSize(1);
+        assertThat(v("[{\"type\":\"rect\",\"x\":1,\"y\":0,\"w\":700,\"h\":10}]")).hasSize(1);
         assertThat(v("[{\"type\":\"barcode\",\"x\":400,\"y\":320,\"field\":\"batchNo\",\"size\":60}]")).isEmpty();
         // 条码没写 h 时，渲染器按 size 发高度（种子模板两条 barcode 就是这么写的）——
         // 这条是可算的，所以保存闸必须一起算：不判就会出现「闸说放得下、纸上下沿被切」。
@@ -119,8 +119,8 @@ class LabelTemplateValidateTest {
     @Test
     @DisplayName("未知元素类型 / 既无 text 又无 field / 非法 type 名 都被拦")
     void rejectsBadElementShape() {
-        assertThat(v("[{\"type\":\"hexagon\",\"x\":0,\"y\":0,\"text\":\"x\"}]")).isNotEmpty();
-        assertThat(v("[{\"type\":\"text\",\"x\":0,\"y\":0,\"size\":24}]")).isNotEmpty();
+        assertThat(v("[{\"type\":\"hexagon\",\"x\":1,\"y\":0,\"text\":\"x\"}]")).isNotEmpty();
+        assertThat(v("[{\"type\":\"text\",\"x\":1,\"y\":0,\"size\":24}]")).isNotEmpty();
     }
 
     @Test
@@ -141,7 +141,7 @@ class LabelTemplateValidateTest {
     @DisplayName("第二个元素出错，index 必须是 1 —— A11 靠它指行")
     void secondElementGetsSecondIndex() {
         List<ValidationIssue> issues = renderer.validate(
-                "[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24},"
+                "[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"batchNo\",\"size\":24},"
               + "{\"type\":\"line\",\"x\":600,\"y\":0,\"w\":100,\"h\":2}]",
                 "FG_ROLL", 80, 60, 203);
         assertThat(issues).hasSize(1);
@@ -157,13 +157,13 @@ class LabelTemplateValidateTest {
         // 但只测首项等于**什么都没钉住**：实现写死「第 1 项」也能过，而这条用例的本意是
         // 「按它**自己**的位置点名」。⇒ 首项、尾项各测一次，1 起点编号才真的被钉住。
         List<ValidationIssue> first = renderer.validate(
-                "[null,{\"type\":\"hexagon\",\"x\":0,\"y\":0}]", "FG_ROLL", 80, 60, 203);
+                "[null,{\"type\":\"hexagon\",\"x\":1,\"y\":0}]", "FG_ROLL", 80, 60, 203);
         assertThat(first).hasSize(1);
         assertThat(first.get(0).index()).isEqualTo(-1);
         assertThat(first.get(0).message()).contains("第 1 项是空的");
 
         List<ValidationIssue> second = renderer.validate(
-                "[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24},null]",
+                "[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"batchNo\",\"size\":24},null]",
                 "FG_ROLL", 80, 60, 203);
         assertThat(second).hasSize(1);
         assertThat(second.get(0).index()).isEqualTo(-1);
@@ -176,5 +176,107 @@ class LabelTemplateValidateTest {
         assertThat(renderer.validate(
                 "[{\"type\":\"rect\",\"x\":2000000000,\"y\":2000000000,\"w\":2000000000,\"h\":2000000000}]",
                 "FG_ROLL", 80, 60, 203)).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("数学输入先夹到 ±1,000,000 点，负坐标仍按**原始值**点名（夹成 0 就是把错归到别处）")
+    void hugeCoordinatesClampAndNegativeStayNamed() {
+        // 钉的是**夹取后的那个数**，不是「反正报了越界」：不夹的话这句话里会是 2000000000，
+        // 而只断言 contains("越界") 的写法两种实现都能过 —— 等于什么都没钉住。
+        assertThat(renderer.validate(
+                "[{\"type\":\"rect\",\"x\":2000000000,\"y\":0,\"w\":2000000000,\"h\":10}]", "FG_ROLL", 80, 60, 203))
+                .anySatisfy(i -> assertThat(i.message())
+                        .contains("从 x=1000000 起宽 1000000 点"));
+        assertThat(renderer.validate(
+                "[{\"type\":\"text\",\"x\":-5,\"y\":-9,\"size\":24,\"text\":\"批号\"}]", "FG_ROLL", 80, 60, 203))
+                .extracting(ValidationIssue::message)
+                .containsExactly("x 必须大于 0（打印头左边界不在 x=0，贴边会静默丢失），当前 -5", "y 不能为负，当前 -9");
+    }
+
+    @Test
+    @DisplayName("x=0 落在打印头左边界外会被静默丢弃 ⇒ 保存闸拒 x≤0，要求 x≥1 点（实纸取证 2026-11-08）")
+    void rejectsZeroXAtPrintHeadBoundary() {
+        List<ValidationIssue> zero = v("[{\"type\":\"text\",\"x\":0,\"y\":20,\"field\":\"batchNo\",\"size\":24}]");
+        assertThat(zero).anySatisfy(i -> assertThat(i.message()).contains("x 必须大于 0").contains("当前 0"));
+        // x=1 是最小可打印起点；y=0 仍可打印（实纸取证①：打印头上边界就在 y=0），所以这一版必须零问题。
+        assertThat(v("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"batchNo\",\"size\":24}]")).isEmpty();
+        assertThat(v("[{\"type\":\"text\",\"x\":-3,\"y\":20,\"field\":\"batchNo\",\"size\":24}]"))
+                .anySatisfy(i -> assertThat(i.message()).contains("x 必须大于 0").contains("当前 -3"));
+    }
+
+    @Test
+    @DisplayName("line 的越界量按**真实厚度**算：h=5 就是 5 点，不是旧的 2 点")
+    void lineOverflowUsesActualThickness() {
+        List<ValidationIssue> issues = v("[{\"type\":\"line\",\"x\":1,\"y\":477,\"w\":100,\"h\":5}]");
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).message()).contains("y=477 起高 5 点").contains("越界 2 点");
+    }
+
+    @Test
+    @DisplayName("elements JSON 超过 256 KiB：保存 400、闸收成 index=-1 一条，不进布局也不 500")
+    void rejectsOversizedElementsJson() {
+        String big = "[{\"type\":\"text\",\"x\":1,\"y\":0,\"size\":24,\"text\":\"" + "批".repeat(90_000) + "\"}]";
+        assertThatThrownBy(() -> renderer.parse(big))
+                .isInstanceOf(com.industrial.erp.exception.BizException.class)
+                .hasMessageContaining("模板元素 JSON 超过 256 KiB");
+        List<ValidationIssue> issues = v(big);
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).index()).isEqualTo(-1);
+        assertThat(issues.get(0).message()).contains("256 KiB");
+    }
+
+    @Test
+    @DisplayName("元素超过 128 个：同上")
+    void rejectsTooManyElements() {
+        String many = "[" + String.join(",", java.util.Collections.nCopies(129,
+                "{\"type\":\"line\",\"x\":1,\"y\":0,\"w\":1,\"h\":2}")) + "]";
+        assertThatThrownBy(() -> renderer.parse(many))
+                .isInstanceOf(com.industrial.erp.exception.BizException.class)
+                .hasMessageContaining("模板元素不能超过 128 个");
+        assertThat(v(many)).singleElement().satisfies(i -> {
+            assertThat(i.index()).isEqualTo(-1);
+            assertThat(i.message()).contains("128 个");
+        });
+    }
+
+    @Test
+    @DisplayName("单元素内容超过 4096 字符：点名第几个元素，不截断业务内容冒充完整")
+    void rejectsOverlongLiteralContent() {
+        String elements = "[{\"type\":\"text\",\"x\":1,\"y\":0,\"size\":24,\"text\":\"" + "批".repeat(4097) + "\"}]";
+        assertThatThrownBy(() -> renderer.parse(elements))
+                .isInstanceOf(com.industrial.erp.exception.BizException.class)
+                .hasMessageContaining("第 1 个元素内容超过 4096 字符");
+    }
+
+    @Test
+    @DisplayName("正好 4096 字符、一行只放一个字：要在有界时间内给结论，不炸也不静默丢弃")
+    void maxContentStaysBounded() {
+        List<ValidationIssue> issues = v("[{\"type\":\"text\",\"x\":1,\"y\":0,\"w\":24,\"size\":24,\"text\":\""
+                + "批".repeat(4096) + "\"}]");
+        assertThat(issues).hasSize(1);
+        assertThat(issues.get(0).message()).contains("4096 行").contains("98304 点高").contains("97824 点");
+    }
+
+    @Test
+    @DisplayName("小数坐标不默默截断：直说坐标必须是整数点")
+    void rejectsFractionalCoordinates() {
+        String elements = "[{\"type\":\"text\",\"x\":20.5,\"y\":0,\"size\":24,\"text\":\"批号\"}]";
+        assertThatThrownBy(() -> renderer.parse(elements))
+                .isInstanceOf(com.industrial.erp.exception.BizException.class)
+                .hasMessageContaining("坐标必须是整数点");
+        assertThat(v(elements)).singleElement().satisfies(i -> {
+            assertThat(i.index()).isEqualTo(-1);
+            assertThat(i.message()).contains("坐标必须是整数点");
+        });
+    }
+
+    @Test
+    @DisplayName("JSON 不是数组 / 根是 null：可读 400，绝不 500")
+    void nonArrayJsonIsClientError() {
+        for (String bad : List.of("{\"type\":\"text\"}", "null", "\"abc\"", "123")) {
+            assertThatThrownBy(() -> renderer.parse(bad))
+                    .isInstanceOf(com.industrial.erp.exception.BizException.class);
+            assertThat(v(bad)).singleElement().satisfies(i -> assertThat(i.index()).isEqualTo(-1));
+        }
     }
 }

@@ -134,6 +134,11 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { labelApi, labelTemplateApi } from '@/api/base'
 
+// 嵌入「打印管理」页时 embedded=true：「编辑这一类模板」改为 emit 让父页切子 tab，
+// 独立路由 /base/label-center 访问时仍 router.push（向后兼容）。
+const props = defineProps({ embedded: { type: Boolean, default: false } })
+const emit = defineEmits(['edit-template'])
+
 const q = reactive({ bizType: 'FG_ROLL', bizId: null, lineIds: [], templateId: null })
 const bills = ref([])
 const lines = ref([])
@@ -441,8 +446,9 @@ async function loadLog() {
   } finally { logLoading.value = false }
 }
 
-/** A11 的模板页支持 ?bizType= 深链，这里带上当前类型。 */
+/** A11 的模板页支持 ?bizType= 深链，这里带上当前类型。嵌入打印管理页时改切子 tab。 */
 function goTemplates() {
+  if (props.embedded) { emit('edit-template', q.bizType); return }
   router.push({ path: '/base/label-template', query: { bizType: q.bizType } })
 }
 

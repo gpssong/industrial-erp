@@ -31,6 +31,37 @@ public final class LabelGeometry {
      * PC 编辑器「新建一行」也给 24 —— 兜底值必须和「正常配出来的值」是同一个，否则同一条标签会有两种码宽。
      */
     public static final int DEFAULT_QR_FONT_SIZE = 24;
+    /**
+     * 进入数学的坐标/尺寸上限 (docs/36 §0.3)。夹的是**参与计算的值**，不是库里的声明：
+     * 声明照原样存回，负数仍由保存闸按原始值点名 —— 夹成 0 等于把错归到别处。
+     */
+    public static final int MAX_GEOMETRY_DOTS = 1_000_000;
+    public static final int MAX_CONTENT_CODEPOINTS = 4096;
+    public static final int MAX_ELEMENTS_JSON_BYTES = 262_144;
+    public static final int MAX_ELEMENTS = 128;
+    /** TSPL 没有画框指令，矩形用四条 BAR 描边；边框厚与「画得出来的最小外框」是一体的。 */
+    public static final int RECT_BORDER_DOTS = 2;
+    public static final int MIN_RECT_FRAME_DOTS = RECT_BORDER_DOTS * 2;
+    /** line 没声明 h 时的厚度：2 点 = 0.25 mm，与 sql/155 三种子的 `h:2` 同值。 */
+    public static final int DEFAULT_LINE_THICKNESS_DOTS = 2;
+
+    /**
+     * `line` 在纸面上的实际厚度 = `BAR` 的第 4 个形参（R13：声明的 `h` 就是线粗）。
+     * 没声明（≤0）仍按 2 点 = 0.25 mm，与 sql/155 三种子的 `h:2` 同值 ⇒ 存量模板逐字节不变。
+     */
+    public static int lineThicknessDots(int h) {
+        return h <= 0 ? DEFAULT_LINE_THICKNESS_DOTS : Math.min(h, MAX_GEOMETRY_DOTS);
+    }
+
+    /** 坐标进数学前夹绝对值：`y + height` 溢出成负数会把天大的越界判成合格（A6 I-2 同一条规矩）。 */
+    public static int clampCoordDots(int v) {
+        return Math.max(-MAX_GEOMETRY_DOTS, Math.min(MAX_GEOMETRY_DOTS, v));
+    }
+
+    /** 尺寸进数学前夹到 0…上限；负数的 w/h 交给保存闸按**原始值**点名，不在这里偷偷修正。 */
+    public static int clampExtentDots(int v) {
+        return Math.max(0, Math.min(MAX_GEOMETRY_DOTS, v));
+    }
 
     /**
      * 名义 dpi → 真值。**203dpi 的打印机物理上就是 8 点/毫米**（真值 203.2 = 8 × 25.4），
@@ -63,6 +94,7 @@ public final class LabelGeometry {
 
     /**
      * 二维码的模块边长（点/模块）= TSPL `QRCODE` 的第 4 个形参。
+     * 显式 cell 非 0 时夹到 2..8；0 保留旧字号回落（字号最多按 4096 点）。
      * **渲染器和「没声明字号」的兜底只有这一个出口**（与 {@link #barcodeHeightDots} 同一处置）：
      * 字号 ÷ 6 夹在 2..8，字号缺失（≤0，PC 编辑器清空 `size` 清洗后就是 0）先按
      * {@link #DEFAULT_QR_FONT_SIZE} 补，再进公式。
@@ -70,9 +102,10 @@ public final class LabelGeometry {
      * <p>为什么不能直接兜到公式下限 2：版本 1 的二维码是 21 模块，cell 2 ⇒ 42 点 ≈ 5.25 mm ——
      * 和 2026-11-05 纸面上那三条 1.25 mm 高的 CODE128 是同一类病（肉眼看得见、车间扫不出）。
      */
-    public static int qrCell(int fontSize) {
-        int size = fontSize > 0 ? fontSize : DEFAULT_QR_FONT_SIZE;
-        return Math.min(8, Math.max(2, Math.round((float) Math.max(12, size) / 6f)));
+    public static int qrCell(int size, int declaredCell) {
+        if (declaredCell != 0) return Math.max(2, Math.min(8, declaredCell));
+        int effectiveSize = size > 0 ? Math.min(size, 4096) : DEFAULT_QR_FONT_SIZE;
+        return Math.min(8, Math.max(2, Math.round((float) Math.max(12, effectiveSize) / 6f)));
     }
 
     /** 一条 `TEXT` 用哪个内置字库、横纵各放大几倍。倍率是整数（TSPL 只认整数倍）。 */
@@ -84,7 +117,8 @@ public final class LabelGeometry {
     }
 
     /**
-     * 内容 + 模板字号 → 字体与倍率。
+     * 内容 + 模板字号 + 声明倍率 → 字体与有效倍率的唯一公开出口。
+     * 每轴独立：0 沿用旧字号推导，非 0 夹到 1..8；字号最多按 4096 点参与回落。
      *
      * <p>有中日韩字符就**整段**走中文字库：内置字库没有混排能力，一行只能指定一个字体。
      * 混合内容里夹的 ASCII 也按中文字库全额计价 —— 中文行内夹英文到底占 12 还是 24 点
@@ -93,7 +127,15 @@ public final class LabelGeometry {
      *
      * <p>`size ≤ 0` 按中文基准 24 点兜底：模板漏填字号不该崩，也不该打出 0 倍率的指令。
      */
-    public static Font fontFor(String content, int size) {
+    public static Font effectiveMul(String content, int size, int mx, int my) {
+        Font old = fontFor(content, Math.min(size, 4096));
+        return new Font(old.name(), old.baseW(), old.baseH(),
+                mx == 0 ? old.mulX() : Math.max(1, Math.min(8, mx)),
+                my == 0 ? old.mulY() : Math.max(1, Math.min(8, my)));
+    }
+
+    /** 旧字号推导仅作私有回落；未声明轴的倍率不强行夹到 8。 */
+    private static Font fontFor(String content, int size) {
         int eff = size <= 0 ? CJK_BASE : size;
         if (hasCjk(content)) {
             int mul = Math.max(1, Math.round((float) eff / CJK_BASE));
@@ -121,7 +163,7 @@ public final class LabelGeometry {
     /** 一行不拆的话这段内容占多少点宽 = 码点数 × 字宽。空/null = 0。 */
     public static int textWidthDots(String content, int size) {
         if (content == null || content.isEmpty()) return 0;
-        return content.codePointCount(0, content.length()) * fontFor(content, size).perCharDots();
+        return content.codePointCount(0, content.length()) * effectiveMul(content, size, 0, 0).perCharDots();
     }
 
     /**

@@ -48,18 +48,18 @@ class LabelGeometryTest {
     @Test
     @DisplayName("行高：ASCII 字体\"2\" 基准 20 点、中文 24 点；倍率各按自己的基准算，不共用")
     void givesLineHeights() {
-        assertThat(LabelGeometry.fontFor("AB", 24).lineHeightDots()).isEqualTo(20);   // round(24/20)=1 ⇒ ×1
-        assertThat(LabelGeometry.fontFor("AB", 24).mulX()).isEqualTo(2);              // 横纵不同倍率
-        assertThat(LabelGeometry.fontFor("批号", 48).lineHeightDots()).isEqualTo(48); // 24×2
-        assertThat(LabelGeometry.fontFor("AB", 12).mulX()).isEqualTo(1);
-        assertThat(LabelGeometry.fontFor("AB", 12).mulY()).isEqualTo(1);              // round(12/20)=0 ⇒ 兜到 1
+        assertThat(LabelGeometry.effectiveMul("AB", 24, 0, 0).lineHeightDots()).isEqualTo(20);   // round(24/20)=1 ⇒ ×1
+        assertThat(LabelGeometry.effectiveMul("AB", 24, 0, 0).mulX()).isEqualTo(2);              // 横纵不同倍率
+        assertThat(LabelGeometry.effectiveMul("批号", 48, 0, 0).lineHeightDots()).isEqualTo(48); // 24×2
+        assertThat(LabelGeometry.effectiveMul("AB", 12, 0, 0).mulX()).isEqualTo(1);
+        assertThat(LabelGeometry.effectiveMul("AB", 12, 0, 0).mulY()).isEqualTo(1);              // round(12/20)=0 ⇒ 兜到 1
     }
 
     @Test
     @DisplayName("字号漏填（≤0）按中文基准 24 点兜底 —— 与 B2 渲染器原样一致，不该崩")
     void zeroSizeFallsBackToCjkBase() {
-        assertThat(LabelGeometry.fontFor("合格", 0).mulX()).isEqualTo(1);
-        assertThat(LabelGeometry.fontFor("合格", -8).perCharDots()).isEqualTo(24);
+        assertThat(LabelGeometry.effectiveMul("合格", 0, 0, 0).mulX()).isEqualTo(1);
+        assertThat(LabelGeometry.effectiveMul("合格", -8, 0, 0).perCharDots()).isEqualTo(24);
         assertThat(LabelGeometry.textWidthDots("AB", 0)).isEqualTo(48);   // 兜底后 eff=24 ⇒ ×2 ⇒ 24 点/字
     }
 

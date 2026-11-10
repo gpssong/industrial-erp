@@ -48,6 +48,7 @@ class BaseLabelControllerBillsTest {
     @Mock private BaseLabelTemplateService templateService;
     @Mock private SysFeiePrinterConfigMapper printerMapper;
     @Mock private FeiePrintClient feieClient;
+    @Mock private LabelResolveService resolveService;
 
     private BaseLabelController controller;
 
@@ -55,7 +56,7 @@ class BaseLabelControllerBillsTest {
     void setUp() {
         controller = new BaseLabelController(null, templateService, previewService, contextService,
                 printService, null, null, feieClient,
-                finishedInMapper, purReceiptMapper, salDeliveryMapper, null, null, printerMapper);
+                finishedInMapper, purReceiptMapper, salDeliveryMapper, null, null, printerMapper, resolveService);
     }
 
     private SalDelivery delivery(LocalDate deliveryDate, LocalDate billDate) {

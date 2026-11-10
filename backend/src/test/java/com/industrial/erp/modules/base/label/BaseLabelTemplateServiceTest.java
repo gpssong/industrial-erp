@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseLabelTemplate;
+import com.industrial.erp.modules.base.mapper.BaseLabelTemplateHistMapper;
 import com.industrial.erp.modules.base.mapper.BaseLabelTemplateMapper;
 import com.industrial.erp.modules.base.service.BaseLabelTemplateService;
+import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.security.PermissionService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -19,10 +21,12 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,7 +34,11 @@ import static org.mockito.Mockito.when;
 class BaseLabelTemplateServiceTest {
 
     @Mock private BaseLabelTemplateMapper mapper;
+    /** 历史 mapper 只被 update 的快照路径消费；本类钉的是闸、默认值与默认位，不碰历史。 */
+    @Mock private BaseLabelTemplateHistMapper histMapper;
     @Mock private PermissionService permService;
+    /** Task 7 起服务构造器多一个 SysUserMapper（history 的姓名注入用）；本类不碰历史读路径，保持空 mock。 */
+    @Mock private SysUserMapper userMapper;
 
     /**
      * **A8 裁定 R1（照抄仓库既有做法，别自己发明）：** `LambdaUpdateWrapper.set(BaseLabelTemplate::getIsDefault, 0)`
@@ -55,19 +63,19 @@ class BaseLabelTemplateServiceTest {
         t.setBizType("FG_ROLL");
         t.setWidthMm(80); t.setHeightMm(60); t.setGapMm(3); t.setDpi(203);
         t.setDirection("NORMAL"); t.setCopies(1);
-        t.setElements("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24}]");
+        t.setElements("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"batchNo\",\"size\":24}]");
         return t;
     }
 
     private BaseLabelTemplateService svc() {
-        return new BaseLabelTemplateService(mapper, new LabelTemplateRenderer(), permService);
+        return new BaseLabelTemplateService(mapper, new LabelTemplateRenderer(), permService, histMapper, userMapper);
     }
 
     @Test
     @DisplayName("未知字段名的模板存不进去，且一条 INSERT 都不发")
     void saveGateRejectsUnknownField() {
         BaseLabelTemplate t = good();
-        t.setElements("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"nonsense\",\"size\":24}]");
+        t.setElements("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"nonsense\",\"size\":24}]");
         when(mapper.selectCount(any())).thenReturn(0L);
 
         assertThatThrownBy(() -> svc().add(t)).isInstanceOf(BizException.class)
@@ -136,6 +144,7 @@ class BaseLabelTemplateServiceTest {
         BaseLabelTemplate stored = good();
         stored.setId(7L);
         when(mapper.selectById(7L)).thenReturn(stored);
+        when(mapper.selectForUpdate(7L)).thenReturn(stored);   // update 走行锁读，两种读法都桩住，本用例只盯编码重复
         when(mapper.selectCount(any())).thenReturn(1L);   // 另一个活行占用了同一编码
 
         assertThatThrownBy(() -> svc().update(stored)).isInstanceOf(BizException.class)
@@ -190,11 +199,12 @@ class BaseLabelTemplateServiceTest {
         BaseLabelTemplate stored = good();          // 库里是 FG_ROLL
         stored.setId(5L);
         when(mapper.selectById(5L)).thenReturn(stored);
+        when(mapper.selectForUpdate(5L)).thenReturn(stored);   // 同上：本用例盯的是 bizType 钉死，不是读法
 
         BaseLabelTemplate payload = good();
         payload.setId(5L);
         payload.setBizType("CARTON");               // 客户端偷改类型
-        payload.setElements("[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"customerName\",\"size\":24}]");
+        payload.setElements("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"customerName\",\"size\":24}]");
 
         // customerName 是 CARTON 的合法字段、FG_ROLL 字典里没有 ⇒ 按 FG_ROLL 校必须拦。
         // 若先 gate 再回写 bizType，这条就顺着 CARTON 字典过了闸，落库却仍是 FG_ROLL 行
@@ -217,6 +227,110 @@ class BaseLabelTemplateServiceTest {
         w.setWidthMm(0);
         assertThatThrownBy(() -> svc().add(w)).isInstanceOf(BizException.class)
                 .hasMessageContaining("标签宽/高必须大于 0");
+        verify(mapper, never()).insert(any(BaseLabelTemplate.class));
+    }
+
+    // ↓↓↓ 纸头默认与纸头闸拆成 applyPaperDefaults/validatePaper 后，resolve 与保存必须共用同一套数 ↓↓↓
+
+    /** 只有纸头与元素的「草稿形状」：没有名称编码 —— resolve 消费的就是这种对象 (docs/35 §3.2 要点 2)。 */
+    private static BaseLabelTemplate paper() {
+        BaseLabelTemplate t = new BaseLabelTemplate();
+        t.setBizType("FG_ROLL");
+        t.setElements("[{\"type\":\"text\",\"x\":1,\"y\":0,\"field\":\"batchNo\",\"size\":24}]");
+        return t;
+    }
+
+    @Test
+    @DisplayName("applyPaperDefaults 只填纸头：名称/编码/status 一个都不碰，也不抛 —— 草稿没有这两项")
+    void applyPaperDefaultsFillsOnlyPaper() {
+        BaseLabelTemplate t = paper();
+
+        BaseLabelTemplateService.applyPaperDefaults(t);
+
+        assertThat(t.getWidthMm()).isEqualTo(80);
+        assertThat(t.getHeightMm()).isEqualTo(60);
+        assertThat(t.getGapMm()).isEqualTo(3);
+        assertThat(t.getDpi()).isEqualTo(203);
+        assertThat(t.getCopies()).isEqualTo(1);
+        assertThat(t.getDirection()).isEqualTo("NORMAL");
+        assertThat(t.getStatus()).isNull();
+        assertThat(t.getTemplateName()).isNull();
+        assertThat(t.getTemplateCode()).isNull();
+    }
+
+    @Test
+    @DisplayName("validatePaper 的容量闸按**换算后的点数**判 (docs/36 §0.3)：203dpi 下 125000mm 正好一百万点，放行")
+    void validatePaperCapsCanvasAtOneMillionDots() {
+        BaseLabelTemplate fits = paper();
+        fits.setWidthMm(125000);
+        fits.setHeightMm(60);
+        fits.setDpi(203);
+        assertThatCode(() -> BaseLabelTemplateService.validatePaper(fits)).doesNotThrowAnyException();
+
+        BaseLabelTemplate over = paper();
+        over.setWidthMm(125000);
+        over.setHeightMm(133333);
+        over.setDpi(203);
+        assertThatThrownBy(() -> BaseLabelTemplateService.validatePaper(over))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("标签画布不能超过 " + LabelGeometry.MAX_GEOMETRY_DOTS + " 点");
+
+        BaseLabelTemplate noDpi = paper();
+        noDpi.setWidthMm(80);
+        noDpi.setHeightMm(60);
+        noDpi.setDpi(0);
+        assertThatThrownBy(() -> BaseLabelTemplateService.validatePaper(noDpi))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("DPI 必须大于 0");
+        // 静态纸头闸不碰数据库：resolve 调它时根本没有 mapper
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    @DisplayName("拆分之后 add 的报错顺序照旧：类型→名称→编码→正宽高→正 dpi→容量")
+    void addKeepsTheOriginalHeaderErrorOrder() {
+        BaseLabelTemplate noType = new BaseLabelTemplate();
+        noType.setElements("[]");
+        assertThatThrownBy(() -> svc().add(noType)).isInstanceOf(BizException.class)
+                .hasMessageContaining("请选择标签类型");
+
+        BaseLabelTemplate noName = paper();
+        assertThatThrownBy(() -> svc().add(noName)).isInstanceOf(BizException.class)
+                .hasMessageContaining("请填写模板名称");
+
+        BaseLabelTemplate named = paper();
+        named.setTemplateName("测试卷标");
+        named.setWidthMm(0);                       // 故意同时把宽高写坏：编码那条必须仍然先响
+        assertThatThrownBy(() -> svc().add(named)).isInstanceOf(BizException.class)
+                .hasMessageContaining("请填写模板编码");
+
+        BaseLabelTemplate coded = paper();
+        coded.setTemplateName("测试卷标");
+        coded.setTemplateCode("FG_TEST");
+        coded.setWidthMm(0);
+        coded.setDpi(0);
+        when(mapper.selectCount(any())).thenReturn(0L);
+        assertThatThrownBy(() -> svc().add(coded)).isInstanceOf(BizException.class)
+                .hasMessageContaining("标签宽/高必须大于 0 mm");
+
+        BaseLabelTemplate sized = paper();
+        sized.setTemplateName("测试卷标");
+        sized.setTemplateCode("FG_TEST");
+        sized.setDpi(0);
+        assertThatThrownBy(() -> svc().add(sized)).isInstanceOf(BizException.class)
+                .hasMessageContaining("DPI 必须大于 0");
+    }
+
+    @Test
+    @DisplayName("纸头超容量的模板在表头就被拦下，不许先进闸被元素越界归罪 (A8 裁定 R3 的续条)")
+    void oversizedPaperHeaderFailsBeforeGate() {
+        BaseLabelTemplate t = good();
+        t.setWidthMm(133333);                      // dpi 仍是 203 ⇒ 1,066,664 点 > 1,000,000
+        when(mapper.selectCount(any())).thenReturn(0L);
+
+        assertThatThrownBy(() -> svc().add(t)).isInstanceOf(BizException.class)
+                .hasMessageContaining("标签画布不能超过 " + LabelGeometry.MAX_GEOMETRY_DOTS + " 点")
+                .hasMessageNotContaining("越界");
         verify(mapper, never()).insert(any(BaseLabelTemplate.class));
     }
 }

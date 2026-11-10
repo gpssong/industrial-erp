@@ -1,0 +1,11 @@
+[{"type":"text","x":20,"y":20,"text":"客户","size":24,"bold":true},{"type":"multiline","x":110,"y":20,"field":"customerName","size":24,"w":500,"required":true},
+  {"type":"multiline","x":20,"y":80,"field":"deliveryAddress","size":16,"w":600},
+  {"type":"text","x":20,"y":130,"text":"电话","size":16},{"type":"text","x":110,"y":130,"field":"deliveryPhone","size":16},
+  {"type":"line","x":20,"y":165,"w":600,"h":2},
+  {"type":"text","x":20,"y":180,"field":"productName","size":32,"required":true},
+  {"type":"text","x":20,"y":230,"field":"spec","size":24},
+  {"type":"text","x":20,"y":270,"text":"数量","size":24},{"type":"text","x":110,"y":270,"field":"qty","size":24,"bold":true},
+  {"type":"text","x":280,"y":270,"field":"unitName","size":24},
+  {"type":"text","x":20,"y":310,"text":"单号","size":16},{"type":"text","x":110,"y":310,"field":"deliveryBillNo","size":16},
+  {"type":"text","x":340,"y":310,"text":"日期","size":16},{"type":"text","x":430,"y":310,"field":"deliveryDate","size":16},
+  {"type":"text","x":20,"y":440,"field":"batchNo","size":16,"w":600}]

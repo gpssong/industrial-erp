@@ -28,10 +28,25 @@ public class LabelContextService {
     private final LabelMasterService masterService;
 
     public List<Map<String, Object>> load(String bizTypeCode, Long bizId, List<Long> lineIds) {
+        return withMaster(loaderFor(bizTypeCode).load(bizId, lineIds));
+    }
+
+    /**
+     * 编辑器示例 (docs/35 §3.4)：路由与 {@link #load} 完全同一条，只是把「按单据查库」换成「固定示例值」，
+     * 主数据仍取用户已配的那份 —— 示例不许盖掉真配置，也不许硬编真实企业证号。
+     */
+    public List<Map<String, Object>> loadSample(String bizTypeCode) {
+        return withMaster(loaderFor(bizTypeCode).sample());
+    }
+
+    private LabelContextLoader loaderFor(String bizTypeCode) {
         LabelBizType type = LabelBizType.of(bizTypeCode);
         LabelContextLoader loader = loaders.get(type);
         if (loader == null) throw BizException.of(400, "该标签类型还没有数据加载器: " + type.getCode());
-        List<Map<String, Object>> rows = loader.load(bizId, lineIds);
+        return loader;
+    }
+
+    private List<Map<String, Object>> withMaster(List<Map<String, Object>> rows) {
         LabelMaster master = masterService.load();
         List<Map<String, Object>> out = new ArrayList<>(rows.size());
         for (Map<String, Object> row : rows) {

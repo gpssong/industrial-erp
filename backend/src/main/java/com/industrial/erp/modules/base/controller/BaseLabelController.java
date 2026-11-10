@@ -19,6 +19,9 @@ import com.industrial.erp.modules.base.label.LabelPrintLogRequest;
 import com.industrial.erp.modules.base.label.LabelPrintService;
 import com.industrial.erp.modules.base.label.LabelPreviewRequest;
 import com.industrial.erp.modules.base.label.LabelPreviewService;
+import com.industrial.erp.modules.base.label.LabelResolveRequest;
+import com.industrial.erp.modules.base.label.LabelResolveResult;
+import com.industrial.erp.modules.base.label.LabelResolveService;
 import com.industrial.erp.modules.base.label.RenderResult;
 import com.industrial.erp.modules.base.label.TsplLabelRenderer;
 import com.industrial.erp.modules.base.label.context.CartonLabelContextLoader;
@@ -68,7 +71,8 @@ public class BaseLabelController {
                                SalDeliveryMapper salDeliveryMapper,
                                PurReceiptDetailMapper purReceiptDetailMapper,
                                SalDeliveryDetailMapper salDeliveryDetailMapper,
-                               SysFeiePrinterConfigMapper printerConfigMapper) {
+                               SysFeiePrinterConfigMapper printerConfigMapper,
+                               LabelResolveService resolveService) {
         this.masterService = masterService;
         this.templateService = templateService;
         this.previewService = previewService;
@@ -83,6 +87,7 @@ public class BaseLabelController {
         this.purReceiptDetailMapper = purReceiptDetailMapper;
         this.salDeliveryDetailMapper = salDeliveryDetailMapper;
         this.printerConfigMapper = printerConfigMapper;
+        this.resolveService = resolveService;
     }
 
     private final LabelMasterService masterService;
@@ -100,6 +105,7 @@ public class BaseLabelController {
     private final PurReceiptDetailMapper purReceiptDetailMapper;
     private final SalDeliveryDetailMapper salDeliveryDetailMapper;
     private final SysFeiePrinterConfigMapper printerConfigMapper;
+    private final LabelResolveService resolveService;
 
     /** 标签主数据（生产者名称/地址/XK 证号/执行标准/贮存条件/检验员代号）。
      *  App 打印中心也要读它，不能叫只有业务权限的人去调 /system/config/*，所以单独开一个只读口。 */
@@ -186,6 +192,13 @@ public class BaseLabelController {
     public R<List<RenderResult>> preview(@RequestBody LabelPreviewRequest req) {
         return R.ok(previewService.preview(tplOf(req.getBizType(), req.getTemplateId()),
                 req.getBizId(), req.getLineIds()));
+    }
+
+    /** 草稿几何解析：编辑器边画边问，不写库、不出指令 (docs/35 §3.2)。权限按 docs/36 全局约束 4 只认模板编辑权限。 */
+    @SaCheckPermission(value = "base:label:template", orRole = "admin")
+    @PostMapping("/resolve")
+    public R<LabelResolveResult> resolve(@RequestBody LabelResolveRequest request) {
+        return R.ok(resolveService.resolve(request));
     }
 
     /** 飞鹅通道预览：直接回渲染后的指令文本，让 PC 侧看清「发出去的是什么」——含退化说明。 */

@@ -12,6 +12,10 @@ public class ResolvedElement {
     /** 解析后的最终文本；barcode/qrcode 时这就是要编码的内容。 */
     private String content;
     private int fontSize;
+    /** 模板原始声明，0 表示按 fontSize 回落，不存计算后的有效值。 */
+    private int mulX;
+    private int mulY;
+    private int cell;
     private String align;
     private boolean bold;
     private int w;
@@ -38,6 +42,12 @@ public class ResolvedElement {
     public void setContent(String content) { this.content = content; }
     public int getFontSize() { return fontSize; }
     public void setFontSize(int fontSize) { this.fontSize = fontSize; }
+    public int getMulX() { return mulX; }
+    public void setMulX(int mulX) { this.mulX = mulX; }
+    public int getMulY() { return mulY; }
+    public void setMulY(int mulY) { this.mulY = mulY; }
+    public int getCell() { return cell; }
+    public void setCell(int cell) { this.cell = cell; }
     public String getAlign() { return align; }
     public void setAlign(String align) { this.align = align; }
     public boolean isBold() { return bold; }

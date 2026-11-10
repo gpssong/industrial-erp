@@ -11,6 +11,7 @@ import com.industrial.erp.modules.production.entity.PrdFinishedIn;
 import com.industrial.erp.modules.production.mapper.PrdFinishedInMapper;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,6 +61,29 @@ public class FgRollLabelContextLoader implements LabelContextLoader {
             }
         }
         return List.of(m);
+    }
+
+    /**
+     * 示例数据：字段与 {@link #load} 一一对应，键顺序也照抄，画布上看到的列次序就是纸上的。
+     * 值只用字典里存在的字段名能表达的东西，不为了填示例去扩数据库列。
+     */
+    @Override
+    public List<Map<String, Object>> sample() {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("productName", "背心袋 30×45cm");
+        row.put("productCode", "FG001");
+        row.put("spec", "30×45cm");
+        row.put("unitName", "个");
+        row.put("qty", new BigDecimal("1200"));
+        row.put("batchNo", "PH20261106A");
+        row.put("orderNo", "PD202611060001");
+        row.put("billNo", "PFI202611060001");
+        row.put("productionDate", LocalDate.of(2026, 11, 6));
+        row.put("gramWeight", new BigDecimal("8"));
+        row.put("width", new BigDecimal("30"));
+        row.put("thickness", new BigDecimal("0.025"));
+        row.put("colorNo", "本色");
+        return List.of(row);
     }
 
     /** 生产日期不在 prd_finished_in 上（该表没有 prod_date 列，docs/32 §3.2 已核对），按批号回查 mes_batch。 */

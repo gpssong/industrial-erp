@@ -8,6 +8,8 @@ import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptMapper;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,5 +62,21 @@ public class RawPalletLabelContextLoader implements LabelContextLoader {
         }
         if (out.isEmpty()) throw BizException.of(400, "该采购入库单没有可打印的明细行（或所选行不属于该单）");
         return out;
+    }
+
+    /** 示例数据：给 1 行就够（真实 {@link #load} 是按明细行出 N 张的）；键顺序照抄 load。 */
+    @Override
+    public List<Map<String, Object>> sample() {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("supplierName", "示例原料供应商");
+        row.put("receiptBillNo", "PR202611060001");
+        row.put("receiptDate", LocalDate.of(2026, 11, 6));
+        row.put("inspectionReportNo", "BG-YL-20261106-001");
+        row.put("productName", "低密度聚乙烯");
+        row.put("productCode", "RAW001");
+        row.put("unitName", "kg");
+        row.put("qty", new BigDecimal("1000"));
+        row.put("batchNo", "YL20261106A");
+        return List.of(row);
     }
 }

@@ -8,6 +8,7 @@ import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryMapper;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -66,6 +67,28 @@ public class CartonLabelContextLoader implements LabelContextLoader {
         }
         if (out.isEmpty()) throw BizException.of(400, "该销售出库单没有可打印的明细行（或所选行不属于该单）");
         return out;
+    }
+
+    /**
+     * 示例数据：一行明细 = 一张箱标，键顺序照抄 {@link #load}。
+     * deliveryDate 给的是 LocalDate，和 printableDate() 真实返回的类型一致，
+     * 免得画布上"日期能显示"而真单打出来是空。
+     */
+    @Override
+    public List<Map<String, Object>> sample() {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("customerName", "示例客户");
+        row.put("deliveryAddress", "示例收货地址");
+        row.put("deliveryPhone", "00000000000");
+        row.put("orderNo", "SO202611060001");
+        row.put("deliveryBillNo", "SD202611060001");
+        row.put("deliveryDate", LocalDate.of(2026, 11, 6));
+        row.put("productName", "背心袋");
+        row.put("spec", "30×45cm");
+        row.put("unitName", "箱");
+        row.put("qty", new BigDecimal("20"));
+        row.put("batchNo", "PH20261106A");
+        return List.of(row);
     }
 
     /**

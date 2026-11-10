@@ -3,7 +3,6 @@ package com.industrial.erp.modules.base.label;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.Charset;
-import java.util.List;
 
 /**
  * 印麦 IP-803 主通道渲染器 (docs/32 §4，§9 闸后)。
@@ -25,8 +24,6 @@ public class TsplLabelRenderer {
 
     /** Q3 取证结论：GBK / GB18030 / UTF-8 三选一。**改这一行**，其余代码跟着 `CHARSET.name()` 走。 */
     public static final Charset CHARSET = Charset.forName("GBK");
-
-    private static final int LINE_THICKNESS = 2;
 
     public static Charset charset() { return CHARSET; }
 
@@ -66,25 +63,27 @@ public class TsplLabelRenderer {
         switch (type) {
             case "text":
             case "multiline": {
-                String content = safe(e.getContent());
+                String content = LabelLayout.sanitize(e.getContent());
                 if (content.isEmpty()) return "";
                 return textBlock(e, content, paperW);
             }
             case "qrcode": {
-                String content = safe(e.getContent());
+                String content = LabelLayout.sanitize(e.getContent());
                 if (content.isEmpty()) return "";
-                int cell = LabelGeometry.qrCell(e.getFontSize());
+                int cell = LabelGeometry.qrCell(e.getFontSize(), e.getCell());
                 // 形参顺序 = docs/34 ④ 写法 A：x,y,<纠错 L>,<模块宽>,<旋转 0>,<模式 A>,"内容"（Ruling，B4 真机补扫闭环）。
                 return "QRCODE " + e.getX() + "," + e.getY() + ",L," + cell + ",0,A,\"" + content + "\"\r\n";
             }
             case "barcode": {
-                String content = safe(e.getContent());
+                String content = LabelLayout.sanitize(e.getContent());
                 if (content.isEmpty()) return "";
                 int h = LabelGeometry.barcodeHeightDots(e.getH(), e.getFontSize());
                 return "BARCODE " + e.getX() + "," + e.getY() + ",\"128\"," + h + ",2,0,2,2,\"" + content + "\"\r\n";
             }
-            case "line":
-                return "BAR " + e.getX() + "," + e.getY() + "," + Math.max(1, e.getW()) + "," + LINE_THICKNESS + "\r\n";
+            case "line": {
+                LabelLayout.Box line = LabelLayout.shapeBox(e);
+                return bar(line.x(), line.y(), line.w(), line.h());
+            }
             case "rect":
                 return rect(e);
             default:
@@ -101,16 +100,13 @@ public class TsplLabelRenderer {
      * `multiline` 都声明了）按 w 圈栏，没声明的按纸宽 —— 用户在编辑器里圈的栏宽就是实纸上的栏宽。
      */
     private static String textBlock(ResolvedElement e, String content, int paperW) {
-        LabelGeometry.Font font = LabelGeometry.fontFor(content, e.getFontSize());
-        int available = LabelGeometry.wrapBudgetDots(e.getX(), e.getW(), paperW);
-        List<String> segments = LabelGeometry.lineSegments(content, font.perCharDots(), available);
+        // 混排拆出的纯 ASCII 段也必须沿用整段字库，否则字宽、行高和旧指令都会变。
+        LabelGeometry.Font font = LabelGeometry.effectiveMul(content, e.getFontSize(), e.getMulX(), e.getMulY());
         StringBuilder sb = new StringBuilder();
-        int y = e.getY();
-        for (String segment : segments) {
-            sb.append(textLine(e.getX(), y, font.name(), font.mulX(), font.mulY(), segment));
+        for (LabelLayout.Box box : LabelLayout.segmentsFor(e, paperW)) {
+            sb.append(textLine(box.x(), box.y(), font.name(), font.mulX(), font.mulY(), box.content()));
             // 加粗的 x+1 重复行跟着**每一段**走，只拆第一行等于把加粗弄丢。
-            if (e.isBold()) sb.append(textLine(e.getX() + 1, y, font.name(), font.mulX(), font.mulY(), segment));
-            y += font.lineHeightDots();
+            if (e.isBold()) sb.append(textLine(box.x() + 1, box.y(), font.name(), font.mulX(), font.mulY(), box.content()));
         }
         return sb.toString();
     }
@@ -120,19 +116,21 @@ public class TsplLabelRenderer {
         return "TEXT " + x + "," + y + ",\"" + font + "\",0," + mulX + "," + mulY + ",\"" + content + "\"\r\n";
     }
 
-    /** 四条实心 BAR 描边：TSPL 没有画矩形指令。 */
+    /**
+     * 四条实心 BAR 描边：TSPL 没有画矩形指令。外框与保存闸、画布预览用的是
+     * {@link LabelLayout#shapeBox} 同一个框（含最小外框），边框厚取 {@link LabelGeometry#RECT_BORDER_DOTS}。
+     */
     private String rect(ResolvedElement e) {
-        int x = e.getX(), y = e.getY(), w = Math.max(LINE_THICKNESS * 2, e.getW());
-        int h = Math.max(LINE_THICKNESS * 2, e.getH());
-        return "BAR " + x + "," + y + "," + w + "," + LINE_THICKNESS + "\r\n"
-                + "BAR " + x + "," + (y + h - LINE_THICKNESS) + "," + w + "," + LINE_THICKNESS + "\r\n"
-                + "BAR " + x + "," + y + "," + LINE_THICKNESS + "," + h + "\r\n"
-                + "BAR " + (x + w - LINE_THICKNESS) + "," + y + "," + LINE_THICKNESS + "," + h + "\r\n";
+        LabelLayout.Box frame = LabelLayout.shapeBox(e);
+        int t = LabelGeometry.RECT_BORDER_DOTS;
+        int x = frame.x(), y = frame.y(), w = frame.w(), h = frame.h();
+        return bar(x, y, w, t)
+                + bar(x, y + h - t, w, t)
+                + bar(x, y, t, h)
+                + bar(x + w - t, y, t, h);
     }
 
-    /** 指令的参数是双引号包住的字符串，内容里的引号/换行必须打掉，否则指令被截断（打出半张纸）。 */
-    private static String safe(String s) {
-        if (s == null) return "";
-        return s.replace("\"", "'").replace("\r", " ").replace("\n", " ").trim();
+    private static String bar(int x, int y, int w, int h) {
+        return "BAR " + x + "," + y + "," + w + "," + h + "\r\n";
     }
 }

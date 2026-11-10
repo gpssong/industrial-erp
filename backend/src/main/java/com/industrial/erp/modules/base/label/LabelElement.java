@@ -13,6 +13,10 @@ public class LabelElement {
     //   qrcode         = **名义字号**，不是模块边长。渲染器换算 cell = clamp(2,8, round(max(12,size)/6))，
     //                    所以 size 给到 24 才有 cell=4（约 10.5mm）；直接给 7 会兜到 cell=2、扫不出来。
     private int size;
+    /** 声明值，0 沿用 size 推导；有效值由 LabelGeometry 计算，不回写声明。 */
+    private int mulX;
+    private int mulY;
+    private int cell;
     private boolean bold;
     private String align;     // LEFT | CENTER | RIGHT
     private int w;
@@ -31,6 +35,12 @@ public class LabelElement {
     public void setField(String field) { this.field = field; }
     public int getSize() { return size; }
     public void setSize(int size) { this.size = size; }
+    public int getMulX() { return mulX; }
+    public void setMulX(int mulX) { this.mulX = mulX; }
+    public int getMulY() { return mulY; }
+    public void setMulY(int mulY) { this.mulY = mulY; }
+    public int getCell() { return cell; }
+    public void setCell(int cell) { this.cell = cell; }
     public boolean isBold() { return bold; }
     public void setBold(boolean bold) { this.bold = bold; }
     public String getAlign() { return align; }

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LabelTemplateRenderTest {
 
@@ -140,5 +141,39 @@ class LabelTemplateRenderTest {
         assertThat(renderer.stringify(null)).isEmpty();
         assertThat(renderer.stringify(LocalDateTime.of(2026, 11, 4, 9, 30))).isEqualTo("2026-11-04");
         assertThat(renderer.stringify(new BigDecimal("12.500"))).isEqualTo("12.5");
+    }
+
+    @Test
+    @DisplayName("未知类型不标橙：渲染器对它什么都不发，标越界就是把没印的东西说成印歪了 (Task3 口径统一的第 2 条有意变化)")
+    void unknownTypeIsNotFlaggedOverflow() {
+        // 旧实现在通用分支里按**声明外框**查未知类型（竖向 max(h,1)、横向认声明 w），
+        // 于是 hexagon(x500,y440,w300,h60) 会被判成越界 ⇒ 画布上一片橙而纸面什么都不印，操作工无从判断。
+        // 保存闸那边未知类型另有专门的一条问题 (rejectsBadElementShape)，不靠越界提示兜底。
+        RenderResult r = renderer.render(tpl(
+                "[{\"type\":\"hexagon\",\"x\":500,\"y\":440,\"w\":300,\"h\":60}]"), Map.of());
+        assertThat(r.getElements().get(0).isOverflow()).isFalse();
+        assertThat(new TsplLabelRenderer().renderCommandText(r)).doesNotContain("500,440");
+    }
+
+    @Test
+    @DisplayName("超大坐标进渲染前先夹住：发出去的 BAR 不许出现 int 相加回卷成的负数 (docs/36 §0.3)")
+    void hugeCoordinatesNeverReachCommandsWrapped() {
+        RenderResult r = renderer.render(tpl(
+                "[{\"type\":\"rect\",\"x\":2000000000,\"y\":0,\"w\":2000000000,\"h\":10}]"), Map.of());
+        ResolvedElement e = r.getElements().get(0);
+        assertThat(e.getX()).isEqualTo(1_000_000);
+        assertThat(e.getW()).isEqualTo(1_000_000);
+        String tspl = new TsplLabelRenderer().renderCommandText(r);
+        assertThat(tspl).contains("BAR 1000000,0,1000000,2").doesNotContain(",-");
+    }
+
+    @Test
+    @DisplayName("取值后的内容超过 4096 字符 → 400，且在分配盒子数组之前 (§0.3 的容量闸必须对 ctx 那条路也生效)")
+    void oversizedContextValueIsRejectedBeforeBoxes() {
+        assertThatThrownBy(() -> renderer.render(tpl(
+                "[{\"type\":\"text\",\"x\":0,\"y\":0,\"field\":\"batchNo\",\"size\":24}]"),
+                Map.of("batchNo", "批".repeat(4097))))
+                .isInstanceOf(com.industrial.erp.exception.BizException.class)
+                .hasMessageContaining("第 1 个元素内容超过 4096 字符");
     }
 }

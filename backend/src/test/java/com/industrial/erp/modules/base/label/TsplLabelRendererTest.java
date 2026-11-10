@@ -1,10 +1,15 @@
 package com.industrial.erp.modules.base.label;
 
+import com.industrial.erp.modules.base.entity.BaseLabelTemplate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.Charset;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -133,6 +138,22 @@ class TsplLabelRendererTest {
     }
 
     @Test
+    @DisplayName("line 的 h 就是 BAR 厚度 (R13)；没声明仍按 2 点，超大声明值夹到 1,000,000 点而不是回卷")
+    void lineThicknessComesFromDeclaredH() {
+        ResolvedElement thick = el("line", 20, 40, null, 24);
+        thick.setW(100); thick.setH(5);
+        assertThat(renderer.renderCommandText(of(thick))).contains("BAR 20,40,100,5\r\n");
+
+        ResolvedElement legacy = el("line", 20, 40, null, 24);
+        legacy.setW(100);
+        assertThat(renderer.renderCommandText(of(legacy))).contains("BAR 20,40,100,2\r\n");
+
+        ResolvedElement clamped = el("line", 20, 40, null, 24);
+        clamped.setW(100); clamped.setH(2_000_000);
+        assertThat(renderer.renderCommandText(of(clamped))).contains("BAR 20,40,100,1000000\r\n");
+    }
+
+    @Test
     @DisplayName("内容里的双引号换成单引号 —— 不转义会把指令的字符串参数截断")
     void sanitizesQuotesInContent() {
         assertThat(renderer.renderCommandText(of(el("text", 20, 40, "他说\"你好\"", 24))))
@@ -227,6 +248,150 @@ class TsplLabelRendererTest {
         assertThat(out).contains("TEXT 20,64,\"TSS24.BF2\",0,1,1,\"五六七八\"\r\n");
         assertThat(out).contains("TEXT 20,88,\"TSS24.BF2\",0,1,1,\"九十\"\r\n");
         assertThat(out).doesNotContain("TEXT 20,112");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3, 4, 5, 6, 7, 8})
+    void horizontalDeclarationsReachAsciiAndCjkBoxesAndText(int multiplier) {
+        // Hand-calculated widths for two glyphs, independent of production font helpers.
+        int[] asciiWidths = {24, 48, 72, 96, 120, 144, 168, 192};
+        int[] cjkWidths = {48, 96, 144, 192, 240, 288, 336, 384};
+        ResolvedElement ascii = el("text", 20, 40, "AB", 24);
+        ascii.setMulX(multiplier);
+        ResolvedElement cjk = el("multiline", 20, 40, "中文", 48);
+        cjk.setMulX(multiplier);
+
+        assertThat(LabelLayout.segmentsFor(ascii, 640)).containsExactly(
+                new LabelLayout.Box(20, 40, asciiWidths[multiplier - 1], 20, "AB"));
+        assertThat(LabelLayout.segmentsFor(cjk, 640)).containsExactly(
+                new LabelLayout.Box(20, 40, cjkWidths[multiplier - 1], 48, "中文"));
+        assertThat(renderer.renderCommandText(of(ascii))).contains(
+                "TEXT 20,40,\"2\",0," + multiplier + ",1,\"AB\"\r\n");
+        assertThat(renderer.renderCommandText(of(cjk))).contains(
+                "TEXT 20,40,\"TSS24.BF2\",0," + multiplier + ",2,\"中文\"\r\n");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3, 4, 5, 6, 7, 8})
+    void verticalDeclarationsReachAsciiAndCjkBoxesAndText(int multiplier) {
+        int[] asciiHeights = {20, 40, 60, 80, 100, 120, 140, 160};
+        int[] cjkHeights = {24, 48, 72, 96, 120, 144, 168, 192};
+        ResolvedElement ascii = el("text", 20, 40, "AB", 24);
+        ascii.setMulY(multiplier);
+        ResolvedElement cjk = el("multiline", 20, 40, "中文", 48);
+        cjk.setMulY(multiplier);
+
+        assertThat(LabelLayout.segmentsFor(ascii, 640)).containsExactly(
+                new LabelLayout.Box(20, 40, 48, asciiHeights[multiplier - 1], "AB"));
+        assertThat(LabelLayout.segmentsFor(cjk, 640)).containsExactly(
+                new LabelLayout.Box(20, 40, 96, cjkHeights[multiplier - 1], "中文"));
+        assertThat(renderer.renderCommandText(of(ascii))).contains(
+                "TEXT 20,40,\"2\",0,2," + multiplier + ",\"AB\"\r\n");
+        assertThat(renderer.renderCommandText(of(cjk))).contains(
+                "TEXT 20,40,\"TSS24.BF2\",0,2," + multiplier + ",\"中文\"\r\n");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {2, 3, 4, 5, 6, 7, 8})
+    void declaredQrCellsReachCommandWithoutChangingParameterOrder(int cell) {
+        ResolvedElement e = el("qrcode", 20, 60, "PFI0001", 24);
+        e.setCell(cell);
+        assertThat(renderer.renderCommandText(of(e))).contains(
+                "QRCODE 20,60,L," + cell + ",0,A,\"PFI0001\"\r\n");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"3,5,6,3,5,6", "999,-7,1,8,1,2", "0,0,0,2,1,4"})
+    void jsonDeclarationsStayRawThroughResolutionAndReachCommands(
+            int mx, int my, int cell, int effectiveX, int effectiveY, int effectiveCell) {
+        String json = """
+                [{"type":"text","x":20,"y":40,"field":"productName","size":24,
+                  "mulX":%d,"mulY":%d,"cell":%d},
+                 {"type":"qrcode","x":20,"y":60,"field":"batchNo","size":24,
+                  "mulX":%d,"mulY":%d,"cell":%d}]
+                """.formatted(mx, my, cell, mx, my, cell);
+        LabelTemplateRenderer resolver = new LabelTemplateRenderer();
+        List<LabelElement> parsed = resolver.parse(json);
+        for (LabelElement e : parsed) {
+            assertThat(e.getMulX()).isEqualTo(mx);
+            assertThat(e.getMulY()).isEqualTo(my);
+            assertThat(e.getCell()).isEqualTo(cell);
+        }
+        BaseLabelTemplate template = template(json);
+        RenderResult resolved = resolver.render(template, Map.of("productName", "AB", "batchNo", "PFI0001"));
+        for (ResolvedElement e : resolved.getElements()) {
+            assertThat(e.getMulX()).isEqualTo(mx);
+            assertThat(e.getMulY()).isEqualTo(my);
+            assertThat(e.getCell()).isEqualTo(cell);
+        }
+        assertThat(renderer.renderCommandText(resolved))
+                .contains("TEXT 20,40,\"2\",0," + effectiveX + "," + effectiveY + ",\"AB\"\r\n")
+                .contains("QRCODE 20,60,L," + effectiveCell + ",0,A,\"PFI0001\"\r\n");
+        assertThat(template.getElements()).isEqualTo(json);
+    }
+
+    @Test
+    void explicitAxesKeepWholeContentFontAndBoldOffsetsAfterWrapping() {
+        ResolvedElement e = el("multiline", 20, 40, "AB甲乙", 24);
+        e.setW(96);
+        e.setMulX(2);
+        e.setMulY(3);
+        e.setBold(true);
+        assertThat(LabelLayout.segmentsFor(e, 640)).containsExactly(
+                new LabelLayout.Box(20, 40, 96, 72, "AB"),
+                new LabelLayout.Box(20, 112, 96, 72, "甲乙"));
+        assertThat(renderer.renderCommandText(of(e)).lines().filter(line -> line.startsWith("TEXT ")).toList())
+                .containsExactly("TEXT 20,40,\"TSS24.BF2\",0,2,3,\"AB\"",
+                        "TEXT 21,40,\"TSS24.BF2\",0,2,3,\"AB\"",
+                        "TEXT 20,112,\"TSS24.BF2\",0,2,3,\"甲乙\"",
+                        "TEXT 21,112,\"TSS24.BF2\",0,2,3,\"甲乙\"");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ABCD,24,20,440,48,3,0,true", "中文,24,20,440,48,0,2,true",
+            "AB,24,20,440,48,0,2,false", "A,24,620,460,0,1,0,false",
+            "中,384,20,0,0,1,0,false"})
+    void validationAndResolvedOverflowConsumeDeclaredAxes(
+            String content, int size, int x, int y, int w, int mx, int my, boolean overflow) {
+        String json = """
+                [{"type":"text","text":"%s","size":%d,"x":%d,"y":%d,"w":%d,"mulX":%d,"mulY":%d}]
+                """.formatted(content, size, x, y, w, mx, my);
+        LabelTemplateRenderer resolver = new LabelTemplateRenderer();
+        assertThat(resolver.validate(json, "FG_ROLL", 80, 60, 203).isEmpty()).isEqualTo(!overflow);
+        assertThat(resolver.render(template(json), Map.of()).getElements().get(0).isOverflow()).isEqualTo(overflow);
+    }
+
+    @Test
+    void undeclaredKeysRemainZeroAndDoNotRewriteLegacyTemplateJson() {
+        String json = """
+                [{"type":"text","x":20,"y":40,"text":"中","size":384},
+                 {"type":"qrcode","x":20,"y":60,"text":"PFI0001"}]
+                """;
+        BaseLabelTemplate template = template(json);
+        LabelTemplateRenderer resolver = new LabelTemplateRenderer();
+        assertThat(resolver.validate(json, "FG_ROLL", 80, 60, 203)).isEmpty();
+        RenderResult resolved = resolver.render(template, Map.of());
+        for (ResolvedElement e : resolved.getElements()) {
+            assertThat(e.getMulX()).isZero();
+            assertThat(e.getMulY()).isZero();
+            assertThat(e.getCell()).isZero();
+        }
+        assertThat(LabelLayout.segmentsFor(resolved.getElements().get(0), 640)).containsExactly(
+                new LabelLayout.Box(20, 40, 384, 384, "中"));
+        assertThat(renderer.renderCommandText(resolved))
+                .contains("TEXT 20,40,\"TSS24.BF2\",0,16,16,\"中\"\r\n")
+                .contains("QRCODE 20,60,L,4,0,A,\"PFI0001\"\r\n");
+        assertThat(template.getElements()).isEqualTo(json);
+    }
+
+    private static BaseLabelTemplate template(String json) {
+        BaseLabelTemplate template = new BaseLabelTemplate();
+        template.setBizType("FG_ROLL");
+        template.setWidthMm(80);
+        template.setHeightMm(60);
+        template.setDpi(203);
+        template.setElements(json);
+        return template;
     }
 
     @Test

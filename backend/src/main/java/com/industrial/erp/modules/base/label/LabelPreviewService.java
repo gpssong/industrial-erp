@@ -39,30 +39,48 @@ public class LabelPreviewService {
     private final LabelTemplateRenderer renderer;
 
     /**
+     * CODE128 示意 PNG 的写死宽度（点）。resolve 画布上那条条码的示意宽用**同一个数** ——
+     * 两个端点各抄一份 300，改一处就会出现「预览和画布同一个元素两种宽窄」(docs/36 R11)。
+     * 它是示意，不等于打印机按内容自适应的实际编码宽。
+     */
+    static final int CODE_ILLUSTRATIVE_WIDTH_DOTS = 300;
+
+    /**
      * 一张标签一条 {@link RenderResult}，qrcode/barcode 元素的 {@code svg} 里填好 PNG data URL
      * （键名叫 svg，装的确实是 PNG，见 {@link ResolvedElement#getSvg()}）。
      * RenderResult 直接序列化给前端，不另造 DTO。
+     *
+     * <p>码图那段与 resolve 共用 {@link #attachCodeImages}：同一个元素在两个端点上必须是同一张图。
      */
     public List<RenderResult> preview(BaseLabelTemplate tpl, Long bizId, List<Long> lineIds) {
         List<Map<String, Object>> rows = contextService.load(tpl.getBizType(), bizId, lineIds);
         List<RenderResult> out = new ArrayList<>();
         for (Map<String, Object> ctx : rows) {
             RenderResult r = renderer.render(tpl, ctx);
-            for (ResolvedElement e : r.getElements()) {
-                // 封顶 1024 点：size 来自**存进库的模板**，是用户可存的数据，预览不许因为它吃满堆
-                // （二维码 size 40000 就是 1,000,000 点见方；OOM 是 Error，encodePng 的
-                // catch (Exception) 拦不住 ⇒ 整页 500）；1024 点足够屏显。
-                // 正常模板（size 24 ⇒ 600 点）行为不变；条码宽是写死的 300，不需要夹。
-                int qrPx = Math.min(1024, Math.max(4, e.getFontSize()) * 25);
-                if ("qrcode".equals(e.getType())) e.setSvg(encodePng(e.getContent(), BarcodeFormat.QR_CODE,
-                        qrPx, qrPx, true));
-                else if ("barcode".equals(e.getType())) e.setSvg(encodePng(e.getContent(), BarcodeFormat.CODE_128,
-                        300, Math.min(1024, Math.max(20, e.getFontSize())), false));
-            }
+            attachCodeImages(r);
             dedupeMissingRequired(r);
             out.add(r);
         }
         return out;
+    }
+
+    /**
+     * preview 循环里那段码图附加**原样**抽出的包级方法（docs/35 §3.5 的「两个端点共享渲染器」）。
+     * 抽出来只为了不再有第二份 PNG 参数；那两个参数一个都不许改去迁就新画布 —— 改了就会出现
+     * 「预览和画布同一个元素两种图」，而两边都只是示意 (docs/36 R11)。
+     */
+    void attachCodeImages(RenderResult r) {
+        for (ResolvedElement e : r.getElements()) {
+            // 封顶 1024 点：size 来自**存进库的模板**，是用户可存的数据，预览不许因为它吃满堆
+            // （二维码 size 40000 就是 1,000,000 点见方；OOM 是 Error，encodePng 的
+            // catch (Exception) 拦不住 ⇒ 整页 500）；1024 点足够屏显。
+            // 正常模板（size 24 ⇒ 600 点）行为不变；条码宽是写死的 300，不需要夹。
+            int qrPx = Math.min(1024, Math.max(4, e.getFontSize()) * 25);
+            if ("qrcode".equals(e.getType())) e.setSvg(encodePng(e.getContent(), BarcodeFormat.QR_CODE,
+                    qrPx, qrPx, true));
+            else if ("barcode".equals(e.getType())) e.setSvg(encodePng(e.getContent(), BarcodeFormat.CODE_128,
+                    CODE_ILLUSTRATIVE_WIDTH_DOTS, Math.min(1024, Math.max(20, e.getFontSize())), false));
+        }
     }
 
     /**

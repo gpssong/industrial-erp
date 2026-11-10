@@ -57,6 +57,7 @@ class BaseLabelControllerPrintTest {
     @Mock private BaseLabelPrintLogMapper logMapper;
     @Mock private SysFeiePrinterConfigMapper printerMapper;
     @Mock private FeiePrintClient feieClient;
+    @Mock private LabelResolveService resolveService;
 
     private BaseLabelController controller;
     private BaseLabelTemplate tpl;
@@ -68,7 +69,7 @@ class BaseLabelControllerPrintTest {
     void setUp() {
         controller = new BaseLabelController(masterService, templateService, previewService, contextService,
                 printService, new FeieLabelRenderer(), tspl, feieClient,
-                null, null, null, null, null, printerMapper);
+                null, null, null, null, null, printerMapper, resolveService);
         tpl = new BaseLabelTemplate();
         tpl.setId(1167000000000000001L);
         tpl.setBizType("FG_ROLL");
