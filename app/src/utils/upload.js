@@ -6,8 +6,9 @@ import { request } from '../api/index.js'
 // 上传基础地址: 与 request() 一致 — 读 storage.erp_api_base 或 H5 同源 '/api', 原生用绝对地址
 // v1.1.105: 原判断内联且只认 `plus`, 会把 Capacitor APK 判成 H5 → 返回 '' 让上传打到 WebView 本地。
 //           改引 utils/runtime.js 的 isH5Runtime (单一权威源)。
-import { isH5Runtime } from './runtime.js'
+import { isH5Runtime, isNativeApp } from './runtime.js'
 import { getApiBaseOverride } from './apiBase.js'
+import { buildUploadHeaders } from './uploadHeaders.js'
 
 // 原生/Capacitor: 与 api/index.js 的 DEFAULT_API 保持一致
 const NATIVE_UPLOAD_BASE = 'http://home.93gushi.com:8088/api'
@@ -40,7 +41,7 @@ export function uploadFile(filePath, opts = {}) {
       url: base + '/system/upload/file',
       filePath,
       name: opts.name || 'file',
-      header: Object.assign({ 'X-Client-Type': 'APP' }, opts.header || {}),
+      header: buildUploadHeaders(isNativeApp(), opts.header),
       success: (r) => {
         try {
           const j = typeof r.data === 'string' ? JSON.parse(r.data) : r.data
@@ -83,7 +84,7 @@ export async function uploadFileObject(file) {
       method: 'POST',
       body: fd,
       credentials: 'include',
-      headers: { 'X-Client-Type': 'APP' }
+      headers: buildUploadHeaders(isNativeApp())
     })
     const j = await res.json().catch(() => null)
     if (j && (j.code === 200 || j.code === 0)) {
@@ -154,12 +155,12 @@ export function pickAndUploadDocument(accept = '.pdf,image/*,.doc,.docx,.xls,.xl
 }
 
 /**
- * 一站式选图 + 上传 (扫码入库附件/照片用).
+ * 只选图不上传 — 需要先在本地临时图上做点事 (框选识别区域) 时用, 拿回 tempFilePath。
  * @param {object} [opts] chooseImage 选项, 默认 count=1 sourceType=['camera','album']
- * @returns {Promise<{url, filename, size, contentType}>}
+ * @returns {Promise<{tempFilePath: string}>}
  */
-export async function pickAndUploadImage(opts = {}) {
-  const ci = await new Promise((resolve, reject) => {
+export function chooseImageOnce(opts = {}) {
+  return new Promise((resolve, reject) => {
     if (typeof uni === 'undefined' || typeof uni.chooseImage !== 'function') {
       reject(new Error('uni.chooseImage 不可用'))
       return
@@ -167,11 +168,19 @@ export async function pickAndUploadImage(opts = {}) {
     uni.chooseImage({
       count: opts.count || 1,
       sourceType: opts.sourceType || ['camera', 'album'],
-      success: (r) => resolve(r),
+      success: (r) => resolve({ tempFilePath: (r.tempFilePaths && r.tempFilePaths[0]) || '' }),
       fail: reject
     })
   })
-  const path = ci.tempFilePaths && ci.tempFilePaths[0]
-  if (!path) throw new Error('未选择文件')
-  return await uploadFile(path)
+}
+
+/**
+ * 一站式选图 + 上传 (扫码入库附件/照片用).
+ * @param {object} [opts] chooseImage 选项, 默认 count=1 sourceType=['camera','album']
+ * @returns {Promise<{url, filename, size, contentType}>}
+ */
+export async function pickAndUploadImage(opts = {}) {
+  const { tempFilePath } = await chooseImageOnce(opts)
+  if (!tempFilePath) throw new Error('未选择文件')
+  return await uploadFile(tempFilePath)
 }

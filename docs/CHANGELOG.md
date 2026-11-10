@@ -3,6 +3,170 @@
 
 ## changelog (倒序)
 
+### v1.1.177 (2026-11-10 — App 原料入库「识别批号」支持**框选识别区域**：客户端裁剪后上传，**零后端改动 / 零 SQL / 零 PC**；app-only)
+
+> **用户原话**: 「app端原料入库到货原料与批号中识别批号时可以选取识别区域。」
+> 两项拍板：裁剪位置 = **客户端裁剪后上传**（否决「把矩形坐标发给后端裁」：EXIF 旋转错位 + WebP/HEIC 解码缺口 + 要重打 jar 上生产）；生效范围 = **两个 App 入口**（`scan/in.vue`「到货原料与批号」+ `xk/material.vue` 原料入库登记），PC `Receipt.vue` 明确不做。
+
+**为什么刀必须落在客户端（三条，按决定性排序）**：
+1. **画布污染是硬约束**：裁剪要 `canvas.toBlob()` 读像素。喂**已上传的服务端 URL** 时，APK 里页面 origin（`http://localhost`）≠ 图片 host（生产域名）⇒ 跨源 ⇒ 画布被 taint ⇒ `toBlob` 抛 SecurityError；只有喂 `uni.chooseImage` 拿到的**本地 blob 临时路径**才同源。这一条同时否掉了「前端拿返回的 URL 裁」这种更省事的做法。
+2. **EXIF**：浏览器 `drawImage` 之前已按 Orientation 把图转正，服务端 `ImageIO` 不认 ⇒ 竖拍照片发坐标过去必裁偏。
+3. **零上线风险**：`POST /api/ai/ocr/label-batchno` 收 `@RequestBody Map`、只读 `photoUrls` + `productName` ⇒ 裁后图**复用现有上传接口**传上去、URL 照旧进 `photoUrls`，**jar 一行不改、`.150` 生产容器不动**。
+
+**新增**
+- [app/src/utils/ocrCrop.js](../app/src/utils/ocrCrop.js)（108 行）—— `rect` 统一是**归一化** `{x,y,w,h}` ∈ [0,1]（预览框宽随屏幕变，落刀要回原图像素，只在这一处换算）。`clampRect` 把越界的框收回到图内；`isFullFrame`（容差 0.02）判「等于没框」；`rectToPixels` 对空框（`w`/`h` 为 0，手指点一下没拖）退化成从该点起的剩余整块，保证永远裁得出 ≥1px 而不是把 0 宽矩形喂给 `drawImage`；长边 >`MAX_CROP_EDGE`=1200 等比缩到 1200，`toBlob('image/jpeg', .85)` ⇒ 裁后图压到几百 KB（⚠️ `app-h5/nginx.conf` 没配 `client_max_body_size`，默认 **1M**，不压必 413）。`cropToJpegFile` 是**唯一碰 DOM/Image 的出口**，返回带 `.jpg` 文件名的 `File`（后端按扩展名白名单校验）。
+- [app/src/components/RegionCropper.vue](../app/src/components/RegionCropper.vue)（237 行）—— 全屏取景层。`<image mode="widthFix">` ⇒ 元素盒 == 图片盒，框用 `%` 定位省掉一次尺寸换算；框外用 `box-shadow: 0 0 0 2000px rgba(8,12,18,.62)` 压暗；框内拖动移位、右下角单把手缩放（最小边 `MIN_EDGE_RATIO` 0.05）；舞台尺寸用 `uni.createSelectorQuery().in(this).select('#rcStage')` 在 show 与 `@load` 各量一次。底部「取消 / 重置 / **识别这区域**」（没框或框满整张时文案自动变「整张识别」）。⚠️ 仓库里原本**没有任何裁剪组件**（`vue-cropper` 只是个没人引用的传递依赖），这是新写的。
+
+**改**
+- [app/src/utils/ocrCapture.js](../app/src/utils/ocrCapture.js) —— 内核 `captureRegionAndRecognize(ctx, m)`：选图 →（**仅当配了 OCR key 才**弹框选）→ 上传原图 → `saveOriginal()` 落凭证 → 只识别刚拍的这张。`resolveOcrUrl()`：无框 / 框满整张 / 页面没注入 `cropAndUpload` ⇒ 直接用原图 URL；**裁失败或裁后图上传失败只 toast 一句、回落整张识别**，不把整条链打断。取消拍照与取消框选都靠 `/cancel/i` 命中 `errMsg||message` 静默返回。
+- [app/src/pages/scan/in.vue](../app/src/pages/scan/in.vue) —— `runOcr`(:441) 交给 `captureAndRecognizeBatch`；`pickRegion`(:454) 把弹窗包成 Promise（`onCropConfirm` 收到 null 也 resolve 成「整张」，`onCropCancel` reject）；`cropAndUpload`(:474) = `cropToJpegFile → uploadFileObject`。`buildMaterials()` 两个分支都给每行补 `ocrCandidates`(:547/:553)，识别完在批号输入框下渲染**候选条**(:145 `.cand-row`，最多 6 个，点一下改填)。
+- [app/src/pages/xk/material.vue](../app/src/pages/xk/material.vue) —— ⚠️ **行为变化，如实披露**：老「识别批号」是把 `form.photos` 里**所有**已上传照片一起丢给 OCR、且**连 `productName` 都没传**（多原料同框时最容易串号）；新「🔍 拍照框选识别」(:44) 改成**现拍一张 → 框区域 → 按 `form.product` 定向识别**，因此去掉了「请先上传原料标签照片」前置（原图仍照旧 push 进 `form.photos`，受 `MAX_PHOTOS` 限制）。该页此前**并不共用** `ocrCapture.js`（它走 `photo.js`）—— 派发前我说的「两个入口都走 ocrCapture.js」当时不成立，本轮才并到同一内核（`runOcr`:171 注入 `saveOriginal` 适配 URL 数组）。候选写回 `data.ocrCandidates` 而非 `form`，免得跟着提交 payload 一起落库。
+- [app/src/utils/upload.js](../app/src/utils/upload.js) —— 拆出 `chooseImageOnce()` 只返回 `{tempFilePath}`（框选必须先拿到本地路径、还不能上传），`pickAndUploadImage()` 改为在它之上组合 ⇒ **其余 3 处调用点行为不变**（`in.vue` 的批次抽样/其他附件、`photo.js`）。
+
+**XK 证据不变量（刻意保住的）**：单据绑定的凭证照片**永远是整张原图**（`LABEL_PHOTO` 附件 / `labelPhotos` URL 数组），裁后小图只喂 OCR、不进任何附件表 ⇒ 合规台账不会留下一张「被裁过、看不到全貌的原始标签照片」。代价：裁后图成为磁盘孤儿文件（无任何记录引用），本轮**未**加清理任务。
+
+**测试**：[app/test/ocrCapture.test.mjs](../app/test/ocrCapture.test.mjs) 重写 → **22 例全绿 / `node --test test/*.test.mjs` EXIT=0**（`/tmp/app-test-1177.log`）。钉住的关键不变量：框选路径断言**裁剪读的是本地 `blob:/tmp/new.jpg`** + **附件落的是原图 `http://x/new.jpg`** + **OCR 吃的是裁后 `http://x/crop-1.jpg`**（三条各守一条不变量）；取消框选 ⇒ 零上传、原批号 `OLD-7` 保持、零 toast；裁剪失败 ⇒ 回落整张且 toast 含「整张」；未配 OCR key ⇒ 不弹框选（`ocrEnabled` 闸**写在被测试的内核里**而不是留在页面）；material 入口 2 例，其中一例断言 `productName` 真传下去（`hint === '赛科0220kj'`，正对着「老代码连品名都没传」）。一处先红后绿：`clampRect` 的 `deepEqual` 因 `1-0.8` 的浮点尾巴（`0.19999999999999996`）失败 ⇒ 是**断言写法**问题不是几何错了，改容差断言。⚠️ Node 26 下 `node --test test/`（裸目录）会 `MODULE_NOT_FOUND`，要 `node --test test/*.test.mjs`。
+
+**版本 / 产物**（app-only 升，先例 v1.1.170/164/161/139）：`app/package.json` 1.1.177、`app/src/manifest.json` versionName 1.1.177 / **versionCode 1177**（上一枚 APK 是 1173，Android 覆盖安装要求递增）、`pages/profile/index.vue` `APP_VERSION`、`CLAUDE.md` 顶部 —— 四处对齐；**故意不升** `pc-web/package.json`、`application.yml` `ERP_VERSION`、`SystemVersionInitializer`（留 1.1.176，后端零改动）。
+
+**产物（本机逐枚核过）**
+- APK [app/erp-app-v1.1.177.apk](../app/erp-app-v1.1.177.apk) md5 `b98af1e68620bcb83b940b6269e13f91`（**4,517,756 B，versionCode 1177**）；副本 `~/Desktop/erp-app-20261110.apk`。`/tmp/build-apk-1177.log`：`[1.5/5] 三处版本号一致 (v1.1.177)` → `[6/6] APK 内嵌版本=1.1.177` → `[6.5/6] APK OS 级 versionName=1.1.177 / versionCode=1177`。⚠️ **打开 APK 里的 H5 与 dist 逐枚对 hash**：`assets/public/assets/RegionCropper.BflnjUUi.js`、`pages-scan-in.DeGyzzjZ.js`、`pages-xk-material.ByMJQDxo.js` 三枚与 `dist/build/h5` 同名同值，且 APK 内 `RegionCropper` chunk 里 `rc-box`×1 / `rc-handle`×1 / `rcStage`×2 齐 ⇒ 框选代码真在包里，不是只在工作区。
+- H5 `app/dist/build/h5`：`index.html` `0b2e283e4b4aa4fe909045692b7e1f7a`、`assets/RegionCropper.BflnjUUi.js` `243263f9bdc9c7229d19592ce2641e4b`、`assets/pages-scan-in.DeGyzzjZ.js` `d721898c3204ff1c4654e38cde2c48e6`、`assets/pages-xk-material.ByMJQDxo.js` `a35b2ab2d4586285f0cebde3e9551dc7`（`RegionCropper-BPgt4npc.css` 同批产出）。
+- 单测构建后**复跑**：`node --test test/*.test.mjs` **22 / pass 22 / fail 0 / EXIT=0**（`/tmp/app-test-1177-final.log`）。
+- ⚠️ 踩到一条脚本坑：`scripts/build-app.sh` 的**默认**输出目录 `/Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp` 现在 `ls` 都会挂住（同步盘未就绪）⇒ 本次显式传参输出到 `app/erp-app-v1.1.177.apk` 绕开。**传相对路径时脚本是按 `app/` 为 cwd 解析的**（`DEST="${1:-…}"` 不拼仓库根），第一次传 `app/xxx.apk` 会落到 `app/app/`。
+
+**⚠️ 本轮实测出的拓扑事实：App H5 已无公网入口，手机侧唯一通道是 APK。**（下次再改 App 代码前先看这条，别把"发了 H5"当成"手机更新了"）
+- `app/capacitor.config.json`：`webDir: "dist/build/h5"` 且**没有 `server.url`** ⇒ APK 加载**内嵌** H5，dist 发到任何站点都不会更新用户手机上那个 App。
+- 阿里云 `/www/server/panel/vhost/nginx/erp-aliyun.conf` 只有 `location = /api` / `/api/` / `/` 三条，全部 `proxy_pass http://$erp_primary:8088`（= `.150` 的 PC），**没有一条指向 app-h5**；那台 `erp-app-h5` 容器 healthy 但只听 `127.0.0.1:18090` ⇒ **不在请求链路上**。
+- `.150` 无 H5 容器（设计如此）；`.32` 的 `erp-app-h5` 听 `0.0.0.0:18090`（局域网可直连）。两站宿主 `index.html` 目前同为 v1.1.175 的 `df4e6585194b440b075ecb0bc29d4944`（Nov 9 23:13）。
+⇒ **发 H5 只服务"浏览器直接开 :18090"这一小众用法；框选要落到车间手机必须装 1177 APK** —— 与 v1.1.170 那次「H5 更新只覆盖浏览器入口，用户旧 APK 手机同日仍复现」是同一个坑。
+
+**部署状态：未发任何站点、未动手机、未 commit。** 待授权三件：① 两处 H5 整目录替换（`.32:/vol2/erp-system/app-h5/dist/build/h5` + 阿里云 `/opt/erp-system/app-h5`，回退件照旧 `*.retired` / `backup/*.tgz`）；② APK 分发到 `/vol1/1000/mac使用/erp/erp-app-v1.1.177.apk`（用户指定的分发目录）；③ **真机验收**：框选手势（拖动/单把手缩放）+ 一枚真实原料标签照片 + 多原料同框时"框谁识别谁"，这些单测证不了。
+
+### v1.1.176 (2026-11-10 — 标签「可视化设计又没了」根因修复：v1.1.168 那批**从未提交**的画布编辑器从 worktree 合回主线重新上线；同批补记 v1.1.175 未入账的备份下载/按时间删除 + 采购订单软删过滤；**已上 .150 主站 + 公网实测**)
+
+> **用户原话**: 「标签模版设计原来已经做好可视化了，现在又没有了。继续」
+
+**根因不是前端坏了，是产物被后一次发布整目录冲掉。** v1.1.168「标签图形化编辑 P1」全程在隔离 worktree `/Users/tongban/Documents/根据前端开发erp 2/erp-system-label-editor-p1`（分支 `v1.1.168-label-editor-p1`，与主线同指 `9e5085f`）里做，**按用户要求零 commit**（`git log main..该分支` 为空，2088 行改动全在 working tree）。它当天确实上过三站（见该 worktree 的 CHANGELOG 段：jar `fdc50411…` / dist `d5e6ffc4…` / `ERP_VERSION=1.1.168`）。之后 v1.1.169~1.1.175 全部从**主检出**构建，而主检出从来没有拿到那批文件 ⇒ PC 整目录替换 `pc-web/dist` + jar 整体换掉 ⇒ [LabelCanvas.vue](../pc-web/src/components/LabelCanvas.vue) / [LabelInspector.vue](../pc-web/src/components/LabelInspector.vue) / 画布版 [LabelTemplate.vue](../pc-web/src/views/base/LabelTemplate.vue) 与后端 `POST /base/label/resolve`、`GET …/history`、`POST …/rollback` **静默消失**，「标签模板」页退回纯坐标表格。⚠️ **教训：分产物/分目录发布时，未提交的 worktree 改动等于不存在，下一次全量 dist 替换必然把它抹掉。**
+
+**合回主线（本轮唯一代码动作 = 搬运，未重写业务逻辑）**
+- 后端：`git diff` 搬运 `modules/base/**` 22 个已改文件（`LabelGeometry` 有效倍率、`LabelLayout` 统一拆行/盒子出口、`LabelContextService` sample 上下文、`LabelPreviewService`、`TsplLabelRenderer`、三个 loader、`BaseLabelTemplateController` / `BaseLabelTemplateService`），新文件 `LabelLayout` / `LabelResolve{Request,Result,Service}` / `LabelHistorySummary` / `LabelRollbackRequest` / `BaseLabelTemplateHist` + `BaseLabelTemplateHistMapper` + [sql/158](../sql/158_v11168_label_template_hist.sql) + 11 个测试类 + `backend/src/test/resources/label-p1/` 六枚 golden。主线侧**零冲突**（`purchase/qms/sales/system/xk` 那批改动与 `modules/base/**` 不相交）。
+- 前端：`LabelCanvas.vue`(727) + `LabelInspector.vue`(230) + 画布版 `LabelTemplate.vue`(1133) + [api/base.js](../pc-web/src/api/base.js) 的 `resolve` / `history` / `historyOne` / `rollback` 四个方法。
+- **接缝（唯一手工合并处）**：主线 v1.1.174 给「打印管理」嵌页加过 `initialBizType` prop + `watch`，画布版没有 ⇒ 在画布版上重贴：`defineProps({ initialBizType })`、`const q = props.initialBizType || route.query?.bizType`、`watch(() => props.initialBizType, …)`（切类型后除重筛还补 `queueResolve()`，否则画布留旧草稿）。
+- **刻意没搬**：worktree 里的 `PrintTemplateHub.vue` + `/system/print-template-center` 路由与菜单项 —— 它被主线后来的 `/print` 打印管理三 tab 页取代了，搬回来就是两个入口。⚠️ 但 `sql/160`（hub 菜单）**当年已灌主库**，`sys_menu` id=10044「打印模板中心」`status=1` 仍挂在「经营支持」下，指向一个**不存在的路由** ⇒ 待授权清行（本轮只读取证，未动数据库）。
+
+**同批补记 v1.1.175 两项未入账改动**
+- 系统管理→数据备份：`GET /system/backup/download/{id}` 直接写 `HttpServletResponse` 流（**不能用 `ResponseEntity<Resource>`** —— [WebMvcConfig](../backend/src/main/java/com/industrial/erp/config/WebMvcConfig.java) `configureMessageConverters` 里 `converters.clear()` 只留 String+Jackson，二进制会被当 JSON 序列化），加 `POST /system/backup/delete-by-time` 按 `createTime` 起止区间批量删；两者都 `permService.requireSuperAdmin()`。前端 `fetch(API_BASE+url,{credentials:'include'})` → blob → `a.download`（axios 拦截器只认 `{code:200}`）。
+- **采购订单里那 3 张草稿删不掉（报「订单不存在或已删除」）**：`PurOrderMapper.selectPageWithProduct` 是自定义 `@Select` + `${ew.customSqlSegment}`，**MyBatis-Plus 的 `@TableLogic` 只作用于内置方法** ⇒ 已软删行照常出现在列表里，点删除时 `selectById`（带过滤）查不到 ⇒ 误报。修在查询侧：`page()` 手写 `w.eq("o.deleted", 0)`；`PurReturnService` / `SalReturnService` 同坑同修，且它们外层 `LEFT JOIN base_warehouse w` 两表都有 `deleted` ⇒ **必须带别名 `r.deleted`**，裸写会 `Column 'deleted' is ambiguous`。回归测试用 `ArgumentCaptor` 断言 `getCustomSqlSegment()` 含 `o.deleted =`（红→绿：改坏前 EXIT=1、改后 EXIT=0）。数据侧零损失（回收站仍列 3 张单）。
+
+**测试与产物**
+- `mvn -o -f backend/pom.xml package`（JDK17，日志 `/tmp/v1176-build.log`）：**Tests run: 651, Failures: 0, Errors: 0** BUILD SUCCESS；合并后先单跑标签包 309/0/0（`/tmp/label-merge-test.log`）。
+- jar `c462fc6a342ac1cbddf4ff7d4bb4d9d9`（103,152,949 B）= Mac 产物 = `.150` 上传件 = **镜像本体** `/opt/app/app.jar`（`docker run --rm --entrypoint md5sum erp-system-backend:1.1.176 /opt/app/app.jar` 核的是镜像，不是运行中容器）。
+- PC dist `index.html` `81c04e531da5d6084cce7259f97da452`，本次块 `assets/LabelTemplate-Ba2a3JaV.js`（内含 `lc-paper`/`lc-handle`/`lc-guide` 类名，证明画布进了包）。
+
+**部署（新拓扑：单站即全网）**
+- 只上 `.150`：jar 换 `backend/industrial-erp-1.1.176.jar`（**glob 计数必须=1**，旧的改名 `industrial-erp-1.1.175.jar.bak_v1176_20261110`，`.dockerignore` 的 `*.jar.bak*` 让它不进 build context）→ compose `image` 与 `ERP_VERSION` 同步改 1.1.176 → `docker compose build backend` → 核镜像本体 → `up -d backend`。PC：`cp -a dist dist.bak_v1176_20261110` → `find dist -mindepth 1 -maxdepth 1 -exec rm -rf {} +` → 就地解包（**保持目录 inode**，否则 bind mount 指旧目录）→ `docker restart erp-pc-web`。
+- **零 SQL**：`base_label_template_hist` 早在 11-07 由 sql/158 建好，11-10 整库重灌后仍在（主库实测 `hist_rows=2`），阿里云与 `.32` 靠复制收敛。
+- 阿里云那站**不需要单独部署**：`erp-aliyun.conf` 三条 `proxy_pass http://$erp_primary:8088`（`$erp_primary = n150.93gushi.com`）把 `/`、`/api` 全桥到 `.150`，本地 `erp-pc-web`/`erp-app-h5` 容器已不在请求链路上（`.env ERP_VERSION=1.1.175` 因此是惰性值）。`.32` 是 `super_read_only=ON` 的链上备份，**本轮未更新其 PC 静态**（它的 18080 仍是旧版，只读备份站上模板编辑器的写操作本来就会失败）。
+- ⚠️ 公网入口是 **`http://www.93gushi.com`（80）**，443 没有该应用的 vhost ⇒ `https://` 会打到默认站返回 138 字节 nginx 404 页。用 curl 验产物时别把那个 404 当成"部署挂了"（本轮就先踩了一次）。
+- `ERP_VERSION=1.1.176` 已进容器 env，主库 `SYSTEM_VERSION_INFO` 回写 `{"version":"1.1.176","startTime":"2026-11-10 15:17:02",…}`。
+
+**浏览器实测（生产站，gpssong/SUPER_ADMIN，破缓存 `?fresh=v1176c`）**
+- `#/print?tab=label` → 子 tab「标签模板」：`.lc-paper`=1、`.lc-content`=1、`[data-test=editor-lock]`/`[data-test=version-history]`/`[data-test=save-template]` 齐，工具条有 撤销/重做/+文本/+多行/+条码/+二维码/+分割线/+矩形框，模式切换「示例数据 / 真实单据」在。
+- 选「箱标 80×60 (CARTON_DEFAULT)」⇒ 画布画出 **16 个 `lc-group`**（客户/示例收货地址/电话/条码/背心袋/30×45cm/数量…），属性面板 `.inspector-wrap` 显示「选择一个元素以编辑属性」。
+- 网络面：`POST /api/base/label/resolve` 200 ×3、`GET /api/base/label/template/1167000000000000003/history` 200（抽屉如实显示「暂无历史版本，保存修改后会保留上一版。」）、`GET …/template/list`、`GET …/fields` 全 200；上线前同一 `resolve` 路径是 **404**，这条 404→401→200 的变化就是"端点回来了"的硬证据。
+- ⚠️ **未完成**：① 画布**拖拽/方向键**未实测（`evaluate_script` 的 `el.click()` 不产生 pointer 事件，`.lc-handle` 恒 0，内嵌浏览器 viewport 0×0 也做不了真手势）—— 只证明渲染与选中面板存在；② 未用**非超管账号**跑 `base:label:template` 权限正反例（`orRole="admin"` 会掩盖授权缺口，v1.1.168 那条「真实单据模式还需 `base:label:list`」的待拍板项也仍未结）；③ **实纸 IP-803 出纸一致性**仍未验（屏显≠点阵）。
+
+**遗留 / 待授权**
+- worktree `erp-system-label-editor-p1` 仍留着同一批未提交改动（现在是主线的**副本**）。要么授权按显式路径 commit 主线并清 worktree，要么下次改动仍可能被整目录替换再冲一遍 —— **建议尽快提交**。
+- `sys_menu` id=10044「打印模板中心」死菜单待清（SQL 只写 `.150` 主库，注意 `sys_role_menu` 引用）。
+- v1.1.168 / 169 / 171 / 175 此前**都没进主 CHANGELOG**，本节把 168 与 175 的实质内容补回；171 与 169 的 hub 半成品段不再补记（功能未上线）。
+- 数据备份页 7 行 `create_time` 为 NULL 的记录不受「按时间删除」覆盖；2 个孤儿 `.sql.log`。
+
+### v1.1.174 (2026-11-09 — 「单据与打印」页面打印/预览右侧内容被裁的布局修复；**纯前端 CSS，已上三站 PC**)
+
+> **用户原话**: 「打印预览时右侧部分内容缺失」「还是不对」「最右侧部分显示缺失」（附截图：A4 横向纸张预览右缘被切）。前置诉求「单据打印时左侧菜单栏不应该出现」同批解决。
+
+**根因：A4 横向纸张固定宽度超出可打印宽。** [Print.vue](../pc-web/src/views/xk/Print.vue) 里 `.paper` 默认 `width:680px`，`.size-A4L .paper` 强制 `width:900px`；A4 横向 `@page` 可打印区约 190mm≈781px@96dpi（再扣 10mm 边距），900px 纸张必然右溢出被浏览器打印引擎裁掉。屏幕端 `.paper-wrap` 还有 `max-height:calc(100vh - 220px)` + `overflow:auto`，纵向能滚、横向不滚 ⇒ 右缘不可见。
+
+**修（纯 PC 前端，零后端/SQL，jar 未动）**：
+- **① 左侧菜单栏不打印**：全局壳 [MainLayout.vue](../pc-web/src/layouts/MainLayout.vue) 非 scoped `<style>` 加 `@media print { .sidebar,.topbar,.mobile-scrim,.side-footer,.brand{display:none!important} .main-shell{margin:0;width:100%} }`（scoped `:global()` 对跨组件 MainLayout DOM 不可靠，必须放 MainLayout 自身非 scoped style）。
+- **② 打印/预览纸张自适应宽度**：[Print.vue](../pc-web/src/views/xk/Print.vue) scoped `@media print` 块把 `.paper` 改为 `width:100%!important; max-width:100%!important; min-height:0; padding:0`，`.paper-wrap` 去 `max-height`/`overflow`，表格 `table-layout:fixed; width:100%`，单元格 `word-break:break-word`，照片 `max-height:120px; object-fit:contain` 且允许跨页；`.paper-info` 强制 4 列 `!important`（否则屏幕端 `.size-A4L .paper-info` 特例仍赢，打印时 4 列会被压成 1 列溢出）。`.paper` 现在跟随 `@page` 动态注入的 A4 横向/纵向内容区，不再写死 900/680。
+
+**同日第二批修补（真根因之二：全局壳 `.content` 内边距没在打印时清零）**：只改 `.paper` 不够 —— 用户「还是不对」后，在浏览器里 `emulateMedia('print')` + 视口设成 A4 横向可打印区（1048×718）量几何：纸张右缘 **1070px**、文档 `scrollWidth` **1098px**，都超出 1048 的可打印宽。逐级量祖先链发现 [MainLayout.vue](../pc-web/src/layouts/MainLayout.vue) 的 `MAIN.content` 仍带屏幕态 `padding: 24px 28px 60px` + `max-width:1560px`（content-box ⇒ 内容宽再 +56px），把纸张顶出 `@page` 内容区。**修**：MainLayout 自己的打印块内补 `.content { padding:0!important; max-width:none!important; width:100%!important }`（`.content` 属于壳层 DOM，必须写在 MainLayout 的 scoped 打印块里，写 Print.vue 无效），Print.vue 打印块同时把 `.xk-print/.print-workspace` 归零为 `display:block;width:100%;padding:0`。复测：`paperLeft=0 / paperRight=1042 / docScrollW=1042`（= 视口宽）、`.paper *` 越界元素 0 个、42 个 `th/td` 无一被横向裁切（`scrollWidth>clientWidth` 为 0），12 列表格末列表头「合格」贴齐右缘。
+
+**部署（canary 先行，纯 PC dist，三站整目录替换 + `docker restart`）**：
+- **最终产物** `pc-web/dist` `index.html` md5 **`b7f2b3cf277d31aff612b671ea168e68`**（`assets/Print-CPHVeoEx.css` 含打印规则；tar `6e2c74dc…`，4,791,056 B）。第一批的 `6afd2b82…` 已被本批取代，不得再用。
+- `.32` canary：bind-mount `/vol2/erp-system/pc-web/dist-new` 整目录替换 + `docker restart erp-pc-web-failover`；容器口 `18080` curl 回 `index.html` md5 = `b7f2b3cf…`、HTTP 200；随后在 canary 用浏览器把 `#/xk/print` 的「吹膜首检记录 (FAI)」+ A4 横向跑了一遍打印态几何验收（`/tmp` 退路 `dist-bak-v1174b`）。
+- `.150` 主站：dist 目录 root-owned（uid 501），**整段替换须 sudo**（脚本上传到 upload/ 后 `printf pw | sudo -S -p '' bash …`，内容清空 + `cp -a` 回同一目录以保住 bind-mount inode，再把属主改回 `501:20`），`sudo docker restart erp-pc-web`；`8088` 回 `index.html` md5 = `b7f2b3cf…`。退路 `/volume3/docker/erp-system/upload/pc-web-dist-bak-v1174b-202611091152`。
+- 阿里云 `/opt/erp-system/pc-web`（flat，nginx bind-mount 直指该目录，`index.html` 在顶层）：解包到 `/tmp` → `tar czf` 留退路到 `/opt/erp-system/backup/pc-web-before-v1174b.tgz` → 清空目录内容 + `cp -a` 回（属主 `501:games`）→ `docker restart erp-pc-web`；`127.0.0.1:18080` 回 `index.html` md5 = `b7f2b3cf…`，临时文件已删。
+- 三站 pc-web 容器均 `Up`（重启后 health: starting → healthy）；三站 `index.html` md5 完全一致。
+
+**⚠️ 验收口径**：需在**真实浏览器**打开 `#/xk/print`，选一张 A4 横向单据，点打印/导出走「另存为 PDF」，确认右缘（最后一列/照片）不再被裁。本轮已在 canary 用 print 媒体 + A4 横向可打印宽视口做了几何与单元格裁切度量（全部通过），**实纸/实 PDF 验收待用户确认**。版本号未 bump（纯前端布局修补，沿用 1.1.173 的 jar）。
+
+### v1.1.173 (2026-11-09 — XK 单据打印报告两处改善：①IQC 报告列出关联采购订单的全部原料行；②报告抬头品牌/工厂/图标改读项目配置；**后端 + PC + App H5，已上三站 + 生产站浏览器实测**)
+
+> **用户原话**: 「1.这个单据有2个原料，报告只有一个，改善它。2.报告的图标和华塑智造改为读取项目的图标和工厂」（附截图：App 单据打印，docType=原料进货检验 IQC，单 `QI202611030002`，关联订单 `PO202611030001` 有赛科0220kj + 扬巴ldpe2426h 两种原料，报告却只显示一种）。同一轮拍板「超级管理员可以绕过xk不能更改的设置」—— 品牌/工厂/Logo 保持超管可改，**不**加 XK 只读锁。
+
+**问题①根因：订单版 IQC 单头只存第一个原料名。** `PurReceiptService.createFromOrder` 建单快照取 `first.getProductName()`（订单第一行品名）写进 `mes_quality_inspection.product_name`，报告据此只渲染一行；关联订单其实有 N 行原料。**修（后端）**：[QmsInspectionService.detailForPrint()](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionService.java) 当 `sourceBillType=PUR_ORDER` 时回传 `orderMaterials = orderDetailMapper.selectByOrderId(head.getSourceBillId())`（关联订单全部明细行），与 head/items/defects/attachments 一并返回。**前端两端**：App [print.vue](../app/src/pages/xk/print.vue) 与 PC [Print.vue](../pc-web/src/views/xk/Print.vue) 的 `buildInspection` 渲染「关联订单原料明细（共 N 项）」表（品名/规格/数量/批号）。⚠️ **PC 还有一处独立缺口**：PC `loadDetail` 原来走普通 QMS 详情接口（**不**回 `orderMaterials`），本次改调统一打印详情出口 [xk.js `printDocDetail`](../pc-web/src/api/xk.js)（`GET /xk/print/docs/{docType}/{id}`，与 App 同端点），才真正拿到多原料；只改后端不改 PC 这条调用，PC 报告仍只显示一行。
+
+**问题②修：报告抬头读项目配置，不再写死「华塑智造/华塑包装」。** 新增 `SYS_LOGO` 配置键（[SysConfigController](../backend/src/main/java/com/industrial/erp/modules/system/controller/SysConfigController.java) 客户端可读白名单，与 `SYS_NAME` 一类只读品牌配置同口径）；[XkController.printPreview()](../backend/src/main/java/com/industrial/erp/modules/xk/controller/XkController.java) 回传 `brand{name,enName,factory,logo}` 读 `SYS_NAME/SYS_EN_NAME/SYS_FACTORY/SYS_LOGO`。PC [System.vue](../pc-web/src/views/system/System.vue)「品牌与工厂」tab 上传 Logo（canvas 缩到 ≤160px PNG 再存，避 `config_value` TEXT/64KB 超限）经 [useSystemName.js](../pc-web/src/composables/useSystemName.js) `saveSystemLogo` 持久化；App/PC 打印抬头读 brand，App 无 Logo 时回落项目图标 `/static/icons/icon-192.png`。**零 SQL**（`updateValue` 缺键自动插，`SYS_LOGO` 无需种子；本次实测站 `SYS_LOGO` 未设 ⇒ 抬头回落项目图标，品牌文字读 `SYS_NAME=鹏程工业ERP`/`SYS_FACTORY=鹏程包装`）。
+
+**权限收口（避免 FINANCE 回归 403）**：`GET /xk/print/docs/{docType}/{id}` 改 `@SaCheckPermission(value={"report:print","quality:inspection:list"}, mode=SaMode.OR, orRole="admin")` —— PC 财务岗常只被授「质量检验列表」而无「报表打印」，原单 perm 会让其打印详情 403；OR 上 `quality:inspection:list` 放行（与 v1.1.145 报表中心同口径）。
+
+**TDD / 全量测试**：QMS `orderMaterials` 2 例 + `XkPrintPreviewBrandTest` 2 例红绿验证（`/tmp/qms-red.log`→`qms-green.log`、`xk-brand-red.log`→`xk-brand-green.log`）；**最终 jar 构建即跑全量 `mvn test` = 453 / 0 失败 / 0 错误，BUILD SUCCESS**（`/tmp/build-jar-1173b.log`，与产出部署 jar 同一次构建，非事后补跑）。版本号七处对齐 1.1.173。
+
+**版本 / 产物（三站逐枚核一致）**：
+- **jar** `backend/target/industrial-erp-1.0.4.jar` md5 **`98776d1b126230b7926d0f8bac8995b2`**（103,119,466 B）。三站镜像本体 `/opt/app/app.jar` 均此 md5：`.32` `erp-system-backend:1.1.173` / `.150` `erp-system-backend:1.1.172`（⚠️ compose 第 83 行 image tag 沿用旧号是本站约定，**核镜像本体 md5 不核 tag**）/ 阿里云 `erp-backend:1.1.173`。`ERP_VERSION` 容器 env 三站 1.1.173；主库 `SYSTEM_VERSION_INFO` 回写 1.1.173。
+- **PC dist** `index.html` md5 **`fa1655e64c15767f6d9b5c5f15597f15`**，改动块 **`assets/Print-BsdSL8HW.js`**；tar `7b977b82e8b48d55e25e2bd578369c1a`（4,790,499 B）。三站从服务它的容器口 curl 回同一份 index md5 + Print 块 200（`.32:18080` / `.150:8088` / 阿里云 `18080`）。
+- **App H5** `index.html` md5 **`e807384ab53e372574a97f4e42c15552`**，打印页块 **`assets/pages-xk-print.BjxDgtsc.js`**；tar `b8217915563924ccacd287ac51db9075`（414,911 B）。上 `.32`+阿里云（`.150` 无 H5 容器），从 `:18090` curl 回 index + 页块 200。
+- **APK** 本批 App 改动随 H5 上线；车间手机需装含本次 H5 的 APK 才生效（先例 v1.1.170：APK 内嵌 H5 是旧包，H5 更新只覆盖浏览器入口）。
+
+**部署（飞牛 canary 先行 → `.150` 主 → 阿里云）**：jar 三站重打镜像（`.150`/阿里云 `compose build/up`，`.32` cp+commit 同名 tag）；PC/H5 整目录替换 + `docker restart`（bind-mount 换 inode 必须 restart）。回退件同目录留齐（`.150` `dist.bak_v1172_20261109`/`docker-compose.yml.bak_v1172_20261109`/旧 jar `.bak_v1172_20261109`；阿里云 `pc-web.retired.v1172`/`app-h5.retired.v1172`/`backup/*-before-v1173.tgz`/`.env.bak`）。
+
+**生产站浏览器实测（`.150`，CDP 注入超管会话，截图 `/tmp/pc-print-1173-home.png`）**：`#/xk/print` 选 `QI202611030002` → `/api/auth/me` 200 gpssong；「关联订单原料明细（共 **2** 项）」表两行 = 赛科0220kj 1,500 / 扬巴ldpe2426h 1,500（`saiCount=3`/`yangCount=1` 含表头与单据头品名）；7 个检验项；抬头品牌 **鹏程工业ERP / 鹏程包装**（读配置，非写死华塑）；Logo 回落项目图标（`SYS_LOGO` 未设）；页脚「质量检验 · 鹏程工业ERP」。`.32` canary 同链路先行验过（`/tmp/pc-print-1173.png`）。三站 `/api/auth/captcha` 200。
+
+**⚠️ 遗留（已修复）：`.32` 备库复制 1032 停摆 → 2026-11-09 方案 A 外科补行跳过已执行，三站六表 checksum 全一致、复制延迟 0。** 卡住的事务 = `mysql-bin.000006` pos 667542–670835，对 `qms_iqc_item` 先 DELETE 旧明细再 INSERT 7 行新明细（`QI202611030002` / head `2117442189635141633`）。根因：`.32` 本地 canary 测试残留删掉了旧明细行，复制过来的 DELETE 找不到 before-image ⇒ 1032 停 SQL 线程。**修复步骤（全部在 `.32` 备库操作，`.150` 主库只读取数）**：① `.150` mysqldump 导出 head 行（REPLACE `qms_head_1173_from150.sql`，md5 `ca1cb8b4…`，2681 B）+ items 7 行（REPLACE `qms_items_1173_from150.sql`，md5 `0c7ef188…`，3438 B）→ 传到 `.32` 并 md5 核对一致；② `.32` `STOP SLAVE SQL_THREAD` → `docker cp` 两文件进 `erp-mysql-failover` 容器 → `SOURCE` 补 head 1 行 + items 7 行 → 验证 `head_now=1` / `items_now=7`；③ `SET GLOBAL sql_slave_skip_counter=1; START SLAVE;` → 队列排空（Read=Exec=715964，`Seconds_Behind_Master=0`，IO/SQL 双 Yes）；④ 发现 `.32` 比 `.150` 多 20 行 canary 本地测试残留（`qms_iqc_item` 孤儿 7 行 iqc_id `2117590030697967617`，对应单头两库都不存在；`xk_audit_log` 13 行 = 11-01 罗飞校准测试 7 行 + 11-03 侯丽君开工测试 6 行），先 mysqldump 备份（`/vol2/erp-system/upload/backup_xk_audit_13rows_20261109.sql` + `backup_orphan_items_7rows_20261109.sql`）再精确 DELETE → 重跑 CHECKSUM TABLE 六表全一致；⑤ 阿里云副本六表 checksum 与 `.150` 一致、复制健康（IO/SQL 双 Yes，延迟 0），无同类残留。**⚠️ 关键安全：head id `2117442189635141633` 就是用户真实单据 `QI202611030002`，绝不能删**；旧待办「清理 .150 三行测试 IQC（含 2117442189635141633）」已撤销。
+
+### v1.1.172 (2026-11-08 — App 采购入库「入库审核」误报「未关联 IQC」真根因修复：门禁查 IQC 支持 PUR_ORDER 键回落；**纯后端 jar，已上三站 + 主站实测门禁放行**)
+
+> **用户原话**: 「APP端采购入库已经生成验放单并入库，但入科审核提示未关联iqc」（附两张截图：App 采购入库页已生成验放单，但点「入库审核」toast「未关联 IQC / 不能入库」）。
+
+**根因不是数据、是门禁只查了一个键。** App 走「订单版」入库流程时，IQC 签核（`signPassedIqcForOrder`）把检验单留在 `source_bill_type = PUR_ORDER`、`source_bill_id = 采购订单 id` 上；而 `PurReceiptService.check()` 的食品级 XK 门禁原来只按 `PUR_RECEIPT` 键（`findIqcByReceiptId`）找 IQC。采购入库单 `createFromOrder` 建单时**不**把 IQC 关联翻到 PUR_RECEIPT 键（只在建单快照处 `findIqcByOrderId` 取报告号），于是「IQC 挂在订单键、门禁却去查入库单键」，食品级单一律误判「未关联 IQC 来料检验」卡死审核。
+
+**修（纯后端，零 SQL、零前端）**：新增 `QmsInspectionService.findIqcForReceiptGate(receipt)` —— 先查 `PUR_RECEIPT` 键，查不到再按 `receipt.getOrderId()` 回落查 `PUR_ORDER` 键（[QmsInspectionService.java](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionService.java)）。`PurReceiptService.check()` 的 `if (anyFood)` 段改调它：取到 IQC 后要求 `status=CHECKED && result∈{PASS,PASS_DISPOSITION}`，通过才放行并把判定/报告号/抽样数/检验人写回入库单快照；取不到或不合规则维持原拒收文案（[PurReceiptService.java:333-356](../backend/src/main/java/com/industrial/erp/modules/purchase/service/PurReceiptService.java#L333)）。TDD 两个单测（`check_foodGrade_iqcOnPurOrderKey_fallsBackAndPasses` / `check_foodGrade_noIqcAnywhere_stillBlocked`），全量 `mvn test` 449/0/0 绿。版本号七处对齐 1.1.172（`application.yml`、`SystemVersionInitializer` 默认值等）。
+
+**⚠️ 部署陷阱（本次最值钱的教训，务必记牢）**：修好后本地 jar `md5=6da5843c`（已逐字节验含 `findIqcForReceiptGate`），`.32` canary（`erp-system-backend:1.1.172`）与阿里云（`erp-backend:1.1.172`）都真跑上了；**但 `.150` 主站容器 `erp-backend` 还挂着无 tag 的旧镜像（内嵌旧 jar `a09501bb`、无修复方法）**。症状是「`SYSTEM_VERSION_INFO` 回写 1.1.172、看着 healthy、接口 200」，**却依然报「未关联 IQC」** —— 因为 `home.93gushi.com`/`n150` 域名出口落在 `.150`（`.150` 出口公网 IP `115.209.48.24`），App 打的就是这台未修复的后端。**`SYSTEM_VERSION_INFO` 是 `ERP_VERSION` env 回写，不能当「jar 换了」的证据**；判 jar 真换了要 `docker exec … md5sum /opt/app/app.jar` + 抽类 `unzip -p … | grep findIqcForReceiptGate`。修法（已做）：`.150` 宿主 `backend/` active jar 已是 `6da5843c`（`ls industrial-erp-*.jar | wc -l = 1`）→ `docker build --no-cache -t erp-system-backend:1.1.172`（Dockerfile `COPY industrial-erp-*.jar` + `find … -exec mv {} ./app.jar`，`.dockerignore` 已含 `*.bak_*` 故 context 干净）→ compose backend 服务加 `image: erp-system-backend:1.1.172`（备份 `docker-compose.yml.bak_v1172_20261108`）→ `docker compose up -d --force-recreate backend` → 复核容器 jar=`6da5843c`、`healthy`、in-container captcha 200。
+**教训浓缩**：三站一致性必须**逐站核「运行中容器内 jar md5」**，不能只核「宿主 staging jar / 某站镜像」；`SYSTEM_VERSION_INFO` 与 `docker ps healthy` 都不证明 jar 版本。
+
+**主站现场实测（gpssong1 非超管，卡在 PUR_ORDER 键的实单）**：主库那张 DRAFT 单 `RKP202611080003`（order `2117437976590991361`，两条食品级明细 `is_food_grade=1`）的 IQC `QI202611030002` 确实挂在 PUR_ORDER 键、CHECKED+PASS —— 正是回落目标。`.150` 换好 jar 后用 gpssong1 真实 token 直连 `POST /api/purchase/receipt/2119334942312808450/check`：**「未关联 IQC」报错消失**（门禁已放行，快照也写回 `inspection_result=PASS / inspector_name=gpssong1`），卡点落在下一段 `inStock` 的「入库数量必须大于 0」保护。根因：该单来源 `PO202611030001` 两行 `qty=1500` 已**全额入库**（`in_qty=1500`），`createFromOrder` 按「订单 qty − 已入」算剩余 = 0，两张 0 量明细 ⇒ 库存入账必拒。这是**订单已入满又建空单的数据口径问题，不在本次门禁修复范围**。已核实我跑 check 无副作用：`inv_ledger`/`fin_arap` 该单 0 行（事务回滚干净）。
+
+**0 量 DRAFT 单清理**：`RKP202611080003` 无下游引用（`inv_ledger=0`、`fin_arap=0`、PUR_RECEIPT 键 IQC=0），已软删主单 + 2 条明细（`deleted=1`），留痕于本条。关联订单 `PO202611030001` 的 `in_qty` 保持 1500/1500 未动。
+
+**三站产物一致 = jar `6da5843c`**（`.32` `erp-system-backend:1.1.172` / 阿里云 `erp-backend:1.1.172` / `.150` `erp-system-backend:1.1.172`，均逐站 `docker exec md5sum` 核过）。本次纯后端，App/PC/H5 不重出。
+
+### v1.1.170 (2026-11-08 — App 原料入库「上传原料标签/批次抽样照片」报「上传失败」真根因修复：原生容器 multipart 显式带 Content-Type+boundary；**app-only 发布，H5 两站 + APK 真机复测已闭环**)
+
+> **用户原话**: 「app端原料入库，上传原料标签、批次抽样照片提示上传失败」（附截图：`pages/scan/in.vue` 原料入库页，照片 0/6 + 深色 toast「上传失败」，综合判定 合格，检验日期 2026-11-08，判定人员 **gpssong1 非超管**）。
+
+**根因不是权限/URL/大小限制，是原生容器把 XHR 的 multipart 请求发坏了。** 照片走 `pickAndUploadImage → uploadFile(filePath) → uni.uploadFile`，uni-h5 底层是 **XHR**；APK 里 `CapacitorHttp.enabled=true` 接管 XHR，FormData 不显式带 `Content-Type` 时，原生发出的请求到后端被判非 multipart → `MultipartException` → `{"code":500,"msg":"系统繁忙, 请稍后再试: Current request is not a multipart request"}` → 页面 catch toast「上传失败」。**文档上传一直正常**是因为它走 `uploadFileObject(file)` 的 **fetch**（CapacitorHttp 对 fetch 会自动补 Content-Type），与「只有照片失败」的现象吻合。真机取证（Mi 10 Ultra / Android 13 / 生产 APK，同一 XHR 探针）：不带 CT → 500；带 `multipart/form-data; boundary=<token>` → 200；fetch 带修复头 → 200 无回归。
+
+**修（纯 App 前端，零后端/零 SQL/零 PC）**：新增 [app/src/utils/uploadHeaders.js](../app/src/utils/uploadHeaders.js) `buildUploadHeaders(isNative, extra)` —— **原生容器**显式带 `Content-Type: multipart/form-data; boundary=<token>`，token 用 base36（`0-9a-z-`），因为原生 `writeFormDataRequestBody` 用 `contentType.split(";")[1].split("=")[1]` 取 boundary，token 内绝不能有 `;` `=` 空格；**H5 浏览器不设**（浏览器按实际序列化自动生成 boundary，手动设会与实际不符）。[app/src/utils/upload.js](../app/src/utils/upload.js) 两条路径（`uploadFile` XHR / `uploadFileObject` fetch）统一改用它，`isNativeApp()` 仍走 `utils/runtime.js` 单一权威源。jar 与 PC dist 不动，`ERP_VERSION` env 不动。
+
+**回归测试**：[app/test/uploadHeaders.test.mjs](../app/test/uploadHeaders.test.mjs) 4 例全绿（原生带合法 boundary / H5 不设 / extra 合并 / 两次动态不同），红绿验证过（改坏原生分支恰好 2 条原生测试失败）。
+
+**版本 / 产物**（app-only 升，先例 v1.1.139/161/164）：`app/package.json`、`app/src/manifest.json`（versionName 1.1.170 / versionCode 1170）、`pages/profile/index.vue` `APP_VERSION`、`CLAUDE.md` 顶部四处对齐；**故意不升** `pc-web/package.json`、`application.yml` `ERP_VERSION`、`SystemVersionInitializer`（留 1.1.167）。
+- **APK** `erp-app-20261108-1170.apk` md5 `2cd2010b070fc93c1faae696bac34f9e`（4,504,570 B，versionCode 1170，走 `scripts/build-app.sh`）；副本同步在 `~/Desktop/erp-app-20261108.apk`。
+- **H5** `app/dist/build/h5`：`index.html` `b29a9285826168b5d8e3da41a8518d8c` / `assets/upload.Bc7H2E15.js` `e90290ea982e1f3c91518b70d5c7fa2b`（含 `CapacitorUpload` 标记）/ `assets/pages-scan-in.BatYiteG.js` `8170cf1227e262738f414d03b496777b`。
+
+**部署（H5 两站，.150 无 H5 容器不动）**：`.32` canary 先行 —— bind-mount `/vol2/erp-system/app-h5/dist/build/h5` 整目录替换 + `docker restart erp-app-h5`，回退件 `/vol2/erp-system/upload/h5.bak_v1167_20261108.tgz`；验证通过后上阿里云 —— `/opt/erp-system/app-h5` 整目录替换（旧目录 → `app-h5.retired.v1170`，备份 `/opt/erp-system/backup/app-h5-before-v1170.tgz`）+ `docker restart erp-app-h5`。两站均从**服务它的容器口** `curl http://…:18090/index.html` 与改动 chunk 回同一份 md5（上面三枚），阿里云 `docker ps` 确认 `erp-app-h5 Up (healthy)`。APK 用 `install -r`（同 debug 证书，不清数据）装到真机。
+
+**真机复测（非超管 gpssong1，闭环通过）**：Mi 10 Ultra 装 1170 APK → 选 PO202611030001（复用既有 IQC 草稿 QI202611030002，`createFromOrder` 幂等不新建）→ 点「拍照/上传」→ **真实系统选择器**（DocumentsUI PickActivity，ADB/uiautomator 驱动）→ 选测试 PNG → **toast「已添加」、页面「原料标签、批次抽样照片 1 / 6」**、img src 落 `http://home.93gushi.com:8088/api/upload/202611/08/….png`、`qms_iqc_attachment` 落行。⚠️ 用户自己的手机（Android 16，**旧 APK**）同日 12:19/12:28 仍复现 MultipartException ⇒ **车间手机必须装 1170 APK 才生效**（H5 更新只覆盖浏览器入口，APK 内嵌的 H5 是旧包）。
+
+**测试数据已全部清理**：`.150` 附件行 id `2119308747953192962` 已 DELETE（剩余 0 行）、3 枚探针 PNG 从 erp-backend `/opt/industrial-erp/upload/202611/08/` 删净（目录空）、设备 `/sdcard/Download/erp-upload-test.png` + MediaStore 行 + ui.xml 已删、设备退到登录页（8 个 `erp_*` storage 键清空、cookie 用 CDP `Network.deleteCookies` 清）。⚠️ **没调 `/auth/logout`** —— 复用的是 gpssong1 从 redis 取的**真实生产会话**，logout 会踢掉用户自己的手机。`.32` 副本 `attach_rows=0`、`Slave_IO/SQL_Running: Yes`、`Seconds_Behind_Master: 0`。
+
+**⚠️ 排查教训（真机取证踩坑，写下来省下一轮）**：① `window.uni` 在 APK 里是**空 stub**（App 模块 import 的是模块级绑定），别拿它探针 App API；② 「fetch 探针 200」**不能否证** XHR 路径的 CT 假设 —— CapacitorHttp 对 fetch / XHR 两条路径处理不同；③ XHR patch 挂在 `CapacitorWebXMLHttpRequest.prototype`，**不是**匿名 `window.XMLHttpRequest` 构造函数的 `.prototype`，hook 后者静默 no-op；④ DocumentsUI 覆盖 App 时 WebView 后台化 ⇒ **所有 setTimeout 回调停摆**，取证时保持 App 前台；⑤ adb push 的图片要 `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE` 才在 DocumentsUI 可见（Android 13）；⑥ httpOnly 的 `Authorization` cookie 免疫 `document.cookie`，清它只能走 CDP `Network.deleteCookies`。
+
 ### v1.1.167 (2026-11-06 — 标签打印层：结构化元素模板 + TSPL 主通道 + 印麦 IP-803 手机蓝牙直发 + PC/App 标签打印中心；**已灌主库、已上三站**)
 
 > **用户原话**: 「先做 A（本周就能开工）：补标签主数据（生产者名称/地址/XK 证号/执行标准/贮存条件/检验员代号，放 sys_config 或新表）+ 一张标签模板表（尺寸、间隙、dpi、份数、绑 bizType）+ PC/App「标签打印中心」，把成品卷标、原料垛标、箱标、合格证四类先跑通，输出仍走现有飞鹅 + 可导出标准 TSPL 文本。这一步做完，无论以后买哪家机器，数据和模板都不用重写 —— 这是唯一不浪费的投入。」

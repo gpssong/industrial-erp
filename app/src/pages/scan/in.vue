@@ -130,7 +130,7 @@
           <text>到货原料与批号</text>
           <text class="muted small">{{ materials.length }} 种</text>
         </view>
-        <view class="file-tip">多种原料同车到货时逐行分开录批号；先拍原料标签，再点本行「识别批号」按品名定向识别</view>
+        <view class="file-tip">多种原料同车到货时逐行分开录批号；点本行「识别批号」拍照后可框选标签上的批号区域再识别，框得越准越不容易串到别的原料</view>
         <view v-for="(m, i) in materials" :key="m.orderDetailId || ('n' + i)" class="mat-item">
           <view class="mat-head">
             <text class="mat-name">{{ m.productName || '（订单未填品名）' }}</text>
@@ -138,13 +138,19 @@
           </view>
           <view class="mat-field">
             <input class="i-val input batch-input" v-model="m.batchNo" placeholder="输入或识别原料批号" />
-            <view class="ocr-btn" :class="{ 'ocr-disabled': !ocrEnabled || ocrLoadingIdx >= 0 || !photos.length }"
+            <view class="ocr-btn" :class="{ 'ocr-disabled': ocrLoadingIdx >= 0 }"
                   @click="runOcr(i, m)">{{ ocrLoadingIdx === i ? '识别中' : '🔍 识别批号' }}</view>
+          </view>
+          <!-- v1.1.177: 识别回来的候选批号做成可点条 — 框选后仍可能读出多个相近号，人工点一下比手抄快 -->
+          <view v-if="m.ocrCandidates && m.ocrCandidates.length" class="cand-row">
+            <text class="cand-tip">候选</text>
+            <text v-for="(c, ci) in m.ocrCandidates" :key="ci" class="cand"
+                  :class="{ on: m.batchNo === c }" @click="m.batchNo = c">{{ c }}</text>
           </view>
         </view>
         <view v-if="!materials.length && !loadingItems" class="empty">采购订单没有原料明细 — 请先在 PC 端补明细行</view>
         <view v-if="loadingItems" class="empty">原料明细加载中…</view>
-        <view class="photo-tip" v-if="materials.length && !photos.length">📷 识别批号需先上传至少 1 张原始标签照片；识别不到可手工录入</view>
+        <view class="photo-tip" v-if="materials.length && !photos.length">📷 点「识别批号」拍照上传原料标签并自动识别；照片会保存到下方，识别不到可手工录入</view>
       </view>
 
       <!-- 检验报告 · 采购合同 · 发票 (文件) -->
@@ -177,8 +183,9 @@
             <text>{{ it.itemName }}</text>
             <text class="sub">{{ it.requirement || '—' }}</text>
             <text class="sub">{{ it.method || '—' }}</text>
-            <input class="qa-result" v-model="it.resultValue" :placeholder="it.unit || '—'" />
-            <view class="qa-tag" :class="it.passFlag === 1 ? 'ok' : 'bad'"
+            <input class="qa-result" v-model="it.resultValue" :placeholder="it.passFlag === 2 ? '—' : (it.unit || '—')" :disabled="it.passFlag === 2" />
+            <view v-if="it.passFlag === 2" class="qa-tag na">不适用</view>
+            <view v-else class="qa-tag" :class="it.passFlag === 1 ? 'ok' : 'bad'"
                   @click="onTogglePass(it, it.passFlag !== 1)">
               {{ it.passFlag === 1 ? '合格' : '不合格' }}
             </view>
@@ -225,7 +232,7 @@
               <view class="v-tag" :class="allPassed ? 'ok' : 'bad'">{{ allPassed ? '合格' : (items.length ? '不合格' : '待定') }}</view>
             </view>
             <view class="v-sub">{{ items.length === 0 ? '选择采购计划后自动加载检验项'
-              : allPassed ? '综合外观、密度、熔融指数等指标与批次报告，可放行动入库'
+              : allPassed ? '综合外观感官与单据核验等关键项及批次报告，可放行动入库'
               : '存在不合格项，按 XK 要求本批原料不予放行动入库, 需退供应商或处置' }}</view>
           </view>
         </view>
@@ -233,14 +240,17 @@
           <view class="kv-row"><small>检验日期</small><b>{{ form.arriveDate || '—' }}</b></view>
           <view class="kv-row"><small>判定人员</small><b>{{ form.inspector || '—' }}</b></view>
           <view class="kv-row"><small>判定结论</small>
-            <b :class="allPassed ? 'v-ok' : 'v-bad'">{{ items.length === 0 ? '—'
-              : allPassed ? (items.length + ' 项关键项合格')
-              : ((items.length - items.filter((x) => x.passFlag === 1).length) + ' 项关键项不合格') }}</b>
+            <b :class="allPassed ? 'v-ok' : 'v-bad'">{{ keyItems.length === 0 ? '—'
+              : allPassed ? (keyItems.length + ' 项关键项合格')
+              : ((keyItems.length - keyItems.filter((x) => x.passFlag === 1).length) + ' 项关键项不合格') }}</b>
           </view>
           <view class="kv-row" v-if="createdReceiptId"><small>入库单</small><b class="v-ok">已生成 DRAFT #{{ createdReceiptId }}</b></view>
         </view>
-        <view class="v-note">综合外观、密度、熔融指数等指标，均可依据批次判定为合格。</view>
+        <view class="v-note">综合外观与感官、供应商检验报告、采购合同及发票等关键项，均可依据批次判定为合格。</view>
       </view>
+
+      <!-- v1.1.177: 全屏框选识别区域 (画在本地临时图上，原图仍整张入附件) -->
+      <RegionCropper :show="cropShow" :src="cropSrc" @confirm="onCropConfirm" @cancel="onCropCancel" />
 
       <!-- 占位: 给固定底栏 + 底部 tabBar 留出滚动空间 -->
       <view class="footer-spacer"></view>
@@ -254,9 +264,13 @@
 import api, { request } from '../../api/index.js'
 import * as qmsApi from '../../api/qms.js'
 import { ocrStatus, ocrLabelBatchNo } from '../../api/xk'
-import { pickAndUploadImage } from '../../utils/upload.js'
+import { chooseImageOnce, pickAndUploadImage, uploadFile, uploadFileObject } from '../../utils/upload.js'
+import { captureAndRecognizeBatch } from '../../utils/ocrCapture.js'
+import { cropToJpegFile } from '../../utils/ocrCrop.js'
+import RegionCropper from '../../components/RegionCropper.vue'
 
 export default {
+  components: { RegionCropper },
   data() {
     return {
       orderId: null,
@@ -275,6 +289,10 @@ export default {
       warehouseId: '',
       materials: [],
       ocrLoadingIdx: -1,
+      // v1.1.177: 框选识别区域弹窗 (RegionCropper) 的开关 / 本地临时图 / 结算回调
+      cropShow: false,
+      cropSrc: '',
+      cropSettle: null,
       items: [],
       attachments: [],
       photos: [],
@@ -298,7 +316,11 @@ export default {
     showPicker() { return !this.orderId },
     step3Done() { return !!this.createdReceiptId },
     allPassed() {
-      return this.items.length > 0 && this.items.every((it) => it.passFlag === 1)
+      const key = this.items.filter(it => it.passFlag !== 2)
+      return key.length > 0 && key.every((it) => it.passFlag === 1)
+    },
+    keyItems() {
+      return this.items.filter(it => it.passFlag !== 2)
     },
     // 到货基本信息里的「关联采购订单」picker 选项 (label 数组)
     // v1.1.131: 单号后带首个商品名称 (后端 selectPageWithProduct 注入 firstProductName),
@@ -414,36 +436,43 @@ export default {
         this.ocrEnabled = false
       }
     },
-    /**
-     * v1.1.163: 逐行识别 — 把本行品名交给后端拼进定向提示词,
-     *   一车多种原料时不会把所有行都填成同一个批号。
-     */
+    // v1.1.171: 识别批号一步到位 — 拍照 → [框选识别区域] → 上传存 LABEL_PHOTO 附件 → 刷新照片 → 定向识别。
+    // 编排在 utils/ocrCapture.js (注入依赖单测); 这里只把 this / API / uni 接进去。
     async runOcr(i, m) {
-      if (this.ocrLoadingIdx >= 0) return
-      if (!this.ocrEnabled) {
-        uni.showToast({ title: '未配置视觉模型, 请到 PC「系统设置→对接方式」填 OCR key', icon: 'none' })
-        return
-      }
-      if (!this.photos.length) {
-        uni.showToast({ title: '请先上传原料标签照片', icon: 'none' })
-        return
-      }
-      this.ocrLoadingIdx = i
-      try {
-        const urls = this.photos.map((p) => p.fileUrl).filter(Boolean)
-        const r = await ocrLabelBatchNo(urls, m && m.productName)
-        const cand = (r && r.data && r.data.candidates) || []
-        if (cand.length) {
-          m.batchNo = cand[0]
-          uni.showToast({ title: (m.productName || '本行') + '：识别到 ' + cand[0] + '，请核对标签', icon: 'none', duration: 3000 })
-        } else {
-          uni.showToast({ title: '未识别到该原料的批号，请手工录入', icon: 'none' })
-        }
-      } catch (e) {
-        uni.showToast({ title: '识别失败：' + ((e && e.msg) || '未知错误'), icon: 'none' })
-      } finally {
-        this.ocrLoadingIdx = -1
-      }
+      await captureAndRecognizeBatch(this, {
+        pickImage: chooseImageOnce,
+        uploadImage: uploadFile,
+        pickRegion: this.pickRegion,
+        cropAndUpload: this.cropAndUpload,
+        bindAttachment: qmsApi.iqcBindAttachment,
+        listAttachments: qmsApi.iqcAttachments,
+        ocrLabelBatchNo,
+        toast: (title, duration) => uni.showToast({ title, icon: 'none', duration: duration || 1500 })
+      }, i, m)
+    },
+    // 全屏框选：resolve 归一化 rect (null=整张)，取消时 reject 带 cancel 让编排静默收尾
+    pickRegion(tempFilePath) {
+      return new Promise((resolve, reject) => {
+        this.cropSrc = tempFilePath
+        this.cropSettle = { resolve, reject }
+        this.cropShow = true
+      })
+    },
+    onCropConfirm(rect) {
+      this.cropShow = false
+      const s = this.cropSettle
+      this.cropSettle = null
+      if (s) s.resolve(rect || null)
+    },
+    onCropCancel() {
+      this.cropShow = false
+      const s = this.cropSettle
+      this.cropSettle = null
+      if (s) s.reject({ errMsg: 'regionPicker:fail cancel' })
+    },
+    // 裁后小图另存一张只喂 OCR，不进附件列表 (凭证照片必须是整张标签)
+    cropAndUpload(tempFilePath, rect) {
+      return cropToJpegFile(tempFilePath, rect).then((file) => uploadFileObject(file))
     },
     /** 明细行副标题: 规格 · 数量单位 */
     materialMeta(m) {
@@ -514,13 +543,14 @@ export default {
           spec: d.spec || '',
           qty: d.qty === undefined || d.qty === null ? '' : d.qty,
           unitName: d.unitName || '',
-          batchNo: d.batchNo || ''
+          batchNo: d.batchNo || '',
+          ocrCandidates: []
         }))
         return
       }
       const name = this.iqc && this.iqc.productName
       this.materials = name
-        ? [{ orderDetailId: null, productName: name, spec: '', qty: this.order.totalQty || '', unitName: '', batchNo: '' }]
+        ? [{ orderDetailId: null, productName: name, spec: '', qty: this.order.totalQty || '', unitName: '', batchNo: '', ocrCandidates: [] }]
         : []
     },
     hasAttach(type) {
@@ -758,6 +788,11 @@ export default {
 .ocr-btn { flex: 0 0 auto; font-size: 24rpx; color: #fff; background: #27ae60;
   padding: 10rpx 18rpx; border-radius: 8rpx; }
 .ocr-disabled { opacity: 0.45; }
+.cand-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10rpx; margin-top: 12rpx; }
+.cand-tip { font-size: 20rpx; color: #8a95a5; }
+.cand { font-size: 22rpx; color: #1a2b3c; background: #f2f5f9; border: 2rpx solid #e2e8f0;
+  border-radius: 20rpx; padding: 6rpx 16rpx; max-width: 100%; word-break: break-all; }
+.cand.on { color: #fff; background: #27ae60; border-color: #27ae60; font-weight: 600; }
 
 /* ===== 文件区 ===== */
 .file-tip { font-size: 22rpx; color: #8a95a5; margin-bottom: 14rpx; }
@@ -784,6 +819,7 @@ export default {
 .qa-tag { width: 96rpx; text-align: center; font-size: 24rpx; padding: 8rpx 0; border-radius: 8rpx; flex: 0 0 auto; }
 .qa-tag.ok { background: #e6f7ec; color: #1f8a4c; font-weight: 600; }
 .qa-tag.bad { background: #ffeded; color: #d63b3b; font-weight: 600; }
+.qa-tag.na { background: #f0f2f5; color: #909399; }
 .sub { color: #6b7a8d; font-size: 22rpx; }
 
 /* ===== 照片区 ===== */
