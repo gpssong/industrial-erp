@@ -60,6 +60,35 @@ export function rectToPixels(rect, naturalW, naturalH, maxEdge = MAX_CROP_EDGE) 
   }
 }
 
+/**
+ * 两个 boundingClientRect (视口坐标) → 图片真正渲染出来的那个盒, 换算成相对 stage 的偏移。
+ * widthFix 下横图会比 flex:1 的 stage 矮一大截, 框选只能以这个盒为基准,
+ * 否则归一化值喂给 rectToPixels 时会按容器高放大, 裁到图外的空白处。
+ */
+export function imageBox(imgRect, stageRect) {
+  if (!imgRect || !stageRect) return null
+  const w = Number(imgRect.width)
+  const h = Number(imgRect.height)
+  if (!(w > 0) || !(h > 0)) return null
+  return {
+    left: Number(imgRect.left) - Number(stageRect.left),
+    top: Number(imgRect.top) - Number(stageRect.top),
+    width: w,
+    height: h
+  }
+}
+
+/** 归一化 rect (相对图片渲染盒) → 相对 stage 的 px 定位, 给 .rc-box 的 style 用 */
+export function rectToStyle(rect, box) {
+  const r = clampRect(rect) || { x: 0, y: 0, w: 1, h: 1 }
+  return {
+    left: Math.round(box.left + r.x * box.width) + 'px',
+    top: Math.round(box.top + r.y * box.height) + 'px',
+    width: Math.round(r.w * box.width) + 'px',
+    height: Math.round(r.h * box.height) + 'px'
+  }
+}
+
 /** 读本地临时图为 <img>（不走服务端 URL，见文件头注释） */
 export function loadImageElement(src) {
   return new Promise((resolve, reject) => {

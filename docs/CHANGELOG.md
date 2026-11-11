@@ -3,6 +3,37 @@
 
 ## changelog (倒序)
 
+### v1.1.181 (2026-11-11 — App 原料入库 OCR「框选识别」裁错区域，修归一化基准；纯 App 改动，非 jar / 非 SQL)
+
+> **用户报**：「整体识别正常，选取识别失败」—— 拍照后不框选能认出批号，框了区域反而识别不到。v1.1.177 上线的框选功能从第一天起就没真正裁到过标签上的字。
+
+**根因（几何基准错，不是 OCR / 不是裁剪 API）**
+- `RegionCropper` 把用户拖出的框按 `.rc-stage` 归一化，而 `.rc-stage` 是 `flex:1` **撑满可用高度**的容器（实测 414×455）；`<image mode="widthFix">` 下的横图真正渲染出来只有 **414×310**（宽撑满、高按比例缩）。
+- 于是 `rect.y` 的分母是容器高、`rectToPixels` 那边又乘原图 `naturalHeight`，纵向被放大 `stage/img ≈ 1.47~1.74` 倍 → 框选区域整体**偏到打印批号的上方**，裁出来是一片空白膜。
+- x 恰好没错（容器宽 == 图宽），所以症状稳定表现为「裁片总在上方/左上」，而不是随机错位。
+- **整张识别不受影响**：`isFullFrame(rect)` 在未框选/框满时短路，`resolveOcrUrl` 直接回原图 URL，压根不走裁剪 —— 这正是「整体正常、框选失败」这半边现象的来源。
+
+**修法（方案 A：以图片自己的渲染盒为基准）**
+- `app/src/utils/ocrCrop.js` 新增两个纯函数：`imageBox(imgRect, stageRect)` 把 `#rcImg` 与 `#rcStage` 两个视口坐标 boundingClientRect 换算成**相对 stage 的图片渲染盒**（拿不到正尺寸返回 null）；`rectToStyle(rect, box)` 按该盒把归一化 rect 落成 `.rc-box` 的 px 定位。
+- `app/src/components/RegionCropper.vue`：`<image>` 加 `id="rcImg"`；`measure()` 同时量 `#rcStage` 和 `#rcImg`；新增 `frame` computed **优先用图片渲染盒**，量不到才退回容器（老行为）；拖拽位移分母从 `stage.width/height` 改成 `frame.width/height`；`boxStyle` 走 `rectToStyle`。
+- `onImgLoad()` 里把 `measure()` 延到 **`$nextTick`**：uni-h5 的 `widthFix` 是在 `img.onload` 之后的下一个 tick 才把算好的高度写到宿主元素上，同一 tick 量到的是 0 高（`node_modules/@dcloudio/uni-h5` 里 `useImageSize.fixSize()` 的写法）。
+- **兜底收在边界上**：`onConfirm()` 在 `this.box` 为 null（量不到渲染盒）时**绝不 emit rect**，直接按整张识别走。以后再退化只会「不裁」，不会静默裁错 —— 这是 v1.1.181 这个 bug 最坑的地方（裁错了也当「没识别到」）。
+
+**测试**
+- `app/test/ocrCapture.test.mjs` 新增 4 例：`imageBox` 换算（含竖图被 stage 裁顶时 top 为负）、null 守护；`rectToStyle` 按渲染盒而非撑满容器定位（断言 75px/56px，注释写明老算法会画成 245px 并裁到空白膜）；图被裁掉顶部时框仍落在图内坐标。
+- 红→绿已验证：加函数前 ESM 直接报 `does not provide an export named 'imageBox'`（feature missing），加后 `node --test test/ocrCapture.test.mjs test/uploadHeaders.test.mjs` → **26 tests / 26 pass / 0 fail / exit 0**（回退临时探针页后在干净树上复跑，同样 26/26）。
+
+**本地浏览器实测（同一张 4096×3072 标签照、同一手势 A/B）**
+- 新算法裁片源区 `sy=1704 sh=928`（图高 55.5%~85.6%，正好罩住打印批号行及其下方小字）；按老口径算则是 `sy=1162 sh=633`（37.8%~58.4%，基本是批号**上方**的空白膜）。导出 39947 vs 22582 字节。
+- 截图逐行确认：新裁片含完整「LL0220KJ P SK216A08」及其下地址行，老裁片只切到该批号行的上边缘、余下全是膜。
+
+**版本/产物**
+- 版本五处对齐 1.1.181（`app/package.json`、`app/src/manifest.json` versionName 1.1.181 / versionCode 1181、`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`profile/index.vue` `APP_VERSION`），与 v1.1.180 同款 app-only 口径一致。
+- `.150` **backend jar 与 PC dist 未动**（后端/PC 零改动，线上仍是上一版产物）。
+- App H5：`index.html` md5 `701a0b867ac76a17d6c1be50716a7d63`（114 文件，与本地构建逐枚对 hash；`assets/RegionCropper.BuLa6I6C.js` md5 `e66d680359d58e54016ad68bb989c972`，服务回来的同一份且含 `rcImg`）。已整目录替换（保持目录 inode，两站挂载都是 bind 到该目录）到 `.32:/vol2/erp-system/app-h5/dist/build/h5` 与阿里云 `/opt/erp-system/app-h5`，两站 `curl 127.0.0.1:18090/index.html` 均回同一 md5；替换前退路：`.32:/vol2/erp-system/upload/h5-before-v1181.tgz`、阿里云 `/opt/erp-system/backup/h5-before-v1181.tgz`（替换前线上均为 v1.1.180 的 `f9156ebe81760c6ee7405719422ea66f`）。
+- APK：`app/erp-app-v1.1.181.apk` md5 `7adf60ac9f8f198be62083f3a4ef91a7`（4518074 字节）。`build-app.sh` 三道闸全过（APP_VERSION / manifest.versionName / CLAUDE.md 顶部 = 1.1.181；APK 内嵌版本 1.1.181；OS 级 versionName 1.1.181 / versionCode 1181）。**逐枚对 hash 验收**：`unzip -p … assets/public/assets/RegionCropper.BuLa6I6C.js | md5` = `e66d680359d58e54016ad68bb989c972`，与两站服务出去的同一 chunk 一字不差且含 `rcImg`；`unzip -Z1` 里无任何 `crop-probe`/`__probe` 探针残留（脚本重跑的 `npm run build:h5` 与部署用的 dist `index.html` md5 相同）。
+- ⚠️ **手机走内嵌 H5 的 APK，必须装 `erp-app-v1.1.181.apk` 才修好框选** —— 车间手机上的 App 不吃站点 H5。
+
 ### v1.1.180 (2026-11-11 — App 原料入库「识别批号」后端 500 不再伪装成「未识别到批号」；纯 App 改动，非 jar / 非 SQL)
 
 > **用户报**：App 原料入库拍照识别批号时弹「照片已保存；未识别到该原料批号，请手工录入」，看着像照片拍糊，实际可能是 OCR 未配置 / TextIn 并发限制 / HTTP 5xx / 后端读不到照片文件。**文案把服务端的真实原因吃掉了**，现场只能盲重试。

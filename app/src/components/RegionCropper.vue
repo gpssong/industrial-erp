@@ -6,7 +6,7 @@
     </view>
 
     <view class="rc-stage" id="rcStage">
-      <image :src="src" mode="widthFix" class="rc-img" @load="onImgLoad" />
+      <image :src="src" mode="widthFix" id="rcImg" class="rc-img" @load="onImgLoad" />
       <view
         class="rc-box"
         :style="boxStyle"
@@ -33,7 +33,7 @@
 </template>
 
 <script>
-import { clampRect, isFullFrame, MIN_EDGE_RATIO } from '../utils/ocrCrop.js'
+import { clampRect, imageBox, isFullFrame, MIN_EDGE_RATIO, rectToStyle } from '../utils/ocrCrop.js'
 
 const FULL = { x: 0, y: 0, w: 1, h: 1 }
 
@@ -49,18 +49,29 @@ export default {
     return {
       rect: { ...FULL },
       stage: null,
+      // 图片真正渲染出来的盒, 相对 stage 的 { left, top, width, height } (px)
+      box: null,
       drag: null
     }
   },
   computed: {
+    // 归一化基准: 图片渲染盒; 量不到时退回整块 stage (老行为, 至少不会算不出尺寸)
+    frame() {
+      if (this.box) return this.box
+      if (this.stage) return { left: 0, top: 0, width: this.stage.width, height: this.stage.height }
+      return null
+    },
     boxStyle() {
-      const r = this.rect
-      return {
-        left: r.x * 100 + '%',
-        top: r.y * 100 + '%',
-        width: r.w * 100 + '%',
-        height: r.h * 100 + '%'
+      if (!this.frame) {
+        const r = this.rect
+        return {
+          left: r.x * 100 + '%',
+          top: r.y * 100 + '%',
+          width: r.w * 100 + '%',
+          height: r.h * 100 + '%'
+        }
       }
+      return rectToStyle(this.rect, this.frame)
     },
     isFull() {
       return isFullFrame(this.rect)
@@ -81,36 +92,40 @@ export default {
           resolve(null)
           return
         }
-        uni
-          .createSelectorQuery()
-          .in(this)
-          .select('#rcStage')
-          .boundingClientRect((r) => {
-            this.stage = r && r.width ? r : null
-            resolve(this.stage)
-          })
-          .exec()
+        const q = uni.createSelectorQuery().in(this)
+        q.select('#rcStage').boundingClientRect()
+        q.select('#rcImg').boundingClientRect()
+        q.exec((res) => {
+          const list = res || []
+          const stage = list[0] && list[0].width ? list[0] : null
+          this.stage = stage
+          this.box = stage ? imageBox(list[1], stage) : null
+          resolve(stage)
+        })
       })
     },
     onImgLoad() {
-      // widthFix 下图片加载完 stage 高度才定下来
-      this.measure()
+      // uni-h5 是在 load 之后的 nextTick 里才把 widthFix 的高度写回 <uni-image> 宿主元素,
+      // 同一拍里量到的还是 0 高 → imageBox 返 null。排在它后面一步再量才拿得到真实渲染盒。
+      this.$nextTick(() => this.measure())
     },
     point(e) {
       const t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || {}
       return { x: t.clientX !== undefined ? t.clientX : t.pageX || 0, y: t.clientY !== undefined ? t.clientY : t.pageY || 0 }
     },
     async onTouchStart(mode, e) {
-      if (!this.stage) await this.measure()
-      if (!this.stage) return
+      if (!this.frame) await this.measure()
+      if (!this.frame) return
       const p = this.point(e)
       this.drag = { mode, startX: p.x, startY: p.y, from: { ...this.rect } }
     },
     onTouchMove(e) {
-      if (!this.drag || !this.stage) return
+      if (!this.drag || !this.frame) return
+      // 位移按图片渲染盒换算, 和 rectToPixels 的分母一致
+      const fr = this.frame
       const p = this.point(e)
-      const dx = (p.x - this.drag.startX) / this.stage.width
-      const dy = (p.y - this.drag.startY) / this.stage.height
+      const dx = (p.x - this.drag.startX) / fr.width
+      const dy = (p.y - this.drag.startY) / fr.height
       const f = this.drag.from
       if (this.drag.mode === 'move') {
         this.rect = clampRect({
@@ -135,8 +150,9 @@ export default {
       this.rect = { ...FULL }
     },
     async onConfirm() {
-      if (!this.stage) await this.measure()
-      this.$emit('confirm', this.isFull ? null : { ...this.rect })
+      if (!this.frame) await this.measure()
+      // 量不到图片渲染盒就绝不裁: 归一化基准不可信, 硬裁必偏 (v1.1.181 那个 bug), 交给整张识别。
+      this.$emit('confirm', !this.box || this.isFull ? null : { ...this.rect })
     },
     onCancel() {
       this.$emit('cancel')

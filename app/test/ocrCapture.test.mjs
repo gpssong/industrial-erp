@@ -6,7 +6,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { captureAndRecognizeBatch, captureRegionAndRecognize } from '../src/utils/ocrCapture.js'
-import { clampRect, isFullFrame, rectToPixels } from '../src/utils/ocrCrop.js'
+import { clampRect, imageBox, isFullFrame, rectToPixels, rectToStyle } from '../src/utils/ocrCrop.js'
 
 function makeState(over = {}) {
   return {
@@ -320,4 +320,40 @@ test('rectToPixels: 点一下没拖 (w/h=0) 退化成该点起的剩余区域, �
 test('rectToPixels: 拿不到原图尺寸就返回 null (调用方回落整张)', () => {
   assert.equal(rectToPixels({ x: 0, y: 0, w: 1, h: 1 }, 0, 0), null)
   assert.equal(rectToPixels({ x: 0, y: 0, w: 1, h: 1 }, undefined, 3000), null)
+})
+
+test('imageBox: 图片渲染盒换算成相对 stage 的坐标 (widthFix 下横图比容器矮)', () => {
+  const stage = { left: 10, top: 160, width: 375, height: 490 }
+  assert.deepEqual(
+    imageBox({ left: 10, top: 160, width: 375, height: 281 }, stage),
+    { left: 0, top: 0, width: 375, height: 281 }
+  )
+  // 竖图高于容器时被 stage 上边缘裁掉, 图的顶边在 stage 之上 → top 为负
+  assert.deepEqual(
+    imageBox({ left: 10, top: 120, width: 375, height: 666 }, stage),
+    { left: 0, top: -40, width: 375, height: 666 }
+  )
+  assert.equal(imageBox(null, stage), null)
+  assert.equal(imageBox({ left: 0, top: 0, width: 375, height: 281 }, null), null)
+  assert.equal(imageBox({ left: 0, top: 0, width: 0, height: 0 }, stage), null)
+})
+
+test('rectToStyle: 框按图片渲染盒定位, 不按撑满的容器', () => {
+  // 4096x3072 的横图在 375 宽屏上只渲染到 281 高 (mode=widthFix), 外层 stage 是 flex:1 = 490 高。
+  // 归一化基准必须是 281: y=0.5 → 141px。老算法按 490 算, 同一个框画到 245px,
+  // 喂给 rectToPixels 就落到原图 y≈0.29 —— 裁出来是最上面的空白薄膜, 批号行在 y≈0.55。
+  const box = { left: 0, top: 0, width: 375, height: 281 }
+  assert.deepEqual(rectToStyle({ x: 0.5, y: 0.5, w: 0.2, h: 0.2 }, box), {
+    left: '188px',
+    top: '141px',
+    width: '75px',
+    height: '56px'
+  })
+})
+
+test('rectToStyle: 图被 stage 裁掉顶部时, 框仍落在图内坐标上', () => {
+  const box = { left: 0, top: -40, width: 375, height: 666 }
+  const s = rectToStyle({ x: 0, y: 0.5, w: 1, h: 0.1 }, box)
+  assert.equal(s.top, '293px') // 666*0.5 - 40
+  assert.equal(s.height, '67px')
 })
