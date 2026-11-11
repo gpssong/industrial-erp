@@ -19,6 +19,8 @@
             <el-option value="FG_ROLL" label="成品卷标" />
             <el-option value="RAW_PALLET" label="原料垛标" />
             <el-option value="CARTON" label="箱标" />
+            <el-option value="CERT" label="合格证" />
+            <el-option value="GOODS_LABEL" label="商品标" />
           </el-select>
         </el-form-item>
         <el-form-item label="单据">

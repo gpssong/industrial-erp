@@ -153,9 +153,9 @@ class LabelContextServiceSampleTest {
     }
 
     @Test
-    @DisplayName("CERT 本期没有 loader ⇒ 示例走和真实打印同一条路由 400「还没有数据加载器」，不是空列表也不是 500")
+    @DisplayName("示例走和真实打印同一条路由 ⇒ 漏挂 loader 时同样是 400「还没有数据加载器」，不是空列表也不是 500")
     void certSampleIsExplicitlyUnimplemented() {
-        // 和 LabelContextServiceTest.certWithoutLoaderThrows400 同一条口径：类型合法但没有实现，
+        // 和 LabelContextServiceTest.certWithoutLoaderThrows400 同一条口径：类型合法但这次没注册实现，
         // 就点名"没有加载器"。示例特有的那句留给"有加载器但没写 sample"（下一条用例）。
         assertThatThrownBy(() -> service.loadSample("CERT"))
                 .isInstanceOf(BizException.class)
@@ -166,7 +166,7 @@ class LabelContextServiceSampleTest {
     @DisplayName("新加的 loader 忘了写 sample → 明确的 400，不是 AbstractMethodError/500")
     void loaderWithoutSampleFailsExplicitly() {
         // 这条直接调 noSample.sample()，不进 service 路由，bizType 选谁都不影响结论 —— 挑 CERT
-        // 只因为它是本期唯一没有真 loader 的类型，将来真给 CERT 写了加载器也不会和这里撞。
+        // 只是因为它是这批里最常被拿去做「新增类型」样例的那个，换成别的也不影响这条钉的东西。
         LabelContextLoader noSample = new LabelContextLoader() {
             @Override
             public LabelBizType bizType() { return LabelBizType.CERT; }

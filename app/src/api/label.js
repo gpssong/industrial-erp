@@ -29,7 +29,10 @@ function qs(o) {
 export const labelApi = {
   // 标签主数据（生产者名称/地址/XK 证号…）：后端门禁 base:label:list 或 base:product:list
   master: () => request({ url: '/base/label/master', method: 'GET' }),
-  // 选单据：FG_ROLL / RAW_PALLET / CARTON；CERT 显式 400（A9），别当入口列出来
+  // 选单据：FG_ROLL / RAW_PALLET / CARTON / CERT / GOODS_LABEL 都能进 /bills。
+  //   · CERT 后端只列「可打印」的 OQC 出厂检验单（CHECKED + PASS/PASS_DISPOSITION）
+  //   · GOODS_LABEL 列 base_product 行（一行商品一张标）
+  //   · 两者都没有明细行，/lines 对它们回空（后端 default -> {}）
   bills: (o) => request({ url: '/base/label/bills?' + qs(o), method: 'GET' }),
   // 选明细行：{id, name, qty, batchNo} —— **没有 productName**（R-B4-4，见 BaseLabelController.java:381-388）
   lines: (o) => request({ url: '/base/label/lines?' + qs(o), method: 'GET' }),

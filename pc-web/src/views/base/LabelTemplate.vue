@@ -70,7 +70,7 @@
             <el-option v-for="b in bills" :key="b.id" :value="b.id"
                        :label="`${b.billNo} ${b.mainName || ''} ${fmtBatch(b.batchNo)}`" />
           </el-select>
-          <el-select v-if="current.bizType !== 'FG_ROLL' && lines.length" v-model="ctx.lineIds" multiple collapse-tags
+          <el-select v-if="HAS_LINES.has(current.bizType) && lines.length" v-model="ctx.lineIds" multiple collapse-tags
                      placeholder="不选=全部行" style="width: 280px" data-test="line-select">
             <el-option v-for="l in lines" :key="l.id" :value="l.id"
                        :label="`${l.name} × ${l.qty} ${fmtBatch(l.batchNo) || '无批号'}`" />
@@ -272,9 +272,13 @@ const BIZ_TYPES = [
   { code: 'FG_ROLL', name: '成品卷标' },
   { code: 'RAW_PALLET', name: '原料垛标' },
   { code: 'CARTON', name: '箱标' },
-  { code: 'CERT', name: '合格证(本期不出)' }
+  { code: 'CERT', name: '合格证' },
+  { code: 'GOODS_LABEL', name: '商品标' }
 ]
 const ELEMENT_TYPES = ['text', 'multiline', 'barcode', 'qrcode', 'line', 'rect']
+// 有明细行的 bizType：原料垛标（按 pur_receipt_detail 展开）、箱标（按出库明细展开）。
+// FG_ROLL / CERT / GOODS_LABEL 一对一，不挂 /lines。
+const HAS_LINES = new Set(['RAW_PALLET', 'CARTON'])
 
 // 嵌入「打印管理」页时由父页传 initialBizType（打印中心「编辑这一类模板」切过来）；
 // 独立路由 /base/label-template 访问时仍读 route.query.bizType（向后兼容）。
@@ -689,7 +693,7 @@ async function loadBills() {
 let lineGen = 0
 async function loadLines() {
   const gen = ++lineGen
-  if (!ctx.bizId || current.bizType === 'FG_ROLL') { lines.value = []; return }
+  if (!ctx.bizId || !HAS_LINES.has(current.bizType)) { lines.value = []; return }
   try {
     const r = await labelApi.lines({ bizType: current.bizType, bizId: ctx.bizId })
     if (gen !== lineGen || disposed) return

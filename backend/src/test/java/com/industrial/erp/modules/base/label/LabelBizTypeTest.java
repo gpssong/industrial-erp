@@ -14,15 +14,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class LabelBizTypeTest {
 
     @Test
-    @DisplayName("四个类型的 code / 中文名 / 取上下文本该有的权限点")
+    @DisplayName("五个类型的 code / 中文名 / 取上下文本该有的权限点")
     void carriesCodeNameAndSourcePerm() {
         assertThat(LabelBizType.FG_ROLL.getCode()).isEqualTo("FG_ROLL");
         assertThat(LabelBizType.FG_ROLL.getDisplayName()).isEqualTo("成品卷标");
         assertThat(LabelBizType.FG_ROLL.getSourcePerm()).isEqualTo("production:finished-in:list");
         assertThat(LabelBizType.RAW_PALLET.getSourcePerm()).isEqualTo("purchase:receipt:list");
         assertThat(LabelBizType.CARTON.getSourcePerm()).isEqualTo("sales:delivery:list");
-        assertThat(LabelBizType.CERT.getSourcePerm()).isEqualTo("report:view");
-        assertThat(LabelBizType.values()).hasSize(4);
+        // v1.1.178：CERT 有了真 loader，sourcePerm 从占位时的 report:view 换成出厂检验单自己的权限点
+        assertThat(LabelBizType.CERT.getDisplayName()).isEqualTo("合格证");
+        assertThat(LabelBizType.CERT.getSourcePerm()).isEqualTo("quality:inspection:list");
+        assertThat(LabelBizType.GOODS_LABEL.getCode()).isEqualTo("GOODS_LABEL");
+        assertThat(LabelBizType.GOODS_LABEL.getDisplayName()).isEqualTo("商品标");
+        assertThat(LabelBizType.GOODS_LABEL.getSourcePerm()).isEqualTo("base:product:list");
+        assertThat(LabelBizType.values()).hasSize(5);
     }
 
     @Test

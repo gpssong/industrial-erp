@@ -38,8 +38,10 @@ class LabelContextServiceTest {
     }
 
     @Test
-    @DisplayName("CERT 本期没有 loader → 400，提示还没有数据加载器")
+    @DisplayName("装配漏挂一个 loader → 400 点名「还没有数据加载器」，不是 NPE/500")
     void certWithoutLoaderThrows400() {
+        // CERT 在 v1.1.178 起是有真 loader 的；这里用它当「类型合法但本次没注册实现」的例子，
+        // 是因为 service 只收了 FG_ROLL 一个 mock —— 钉的是路由分支，不是生产装配。
         when(fgRollLoader.bizType()).thenReturn(LabelBizType.FG_ROLL);
         LabelContextService service = new LabelContextService(List.of(fgRollLoader), masterService);
 

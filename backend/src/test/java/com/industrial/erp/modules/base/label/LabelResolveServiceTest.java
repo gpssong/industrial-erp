@@ -339,8 +339,8 @@ class LabelResolveServiceTest {
     }
 
     @Test
-    @DisplayName("表10：CERT 在 loader 路由就明确 400（不是空白成功）；bizType 缺失/未知同样点名")
-    void certFailsExplicitlyAtTheLoaderRoute() {
+    @DisplayName("表10：装配漏挂一个 loader ⇒ 400 点名「该标签类型还没有数据加载器」（生产 CERT 已有 CertLabelContextLoader，这里测的是装配漏挂的兜底）；bizType 缺失/未知同样点名")
+    void loaderRouteMissingLoaderThrowsExplicitly() {
         LabelContextService realContext = new LabelContextService(List.of(), masterService);
         LabelResolveService realRoute = new LabelResolveService(renderer, realContext,
                 new LabelPreviewService(realContext, renderer), permService);
@@ -538,7 +538,7 @@ class LabelResolveServiceTest {
     void controllerForwardsToResolveService() throws Exception {
         LabelResolveService resolveMock = mock(LabelResolveService.class);
         BaseLabelController c = new BaseLabelController(null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, resolveMock);
+                null, null, null, null, null, null, resolveMock, null, null);
         LabelResolveRequest q = sampleReq("[]");
         LabelResolveResult stub = new LabelResolveResult(640, 480, List.of(), List.of());
         when(resolveMock.resolve(q)).thenReturn(stub);

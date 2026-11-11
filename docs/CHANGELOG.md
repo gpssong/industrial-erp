@@ -3,6 +3,42 @@
 
 ## changelog (倒序)
 
+### v1.1.179 (2026-11-11 — 商品标「宽×厚」按 mm 印上纸面 + 框选确认按钮 z-index 修复；后端 jar + App APK/PC dist，非 SQL)
+
+> **两件事**：① 用户裁定「宽×厚单位 mm」—— 商品标纸面把幅宽/厚度印成 mm，不再印裸值；② App 原料入库 OCR 框选时「识别这区域/取消/重置」按钮被 tabBar 挡住点不到。
+
+**① 商品标宽×厚 → mm（后端 1 文件）**
+- 数据库实存口径（按 `base_product` 值域反推，非列注释）：`width` 列存 **cm×10**（品名 `90*90` → 900；列注释「幅宽(mm)」是错的），`thickness` 列存 **丝**（1 丝=0.01mm，品名 `0.08` → 800）。
+- `GoodsLabelContextLoader` 只改 **GOODS_LABEL** 上下文：幅宽 `÷10 → mm`、厚度 `÷1000 → mm`，值自带 `mm` 后缀（如 825 → `82.5mm`、110 → `0.11mm`）；空/0 一律留白（返回 null），不印「0mm」。`divide` 精度取 6 位小数，避免极小值被抹零走留白分支。字段名/名单不动，FG_ROLL 等别的 bizType 不受影响；`sample()` 同步成 mm 字符串。
+- 测试 `GoodsLabelContextLoaderTest` 加 2 个断言（mm 换算 + 空值留白），全绿；标签相关 20+ 测试组全过。
+
+**② 框选确认按钮被遮挡（App H5 1 行 CSS）**
+- 根因：`RegionCropper` 全屏遮罩 `z-index:900`，但 `pages/scan/in`（原料入库）是 tabBar 页，uni-app H5 的 `uni-tabbar` 默认 `z-index:998`，900 被压在下面 → 底部按钮不可点。项目里其它全屏遮罩（users/product-add/order-add）都是 9999，唯独这个掉队。
+- 修：`RegionCropper.vue` 遮罩 `z-index` 900 → **9999**（对齐项目惯例）。确认过 `.page`/`.main-col` 无 `transform`/`overflow`，`position:fixed` 相对视口正常。
+
+**版本/产物**：四处版本号对齐抬到 1.1.179（`app`/`pc-web` package.json、`application.yml` ERP_VERSION、`manifest.json` versionName 1.1.179 / versionCode 1179）。⚠️ 手机侧走 APK（App H5 无公网入口），z-index 与商品标 mm 都要装新 APK 才在车间手机生效。
+
+### v1.1.178 (2026-11-10 — 标签层补上**合格证 CERT** 与**商品标 GOODS_LABEL** 两类，80×60 蓝牙 TSPL（印麦 IP-803）出纸；后端 + PC + App 三端 + SQL，非 app-only)
+
+> **用户拍板三条（本任务驱动）**：① 合格证数据源**严格只认 CHECKED 的 OQC 出厂检验单**（宁可报错也不打一张空白合格证）；② 商品标 code 定名 `GOODS_LABEL`、界面名「商品标」；③ 授权实现。
+
+**证书（CERT）—— 严格口径，四道闸一字不差**
+- 数据源 `mes_quality_inspection`：`inspection_type=OQC` + `status=CHECKED` + `result IN (PASS, PASS_DISPOSITION)`，缺任一 ⇒ `CertLabelContextLoader` 直接 `BizException`（不回落、不打空白证）；字段再并 `base_product` 主数据补缺（producer / xkNo / 材质 等纸面必填项）。
+- `/bills` 对 CERT 只列**打得出**的检验单（同一四道闸 + 关键字 like billNo/productName/batchNo），`/lines` 走 `default -> {}` 回空（合格证一对一、无明细行）。日期取 `check_time`（检验时刻），不取 `bill_date`。
+
+**商品标（GOODS_LABEL）—— 一行商品一张标**
+- 数据源 `base_product`：一行一张标，**不按 status 过滤**（停用商品在库的还得贴标）；`bizNoOf` 槽放 `product_code`（App 下拉只显示单号，放雪花 id 会是一串数字）。`/bills` 关键字 like product_code/product_name/spec；`/lines` 回空。
+
+**改动清单**
+- 后端：`LabelBizType` 加两枚举（sourcePerm：CERT=`quality:inspection:list`、GOODS_LABEL=`base:product:list`）；新增 `context/CertLabelContextLoader` + `context/GoodsLabelContextLoader`（`@Component`，Spring 注入即自动挂进 `LabelContextService`）；`BaseLabelController` `/bills` switch 表达式补两 case（编译器兜底、非语句）、`/lines` 保留 `default -> {}`；`LabelFieldDict` 补两类字段名单 + 中文标签；`/bills` 权限 OR 扩到两类 sourcePerm。
+- PC：`LabelTemplate.vue` 加 `HAS_LINES` 常量（只有 RAW_PALLET/CARTON 挂明细行选择器），BIZ_TYPES 加 CERT/GOODS_LABEL；`LabelCenter.vue` 下拉加两项。
+- App：`label-print.vue` BIZ 加两类；`api/label.js` 注释更新（CERT/GOODS_LABEL 均为有效 `/bills` 目标、无明细行）。
+- SQL：`sql/159_v11178_label_cert_goods.sql`（**只在 .150 主库灌，canary 先灌会撞 1062**）—— 两张默认模板 `CERT_DEFAULT`(id 1178000000000000001) + `GOODS_LABEL_DEFAULT`(id 1178000000000000002)，80/60/3/203/NORMAL/1，字段名单与两个 loader 逐字对齐。
+
+**测试**：后端全量 **676 / 0 失败**（`/tmp/build178.log`），含 `CertLabelContextLoaderTest` 13、`GoodsLabelContextLoaderTest` 8、`BaseLabelControllerBillsTest` 8（后两条用 `@BeforeAll` 装 lambda cache + `getSqlSegment()` 断言，取代失效的 `getParamNameValuePairs()` 空 Map 断言法）。
+
+**版本 / 产物**（全栈三端 + SQL，非 app-only，四处版本号一起抬到 1.1.178）：`app/package.json`、`pc-web/package.json`、`application.yml` `ERP_VERSION`、`app/src/manifest.json`（versionName 1.1.178 / **versionCode 1178**，上一枚 1177）、`pages/profile/index.vue` `APP_VERSION`、CLAUDE.md 顶部。jar md5 `5363381be9e486ada1d701bcf409c1ee`（`backend/target/industrial-erp-1.0.4.jar`）；PC dist `index.html` md5 `46ddf11a739da6b3e634a1a6bb9f2b38`；App H5 `index.html` md5 `64a597e7e9f49afc8d78424af4878b88`。⚠️ **手机侧走 APK**（App H5 无公网入口），装新 APK 才有合格证/商品标标签出口。
+
 ### v1.1.177 (2026-11-10 — App 原料入库「识别批号」支持**框选识别区域**：客户端裁剪后上传，**零后端改动 / 零 SQL / 零 PC**；app-only)
 
 > **用户原话**: 「app端原料入库到货原料与批号中识别批号时可以选取识别区域。」

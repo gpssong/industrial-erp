@@ -4,10 +4,12 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
 import cn.hutool.json.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.industrial.erp.common.Constants;
 import com.industrial.erp.common.R;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseLabelPrintLog;
 import com.industrial.erp.modules.base.entity.BaseLabelTemplate;
+import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.label.FeieLabelRenderer;
 import com.industrial.erp.modules.base.label.FeieResult;
 import com.industrial.erp.modules.base.label.LabelBizType;
@@ -25,6 +27,7 @@ import com.industrial.erp.modules.base.label.LabelResolveService;
 import com.industrial.erp.modules.base.label.RenderResult;
 import com.industrial.erp.modules.base.label.TsplLabelRenderer;
 import com.industrial.erp.modules.base.label.context.CartonLabelContextLoader;
+import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.service.BaseLabelTemplateService;
 import com.industrial.erp.modules.production.client.FeiePrintClient;
 import com.industrial.erp.modules.production.entity.PrdFinishedIn;
@@ -33,6 +36,8 @@ import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.entity.PurReceiptDetail;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptDetailMapper;
 import com.industrial.erp.modules.purchase.mapper.PurReceiptMapper;
+import com.industrial.erp.modules.qms.entity.MesQualityInspection;
+import com.industrial.erp.modules.qms.mapper.MesQualityInspectionMapper;
 import com.industrial.erp.modules.sales.entity.SalDelivery;
 import com.industrial.erp.modules.sales.entity.SalDeliveryDetail;
 import com.industrial.erp.modules.sales.mapper.SalDeliveryDetailMapper;
@@ -72,7 +77,9 @@ public class BaseLabelController {
                                PurReceiptDetailMapper purReceiptDetailMapper,
                                SalDeliveryDetailMapper salDeliveryDetailMapper,
                                SysFeiePrinterConfigMapper printerConfigMapper,
-                               LabelResolveService resolveService) {
+                               LabelResolveService resolveService,
+                               MesQualityInspectionMapper qualityInspectionMapper,
+                               BaseProductMapper productMapper) {
         this.masterService = masterService;
         this.templateService = templateService;
         this.previewService = previewService;
@@ -88,6 +95,8 @@ public class BaseLabelController {
         this.salDeliveryDetailMapper = salDeliveryDetailMapper;
         this.printerConfigMapper = printerConfigMapper;
         this.resolveService = resolveService;
+        this.qualityInspectionMapper = qualityInspectionMapper;
+        this.productMapper = productMapper;
     }
 
     private final LabelMasterService masterService;
@@ -106,6 +115,9 @@ public class BaseLabelController {
     private final SalDeliveryDetailMapper salDeliveryDetailMapper;
     private final SysFeiePrinterConfigMapper printerConfigMapper;
     private final LabelResolveService resolveService;
+    /** v1.1.178 `/bills` 的两张新主表：合格证走 OQC 检验单，商品标走商品主数据。 */
+    private final MesQualityInspectionMapper qualityInspectionMapper;
+    private final BaseProductMapper productMapper;
 
     /** 标签主数据（生产者名称/地址/XK 证号/执行标准/贮存条件/检验员代号）。
      *  App 打印中心也要读它，不能叫只有业务权限的人去调 /system/config/*，所以单独开一个只读口。 */
@@ -125,10 +137,10 @@ public class BaseLabelController {
         return R.ok(out);
     }
 
-    /** 选单据：三类标签各查各的主表，keyword 打单号/品名/客户/供应商。
+    /** 选单据：五类标签各查各的主表，keyword 打单号/品名/客户/供应商/编码。
      *  只回 10 列以内的小 Map，别把整张单据喂给前端；limit 封顶 50（分页拦截器 maxLimit=200 是防 OOM 的兜底，不是许可）。 */
     @SaCheckPermission(value = {"base:label:list", "production:finished-in:list", "purchase:receipt:list",
-            "sales:delivery:list"}, mode = SaMode.OR, orRole = "admin")
+            "sales:delivery:list", "quality:inspection:list", "base:product:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/bills")
     public R<List<Map<String, Object>>> bills(@RequestParam String bizType,
                                               @RequestParam(required = false) String keyword,
@@ -163,7 +175,35 @@ public class BaseLabelController {
                     // 等哪天有人渲染这列时不必再决定一遍。真正看得见的病在纸面，由 printableDate 那侧治。
                     .stream().map(b -> row(b.getId(), b.getBillNo(), dateStr(CartonLabelContextLoader.printableDate(b)),
                             b.getCustomerName(), null, b.getBillStatus())).toList();
-            case CERT -> throw BizException.of(400, "合格证本期不出（docs/32 §11 第 4 条）");
+            /**
+             * 合格证选单：只列**打得出来**的那些 —— OQC + CHECKED + 结论合格，与 {@code CertLabelContextLoader}
+             * 的四道闸一字不差。少一个条件，下拉里就会躺着一点就 400 的死单（A9 当年拒绝「列出 CERT 但必报错」
+             * 是同一个理由，只是现在有了真数据，正确解法从「不列」变成「只列能打的」）。
+             * 日期取 check_time（检验时刻），不取 bill_date（开单那天）。
+             */
+            case CERT -> qualityInspectionMapper.selectList(new LambdaQueryWrapper<MesQualityInspection>()
+                            .eq(MesQualityInspection::getInspectionType, Constants.INSPECTION_OQC)
+                            .eq(MesQualityInspection::getStatus, Constants.STATUS_CHECKED)
+                            .in(MesQualityInspection::getResult, Constants.RESULT_PASS, Constants.RESULT_PASS_DISPOSITION)
+                            .and(!kw.isEmpty(), w -> w.like(MesQualityInspection::getBillNo, kw)
+                                    .or().like(MesQualityInspection::getProductName, kw)
+                                    .or().like(MesQualityInspection::getBatchNo, kw))
+                            .orderByDesc(MesQualityInspection::getId).last("LIMIT " + n))
+                    .stream().map(b -> row(b.getId(), b.getBillNo(),
+                            dateStr(b.getCheckTime() == null ? null : b.getCheckTime().toLocalDate()),
+                            b.getProductName(), b.getBatchNo(), b.getStatus())).toList();
+            /**
+             * 商品标选单：一行商品一张标，所以「单号」槽放的是**商品编码**（App 下拉只显示 billNo，
+             * 放 id 会是一串雪花数字）。不按 status 过滤 —— 停用商品在库的还得贴标，
+             * 口径与 {@code GoodsLabelContextLoader} 一致。
+             */
+            case GOODS_LABEL -> productMapper.selectList(new LambdaQueryWrapper<BaseProduct>()
+                            .and(!kw.isEmpty(), w -> w.like(BaseProduct::getProductCode, kw)
+                                    .or().like(BaseProduct::getProductName, kw)
+                                    .or().like(BaseProduct::getSpec, kw))
+                            .orderByDesc(BaseProduct::getId).last("LIMIT " + n))
+                    .stream().map(p -> row(p.getId(), p.getProductCode(), "", p.getProductName(),
+                            null, null)).toList();
         };
         return R.ok(out);
     }
@@ -174,14 +214,15 @@ public class BaseLabelController {
     @GetMapping("/lines")
     public R<List<Map<String, Object>>> lines(@RequestParam String bizType, @RequestParam Long bizId) {
         List<Map<String, Object>> out = new ArrayList<>();
-        // **A9 裁定 R2（后半）：这里刻意保留 switch 语句 + default。** `default` 的含义是「这两类没有明细行」，
-        // 是业务事实不是漏分支 —— 改成表达式会把 FG_ROLL/CERT 变成编译期必须逐个列出的 case，反而看不出「有意为空」。
+        // **A9 裁定 R2（后半）：这里刻意保留 switch 语句 + default。** `default` 的含义是「这几类没有明细行」，
+        // 是业务事实不是漏分支 —— 改成表达式会把 FG_ROLL/CERT/GOODS_LABEL 变成编译期必须逐个列出的 case，
+        // 反而看不出「有意为空」。GOODS_LABEL 走 default 是它连「单」都没有，一行商品就是一张标。
         switch (LabelBizType.of(bizType)) {
             case RAW_PALLET -> purReceiptDetailMapper.selectByReceiptId(bizId).forEach(d ->
                     out.add(line(d.getId(), d.getProductName(), d.getQty(), d.getBatchNo())));
             case CARTON -> salDeliveryDetailMapper.selectByDeliveryId(bizId).forEach(d ->
                     out.add(line(d.getId(), d.getProductName(), d.getQty(), d.getBatchNo())));
-            default -> { /* FG_ROLL / CERT 无明细行 */ }
+            default -> { /* FG_ROLL / CERT / GOODS_LABEL 无明细行 */ }
         }
         return R.ok(out);
     }
@@ -376,9 +417,12 @@ public class BaseLabelController {
     /** 日志上的单号只是给人看的：ctx 里键名按 bizType 不同，这里做一次归一（A5 的 flat 键，见 LabelFieldDict）。 */
     private String bizNoOf(LabelPreviewRequest req) {
         String key = switch (LabelBizType.of(req.getBizType())) {
-            case FG_ROLL, CERT -> "billNo";
+            case FG_ROLL -> "billNo";
             case RAW_PALLET -> "receiptBillNo";
             case CARTON -> "deliveryBillNo";
+            case CERT -> "inspectionBillNo";
+            // 商品标没有单号，日志上认编码 —— 和 /bills 把它塞进 billNo 槽是同一个决定的两面。
+            case GOODS_LABEL -> "productCode";
         };
         Object v = contextService.loadFirst(req.getBizType(), req.getBizId(), req.getLineIds()).get(key);
         return v == null ? null : String.valueOf(v);

@@ -2,12 +2,14 @@ package com.industrial.erp.modules.base.label;
 
 import com.industrial.erp.exception.BizException;
 
-/** 标签业务类型 (docs/32 §3.2)。CERT 只占枚举，本期无种子模板。 */
+/** 标签业务类型 (docs/32 §3.2)。v1.1.178 补上 CERT（挂 OQC 出厂检验单）与 GOODS_LABEL（挂商品主数据）。 */
 public enum LabelBizType {
     FG_ROLL("FG_ROLL", "成品卷标", "production:finished-in:list"),
     RAW_PALLET("RAW_PALLET", "原料垛标", "purchase:receipt:list"),
     CARTON("CARTON", "箱标", "sales:delivery:list"),
-    CERT("CERT", "合格证", "report:view");
+    /** 权限点从占位时的 `report:view` 改成真的源单权限 —— 见 docs/36 全局约束 4：能打印的人本来就能查这张单。 */
+    CERT("CERT", "合格证", "quality:inspection:list"),
+    GOODS_LABEL("GOODS_LABEL", "商品标", "base:product:list");
 
     LabelBizType(String code, String displayName, String sourcePerm) {
         this.code = code; this.displayName = displayName; this.sourcePerm = sourcePerm;

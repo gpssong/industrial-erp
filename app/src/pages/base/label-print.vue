@@ -114,8 +114,9 @@ import { checkPagePermission, isAdmin, getAppPermissions } from '@/utils/permiss
 const BIZ = [
   { value: 'FG_ROLL', label: '成品卷标' },
   { value: 'RAW_PALLET', label: '原料垛标' },
-  { value: 'CARTON', label: '箱标' }
-  // CERT 合格证不做入口：/bills 对它显式 400（A9），列出来就是个点了必报错的死按钮（与 A12 打印中心一致）
+  { value: 'CARTON', label: '箱标' },
+  { value: 'CERT', label: '合格证' },
+  { value: 'GOODS_LABEL', label: '商品标' }
 ]
 
 const VIEW_W = 320   // 预览可视宽：640 点 → 320px（与 PC 的 LabelCenter 同一口径）

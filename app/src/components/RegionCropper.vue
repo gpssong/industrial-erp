@@ -152,7 +152,10 @@ export default {
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 900;
+  /* v1.1.179: uni-app H5 的 uni-tabbar 默认 z-index=998，原来 900 会被它压在下面，
+     原料入库/扫码类 tab 页全屏框选时底部「识别这区域/取消/重置」被 tabBar 盖住点不到。
+     提到 9999 与项目其它全屏遮罩 (users/product-add 等) 对齐，确保盖过 tabBar。 */
+  z-index: 9999;
   background: #10151c;
   display: flex;
   flex-direction: column;

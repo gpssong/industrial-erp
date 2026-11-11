@@ -25,8 +25,11 @@ public final class LabelFieldDict {
                     "unitName", "receiptBillNo", "receiptDate", "inspectionReportNo"),
             "CARTON", List.of("customerName", "deliveryAddress", "deliveryPhone", "productName",
                     "spec", "qty", "unitName", "orderNo", "deliveryBillNo", "deliveryDate", "batchNo"),
-            "CERT", List.of("productName", "productCode", "spec", "qty", "unitName", "batchNo",
-                    "productionDate", "orderNo"));
+            "CERT", List.of("productName", "productCode", "spec", "material", "barcode", "batchNo",
+                    "productionDate", "qty", "unitName", "shelfLifeDays", "inspectionBillNo",
+                    "inspectionDate", "orderNo"),
+            "GOODS_LABEL", List.of("productName", "productCode", "spec", "material", "unitName",
+                    "gramWeight", "width", "thickness", "colorNo", "barcode", "qrcode", "shelfLifeDays"));
 
     private static final Map<String, String> LABELS = Map.ofEntries(
             Map.entry("productName", "产品名称"), Map.entry("productCode", "商品编码"),
@@ -40,6 +43,9 @@ public final class LabelFieldDict {
             Map.entry("customerName", "客户名称"), Map.entry("deliveryAddress", "收货地址"),
             Map.entry("deliveryPhone", "联系电话"), Map.entry("deliveryBillNo", "销售出库单号"),
             Map.entry("deliveryDate", "出库日期"),
+            Map.entry("material", "材质"), Map.entry("barcode", "条码"),
+            Map.entry("qrcode", "二维码内容"), Map.entry("shelfLifeDays", "保质期(天)"),
+            Map.entry("inspectionBillNo", "检验单号"), Map.entry("inspectionDate", "检验日期"),
             Map.entry("producerName", "生产者名称"), Map.entry("producerAddress", "生产者地址"),
             Map.entry("xkNo", "生产许可证编号"), Map.entry("execStandard", "执行标准"),
             Map.entry("storageCondition", "贮存条件"), Map.entry("inspectorCode", "检验员代号"));
