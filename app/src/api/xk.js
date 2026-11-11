@@ -95,7 +95,7 @@ export const ocrStatus = async () => {
   try {
     const d = await request({ url: '/ai/ocr/status', method: 'GET', silent: true })
     return ok(d || { enabled: false, model: '' })
-  } catch (e) { return fail(e.msg || 'OCR 状态读取失败', { enabled: false, model: '' }) }
+  } catch (e) { return fail('OCR 状态读取失败', { enabled: false, model: '' }) }
 }
 
 /**
@@ -110,7 +110,7 @@ export const ocrLabelBatchNo = async (photoUrls, productName) => {
   try {
     const d = await request({ url: '/ai/ocr/label-batchno', method: 'POST', data, contentType: 'json' })
     return ok(d || { candidates: [], rawText: '' })
-  } catch (e) { return fail(e.msg || '识别失败', { candidates: [], rawText: '' }) }
+  } catch (e) { return fail(e.msg || '识别请求失败', { candidates: [], rawText: '' }) }
 }
 
 export const traceBatches = async (direction) => {

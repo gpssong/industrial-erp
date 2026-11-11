@@ -44,6 +44,12 @@ export async function captureRegionAndRecognize(ctx, m) {
     // 只识别刚拍的这张: TextIn 按张计费更省, 按品名定向也不会被旧照片干扰
     const ocrUrl = await resolveOcrUrl(ctx, tempFilePath, original, rect)
     const resp = await ctx.ocrLabelBatchNo([ocrUrl], m && m.productName)
+    // 后端 500 (OCR 未配置 / TextIn 并发限制 / HTTP 5xx / 照片读不到) 不能被当成「没识别到」,
+    // 否则用户以为是照片拍糊了 —— 真实原因在 resp.msg 里
+    if (resp && resp.code === 500) {
+      ctx.toast('识别失败：' + (resp.msg || '未知错误'), 4000)
+      return
+    }
     const cand = ((resp && resp.data && resp.data.candidates) || []).slice(0, MAX_CANDIDATES)
     if (m) m.ocrCandidates = cand
     if (cand.length) {

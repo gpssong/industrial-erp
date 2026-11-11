@@ -3,6 +3,16 @@
 
 ## changelog (倒序)
 
+### v1.1.180 (2026-11-11 — App 原料入库「识别批号」后端 500 不再伪装成「未识别到批号」；纯 App 改动，非 jar / 非 SQL)
+
+> **用户报**：App 原料入库拍照识别批号时弹「照片已保存；未识别到该原料批号，请手工录入」，看着像照片拍糊，实际可能是 OCR 未配置 / TextIn 并发限制 / HTTP 5xx / 后端读不到照片文件。**文案把服务端的真实原因吃掉了**，现场只能盲重试。
+
+- `app/src/utils/ocrCapture.js`：`captureRegionAndRecognize` 在 `ocrLabelBatchNo` 返回后先判 `resp.code === 500`，命中则弹「识别失败：{resp.msg}」并终止本次流程（不回填候选、不报「未识别到」）—— 500 与「识别成功但 0 候选」从此是两条路。
+- `app/src/api/xk.js`：`ocrLabelBatchNo` catch 回退文案 `识别失败` → `识别请求失败`（与后端业务错区分）；`ocrStatus` catch 改为固定文案 `OCR 状态读取失败`，不再把后端 msg 透到界面（状态探测属于背景调用，弹原始错误只会噪音）。
+- **测试**：`app/test/ocrCapture.test.mjs` 新增用例「识别接口 500 (OCR 未配置等): 弹真实原因, 不误导成「没识别到」」。红绿已验证 —— 摘掉 guard 后该用例失败（19 中 1 败、exit 1），装回 `node --test test/ocrCapture.test.mjs test/uploadHeaders.test.mjs` → **23 tests / 23 pass / 0 fail / exit 0**。
+- **版本**：四处对齐 1.1.180（`app/package.json`、`app/src/manifest.json` versionName 1.1.180 / versionCode 1180、`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`profile/index.vue` `APP_VERSION`）。
+- **上线产物**：`.150` **backend jar 与 PC dist 未动**（后端/PC 零功能改动，线上仍是 v1.1.179 产物，`ERP_VERSION=1.1.179` + `SYSTEM_VERSION_INFO.version=1.1.179` 实测），下次真改后端时再一并抬版。App 侧：H5 `index.html` md5 `f9156ebe81760c6ee7405719422ea66f` 已整目录替换到 `.32:/vol2/erp-system/app-h5/dist/build/h5`（`erp-app-h5` 容器 `curl :18090/index.html` 回同一 md5）与阿里云 `/opt/erp-system/app-h5`（`curl 127.0.0.1:18090/index.html` 同 md5），两站替换前各留退路 `app-h5-before-v1180.tgz`；APK `app/erp-app-v1.1.180.apk` md5 `eb5ee098ba3f3c9ee2e99504f0d32c27`，已拷飞牛共享目录 `/vol1/1000/mac使用/erp/`（两端 md5 一致）。`.150` 无 H5 容器（`docker ps -a` 实测只有 backend/mysql/pc-web/redis/tunnel）。⚠️ **手机走内嵌 H5 的 APK，必须装 `erp-app-v1.1.180.apk` 才能看到新提示**。上一版 v1.1.179 见下。
+
 ### v1.1.179 (2026-11-11 — 商品标「宽×厚」按 mm 印上纸面 + 框选确认按钮 z-index 修复；后端 jar + App APK/PC dist，非 SQL)
 
 > **两件事**：① 用户裁定「宽×厚单位 mm」—— 商品标纸面把幅宽/厚度印成 mm，不再印裸值；② App 原料入库 OCR 框选时「识别这区域/取消/重置」按钮被 tabBar 挡住点不到。

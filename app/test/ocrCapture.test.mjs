@@ -216,6 +216,22 @@ test('识别接口失败 (非取消): 弹失败提示, 照片已保存, 忙状�
   assert.equal(state.ocrLoadingIdx, -1)
 })
 
+test('识别接口 500 (OCR 未配置等): 弹真实原因, 不误导成「没识别到」', async () => {
+  const state = makeState()
+  const { deps, calls } = makeDeps({
+    ocrLabelBatchNo: async () => ({ code: 500, msg: 'OCR 未配置: 请在 系统设置→对接方式 填密钥', data: { candidates: [] } })
+  })
+  const m = { productName: '赛科0220kj', batchNo: '' }
+  await captureAndRecognizeBatch(state, deps, 0, m)
+
+  assert.equal(calls.bind.length, 1, '照片已保存')
+  assert.equal(m.batchNo, '', '不回填')
+  assert.equal(m.ocrCandidates, undefined, '不挂空候选条')
+  assert.ok(calls.toast.some((t) => /OCR 未配置/.test(t.title)), '弹后端的真实原因')
+  assert.ok(!calls.toast.some((t) => /未识别到该原料批号/.test(t.title)), '不能用「没识别到」掩盖服务端错误')
+  assert.equal(state.ocrLoadingIdx, -1)
+})
+
 // ===== xk/material.vue 走的入口: 原图落 form.photos 而不是 IQC 附件 =====
 
 test('material 入口: 拍一张 → 原图 push 进单据照片 → 只识别裁后小图 → 写回批号', async () => {
