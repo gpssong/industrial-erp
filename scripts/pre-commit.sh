@@ -61,8 +61,8 @@ done
 # -----------------------------------------------------------
 echo ""
 echo "==> [pre-commit] pc-web lint..."
-if [ ! -d "pc-web/node_modules" ]; then
-  echo "  ⚠  pc-web/node_modules 不存在, 跳过 (先 cd pc-web && npm ci)"
+if [ ! -x "pc-web/node_modules/.bin/eslint" ]; then
+  echo "  ⚠  pc-web 缺 eslint (node_modules 与 package.json 不同步), 跳过 (先 cd pc-web && npm ci)"
 elif (cd pc-web && npm run lint --silent > /tmp/erp-pc-lint.log 2>&1); then
   echo "  ✅ lint 通过"
 else
