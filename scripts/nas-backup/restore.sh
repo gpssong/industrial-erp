@@ -17,7 +17,7 @@ set -euo pipefail
 BACKUP_ROOT="${ERP_BACKUP_ROOT:-/volume3/docker/erp-system/data/erp-backup}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# ⚠️  从 .env 读取 MYSQL_ROOT_PASSWORD, 不再硬编码 ***REMOVED_CREDENTIAL***
+# ⚠️  从 .env 读取 MYSQL_ROOT_PASSWORD, 不再硬编码任何 MySQL 口令
 DB_PASS=""
 for ENV_FILE in \
     "$(dirname "$SCRIPT_DIR")/../.env" \

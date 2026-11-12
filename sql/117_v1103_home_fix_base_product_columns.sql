@@ -1,5 +1,5 @@
 -- 合并灌库脚本 (幂等): 108 + 109 + 114 + 116 (v1.1.99~v1.1.101 food grade + IQC 字段)
--- 灌法: docker cp 此文件进 erp-mysql 容器, 再 docker exec mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 -D industrial_erp < fix.sql
+-- 灌法: docker cp 此文件进 erp-mysql 容器, 再 docker exec mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 -D industrial_erp < fix.sql
 -- v1.1.99: 商品表加 食品级 开关 (XK 食品接触合规字段)
 -- 用户反馈 2026-10-14: 新增商品弹窗需要 食品级 开关 (亮=食品级, 暗=工业品)
 -- 沿用 isBatch/isSn 的 Integer TINYINT 范式, 默认 0 (工业品)

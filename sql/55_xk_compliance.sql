@@ -22,7 +22,7 @@
 --   Q3) 照片上传: 复用 /api/system/upload/file (v1.1.79 已有), 不新建 XK 专用端点
 --
 -- ⚠️ MySQL 8 容器默认 latin1, 必须:
---   docker exec -i erp-mysql[-failover] mysql industrial_erp -uroot -p***REMOVED_CREDENTIAL*** \
+--   docker exec -i erp-mysql[-failover] mysql industrial_erp -uroot -p"$ERP_MYSQL_ROOT_PWD" \
 --     --default-character-set=utf8mb4 < 55_xk_compliance.sql
 -- =====================================================================
 

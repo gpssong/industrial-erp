@@ -20,7 +20,7 @@
 --   - App 新增 pages/report/ai 页面 + 工作台入口.
 --
 -- 用法 (双站 home + 飞牛各跑一次, 必须 utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/48_v176_ai_perm.sql
 --
 -- 幂等: sys_menu 用 NOT EXISTS 查重 (path='/report/ai'); sys_role_menu 用

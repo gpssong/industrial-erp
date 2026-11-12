@@ -12,7 +12,7 @@
 --       销售出库单. 纯数据修复, 无 schema DDL.
 --
 -- 用法 (home 生产库 192.168.0.150, utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/46_v168hotfix_cost_backfill.sql
 --
 -- 飞牛热备库 (192.168.0.32): 无 dyd975007 业务数据 (0 行), 无需跑.

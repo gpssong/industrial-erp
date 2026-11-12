@@ -14,7 +14,7 @@
 --   在 ssh/管道传输 stdin 时把 UTF-8 字节当 Latin-1 重新编码, 造成双重
 --   编码乱码 (典型症状: "新增商品" 显示为 "æ–°å¢žå•†å" ).
 --   推荐执行方式:
---     sudo docker exec erp-mysql mysql -uroot -p***REMOVED_CREDENTIAL*** industrial_erp \
+--     sudo docker exec erp-mysql mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" industrial_erp \
 --       --default-character-set=utf8mb4 < 23_add_app_button_menus.sql
 --   或在 MySQL 客户端: SOURCE /path/to/23_add_app_button_menus.sql;
 -- =============================================================================

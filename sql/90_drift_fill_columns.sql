@@ -15,10 +15,10 @@
 --
 -- 执行 (飞牛 canary 先, 验证后 home):
 --   飞牛: sudo docker cp 90_drift_fill_columns.sql erp-mysql-failover:/tmp/ &&
---         sudo docker exec erp-mysql-failover mysql -uroot -p***REMOVED_CREDENTIAL*** industrial_erp \
+--         sudo docker exec erp-mysql-failover mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" industrial_erp \
 --           --default-character-set=utf8mb4 < /tmp/90_drift_fill_columns.sql
 --   home: sudo docker cp ... erp-mysql:/tmp/ && sudo docker exec erp-mysql mysql ... < /tmp/...
---   或 (有本机 mysql 客户端且能直连 3306):  mysql -h<ip> -uroot -p***REMOVED_CREDENTIAL*** industrial_erp \
+--   或 (有本机 mysql 客户端且能直连 3306):  mysql -h<ip> -uroot -p"$ERP_MYSQL_ROOT_PWD" industrial_erp \
 --           --default-character-set=utf8mb4 < 90_drift_fill_columns.sql
 -- =============================================================================
 SET NAMES utf8mb4;

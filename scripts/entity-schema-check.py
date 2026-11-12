@@ -133,6 +133,35 @@ def _parse_cols(tsv: str) -> dict:
     return out
 
 
+def _ops_cred(env_name, ops_key):
+    """取运维凭据: 先看环境变量, 再看 ops-env 文件 (~/.config/erp-ops/env); 都取不到就退出。
+
+    仓库里不保留任何默认口令 —— 取不到值时大声失败, 好过"能跑通的默认弱口令"。
+    """
+    v = os.environ.get(env_name)
+    if v:
+        return v
+    env_file = os.environ.get('ERP_OPS_ENV', os.path.expanduser('~/.config/erp-ops/env'))
+    if os.path.isfile(env_file):
+        with open(env_file, encoding='utf-8') as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, val = line.split('=', 1)
+                if k.strip() == ops_key:
+                    val = val.strip().strip('"').strip("'")
+                    if val:
+                        return val
+    sys.exit("❌ 缺少凭据 %s: 设置环境变量 %s, 或在 %s 里填好 (见 scripts/ops-env.example)"
+             % (ops_key, env_name, env_file))
+
+
+def _ssh_ops_key(host):
+    """SSH 口令按目标站取: .32 飞牛用 ERP_FN_SSH_PASS, .150 群晖用 ERP_HOME_SSH_PASS。"""
+    return 'ERP_FN_SSH_PASS' if str(host).endswith('.32') else 'ERP_HOME_SSH_PASS'
+
+
 def main():
     warn_only = '--warn-only' in sys.argv
     live = '--live' in sys.argv or '--live-ssh' in sys.argv
@@ -143,7 +172,7 @@ def main():
     if live:
         host = os.environ.get('DB_HOST', '192.168.0.150')
         user = os.environ.get('DB_USER', 'root')
-        pwd = os.environ.get('DB_PWD', '***REMOVED_CREDENTIAL***')
+        pwd = _ops_cred('DB_PWD', 'ERP_MYSQL_ROOT_PWD')
         db = os.environ.get('DB_NAME', 'industrial_erp')
         query = ("SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS "
                  "WHERE TABLE_SCHEMA='" + db + "'")
@@ -153,10 +182,10 @@ def main():
             # SSH_HOST / SSH_USER / SSH_SUDO_PASS / DB_MYSQL_PWD / DB_CONTAINER 可覆盖
             shost = os.environ.get('SSH_HOST', '192.168.0.150')
             suser = os.environ.get('SSH_USER', 'gpssong')
-            spass = os.environ.get('SSH_PASS', '***REMOVED_CREDENTIAL***')
-            spass_sudo = os.environ.get('SSH_SUDO_PASS', '***REMOVED_CREDENTIAL***')
+            spass = _ops_cred('SSH_PASS', _ssh_ops_key(shost))
+            spass_sudo = _ops_cred('SSH_SUDO_PASS', _ssh_ops_key(shost))
             cont = os.environ.get('DB_CONTAINER', 'erp-mysql')
-            dbpwd = os.environ.get('DB_MYSQL_PWD', '***REMOVED_CREDENTIAL***')
+            dbpwd = _ops_cred('DB_MYSQL_PWD', 'ERP_MYSQL_ROOT_PWD')
             print(f"[INFO] live-ssh 模式: 经 {suser}@{shost} docker exec {cont} 取列集")
             import subprocess
             ssh_base = ['sshpass', '-p', spass, 'ssh', '-o', 'StrictHostKeyChecking=no', f'{suser}@{shost}']

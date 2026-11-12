@@ -21,7 +21,7 @@
 --   report/inventory 的 :view 门禁) 和回收站共用同一门禁码, 一次补齐.
 --
 -- 用法 (双站 home + 飞牛各跑一次, 必须 utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/46_v169_recycle_report_view_grant.sql
 --
 -- 幂等: 全部走 INSERT IGNORE (有 (role_id,menu_id,client_type) 唯一约束的

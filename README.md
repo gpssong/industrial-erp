@@ -337,7 +337,7 @@ mvn test                          # 全量
   - 后端: `PUT /api/system/user/me/password` — 用户改自己密码, 校验旧密码, 强校验"新密码不能与原密码相同"
   - 前端: `MainLayout.vue` dropdown 加 🔑 修改密码项(在退出登录之上), 弹窗输入, 改成功后强制登出重新登录
 - **ResizeObserver 警告静默** — `pc-web/src/main.js` 全局过滤 `console.error` + `window.onerror` 里包含 "ResizeObserver loop" 的消息(无害但污染 console)
-- **安全加固**: `application.yml` 移除 `***REMOVED_CREDENTIAL***` 默认兜底, CORS 默认仅 localhost; `docker-compose.yml` 用 `:?` 必填语法; `backup.sh`/`restore.sh` 从 `.env` 读 `MYSQL_ROOT_PASSWORD`(不再硬编码)
+- **安全加固**: `application.yml` 移除 `ERP_MYSQL_ROOT_PWD` 默认兜底, CORS 默认仅 localhost; `docker-compose.yml` 用 `:?` 必填语法; `backup.sh`/`restore.sh` 从 `.env` 读 `MYSQL_ROOT_PASSWORD`(不再硬编码)
 - **NAS 清理**: 释放 2.6GB 孤儿镜像 + 1.62GB 构建缓存, 删孤儿容器 `vibrant_euler` / `epic_benz`
 - **前端文档**: `docs/21_操作日志与登录日志功能.md` + `docs/22_自服务修改密码与前端调优.md`
 
@@ -496,7 +496,7 @@ docker run -d --name erp-backend ... \
 
 **用户报 4**: `home.93gushi.com:8088` 报 `Error: Failed to obtain JDBC Connection` + `SysUserMapper.selectPermsByUserId`
 
-**根因**: 同上 3 的"姊妹篇"。手工 `docker run` 启动 `erp-backend` 时, MySQL 环境变量名也写错了 — 用了 `ERP_DB_HOST=mysql / ERP_DB_PORT=3306 / ERP_DB_USERNAME=root / ERP_DB_PASSWORD=***REMOVED_CREDENTIAL***`, 但 Spring Boot 实际读的是 `SPRING_DATASOURCE_URL/HOST/PORT/USERNAME/PASSWORD`。环境变量未生效 → fallback 到 application.yml 默认 `jdbc:mysql://127.0.0.1:3306/industrial_erp` → 容器内无 MySQL → `CannotGetJdbcConnectionException`。
+**根因**: 同上 3 的"姊妹篇"。手工 `docker run` 启动 `erp-backend` 时, MySQL 环境变量名也写错了 — 用了 `ERP_DB_HOST=mysql / ERP_DB_PORT=3306 / ERP_DB_USERNAME=root / ERP_DB_PASSWORD=ERP_MYSQL_ROOT_PWD`, 但 Spring Boot 实际读的是 `SPRING_DATASOURCE_URL/HOST/PORT/USERNAME/PASSWORD`。环境变量未生效 → fallback 到 application.yml 默认 `jdbc:mysql://127.0.0.1:3306/industrial_erp` → 容器内无 MySQL → `CannotGetJdbcConnectionException`。
 
 **修复**: 重启容器用 4 个 `SPRING_DATASOURCE_*` 环境变量(URL/HOST/PORT/USERNAME/PASSWORD)。这里给一个**已验证可用**的完整 `docker run` 模板,留存 README 顶部供未来重启直接拷:
 
@@ -509,7 +509,7 @@ docker run -d --name erp-backend --restart=always \
   -e SPRING_DATASOURCE_HOST=mysql \
   -e SPRING_DATASOURCE_PORT=3306 \
   -e SPRING_DATASOURCE_USERNAME=root \
-  -e SPRING_DATASOURCE_PASSWORD=***REMOVED_CREDENTIAL*** \
+  -e SPRING_DATASOURCE_PASSWORD="$ERP_MYSQL_ROOT_PWD" \
   -e SPRING_DATASOURCE_DB=industrial_erp \
   -e SPRING_DATA_REDIS_HOST=redis \
   -e SPRING_DATA_REDIS_PORT=6379 \

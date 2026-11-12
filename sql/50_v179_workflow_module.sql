@@ -17,7 +17,7 @@
 --   - sql/47 教训: 可授权菜单节点 perms 必须非空
 --
 -- 用法 (双站 home + 飞牛各跑一次, 必须 utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/50_v179_workflow_module.sql
 --
 -- 幂等: 建表 IF NOT EXISTS; sys_menu NOT EXISTS; sys_role_menu INSERT IGNORE. 可重复跑.

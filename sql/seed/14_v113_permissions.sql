@@ -1,6 +1,6 @@
 -- =====================================================================
 -- v1.1.3 — 新增权限点 seed
--- 用法:  mysql -uroot -p***REMOVED_CREDENTIAL*** industrial_erp < sql/seed/14_v113_permissions.sql
+-- 用法:  mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" industrial_erp < sql/seed/14_v113_permissions.sql
 -- 适用:  v1.1.3 鉴权加固 (/print /report /upload /backup 接口)
 -- 说明:  print:use 和 report:view 是新增的两个权限码,
 --        通过 sys_role_menu 关联到 sys_menu.perms 字段生效

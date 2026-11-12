@@ -9,7 +9,7 @@
 -- =====================================================================
 -- 用法 (飞牛 canary 先行):
 --   docker cp sql/102_v196_em_maintain.sql <host>/tmp/ &&
---   docker exec -i erp-mysql-failover mysql -uroot -p***REMOVED_CREDENTIAL*** \
+--   docker exec -i erp-mysql-failover mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" \
 --     --default-character-set=utf8mb4 industrial_erp < /tmp/102_v196_em_maintain.sql
 -- =====================================================================
 

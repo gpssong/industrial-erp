@@ -6,7 +6,7 @@
 set -e
 
 . "$(dirname "$0")/scripts/ops-env.sh"
-erp_ops_load ERP_HOME_SSH_PASS || exit 1
+erp_ops_load "$ERP_HOME_SSH_PASS" || exit 1
 PASS="$ERP_HOME_SSH_PASS"
 
 LOCAL_DIST="/Users/tongban/Documents/根据前端开发erp 2/erp-system/pc-web/dist"

@@ -20,7 +20,7 @@
 --     Q3) 设备模块: 新建 modules/em (对齐 v1.1.79 modules/workflow 模式)
 --
 -- ⚠️ MySQL 8 容器默认 latin1, 必须:
---   docker exec -i erp-mysql[-failover] mysql industrial_erp -uroot -p***REMOVED_CREDENTIAL*** \
+--   docker exec -i erp-mysql[-failover] mysql industrial_erp -uroot -p"$ERP_MYSQL_ROOT_PWD" \
 --     --default-character-set=utf8mb4 < 54_v190_quality_process_equipment.sql
 -- =====================================================================
 

@@ -8,7 +8,7 @@
 -- 用法 (飞牛 canary 先行):
 --   docker cp sql/105_v197_qa_calibration.sql <host>/tmp/ &&
 --   docker exec erp-mysql-failover sh -c \
---     "exec mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 industrial_erp < /tmp/105.sql"
+--     "exec mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 industrial_erp < /tmp/105.sql"
 -- =====================================================================
 
 USE `industrial_erp`;

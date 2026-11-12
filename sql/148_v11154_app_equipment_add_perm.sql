@@ -12,7 +12,7 @@
 --
 -- 幂等: sys_role_menu 主键 (role_id, menu_id, client_type) + NOT EXISTS 双保险。
 -- 部署: 灌 .150 主库, 由复制带到 .32 / 阿里云; 用户需重新登录 (App 端 erp_menus 在登录时写入)。
---   printf 'pw\n' | sudo -S -p '' docker exec -i erp-mysql mysql industrial_erp -uroot -p***REMOVED_CREDENTIAL*** \
+--   printf 'pw\n' | sudo -S -p '' docker exec -i erp-mysql mysql industrial_erp -uroot -p"$ERP_MYSQL_ROOT_PWD" \
 --          --default-character-set=utf8mb4 < 148_v11154_app_equipment_add_perm.sql
 -- =====================================================================
 

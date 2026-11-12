@@ -6,7 +6,7 @@
 --       不新增权限点. 本脚本只补菜单可见性 (M 型节点) + 给内置角色授权.
 --
 -- 用法 (双站 home + 飞牛各跑一次, 必须 utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/45_v168_recycle_bin_menu.sql
 --
 -- 幂等: 先 SELECT 查重 sys_menu.path='/report/recycle', 存在则跳过 INSERT;

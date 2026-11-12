@@ -10,7 +10,7 @@
 --
 -- 用法 (飞牛):
 --   docker cp sql/101_v195_fi_list_perm.sql <host>/tmp/ &&
---   docker exec -i erp-mysql-failover mysql -ugpssong -p'***REMOVED_CREDENTIAL***' \
+--   docker exec -i erp-mysql-failover mysql -ugpssong -p"$ERP_MYSQL_ROOT_PWD" \
 --     --default-character-set=utf8mb4 industrial_erp < /tmp/101_v195_fi_list_perm.sql
 
 -- 1) 新增 M 型菜单节点「成品入库查询」perms=production:finished-in:list

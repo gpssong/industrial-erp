@@ -18,7 +18,7 @@
 --   本脚本负责 1) + 给 6 内置角色补授权 report:recycle.
 --
 -- 用法 (双站 home + 飞牛各跑一次, 必须 utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/47_v172_recycle_perm.sql
 --
 -- 幂等: UPDATE 带 perms='' 条件只命中一次; sys_role_menu 用 INSERT IGNORE 防重复.

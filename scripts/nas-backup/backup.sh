@@ -31,7 +31,7 @@ PCWEB_CONTAINER="erp-pc-web"
 
 DB_USER="root"
 # ⚠️  不要硬编码密码. 从 docker-compose 部署目录的 .env 中读取 (set -a 自动 export),
-# 找不到任何路径时立即失败, 避免冒认 ***REMOVED_CREDENTIAL*** 这种弱口令.
+# 找不到任何路径时立即失败, 避免冒认某个写死在脚本里的默认弱口令.
 DB_PASS=""
 for ENV_FILE in \
     "$(dirname "$SCRIPT_DIR")/../.env" \

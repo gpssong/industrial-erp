@@ -21,7 +21,7 @@ failover-fn/
 
 ```bash
 # SSH 飞牛
-ssh gpssong@n150.93gushi.com  # 密码 ***REMOVED_CREDENTIAL***
+ssh gpssong@n150.93gushi.com  # 密码 "$ERP_FN_SSH_PASS"
 
 # 创建目录
 mkdir -p /volume2/erp-system/{mysql-data,redis-data,upload,backup,dist,prometheus,alertmanager,firewall}
@@ -42,7 +42,7 @@ docker compose -f docker-compose.failover.yml up -d prometheus grafana alertmana
 
 ```sql
 -- 主库 (Synology DS918+, 192.168.0.150)
-CREATE USER 'repl_user'@'%' IDENTIFIED BY 'Repl_2026_Strong!';
+CREATE USER 'repl_user'@'%' IDENTIFIED BY '<MYSQL_REPL_PASSWORD>';
 GRANT REPLICATION SLAVE ON *.* TO 'repl_user'@'%';
 FLUSH PRIVILEGES;
 ```
@@ -52,9 +52,9 @@ FLUSH PRIVILEGES;
 ```bash
 # 飞牛 NAS
 docker compose -f docker-compose.failover.yml up -d erp-mysql-failover
-docker exec erp-mysql-failover mysql -uroot -p***REMOVED_CREDENTIAL*** \
-  -e "CHANGE MASTER TO MASTER_HOST='192.168.0.150', MASTER_USER='repl_user', MASTER_PASSWORD='Repl_2026_Strong!', MASTER_LOG_FILE='mysql-bin.000001', MASTER_LOG_POS=4; START SLAVE;"
-docker exec erp-mysql-failover mysql -uroot -p***REMOVED_CREDENTIAL*** -e "SHOW SLAVE STATUS\G"
+docker exec erp-mysql-failover mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" \
+  -e "CHANGE MASTER TO MASTER_HOST='192.168.0.150', MASTER_USER='repl_user', MASTER_PASSWORD='<MYSQL_REPL_PASSWORD>', MASTER_LOG_FILE='mysql-bin.000001', MASTER_LOG_POS=4; START SLAVE;"
+docker exec erp-mysql-failover mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" -e "SHOW SLAVE STATUS\G"
 ```
 
 ### 5. 启动自动故障监控

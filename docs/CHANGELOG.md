@@ -1590,7 +1590,7 @@ App H5 `index.html` `4be6fc1fed0d4a52b6bb4f82dd1994a0`、`assets/pages-report-ai
 
 **顺带修好的运维问题**: `.32` 副本 SQL applier 自 2026-10-29 16:44 起一直停在 `1062 Duplicate entry '2078644534343434242' for key 'sys_feie_print_template_bak_v1137.PRIMARY'` —— 正是 v1.1.137 同日第二批 `sql/146` **先在 canary 手工跑过、再灌主库**留下的老毛病 (主库那条 `insert into …bak_v1137` 通过复制流回来时本地已有同主键行)。先 `mysqldump` 该表留档，再 `TRUNCATE TABLE sys_feie_print_template_bak_v1137` + `START REPLICA`，复制恢复且那行由主库同步回来，落后归零。
 
-**踩坑 (值得记)**: (1) **现场顺序 ≠ 单据顺序** —— 质量门禁若假设「先有入库单再首检」，在 App 现场 (开工→首检→入库) 就是死锁；把检验单挂到**工序** (`PRD_PROCESS`) 上才与现场时序同构，这也是制袋首检/巡检早就采用的形态。 (2) 改门禁只改 `hasPassedFai` 不够 —— `findLinkedFaiForSemiIn` (报错要指名是哪张单) 和 `snapshotFaiGate` (XK 留痕字段回填) 必须同一口径，否则出现「能入库但入库单上报告号是空」。 (3) 工单的 `prd_process` 行是**开工 (`release()`) 时才展开**的，所以工序侧首检的前置条件天然满足 `requireActiveOrder` (RELEASED/PRODUCING)，未开工时 `ensure-for-process` 会被拒 —— 这是对的，别去绕。 (4) **先建草稿后改商品 `is_food_grade` 会让草稿的检验项集合失效**：`process-record` 保存时按当前模板重校验代码集合，报「检验模板代码集合不完整或与BLOW工序不匹配」；处理办法是软删旧草稿再重新 `ensure-for-process` 拿 8 项食品模板。 (5) `sys_config` 的列名是 `config_key/config_value` (不是 `cfg_key/cfg_value`)，版本核对直接 `SELECT config_value FROM sys_config WHERE config_key='SYSTEM_VERSION_INFO'`。 (6) `.150` 主库 `erp-mysql` 的 root 口令**不是** compose 里的 `MYSQL_ROOT_PASSWORD`，要从 `erp-backend` 的 `SPRING_DATASOURCE_PASSWORD` 读；`.32` 的 `erp-mysql-failover` 才是 `***REMOVED_CREDENTIAL***`。 (7) 阿里云 host nginx 只有 `listen 80` (`server_name 47.96.188.129`)，在机器上 `curl https://127.0.0.1/...` 命中的是宝塔默认站 → 会误判成 404/内容不对；探活要么 `curl -H "Host: 47.96.188.129" http://127.0.0.1/...`，要么直连容器发布端口 `127.0.0.1:18080` (PC) / `127.0.0.1:18090` (H5)。 (8) `docker compose ps` 不在 compose 文件所在目录跑会报 `no configuration file provided` (别误读成容器挂了)。 (9) **幂等迁移脚本先在 canary 跑再灌主库 → 复制必撞 1062 停** (本次又踩，见上)；主库灌过的脚本不要再在 canary 手工执行，或执行前确认该语句写的是纯备份表。
+**踩坑 (值得记)**: (1) **现场顺序 ≠ 单据顺序** —— 质量门禁若假设「先有入库单再首检」，在 App 现场 (开工→首检→入库) 就是死锁；把检验单挂到**工序** (`PRD_PROCESS`) 上才与现场时序同构，这也是制袋首检/巡检早就采用的形态。 (2) 改门禁只改 `hasPassedFai` 不够 —— `findLinkedFaiForSemiIn` (报错要指名是哪张单) 和 `snapshotFaiGate` (XK 留痕字段回填) 必须同一口径，否则出现「能入库但入库单上报告号是空」。 (3) 工单的 `prd_process` 行是**开工 (`release()`) 时才展开**的，所以工序侧首检的前置条件天然满足 `requireActiveOrder` (RELEASED/PRODUCING)，未开工时 `ensure-for-process` 会被拒 —— 这是对的，别去绕。 (4) **先建草稿后改商品 `is_food_grade` 会让草稿的检验项集合失效**：`process-record` 保存时按当前模板重校验代码集合，报「检验模板代码集合不完整或与BLOW工序不匹配」；处理办法是软删旧草稿再重新 `ensure-for-process` 拿 8 项食品模板。 (5) `sys_config` 的列名是 `config_key/config_value` (不是 `cfg_key/cfg_value`)，版本核对直接 `SELECT config_value FROM sys_config WHERE config_key='SYSTEM_VERSION_INFO'`。 (6) `.150` 主库 `erp-mysql` 的 root 口令**不是** compose 里的 `MYSQL_ROOT_PASSWORD`，要从 `erp-backend` 的 `SPRING_DATASOURCE_PASSWORD` 读；`.32` 的 `erp-mysql-failover` 才是 `ERP_MYSQL_ROOT_PWD`。 (7) 阿里云 host nginx 只有 `listen 80` (`server_name 47.96.188.129`)，在机器上 `curl https://127.0.0.1/...` 命中的是宝塔默认站 → 会误判成 404/内容不对；探活要么 `curl -H "Host: 47.96.188.129" http://127.0.0.1/...`，要么直连容器发布端口 `127.0.0.1:18080` (PC) / `127.0.0.1:18090` (H5)。 (8) `docker compose ps` 不在 compose 文件所在目录跑会报 `no configuration file provided` (别误读成容器挂了)。 (9) **幂等迁移脚本先在 canary 跑再灌主库 → 复制必撞 1062 停** (本次又踩，见上)；主库灌过的脚本不要再在 canary 手工执行，或执行前确认该语句写的是纯备份表。
 
 ### v1.1.137 (2026-10-29 — 生产工单打印: PC 详情页「打印」下拉 (浏览器/飞鹅) + 飞鹅打印权限点真正可用 + 小票规格/使用原料修复)
 
@@ -1737,7 +1737,7 @@ PC 商品管理页本来就是 `克重(g/个)`, 与算法一致。库里 `base_p
 **踩坑**:
 - **同一支「幂等」脚本先在 canary 备库跑过、再灌主库会打断复制**: sql/143 的备份表 `qms_iqc_item_bak_v1134c` 用 `INSERT … SELECT t.*` 整行照搬，主键沿用源行 id。本轮先在 `.32` 试过 (备份表落了 33 行，含自测单的 16 行幽灵)，再灌 `.150` 时那 17 个主键复制到 `.32` 撞 `1062 Duplicate entry`，`Slave_SQL_Running: No`、`Last_Errno: 1062`，`.32` 一度还留着自测重灌的 7 行新模板项 (`QI202610280005` 与主库不一致)。**修法** (全部是备库本地写，`.32` 无 `Binlog Dump` 连接，不会回灌主库): `STOP SLAVE` → 把 `.32` 的 `qms_iqc_item_bak_v1134c` **清空** (让复制事件自己把那 17 行灌进来) + `DELETE` 掉自测重灌那 7 行 (主库/阿里云均无这些 id) → `START SLAVE`。结果 `bak_rows=17`、活动行 35、`Seconds_Behind_Master: 0`，三站一致。**教训**: 迁移脚本上主库前，先清掉同一版本在 canary 落下的备份表/重灌行，或干脆 canary 只做只读验证 (真正的写入验证放主库前的最后一站是阿里云备库)。
 - 校验模板项是否「有人动过」不能只看 `pass_flag=1`：v1.1.130 那版模板灌的默认值就是 1，现版灌 `-1` (待检)。只认 `pass_flag=0`。
-- `.150` 的 MySQL root 口令是 `***REMOVED_CREDENTIAL***` (与 `SPRING_DATASOURCE_PASSWORD` 一致)，不是 SSH 口令；`erp-mysql` 容器内没有 `unzip`，别想在容器里解 jar 验证字符串 — jar md5 与本地构建一致就是证据。
+- `.150` 的 MySQL root 口令是 `ERP_MYSQL_ROOT_PWD` (与 `SPRING_DATASOURCE_PASSWORD` 一致)，不是 SSH 口令；`erp-mysql` 容器内没有 `unzip`，别想在容器里解 jar 验证字符串 — jar md5 与本地构建一致就是证据。
 - App 端「制袋巡检显示吹膜项」的另一半原因在客户端: 2026-10-28 之前的 APK 跳 `/pages/scan/pat` 不带 `stage` 参数，服务端无从分型。**Aliyun 的 App H5 已是 v1.1.134 构建 (`index-DwQhNp5B.js`)；`.150` 没有 app-h5 容器也没有 18090 监听，所以只剩「让用户装 `erp-app-20261029.apk`」这一条。**
 
 ### v1.1.134 同日修补 (2026-10-29 — 吹膜首检 FAI 检验项按现场口径精简: 8+4 → 6+2)
@@ -1878,7 +1878,7 @@ PC 商品管理页本来就是 `克重(g/个)`, 与算法一致。库里 `base_p
 
 **踩坑**:
 - **canary 写的是备库本地**: `.32 erp-backend-failover` 的 `SPRING_DATASOURCE_HOST=erp-mysql-failover`, 该容器 `read_only=ON / server_id=2`, 但 datasource 用户是 root —— **MySQL 的 `read_only` 不拦 SUPER/root**, 所以 canary 写入实际落库且不会回传 `.150`。好处是能端到端验写链路, 代价是测试数据必须手工清, 且 canary 与主库会长期漂移 (本次测完已核对回零差异)。
-- `.150` 容器内 mysql root 的真实密码**不是** `***REMOVED_CREDENTIAL***`, 要从 `erp-backend` 的 env `SPRING_DATASOURCE_PASSWORD` 取; 猜错时 `SHOW TABLES` 直接返回空而不报 `1045`, 容易误判成「表不存在」。
+- `.150` 容器内 mysql root 的真实密码**不是** `ERP_MYSQL_ROOT_PWD`, 要从 `erp-backend` 的 env `SPRING_DATASOURCE_PASSWORD` 取; 猜错时 `SHOW TABLES` 直接返回空而不报 `1045`, 容易误判成「表不存在」。
 - 接口层实测拿 token: P0-2 之后 `POST /api/auth/login` 强制验证码, curl 直登返回 `请输入验证码` → 改从 `.32` Redis `Authorization:login:session:2` 取 gpssong 现有 token 复用 (只读操作, 不落盘分享)。
 - `browser-use` 的 CDP 会被一个未收尾的 `evaluate_script` (轮询) 独占, 之后 `take_snapshot` / `take_screenshot` / `click` 全报 `Browser target debugger is already in use`, `navigate_page` / `select_page` 仍能成功但不释放锁 —— 本轮 UI 证据改用「开工台账里的真实 UI 上传照片 URL + 数据库行」复核, 浏览器待重启后补。
 - `prd_semi_in` 无 `bill_status`… 有; 反而是 `prd_process` **没有 `bill_status`** (只有 `status`), 拼 SQL 复位时踩过。
@@ -1913,7 +1913,7 @@ PC 商品管理页本来就是 `克重(g/个)`, 与算法一致。库里 `base_p
 
 **踩坑**:
 - `.150` 是 Synology，`scp` 报 `subsystem request failed on channel 0` (未开 sftp 子系统) → 用 `cat 文件 | ssh host 'cat > /tmp/文件'`。第一次部署把 scp 的 stderr 吞了 (`>/dev/null 2>&1`)，上传其实失败，而后续 `find -delete` 已清空 h5 目录 → 站点被掏空才发现；**部署脚本必须先确认产物落地再删旧内容**。
-- `.150` 容器里 mysql root 的实际密码不是 env `MYSQL_ROOT_PASSWORD=***REMOVED_CREDENTIAL***` (被改过)，取 `erp-backend` 的 `SPRING_DATASOURCE_PASSWORD` 才能登。
+- `.150` 容器里 mysql root 的实际密码不是 env `MYSQL_ROOT_PASSWORD="$ERP_MYSQL_ROOT_PWD"` (被改过)，取 `erp-backend` 的 `SPRING_DATASOURCE_PASSWORD` 才能登。
 - `.150` 上 `sudo bash -c` 的 PATH 不含 `/usr/local/bin`，docker 必须写全路径；sudo 凭据不跨 ssh 调用，每条命令内联 `echo pw | sudo -S`。
 
 ### v1.1.131 补丁 (2026-10-28 — PC App 权限树补「销售出库新建」授权项)
@@ -2428,7 +2428,7 @@ PC 商品管理页本来就是 `克重(g/个)`, 与算法一致。库里 `base_p
 
 **待现场 (全链唯一未知数)**: 485 口 (D-sub 白口/板载蓝头) + 从站地址 + 米克重/线速寄存器地址+功能码+缩放系数 (冠尚达无公开文档 → `pymodbus` 扫输入寄存器对屏幕找值, 或问电工) → 回填 `mes_weight_channel` + ESP32 固件对着写 (骨架已给)。详见 [docs/25_ESP32吹膜米克重采集接入指南.md](25_ESP32吹膜米克重采集接入指南.md)。
 
-**部署踩坑 (home)**: PAM autoblock 反复触发 (SSH 失败累积拉黑, sleep 90s 冷却); `sudo -S` 密码与 SQL 共用 stdin 被污染 (SQL 报 `near '***REMOVED_CREDENTIAL***'`) → 修法 SQL 先落地 777 的 `dist` 目录再 `sudo mysql < file`; jar baked-in 三连 (build --no-cache + up -d); dist 整目录替换 (R5 别按前缀 grep -v 误删 CSS)。
+**部署踩坑 (home)**: PAM autoblock 反复触发 (SSH 失败累积拉黑, sleep 90s 冷却); `sudo -S` 密码与 SQL 共用 stdin 被污染 (SQL 报 `near 'ERP_HOME_SSH_PASS'`) → 修法 SQL 先落地 777 的 `dist` 目录再 `sudo mysql < file`; jar baked-in 三连 (build --no-cache + up -d); dist 整目录替换 (R5 别按前缀 grep -v 误删 CSS)。
 
 ### v1.1.124 (2026-10-24 — 采购入库「非食品采购」入口补齐 + R26 mapper XML 坑)
 
@@ -3784,7 +3784,7 @@ app/src/pages/report/index.vue                                  |  +8 -2  (补 t
 - ⏸ App 端: 代码已就位, 待编译 APK + 装机测试
 
 **踩坑** (home NAS pc-web dist 部署):
-- gpssong 密码 `***REMOVED_CREDENTIAL***` (vs 飞牛 `***REMOVED_CREDENTIAL***` 别混!)
+- gpssong 密码 `ERP_HOME_SSH_PASS` (vs 飞牛 `ERP_HOME_SSH_PASS` 别混!)
 - gpssong `/tmp` 只读 + SFTP subsystem 被禁, 大文件传输需用 Python Popen + base64 + ssh -T + sudo -S
 - fail2ban 60-90s 解锁, 5 次错密码立即锁
 - 完整步骤见 memory `erp-home-nas-pc-web-deploy-pitfalls.md`
@@ -4370,7 +4370,7 @@ INSERT INTO sys_role_menu (role_id, menu_id, client_type) VALUES (6, 959, 'BOTH'
 
 **方案**:
 - **SecurityPreflightValidator** 启动期拒绝弱 JWT secret (中等强度校验: 长度 ≥32 字符 + 黑名单; `@Profile("!test")` 测试不受影响)
-- docker-compose.yml healthcheck 强制从 .env 读 MYSQL_ROOT_PASSWORD (去掉 ***REMOVED_CREDENTIAL*** 兜底)
+- docker-compose.yml healthcheck 强制从 .env 读 MYSQL_ROOT_PASSWORD (去掉 "$ERP_MYSQL_ROOT_PWD" 兜底)
 - Testcontainers MySQL 8.0 加 @Tag("integration"), mvn verify 才跑, 详情 schema-test.sql + data-test.sql
 - scripts/build-app.sh 把 cap sync + assembleDebug 全流程固化, 输出版本号命名的 APK 到桌面 + 项目根
 - .github/workflows/ci-build-check.yml 首次引入 CI (后端 compile + PC H5 build + App H5 build)
@@ -5072,7 +5072,7 @@ FreeMarker 访问 order.colorNo 时:
 
 ## 数据库
 
-- MySQL 8.0 root 密码 `***REMOVED_CREDENTIAL***` (从 .env 读)
+- MySQL 8.0 root 密码 `ERP_MYSQL_ROOT_PWD` (从 .env 读)
 - 数据库 `industrial_erp` (utf8mb4)
 - 容器 erp-mysql, 端口 3306
 - 数据卷: `/volume3/docker/erp-system/mysql-data`
@@ -5339,7 +5339,7 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 
 **DB 直查验证 + 直接修复** (2026-08-31 14:30 SSH 到 NAS 后):
 
-通过 SSH + sudo docker exec 进 `erp-mysql` 容器,以 `-h mysql -uroot -p***REMOVED_CREDENTIAL***` (实际密码是 `***REMOVED_CREDENTIAL***`, 不是记忆中的 `***REMOVED_CREDENTIAL***`) 查 DB:
+通过 SSH + sudo docker exec 进 `erp-mysql` 容器,以 `-h mysql -uroot -p"$ERP_MYSQL_ROOT_PWD"` (实际密码是 `ERP_MYSQL_ROOT_PWD`, 不是记忆中的 `ERP_MYSQL_ROOT_PWD`) 查 DB:
 
 ```sql
 SELECT id, name, biz_type, LENGTH(content) AS len,
@@ -5362,9 +5362,9 @@ UPDATE sys_feie_print_template SET content = '<CB>生产单</CB>\n...规格：${
 → **同时备份了原 content 到 `content_backup_20260831` 列**, 需要时可手动回滚: `UPDATE ... SET content = content_backup_20260831 WHERE ...`.
 
 **SSH 隧道细节** (后续运维参考):
-- `gpssong` 用户没 docker 组权限, 必须 `echo ***REMOVED_CREDENTIAL*** | sudo -S -p "" /usr/local/bin/docker exec ...`
+- `gpssong` 用户没 docker 组权限, 必须 `echo "$ERP_HOME_SSH_PASS" | sudo -S -p "" /usr/local/bin/docker exec ...`
 - docker exec 走 `mysql -h mysql` (用容器 hostname), 直接 `-h 127.0.0.1` / `-h localhost` 会报 `Access denied` (root@'localhost' 走 socket, 密码不对)
-- mysql root 实际密码是 `***REMOVED_CREDENTIAL***` (与 `erp-backend` 容器 env 一致), 不是记忆中的 `***REMOVED_CREDENTIAL***` (compose 文件里写的, 但部署时换过)
+- mysql root 实际密码是 `ERP_MYSQL_ROOT_PWD` (与 `erp-backend` 容器 env 一致), 不是记忆中的 `ERP_MYSQL_ROOT_PWD` (compose 文件里写的, 但部署时换过)
 
 **v1.1.30 部署踩坑** (2026-08-31 15:00~15:15 部署期间遇到):
 
@@ -5399,7 +5399,7 @@ UPDATE sys_feie_print_template SET content = '<CB>生产单</CB>\n...规格：${
 - Dockerfile 注释说 "前端 dist 通过 bind mount 进容器 /usr/share/nginx/html", 但实际 mount source 是 `/tmp/pc-web-new`
 - 部署时我把新 dist `tar 流式传到 /volume3/docker/erp-system/pc-web/dist` 后, **必须** 再 `cp` 一份到 `/tmp/pc-web-new` 才能生效
 - `docker restart erp-pc-web` 才能加载新内容 (容器本身不需重建, 因为 dist 通过 mount 进)
-- **NAS 上 `/tmp/pc-web-new` 是 uid=501 拥有, gpssong 没权限, 需要 `echo ***REMOVED_CREDENTIAL*** | sudo -S cp` 或 `rm -rf && cp -r`** (新建文件可写)
+- **NAS 上 `/tmp/pc-web-new` 是 uid=501 拥有, gpssong 没权限, 需要 `echo "$ERP_HOME_SSH_PASS" | sudo -S cp` 或 `rm -rf && cp -r`** (新建文件可写)
 
 **坑 4: SSH "Permission denied, please try again" 间歇性锁**
 - 多次 `sshpass` 连续发命令时, NAS 端 sshd 偶尔会触发密码失败计数, 临时 lock gpssong 用户 30 秒
@@ -5409,18 +5409,18 @@ UPDATE sys_feie_print_template SET content = '<CB>生产单</CB>\n...规格：${
 **部署命令汇总** (后续 v1.1.30+ 重启时复用):
 ```bash
 # 1. pc-web dist 上传 (SSH)
-sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 'echo ***REMOVED_CREDENTIAL*** | sudo -S -p "" sh -c "
+sshpass -p 'ERP_HOME_SSH_PASS' ssh gpssong@192.168.0.150 'echo "$ERP_HOME_SSH_PASS" | sudo -S -p "" sh -c "
   cd /volume3/docker/erp-system/pc-web && tar cf - --exclude=node_modules dist/ \
     | tar xf - -C /tmp/pc-web-new && \
     docker restart erp-pc-web
 "'
 
 # 2. backend jar 上传 (SSH, cat 流式)
-cat backend/target/industrial-erp-1.0.4.jar | sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 \
+cat backend/target/industrial-erp-1.0.4.jar | sshpass -p 'ERP_HOME_SSH_PASS' ssh gpssong@192.168.0.150 \
   'cat > /volume3/docker/erp-system/backend/industrial-erp-1.0.4.jar'
 
 # 3. backend 镜像 build + container recreate (完整 env list 见上方)
-sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 'echo ***REMOVED_CREDENTIAL*** | sudo -S -p "" sh -c "
+sshpass -p 'ERP_HOME_SSH_PASS' ssh gpssong@192.168.0.150 'echo "$ERP_HOME_SSH_PASS" | sudo -S -p "" sh -c "
   cd /volume3/docker/erp-system && docker build -t erp-system-backend:latest -f backend/Dockerfile ./backend && \
   docker rm -f erp-backend && \
   docker run -d --name erp-backend --network erp-system_erp-net \
@@ -5430,7 +5430,7 @@ sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 'echo ***REMOVED
     --env SPRING_PROFILES_ACTIVE=prod \
     --env SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/industrial_erp?... \
     --env SPRING_DATASOURCE_USERNAME=root \
-    --env SPRING_DATASOURCE_PASSWORD=***REMOVED_CREDENTIAL*** \
+    --env SPRING_DATASOURCE_PASSWORD="$ERP_MYSQL_ROOT_PWD" \
     --env SPRING_DATA_REDIS_HOST=redis \
     --env SPRING_DATA_REDIS_PORT=6379 \
     --env SA_TOKEN_JWT_SECRET_KEY=***REMOVED_CREDENTIAL*** \
@@ -6531,7 +6531,7 @@ myprint-pdf    Up             19898:19898
 **修复**:
 1. 新 seed `sql/49_v176hotfix_feie_log_grant.sql` (双站各跑, utf8mb4, 幂等): 给 6 新内置角色 × **PC** 各补一行 `system:feie:log` 授权 (`INSERT IGNORE` + `NOT EXISTS` 双重防重)。沿用 `sql/41` 决策: 飞鹅菜单保持 **PC-only** (管理员功能, App 不该见), 因此只授 PC, **不授 APP**。`information_schema` 探测 `sys_role_menu.client_type` 列, 老库 2 列退化 (与 sql/48 同款 IF/PREPARE/EXECUTE 模式)。
 2. **无后端/前端代码改动**, 无需重建容器/jar/dist。用户在 PC 端重登或等 token 自然刷新即生效 (Sa-token 缓存)。
-3. 部署经验: gpssong 在 home NAS `/tmp` `/var/services/homes` / `/volume3` 都无写权限, 必须 sudo; sudo PATH 为空要写 `/usr/local/bin/docker` 全路径; mysql 客户端走 `sudo docker exec -i erp-mysql mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 industrial_erp` 单行管道 (无文件落地)。飞牛 `/usr/bin/docker` 同款但需 `<<<` 给 sudo 喂密码。
+3. 部署经验: gpssong 在 home NAS `/tmp` `/var/services/homes` / `/volume3` 都无写权限, 必须 sudo; sudo PATH 为空要写 `/usr/local/bin/docker` 全路径; mysql 客户端走 `sudo docker exec -i erp-mysql mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 industrial_erp` 单行管道 (无文件落地)。飞牛 `/usr/bin/docker` 同款但需 `<<<` 给 sudo 喂密码。
 
 **验证 (双站 SELECT)**:
 ```sql
@@ -7058,7 +7058,7 @@ w.gt(InvStock::getQty, java.math.BigDecimal.ZERO);  // qty > 0 严格过滤
 - **错误文案兜底**: 后端 msg 为空时给 "账号或密码错误, 请重试" 这类明确提示, 不要给 "操作失败" 这种空话
 
 **踩坑 (home NAS pc-web dist 部署)**:
-- gpssong 密码 `***REMOVED_CREDENTIAL***` (vs 飞牛 `***REMOVED_CREDENTIAL***` 别混!)
+- gpssong 密码 `ERP_HOME_SSH_PASS` (vs 飞牛 `ERP_HOME_SSH_PASS` 别混!)
 - gpssong `/tmp` 只读 + SFTP subsystem 被禁, 大文件传输需用 Python Popen + base64 + ssh -T + sudo -S
 - fail2ban 60-90s 解锁, 5 次错密码立即锁
 - 完整步骤见 memory `erp-home-nas-pc-web-deploy-pitfalls.md`
@@ -7859,9 +7859,9 @@ DELETE FROM sys_role_menu WHERE menu_id=959 AND role_id IN (4, 6) AND client_typ
    # 上传:
    sshpass -O scp backend/target/industrial-erp-1.0.4.jar gpssong@192.168.0.32:/vol2/erp-system/erp-backend.jar
    # 重建镜像 (旧 image hash 不会被 restart 拉到, 必须 --no-cache + rm -f + run):
-   sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.32 "echo '***REMOVED_CREDENTIAL***' | sudo -S -p '' /usr/bin/docker build --no-cache -t erp-system-backend:latest -f /vol2/erp-system/backend.Dockerfile /vol2/erp-system/"
-   sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.32 "echo '***REMOVED_CREDENTIAL***' | sudo -S -p '' /usr/bin/docker rm -f erp-backend-failover"
-   sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.32 "echo '***REMOVED_CREDENTIAL***' | sudo -S -p '' /usr/bin/docker run -d --name erp-backend-failover --restart unless-stopped --network f92636759441ef70c8b2f2d58ee910bc304194cfe59be81f0714735525722ee1 -p 8080:8080 -e SPRING_PROFILES_ACTIVE=prod ... erp-system-backend:latest"
+   sshpass -p 'ERP_FN_SSH_PASS' ssh gpssong@192.168.0.32 "echo 'ERP_FN_SSH_PASS' | sudo -S -p '' /usr/bin/docker build --no-cache -t erp-system-backend:latest -f /vol2/erp-system/backend.Dockerfile /vol2/erp-system/"
+   sshpass -p 'ERP_FN_SSH_PASS' ssh gpssong@192.168.0.32 "echo 'ERP_FN_SSH_PASS' | sudo -S -p '' /usr/bin/docker rm -f erp-backend-failover"
+   sshpass -p 'ERP_FN_SSH_PASS' ssh gpssong@192.168.0.32 "echo 'ERP_FN_SSH_PASS' | sudo -S -p '' /usr/bin/docker run -d --name erp-backend-failover --restart unless-stopped --network f92636759441ef70c8b2f2d58ee910bc304194cfe59be81f0714735525722ee1 -p 8080:8080 -e SPRING_PROFILES_ACTIVE=prod ... erp-system-backend:latest"
    ```
 2. **前端 dist** (7.9MB, v1.1.51 `Index-BGP5wSoh.js`):
    ```bash
@@ -7870,7 +7870,7 @@ DELETE FROM sys_role_menu WHERE menu_id=959 AND role_id IN (4, 6) AND client_typ
    tar -czf /tmp/pc-web-dist-v1152.tar.gz -C dist .
    sshpass -O scp /tmp/pc-web-dist-v1152.tar.gz gpssong@192.168.0.32:/tmp/
    # 上传 + ACL 兜底 (在 home 解压再 cp, 避免 Synology ACL 拦 assets/):
-   sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.32 "rm -rf ~/pc-extract && mkdir ~/pc-extract && tar -xzf /tmp/pc-web-dist-v1152.tar.gz -C ~/pc-extract && sudo -S -p '' cp -r ~/pc-extract/. /vol2/erp-system/pc-web/dist/ && sudo -S -p '' docker restart erp-pc-web-failover"
+   sshpass -p 'ERP_FN_SSH_PASS' ssh gpssong@192.168.0.32 "rm -rf ~/pc-extract && mkdir ~/pc-extract && tar -xzf /tmp/pc-web-dist-v1152.tar.gz -C ~/pc-extract && sudo -S -p '' cp -r ~/pc-extract/. /vol2/erp-system/pc-web/dist/ && sudo -S -p '' docker restart erp-pc-web-failover"
    ```
 
 **验证**:
@@ -7993,7 +7993,7 @@ v1.1.51 的 CHANGELOG "实测" 段写 "DB 手动插一条 `base_customer (custom
 
 **方案**:
 - **SecurityPreflightValidator** 启动期拒绝弱 JWT secret (中等强度校验: 长度 ≥32 字符 + 黑名单; `@Profile("!test")` 测试不受影响)
-- docker-compose.yml healthcheck 强制从 .env 读 MYSQL_ROOT_PASSWORD (去掉 ***REMOVED_CREDENTIAL*** 兜底)
+- docker-compose.yml healthcheck 强制从 .env 读 MYSQL_ROOT_PASSWORD (去掉 "$ERP_MYSQL_ROOT_PWD" 兜底)
 - Testcontainers MySQL 8.0 加 @Tag("integration"), mvn verify 才跑, 详情 schema-test.sql + data-test.sql
 - scripts/build-app.sh 把 cap sync + assembleDebug 全流程固化, 输出版本号命名的 APK 到桌面 + 项目根
 - .github/workflows/ci-build-check.yml 首次引入 CI (后端 compile + PC H5 build + App H5 build)
@@ -8683,7 +8683,7 @@ FreeMarker 访问 order.colorNo 时:
 
 ## 数据库
 
-- MySQL 8.0 root 密码 `***REMOVED_CREDENTIAL***` (从 .env 读)
+- MySQL 8.0 root 密码 `ERP_MYSQL_ROOT_PWD` (从 .env 读)
 - 数据库 `industrial_erp` (utf8mb4)
 - 容器 erp-mysql, 端口 3306
 - 数据卷: `/volume3/docker/erp-system/mysql-data`
@@ -8950,7 +8950,7 @@ SA_TOKEN_JWT_SECRET_KEY=<粘贴生成的值>
 
 **DB 直查验证 + 直接修复** (2026-08-31 14:30 SSH 到 NAS 后):
 
-通过 SSH + sudo docker exec 进 `erp-mysql` 容器,以 `-h mysql -uroot -p***REMOVED_CREDENTIAL***` (实际密码是 `***REMOVED_CREDENTIAL***`, 不是记忆中的 `***REMOVED_CREDENTIAL***`) 查 DB:
+通过 SSH + sudo docker exec 进 `erp-mysql` 容器,以 `-h mysql -uroot -p"$ERP_MYSQL_ROOT_PWD"` (实际密码是 `ERP_MYSQL_ROOT_PWD`, 不是记忆中的 `ERP_MYSQL_ROOT_PWD`) 查 DB:
 
 ```sql
 SELECT id, name, biz_type, LENGTH(content) AS len,
@@ -8973,9 +8973,9 @@ UPDATE sys_feie_print_template SET content = '<CB>生产单</CB>\n...规格：${
 → **同时备份了原 content 到 `content_backup_20260831` 列**, 需要时可手动回滚: `UPDATE ... SET content = content_backup_20260831 WHERE ...`.
 
 **SSH 隧道细节** (后续运维参考):
-- `gpssong` 用户没 docker 组权限, 必须 `echo ***REMOVED_CREDENTIAL*** | sudo -S -p "" /usr/local/bin/docker exec ...`
+- `gpssong` 用户没 docker 组权限, 必须 `echo "$ERP_HOME_SSH_PASS" | sudo -S -p "" /usr/local/bin/docker exec ...`
 - docker exec 走 `mysql -h mysql` (用容器 hostname), 直接 `-h 127.0.0.1` / `-h localhost` 会报 `Access denied` (root@'localhost' 走 socket, 密码不对)
-- mysql root 实际密码是 `***REMOVED_CREDENTIAL***` (与 `erp-backend` 容器 env 一致), 不是记忆中的 `***REMOVED_CREDENTIAL***` (compose 文件里写的, 但部署时换过)
+- mysql root 实际密码是 `ERP_MYSQL_ROOT_PWD` (与 `erp-backend` 容器 env 一致), 不是记忆中的 `ERP_MYSQL_ROOT_PWD` (compose 文件里写的, 但部署时换过)
 
 **v1.1.30 部署踩坑** (2026-08-31 15:00~15:15 部署期间遇到):
 
@@ -9010,7 +9010,7 @@ UPDATE sys_feie_print_template SET content = '<CB>生产单</CB>\n...规格：${
 - Dockerfile 注释说 "前端 dist 通过 bind mount 进容器 /usr/share/nginx/html", 但实际 mount source 是 `/tmp/pc-web-new`
 - 部署时我把新 dist `tar 流式传到 /volume3/docker/erp-system/pc-web/dist` 后, **必须** 再 `cp` 一份到 `/tmp/pc-web-new` 才能生效
 - `docker restart erp-pc-web` 才能加载新内容 (容器本身不需重建, 因为 dist 通过 mount 进)
-- **NAS 上 `/tmp/pc-web-new` 是 uid=501 拥有, gpssong 没权限, 需要 `echo ***REMOVED_CREDENTIAL*** | sudo -S cp` 或 `rm -rf && cp -r`** (新建文件可写)
+- **NAS 上 `/tmp/pc-web-new` 是 uid=501 拥有, gpssong 没权限, 需要 `echo "$ERP_HOME_SSH_PASS" | sudo -S cp` 或 `rm -rf && cp -r`** (新建文件可写)
 
 **坑 4: SSH "Permission denied, please try again" 间歇性锁**
 - 多次 `sshpass` 连续发命令时, NAS 端 sshd 偶尔会触发密码失败计数, 临时 lock gpssong 用户 30 秒
@@ -9020,18 +9020,18 @@ UPDATE sys_feie_print_template SET content = '<CB>生产单</CB>\n...规格：${
 **部署命令汇总** (后续 v1.1.30+ 重启时复用):
 ```bash
 # 1. pc-web dist 上传 (SSH)
-sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 'echo ***REMOVED_CREDENTIAL*** | sudo -S -p "" sh -c "
+sshpass -p 'ERP_HOME_SSH_PASS' ssh gpssong@192.168.0.150 'echo "$ERP_HOME_SSH_PASS" | sudo -S -p "" sh -c "
   cd /volume3/docker/erp-system/pc-web && tar cf - --exclude=node_modules dist/ \
     | tar xf - -C /tmp/pc-web-new && \
     docker restart erp-pc-web
 "'
 
 # 2. backend jar 上传 (SSH, cat 流式)
-cat backend/target/industrial-erp-1.0.4.jar | sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 \
+cat backend/target/industrial-erp-1.0.4.jar | sshpass -p 'ERP_HOME_SSH_PASS' ssh gpssong@192.168.0.150 \
   'cat > /volume3/docker/erp-system/backend/industrial-erp-1.0.4.jar'
 
 # 3. backend 镜像 build + container recreate (完整 env list 见上方)
-sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 'echo ***REMOVED_CREDENTIAL*** | sudo -S -p "" sh -c "
+sshpass -p 'ERP_HOME_SSH_PASS' ssh gpssong@192.168.0.150 'echo "$ERP_HOME_SSH_PASS" | sudo -S -p "" sh -c "
   cd /volume3/docker/erp-system && docker build -t erp-system-backend:latest -f backend/Dockerfile ./backend && \
   docker rm -f erp-backend && \
   docker run -d --name erp-backend --network erp-system_erp-net \
@@ -9041,7 +9041,7 @@ sshpass -p '***REMOVED_CREDENTIAL***' ssh gpssong@192.168.0.150 'echo ***REMOVED
     --env SPRING_PROFILES_ACTIVE=prod \
     --env SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/industrial_erp?... \
     --env SPRING_DATASOURCE_USERNAME=root \
-    --env SPRING_DATASOURCE_PASSWORD=***REMOVED_CREDENTIAL*** \
+    --env SPRING_DATASOURCE_PASSWORD="$ERP_MYSQL_ROOT_PWD" \
     --env SPRING_DATA_REDIS_HOST=redis \
     --env SPRING_DATA_REDIS_PORT=6379 \
     --env SA_TOKEN_JWT_SECRET_KEY=***REMOVED_CREDENTIAL*** \

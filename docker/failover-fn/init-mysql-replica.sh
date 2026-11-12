@@ -6,11 +6,17 @@
 # =============================================================
 set -e
 
-# 配置 (从环境变量传入, 或修改默认值)
+# 口令一律从环境变量来, 不在脚本里留任何默认值:
+#   MYSQL_ROOT_PASSWORD  本机 MySQL root 口令 (compose 注入)
+#   MYSQL_REPL_PASSWORD  复制账号口令
+: "${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD_MUST_BE_SET}"
+: "${MYSQL_REPL_PASSWORD:?MYSQL_REPL_PASSWORD_MUST_BE_SET}"
+
+# 配置 (从环境变量传入)
 MASTER_HOST="${MYSQL_MASTER_HOST:-192.168.0.150}"
 MASTER_PORT="${MYSQL_MASTER_PORT:-3306}"
 MASTER_USER="${MYSQL_REPL_USER:-repl_user}"
-MASTER_PASSWORD="${MYSQL_REPL_PASSWORD:-Repl_2026_Strong!}"
+MASTER_PASSWORD="${MYSQL_REPL_PASSWORD:?MYSQL_REPL_PASSWORD_MUST_BE_SET}"
 LOG_FILE="${MYSQL_LOG_FILE:-binlog.000019}"
 LOG_POS="${MYSQL_LOG_POS:-1893}"
 
@@ -23,9 +29,9 @@ echo "=========================================="
 # 1. 配置主库 (在主 NAS 上执行, 这里仅打印)
 cat << 'EOF'
 [主库配置] (在主 NAS 192.168.0.150 上执行)
-mysql -uroot -p***REMOVED_CREDENTIAL*** << 'SQL'
--- 创建复制用户
-CREATE USER 'repl_user'@'%' IDENTIFIED BY 'Repl_2026_Strong!';
+mysql -uroot -p"$MYSQL_ROOT_PASSWORD" << 'SQL'
+-- 创建复制用户 (口令取自 MYSQL_REPL_PASSWORD, 不要写死)
+CREATE USER 'repl_user'@'%' IDENTIFIED BY '<MYSQL_REPL_PASSWORD>';
 GRANT REPLICATION SLAVE ON *.* TO 'repl_user'@'%';
 FLUSH PRIVILEGES;
 
@@ -38,7 +44,7 @@ SQL
 EOF
 
 # 2. 在备用库执行 (当前 MySQL 容器)
-mysql -uroot -p***REMOVED_CREDENTIAL*** << SQL
+mysql -uroot -p"$MYSQL_ROOT_PASSWORD" << SQL
 -- 停止现有 slave
 STOP SLAVE;
 RESET SLAVE;
@@ -66,7 +72,7 @@ echo "=========================================="
 
 # 3. 持续监控 slave 状态
 while true; do
-  STATUS=$(mysql -uroot -p***REMOVED_CREDENTIAL*** -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep "Slave_IO_Running\|Slave_SQL_Running" | awk '{print $2}')
+  STATUS=$(mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "SHOW SLAVE STATUS\G" 2>/dev/null | grep "Slave_IO_Running\|Slave_SQL_Running" | awk '{print $2}')
   IO=$(echo "$STATUS" | head -1)
   SQL=$(echo "$STATUS" | tail -1)
 

@@ -12,8 +12,8 @@
 --   jb7084001   金博70*84*0.02
 --
 -- 执行 (飞牛 canary 先, 验证后 home; 本机有 mysql 直连时):
---   mysql -h192.168.0.32 -uroot -p***REMOVED_CREDENTIAL*** industrial_erp --default-character-set=utf8mb4 < 91_food_grade_jinbo.sql
---   mysql -h192.168.0.150 -uroot -p***REMOVED_CREDENTIAL*** industrial_erp --default-character-set=utf8mb4 < 91_food_grade_jinbo.sql
+--   mysql -h192.168.0.32 -uroot -p"$ERP_MYSQL_ROOT_PWD" industrial_erp --default-character-set=utf8mb4 < 91_food_grade_jinbo.sql
+--   mysql -h192.168.0.150 -uroot -p"$ERP_MYSQL_ROOT_PWD" industrial_erp --default-character-set=utf8mb4 < 91_food_grade_jinbo.sql
 -- =============================================================================
 SET NAMES utf8mb4;
 USE `industrial_erp`;

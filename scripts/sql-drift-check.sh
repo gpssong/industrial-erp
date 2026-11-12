@@ -20,7 +20,7 @@
 #   DB_HOST     默认 192.168.0.150
 #   DB_PORT     默认 3306
 #   DB_USER     默认 root
-#   DB_PWD      默认取 ~/.config/erp-ops/env 的 ERP_MYSQL_ROOT_PWD (见 scripts/ops-env.example)
+#   DB_PWD      默认取 ~/.config/erp-ops/env 的 "$ERP_MYSQL_ROOT_PWD" (见 scripts/ops-env.example)
 #   DB_NAME     默认 industrial_erp
 #
 # 说明: 这是"报告型"脚本 — 要完整打印报告, 即使某个子检查 grep 无命中(返回 1) 也不该中断。
@@ -28,7 +28,7 @@
 set -uo pipefail
 
 . "$(dirname "$0")/ops-env.sh"
-erp_ops_load ERP_MYSQL_ROOT_PWD || exit 1
+erp_ops_load "$ERP_MYSQL_ROOT_PWD" || exit 1
 
 # ---------- 参数 ----------
 DB_HOST="${DB_HOST:-192.168.0.150}"

@@ -20,7 +20,7 @@
 --       兜底, 与 sql/48 同款 IF/PREPARE/EXECUTE 模式.
 --
 -- 用法 (双站 home + 飞牛各跑一次, 必须 utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/49_v176hotfix_feie_log_grant.sql
 --
 -- 幂等: INSERT IGNORE + NOT EXISTS 双重防重, 跑多遍无副作用.

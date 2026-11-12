@@ -45,7 +45,7 @@ Redis (AOF)               ───同步───>    Redis (replica)
 如果自动监控失败, 手动切换:
 
 ```bash
-ssh gpssong@n150.93gushi.com  # 密码: ***REMOVED_CREDENTIAL***
+ssh gpssong@n150.93gushi.com  # 密码: "$ERP_FN_SSH_PASS"
 
 # 立即切换
 sudo /volume2/erp-system/failover.sh trigger
@@ -100,7 +100,7 @@ sudo /volume2/erp-system/failover.sh rollback
 
 ```bash
 # 查看主从状态
-mysql -uroot -p***REMOVED_CREDENTIAL*** -e "SHOW SLAVE STATUS\G"
+mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" -e "SHOW SLAVE STATUS\G"
 
 # Slave_IO_Running: Yes  (网络 + binlog 接收)
 # Slave_SQL_Running: Yes (SQL 应用)

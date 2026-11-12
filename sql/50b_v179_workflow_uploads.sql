@@ -12,7 +12,7 @@
 --       不另建 attachment 附件表 (目前不需要附件下载审计日志, 见 R19 后续)
 --
 -- 用法 (双站 home + 飞牛各跑一次, 必须 utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/50b_v179_workflow_uploads.sql
 -- =====================================================================
 

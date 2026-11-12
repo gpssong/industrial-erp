@@ -23,7 +23,7 @@
 --       兜底, 与 sql/49 同款 IF/PREPARE/EXECUTE 模式.
 --
 -- 用法 (双站 home + 飞牛各跑一次, 必须 utf8mb4):
---   mysql -uroot -p***REMOVED_CREDENTIAL*** --default-character-set=utf8mb4 \
+--   mysql -uroot -p"$ERP_MYSQL_ROOT_PWD" --default-character-set=utf8mb4 \
 --     industrial_erp < sql/53_v180_feie_template_grant.sql
 --
 -- 幂等: INSERT IGNORE + role_id/menu_id 唯一键防重, 跑多遍无副作用.

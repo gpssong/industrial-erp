@@ -12,7 +12,7 @@
 #     "echo \"$ERP_HOME_SSH_PASS\" | sudo -S /usr/local/bin/docker restart erp-pc-web"
 
 . "$(dirname "$0")/scripts/ops-env.sh"
-erp_ops_load ERP_HOME_SSH_PASS || exit 1
+erp_ops_load "$ERP_HOME_SSH_PASS" || exit 1
 
 HOST=192.168.0.150
 USER=gpssong

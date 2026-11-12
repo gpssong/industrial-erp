@@ -140,7 +140,13 @@ cat 0*.sql | mysql -uroot -p industrial_erp
 ```
 
 覆盖密码/主机可走环境变量: `DB_HOST / DB_PORT / DB_USER / DB_PWD / DB_NAME`
-(默认 `root` / `***REMOVED_CREDENTIAL***` / `industrial_erp`, 与 `docker-compose` 保持一致)。
+(默认 `root` / `industrial_erp`; 口令默认取 `~/.config/erp-ops/env` 的 `ERP_MYSQL_ROOT_PWD`,
+见 `scripts/ops-env.example`)。
+
+> **口令占位符约定 (v1.1.183 起)**: 本目录各脚本注释里的 `"$ERP_MYSQL_ROOT_PWD"` /
+> `"$ERP_HOME_SSH_PASS"` / `"$ERP_FN_SSH_PASS"` 是**占位符**, 不是可用的口令。真值只放在
+> 仓库外的 `~/.config/erp-ops/env` (chmod 600), 用 `. "$(dirname "$0")/../scripts/ops-env.sh"`
+> + `erp_ops_load ERP_MYSQL_ROOT_PWD` 加载; 仓库里不再保留任何默认口令。
 
 **首次巡检结果 (2026-10-20)**: home 缺 8 列 / 飞牛缺 7 列, 集中在
 `sql/17_add_model_field.sql` (明细表的 `model` 列) 与
@@ -155,8 +161,8 @@ cat 0*.sql | mysql -uroot -p industrial_erp
 
 ```bash
 # 补灌双站缺列 (本机有 mysql 客户端 + 能直连 3306 时):
-mysql -h192.168.0.32 -uroot -p***REMOVED_CREDENTIAL*** industrial_erp --default-character-set=utf8mb4 < sql/90_drift_fill_columns.sql   # 飞牛
-mysql -h192.168.0.150 -uroot -p***REMOVED_CREDENTIAL*** industrial_erp --default-character-set=utf8mb4 < sql/90_drift_fill_columns.sql  # home
+mysql -h192.168.0.32 -uroot -p"$ERP_MYSQL_ROOT_PWD" industrial_erp --default-character-set=utf8mb4 < sql/90_drift_fill_columns.sql   # 飞牛
+mysql -h192.168.0.150 -uroot -p"$ERP_MYSQL_ROOT_PWD" industrial_erp --default-character-set=utf8mb4 < sql/90_drift_fill_columns.sql  # home
 # 灌后各站 sql-drift-check.sh 复检 → 应报 "无漂移"
 ```
 

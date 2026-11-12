@@ -189,7 +189,7 @@ backup.sh
 | 备份列表为空 | `ls /volume3/erp-backup/db/` 看是否真的写了 |
 | DB 备份 0 字节 | `cat logs/backup_YYYYMMDD.log` 看 mysqldump 错误 |
 | DSM 定时任务不跑 | 控制面板 → 任务计划 → 看上次执行结果 / 失败原因 |
-| restore 时 mysql 不能连 | 容器内: `docker exec erp-mysql mysqladmin -uroot -p***REMOVED_CREDENTIAL*** ping` |
+| restore 时 mysql 不能连 | 容器内: `docker exec erp-mysql mysqladmin -uroot -p"$ERP_MYSQL_ROOT_PWD" ping` |
 | `pigz: command not found` | 自动降级到 `gzip`,性能略差但不影响 |
 
 ---
