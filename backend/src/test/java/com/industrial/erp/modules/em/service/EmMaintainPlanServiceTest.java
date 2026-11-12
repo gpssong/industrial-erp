@@ -2,7 +2,6 @@ package com.industrial.erp.modules.em.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.em.entity.BaseEquipment;
 import com.industrial.erp.modules.em.entity.EmMaintainPlan;
@@ -136,26 +135,31 @@ class EmMaintainPlanServiceTest {
     }
 
     @Test
-    void deleteRejectsMissingPlanAndCheckedPlan() {
+    void deleteRejectsMissingPlan() {
         when(mapper.selectById(1L)).thenReturn(null);
         assertThatThrownBy(() -> service.delete(1L))
                 .isInstanceOf(BizException.class).hasMessageContaining("计划不存在");
+        verify(mapper, never()).deleteById(anyLong());
+    }
 
-        EmMaintainPlan checked = new EmMaintainPlan();
-        checked.setId(2L);
-        checked.setStatus(Constants.STATUS_CHECKED);
-        when(mapper.selectById(2L)).thenReturn(checked);
+    @Test
+    void deleteRejectsActivePlan() {
+        EmMaintainPlan active = new EmMaintainPlan();
+        active.setId(2L);
+        active.setStatus("ACTIVE");
+        when(mapper.selectById(2L)).thenReturn(active);
+
         assertThatThrownBy(() -> service.delete(2L))
                 .isInstanceOf(BizException.class).hasMessageContaining("不可删除");
         verify(mapper, never()).deleteById(anyLong());
     }
 
     @Test
-    void deleteRemovesExistingPlan() {
+    void deleteRemovesDeactivatedPlan() {
         EmMaintainPlan origin = new EmMaintainPlan();
         origin.setId(3L);
         origin.setPlanNo("MP202611120001");
-        origin.setStatus("ACTIVE");
+        origin.setStatus("DISABLED");
         when(mapper.selectById(3L)).thenReturn(origin);
 
         service.delete(3L);

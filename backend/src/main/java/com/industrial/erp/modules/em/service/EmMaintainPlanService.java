@@ -4,7 +4,6 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.em.entity.BaseEquipment;
 import com.industrial.erp.modules.em.entity.EmMaintainPlan;
@@ -98,7 +97,7 @@ public class EmMaintainPlanService {
         permService.requirePerm("equipment:maintain-plan:delete");
         EmMaintainPlan origin = mapper.selectById(id);
         if (origin == null) throw BizException.of("计划不存在");
-        if (Constants.STATUS_CHECKED.equals(origin.getStatus())) {
+        if ("ACTIVE".equals(origin.getStatus())) {
             throw BizException.of("已激活的计划不可删除, 请先停用");
         }
         mapper.deleteById(id);
