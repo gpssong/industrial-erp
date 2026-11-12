@@ -3,6 +3,18 @@
 
 ## changelog (倒序)
 
+### v1.1.183 (2026-11-12 — 只读备库上 backend 不再被「版本号回写」打挂; 纯后端 jar, 未部署)
+
+> **触发**: 2026-11-12 在 `.32` 取证发现, 该站从 v1.1.176 起就没重启过 (`Started=2026-11-09`、`RestartCount=0`), 而 11-10 的只读加固是在那之后做的 —— 这颗雷一直没炸, 但只要 `.32` 或阿里云热备的 backend 一重启就会炸: 接管流程第 5 步起 backend -> 容器直接退出 -> 外部入口黑屏。
+
+**根因**: [SystemVersionInitializer](../backend/src/main/java/com/industrial/erp/config/SystemVersionInitializer.java) 是 `@Order(Ordered.HIGHEST_PRECEDENCE)` 的 `ApplicationRunner`, 启动时**无条件** upsert `sys_config.SYSTEM_VERSION_INFO`。`.32` 链备与阿里云热备都带 `super_read_only=ON`, 这条写必回 MySQL `ERROR 1290` -> Spring 上下文启动失败 -> 整站起不来。而这行只是「系统参数」页的展示数据, 写不进去的代价只是版本号少一行。
+
+**修法**: 整段 upsert 包 try/catch, 失败记 `log.warn` 并跳过, **不再把异常抛出去**; 主库可写时照常写 (有测试守住这条)。同时在 [docs/28_故障接管与回切手册.md](28_故障接管与回切手册.md) 的接管流程里补一条硬说明: **第 2 步「解除只读」不是可选项** —— 顺序照旧, 先解只读再起 backend, 否则版本行写不进去、日志里会一直躺着一行 WARN。
+
+**测试**: 新增 [SystemVersionInitializerTest](../backend/src/test/java/com/industrial/erp/config/SystemVersionInitializerTest.java) 4 例 —— update 被 1290 拒绝 / insert 被 1290 拒绝 / 连 select 都失败 / 主库可写时照常 upsert; 真实异常形状用 MyBatis 包装后的 `UncategorizedSQLException(SQLException("...super-read-only...", "HY000", 1290))`。
+
+**版本/产物**: 版本五处对齐 1.1.183 (`app/package.json`、`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`manifest.json` versionName 1.1.183 / versionCode 1183、`profile/index.vue` `APP_VERSION`)。**本条只入库代码, 尚未构建与部署**。
+
 ### v1.1.182 (2026-11-12 — OCR 批号候选排序补「同行多候选取最左为牌号」；纯后端 jar，非 App / 非 SQL)
 
 > **接 v1.1.181 真机验收**：框选裁片已准确落在打印批号那一行，TextIn 也认出了 `SK216A08C1102431`，但 `candidates[0]` 仍是牌号 `LL0220KJ`，前端照旧把它填进批号框 —— 用户看到的还是「识别到了不对的东西」。

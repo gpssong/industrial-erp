@@ -18,12 +18,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 启动时写入系统版本信息到 sys_config 表 (key=SYSTEM_VERSION_INFO).
  * <p>前端「系统参数」页读取后展示给运维/用户, 便于部署后核对版本.
  * <p>Order(HIGHEST) 确保在其他 ApplicationRunner 之前执行.
  */
+@Slf4j
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class SystemVersionInitializer implements ApplicationRunner {
@@ -42,7 +44,7 @@ public class SystemVersionInitializer implements ApplicationRunner {
     @Value("${spring.data.redis.port:0}")
     private int redisPort;
 
-    @Value("${erp.version:1.1.182}")
+    @Value("${erp.version:1.1.183}")
     private String erpVersion;
 
     public SystemVersionInitializer(SysConfigMapper configMapper) {
@@ -70,21 +72,27 @@ public class SystemVersionInitializer implements ApplicationRunner {
 
         String value = new ObjectMapper().writeValueAsString(info);
 
-        // upsert 到 sys_config (key=SYSTEM_VERSION_INFO)
-        LambdaQueryWrapper<SysConfig> w = new LambdaQueryWrapper<SysConfig>()
-                .eq(SysConfig::getConfigKey, "SYSTEM_VERSION_INFO");
-        SysConfig existing = configMapper.selectOne(w);
-        if (existing == null) {
-            SysConfig c = new SysConfig();
-            c.setConfigKey("SYSTEM_VERSION_INFO");
-            c.setConfigValue(value);
-            c.setConfigName("系统版本信息 (只读, 启动时自动写入)");
-            c.setConfigType(1);
-            c.setRemark("v1.0.9+ 自动维护, 不要手动修改");
-            configMapper.insert(c);
-        } else {
-            existing.setConfigValue(value);
-            configMapper.updateById(existing);
+        // upsert 到 sys_config (key=SYSTEM_VERSION_INFO)。
+        // 只读备库 (.32 链备 / 阿里云热备的 super_read_only) 上这条写必回 ERROR 1290, 而这一行只是
+        // 「系统参数」页的展示数据 —— 让它把异常抛出去等于整站起不来, 接管时直接黑屏, 所以降级为 WARN。
+        try {
+            LambdaQueryWrapper<SysConfig> w = new LambdaQueryWrapper<SysConfig>()
+                    .eq(SysConfig::getConfigKey, "SYSTEM_VERSION_INFO");
+            SysConfig existing = configMapper.selectOne(w);
+            if (existing == null) {
+                SysConfig c = new SysConfig();
+                c.setConfigKey("SYSTEM_VERSION_INFO");
+                c.setConfigValue(value);
+                c.setConfigName("系统版本信息 (只读, 启动时自动写入)");
+                c.setConfigType(1);
+                c.setRemark("v1.0.9+ 自动维护, 不要手动修改");
+                configMapper.insert(c);
+            } else {
+                existing.setConfigValue(value);
+                configMapper.updateById(existing);
+            }
+        } catch (Exception e) {
+            log.warn("SYSTEM_VERSION_INFO 启动写入失败, 已跳过 (只读备库属预期): {}", e.toString());
         }
     }
 }
