@@ -72,6 +72,16 @@ class OcrServiceRealLabelRegressionTest {
         return OcrService.parseTextinLines(SECCO_LINES);
     }
 
+    /**
+     * 2026-11-12 真机「框选识别区域」后送进去的那张小图: 裁出来只剩牌号+批号这一行,
+     * 所以既没有品名行可锚、也没有「批号」字样 —— 定向识别和字段名两条降级线索同时失效.
+     */
+    private static List<OcrService.TextLine> seccoCropped() {
+        return OcrService.parseTextinLines("{\"code\":200,\"result\":{\"lines\":["
+                + line("LL0220KJ P SK216A08C1102431", 40, 60, 1160, 60, 1160, 175, 40, 175)
+                + "]}}");
+    }
+
     @Test
     @DisplayName("赛科那一行: 首选是真批号 SK216923C1402249, 不是同一行里的牌号 LL0220KJ")
     void seccoRowPrefersBatchOverGrade() {
@@ -120,5 +130,25 @@ class OcrServiceRealLabelRegressionTest {
         // 第一趟 (标签块半径内) 在这张图上取不到批号, 旧实现直接跳到「所有图摊开」→ 三个候选混在一起
         assertThat(OcrService.photoCandidates(List.of(basfFarApart(), secco()), "扬巴ldpe2426h"))
                 .containsExactly("H9Pb2");
+    }
+
+    @Test
+    @DisplayName("品名只是树脂名 (lldpe) 时, 同一行的牌号 LL0220KJ 也不许顶掉批号")
+    void resinOnlyHintStillPrefersBatchOverGrade() {
+        // 2026-11-12 真机框选实测: 厂里这一行料在采购单上就叫「lldpe」, 断词后没有可用锚点键,
+        // v1.1.165 那条「含原料名片段 → 降级」的口径整个失效, candidates[0] 又变回牌号。
+        assertThat(OcrService.photoCandidates(List.of(seccoCropped()), "lldpe"))
+                .first().isEqualTo("SK216A08C1102431");
+    }
+
+    @Test
+    @DisplayName("写了「批号」的行按字段顺序认, 不把行内第一个候选当牌号降级")
+    void labelledLineKeepsFieldOrder() {
+        List<OcrService.TextLine> lines = OcrService.parseTextinLines(
+                "{\"code\":200,\"result\":{\"lines\":["
+                        + line("批号：SK216A08C1 102431", 100, 100, 900, 100, 900, 170, 100, 170)
+                        + "]}}");
+        assertThat(OcrService.photoCandidates(List.of(lines), "lldpe"))
+                .first().isEqualTo("SK216A08C1");
     }
 }

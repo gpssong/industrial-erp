@@ -3,6 +3,42 @@
 
 ## changelog (倒序)
 
+### v1.1.182 (2026-11-12 — OCR 批号候选排序补「同行多候选取最左为牌号」；纯后端 jar，非 App / 非 SQL)
+
+> **接 v1.1.181 真机验收**：框选裁片已准确落在打印批号那一行，TextIn 也认出了 `SK216A08C1102431`，但 `candidates[0]` 仍是牌号 `LL0220KJ`，前端照旧把它填进批号框 —— 用户看到的还是「识别到了不对的东西」。
+
+**根因（排序口径 ③ 的触发条件依赖品名，框选场景下整条失效）**
+- v1.1.165 补的那条「含原料名片段的候选 → 沉到最后」(`isIdentityOf`) 靠 `hintKeys(productName)` 拆出的片段去匹配候选串；赛科标签那行是 `LL0220KJ P SK216A08C1102431`，只有当品名写成「赛科0220kj」这类**带牌号/中文简称**的写法时才拆得出 `0220kj` 这种可用键。
+- 车间这一行料在采购单上就叫 `lldpe` —— 通用树脂名在 `RESIN_WORDS` 里被明确排除当锚点键（v1.1.165 实测：拿 `ldpe` 锚会串到隔壁原料那张标签），于是 `hintKeys` 返回空集，`photoCandidates` 直接走「整图候选」，③ 一次都没被触发，`LL0220KJ` 按阅读顺序排在真批号前面。
+- 框选反而让这个老毛病更容易复现：裁片只剩这一行，既没有「品名：赛科0220kj」那行可供锚点，也没有「批号：」字样可走 ① 的标注行优先 —— 两条降级线索同时失效。
+
+**修法（`collect` 补第 ④ 条，不依赖品名）**
+- 未写「批号/LOT」的行里并排出现 **≥2 个**批号形状候选时，最左那个按牌号处理沉到最后（标签自身排版口径：牌号在左、批号跟后）。
+- **标注行不走这条**：`批号：X Y` 里字段顺序才是标签自己的口径，把第一个候选降级会误伤真批号（`labelledLineKeepsFieldOrder` 锁住）。
+- 只做降级不做删除，单行标签时牌号仍是唯一候选 —— 与 ③ 同一取舍。
+- 没走「纯形状判牌号」那条路：`7042`/`2426H` 这类牌号与短批号同形，形状规则会误降真批号，回归面不可控。
+
+**测试**
+- `OcrServiceRealLabelRegressionTest` 新增 2 例：`resinOnlyHintStillPrefersBatchOverGrade`（用 2026-11-12 真机框选那张小图的逐行文字做 fixture，品名传 `lldpe`，断言首选 `SK216A08C1102431`）—— 红→绿已验证，改代码前实跑报 `expected: "SK216A08C1102431" but was: "LL0220KJ"`；`labelledLineKeepsFieldOrder`（标注行守卫，防第 ④ 条越界）。
+- `mvn -o test -Dtest='OcrService*Test'` → **25 tests / 0 fail**；全量 `mvn -o test` → **680 tests / Failures 0 / Errors 0 / BUILD SUCCESS**（JDK 17，日志未接管道，退出码单独取）。
+
+**版本/产物**
+- 版本五处对齐 1.1.182（`app/package.json`、`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`manifest.json` versionName 1.1.182 / versionCode 1182、`profile/index.vue` `APP_VERSION`）。
+- 本轮**只重打 backend jar**：App H5 / APK / PC dist 零改动，手机上装的仍是 `erp-app-v1.1.181.apk`（框选几何已在 v1.1.181 修好，这次改的是服务端排序）。
+- `.150` 的 `docker-compose.yml` 里 `ERP_VERSION` 从 `1.1.179` 改到 `1.1.182`（运行时版本号读容器 env，不随 jar 走）。
+
+**部署（jar md5 `1489ae11b333bf8d98fd6fc9b925c1b9` / 103161845 字节，三处对同一枚）**
+- ⚠️ **本轮跳过 canary**：Mac→内网仍不通（`ssh gpssong@192.168.0.32` = `No route to host`），`.150 → .32` 要密码而那台机没装 `sshpass`，阿里云上也没有 `.32` 的反打隧道（`ss -tlnp` 只有 `172.18.0.1:12222`）。改走 **`.150` 主站直发**，通道是既有的阿里云反打隧道 `ssh -J root@47.96.188.129 -p 12222 gpssong@172.18.0.1`。风险由「改动只有排序 + 680 测试全绿 + jar 可秒回滚」兜住。
+- `.150`：旧 jar 改名 `industrial-erp-1.1.179.jar.bak_v1179_20261112`，放 `industrial-erp-1.1.182.jar`，`ls industrial-erp-*.jar | wc -l` = 1；`docker-compose.yml` 先 `cp -a` 成 `.bak_v1182_20261112` 再改第 95 行 `ERP_VERSION`。
+- **踩到一条新的**：`.150` compose 第 84 行 `image: erp-system-backend:1.1.179` 是**写死的**（不随 `ERP_VERSION` 模板走），所以第一次 `docker compose build` 把**新 jar 打进了 `1.1.179` 这个 tag**，回滚镜像被就地覆盖。补救：`docker tag 2fa0b8248ec0 erp-system-backend:1.1.179` 把旧镜像 sha 重新指回旧 tag，再把 compose 改成 `erp-system-backend:1.1.182` 重新 build。**以后在 `.150` 换版必须同时改第 84 行**，否则 tag 名与实际内容脱钩，`docker ps` 看着是旧版其实已是新版（反之亦然）。
+- 落地核验：`docker run --rm --entrypoint md5sum erp-system-backend:1.1.182 /opt/app/app.jar` = `1489ae11…`（新），同一命令查 `:1.1.179` = `6fdcb17a…`（旧，回滚网是真的）；容器 `erp-backend` 8 次探活后 `healthy`，`Config.Image=erp-system-backend:1.1.182`、env `ERP_VERSION=1.1.182`；公网 `http://www.93gushi.com:8088/api/auth/captcha` 回 200；`sys_config.SYSTEM_VERSION_INFO` 已被启动回写成 `{"version":"1.1.182",…}`。
+- 阿里云热备：`.env` 先备份 `.env.bak_v1182_20261112` 再改 `ERP_VERSION=1.1.182`，旧 jar 改名 `.bak_v1175_20261112`，`docker compose build erp-backend` 产出 `erp-backend:1.1.182`（镜像内 jar md5 同上）。**backend 容器保持停用**（它是待命的接管位，起来会变成第二个写库节点），只保证真接管时跑的是这版。中转文件 `/tmp/erp-1182-upload.jar` 用完即删。
+- `.32` 的 jar 停在 v1.1.179，等 LAN 恢复后随下一版一起走。
+
+**实测（判据：框选只圈打印批号那一行 → 应回填 `SK216A08C1102431`）**
+- 服务端直打：拿真机 06:41 那张框选裁片 `/upload/202611/12/d74ecfe7559a4fe6be1a344a68e00b0f.jpg` 调 `POST /api/ai/ocr/label-batchno`，`productName` 分别传 `lldpe` 和 `赛科0220kj`，两次都回 `candidates: ["SK216A08C1102431","LL0220KJ"]`、`rawText: "LL0220KJ P SK216A08C1102431"` —— 首选从牌号变成批号。
+- 真机端到端（M2007J1SC / APK v1.1.181，无需重装）：原料入库 → 识别批号 → 选标签照 → 框选弹窗里拖右下角手柄 + 拖动框，`.rc-box` 实测 `left:18 top:141 width:324 height:31`（按 `#rcImg` 归一化 = x 0.048 / y 0.504 / w 0.871 / h 0.111，正落在批号行）→ 点「识别这区域」→ 弹 **「lldpe：识别到 SK216A08C1102431，可点候选条改选」**，批号框回填 `SK216A08C1102431`，候选条首选绿标 = 批号、次选 = `LL0220KJ`。**未点「生成报告并入库」**，不往生产留单据。
+
 ### v1.1.181 (2026-11-11 — App 原料入库 OCR「框选识别」裁错区域，修归一化基准；纯 App 改动，非 jar / 非 SQL)
 
 > **用户报**：「整体识别正常，选取识别失败」—— 拍照后不框选能认出批号，框了区域反而识别不到。v1.1.177 上线的框选功能从第一天起就没真正裁到过标签上的字。

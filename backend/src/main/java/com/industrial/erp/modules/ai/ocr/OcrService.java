@@ -492,7 +492,8 @@ public class OcrService {
     }
 
     /**
-     * 候选排序: ① 带「批号/LOT」字样的行优先, ② 其余行按阅读顺序, ③ 与原料名重合的串沉到最后.
+     * 候选排序: ① 带「批号/LOT」字样的行优先, ② 其余行按阅读顺序, ③ 与原料名重合的串沉到最后,
+     * ④ 未标注行里并排出现的第一个候选 (牌号) 也沉到最后.
      *
      * <p>③ 是 v1.1.165 canary 实测补的: 赛科那张标签把牌号和批号挤在同一行
      * ({@code LL0220KJ P SK216923C1402249}), 而前端只取 {@code candidates[0]} →
@@ -505,7 +506,18 @@ public class OcrService {
         List<String> identity = new ArrayList<>();
         for (TextLine l : lines) {
             boolean batchLine = isBatchLabelLine(l.text);
-            for (String tok : batchTokensOf(l)) {
+            List<String> toks = batchTokensOf(l);
+            // ④ 是 v1.1.181 真机框选实测补的: ③ 要靠品名里的牌号片段才认得出牌号, 可厂里这一行料
+            // 常只写「lldpe」—— 通用树脂名进不了锚点键, ③ 整条失效, candidates[0] 又变回 LL0220KJ。
+            // 标签自己的排版是同一口径的另一半: 牌号印在最左、批号跟在后面, 所以没写「批号」的行里
+            // 并排出现两个以上候选时, 最左那个按牌号处理。标注行不走这条 —— 那里字段顺序才是标签的口径。
+            int from = 0;
+            if (!batchLine && toks.size() > 1) {
+                identity.add(toks.get(0));
+                from = 1;
+            }
+            for (int i = from; i < toks.size(); i++) {
+                String tok = toks.get(i);
                 if (batchLine) labelled.add(tok);
                 else if (isIdentityOf(tok, hintKeys)) identity.add(tok);
                 else rest.add(tok);
