@@ -99,6 +99,15 @@ jobs:
           npm ci --no-audit --no-fund > /tmp/npm-ci-pc.log 2>&1 || rc=$?
           tail -5 /tmp/npm-ci-pc.log
           exit $rc
+      # v1.1.183: 模板里引用 <script setup> 未定义的标识符时 vite build 照样绿,
+      # 线上点开才报错; 这道 lint 只把这类确定性缺陷设为 error, 风格类保留 warn.
+      - name: Lint pc-web
+        run: |
+          cd pc-web
+          rc=0
+          npm run lint --silent > /tmp/npm-lint-pc.log 2>&1 || rc=$?
+          tail -20 /tmp/npm-lint-pc.log
+          exit $rc
       - name: Build pc-web
         run: |
           cd pc-web

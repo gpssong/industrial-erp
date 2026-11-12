@@ -3,7 +3,8 @@
 # pre-commit hook — 校验:
 #   1. 版本号在 7 个发布源中一致 (scripts/check-version.sh)
 #   2. npm lockfile 一致性 (pc-web / app)
-#   3. 实体字段 vs DDL 对账 (防"改实体不补 DDL"回归, v1.1.130 SOP/委外 500 教训)
+#   3. pc-web lint (error 级: 模板引用未定义标识符)
+#   4. 实体字段 vs DDL 对账 (防"改实体不补 DDL"回归, v1.1.130 SOP/委外 500 教训)
 #
 # 用法: git config core.hooksPath .githooks
 #      (.githooks/pre-commit 会转调本文件)
@@ -54,7 +55,24 @@ for DIR in pc-web app; do
 done
 
 # -----------------------------------------------------------
-# 2. 实体字段 vs DDL 对账 (离线 sql/ + 集合字段必查)
+# 3. pc-web lint (v1.1.183): 只拦 error 级 —— 模板引用了 <script setup> 里不存在的
+#    标识符 (vue/no-undef-properties) 编译期不报错, 线上点按钮才炸 (空弹窗事故根因).
+#    风格类规则全部 warn, 不会卡住历史代码.
+# -----------------------------------------------------------
+echo ""
+echo "==> [pre-commit] pc-web lint..."
+if [ ! -d "pc-web/node_modules" ]; then
+  echo "  ⚠  pc-web/node_modules 不存在, 跳过 (先 cd pc-web && npm ci)"
+elif (cd pc-web && npm run lint --silent > /tmp/erp-pc-lint.log 2>&1); then
+  echo "  ✅ lint 通过"
+else
+  echo "  ❌ lint 未通过:"
+  tail -30 /tmp/erp-pc-lint.log | sed 's/^/     /'
+  FAILED=1
+fi
+
+# -----------------------------------------------------------
+# 4. 实体字段 vs DDL 对账 (离线 sql/ + 集合字段必查)
 # 离线模式: 集合字段没标 exist=false → 硬 fail (真 500 风险, 与 DDL 完整性无关);
 #          scalar 缺列只在离线 DDL 不全时误报 → 仅提示, 不 fail.
 # 需要权威对账时手动: scripts/entity-schema-check.py --live-ssh (口令取自 ops-env, 见 scripts/ops-env.example)

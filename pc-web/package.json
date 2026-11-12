@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview --port 5000",
     "electron:build": "vite build && electron-builder --mac --dir",
-    "electron:pack": "vite build && electron-builder --mac --dir --pd"
+    "electron:pack": "vite build && electron-builder --mac --dir --pd",
+    "lint": "eslint src"
   },
   "build": {
     "appId": "com.industrial.erp",
@@ -46,9 +47,13 @@
     "@vitejs/plugin-vue": "^5.0.4",
     "electron": "^33.4.11",
     "electron-builder": "^25.1.8",
+    "eslint": "^9.39.4",
+    "eslint-plugin-vue": "^9.33.0",
+    "globals": "^15.15.0",
     "sass": "^1.70.0",
     "unplugin-auto-import": "^0.17.5",
     "unplugin-vue-components": "^0.26.0",
-    "vite": "^5.1.4"
+    "vite": "^5.1.4",
+    "vue-eslint-parser": "^9.4.3"
   }
 }
