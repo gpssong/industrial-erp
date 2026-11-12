@@ -1,0 +1,6 @@
+#!/bin/bash
+# git hook 入口 —— 真正的校验逻辑在 scripts/pre-commit.sh
+# 启用方式: git config core.hooksPath .githooks
+set -uo pipefail
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+exec bash "$REPO_ROOT/scripts/pre-commit.sh"

@@ -61,6 +61,10 @@ app/unpackage/
 app/node_modules/
 app/dist/
 app/android/      # Capacitor 自动生成, 重新 cap add android 即可
+# 打包出来的 APK 是分发物 (每个 4MB+), 不入库 —— 历史上 app/ 下堆了 9 个 APK,
+# 一次 `git add -A` 就能把 38MB 二进制塞进仓库
+*.apk
+*.aab
 
 # ===== Backend build artifacts + 大体积字体 =====
 backend/control.tar.zst

@@ -1,17 +1,35 @@
 #!/bin/bash
 # ============================================================
 # pre-commit hook — 校验:
-#   1. npm lockfile 一致性 (pc-web / app)
-#   2. 实体字段 vs DDL 对账 (防"改实体不补 DDL"回归, v1.1.130 SOP/委外 500 教训)
+#   1. 版本号在 7 个发布源中一致 (scripts/check-version.sh)
+#   2. npm lockfile 一致性 (pc-web / app)
+#   3. 实体字段 vs DDL 对账 (防"改实体不补 DDL"回归, v1.1.130 SOP/委外 500 教训)
 #
-# 用法: 放到 .git/hooks/pre-commit (或 git config core.hooksPath .githooks)
+# 用法: git config core.hooksPath .githooks
+#      (.githooks/pre-commit 会转调本文件)
 # ============================================================
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-echo "==> [pre-commit] 校验 npm lockfile 一致性..."
-
 FAILED=0
+
+# -----------------------------------------------------------
+# 1. 版本号一致性 (v1.1.183: 改代码时顺手改版本号, 最容易漏 SystemVersionInitializer
+#    的 @Value 默认值 —— CI 也有同一道检查, 但本地先拦一道省一次 CI 往返)
+# -----------------------------------------------------------
+echo "==> [pre-commit] 校验版本号一致性..."
+if bash scripts/check-version.sh; then
+  echo "  ✅ 版本号一致"
+else
+  echo "  ❌ 版本号不一致, 提交前请对齐 (scripts/check-version.sh 会列出具体哪一处不一致)"
+  FAILED=1
+fi
+
+# -----------------------------------------------------------
+# 2. npm lockfile 一致性
+# -----------------------------------------------------------
+echo ""
+echo "==> [pre-commit] 校验 npm lockfile 一致性..."
 
 for DIR in pc-web app; do
   if [ ! -d "$DIR" ]; then

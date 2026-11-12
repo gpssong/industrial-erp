@@ -11,6 +11,14 @@ on:
   pull_request:
     branches: [main]
 
+# 关键: 默认 shell 是 `bash -e {0}` (没有 pipefail), 于是 `mvn ... | tail -40` 的退出码
+# 取自 tail —— mvn 挂了 job 照样绿, 测试/编译/构建这道门禁形同虚设。
+# `shell: bash` 会展开成 `bash --noprofile --norc -eo pipefail {0}`, 管道里任一环失败即失败。
+# 下面各步另外改成「写日志文件 + tail 日志」的写法, 不依赖管道退出码语义, 双保险。
+defaults:
+  run:
+    shell: bash
+
 jobs:
   version-consistency:
     name: Version consistency
@@ -33,7 +41,11 @@ jobs:
         run: |
           cd backend
           # 用本地 mvn (GitHub Actions runner 预装 maven)
-          mvn -B compile -DskipTests 2>&1 | tail -20
+          # `|| rc=$?` 让失败不中断脚本, 便于把日志尾部打出来再带着原退出码结束
+          rc=0
+          mvn -B compile -DskipTests > /tmp/mvn-compile.log 2>&1 || rc=$?
+          tail -20 /tmp/mvn-compile.log
+          exit $rc
         timeout-minutes: 10
 
   # v1.1.104+: 跑单元测试 (14 个测试类覆盖), 挡掉 PR 上的回归 (如 MyBatis-Plus FieldFill 漏写 / SysBackupController 死注解类教训)
@@ -50,7 +62,12 @@ jobs:
       - name: Run unit tests (skip Testcontainers integration tests)
         run: |
           cd backend
-          mvn -B test -Dtest='!Integration*Test,!*IT' -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tail -40
+          rc=0
+          mvn -B test -Dtest='!Integration*Test,!*IT' -Dsurefire.failIfNoSpecifiedTests=false > /tmp/mvn-test.log 2>&1 || rc=$?
+          tail -40 /tmp/mvn-test.log
+          # 额外把 "Tests run" 汇总行打出来, 方便在 Actions 日志里直接看通过数
+          grep -E 'Tests run:.*Failures' /tmp/mvn-test.log | tail -5 || true
+          exit $rc
         timeout-minutes: 12
 
   # v1.1.104: scripts/check-perm.py 检查 controller method 防护.
@@ -76,9 +93,19 @@ jobs:
         with:
           node-version: 20
       - name: Install pc-web deps
-        run: cd pc-web && npm ci --no-audit --no-fund 2>&1 | tail -5
+        run: |
+          cd pc-web
+          rc=0
+          npm ci --no-audit --no-fund > /tmp/npm-ci-pc.log 2>&1 || rc=$?
+          tail -5 /tmp/npm-ci-pc.log
+          exit $rc
       - name: Build pc-web
-        run: cd pc-web && npm run build 2>&1 | tail -10
+        run: |
+          cd pc-web
+          rc=0
+          npm run build > /tmp/npm-build-pc.log 2>&1 || rc=$?
+          tail -10 /tmp/npm-build-pc.log
+          exit $rc
 
   app-h5-build:
     name: App H5 build
@@ -89,9 +116,19 @@ jobs:
         with:
           node-version: 20
       - name: Install app deps
-        run: cd app && npm ci --no-audit --no-fund 2>&1 | tail -5
+        run: |
+          cd app
+          rc=0
+          npm ci --no-audit --no-fund > /tmp/npm-ci-app.log 2>&1 || rc=$?
+          tail -5 /tmp/npm-ci-app.log
+          exit $rc
       - name: Build app H5
-        run: cd app && npm run build:h5 2>&1 | tail -10
+        run: |
+          cd app
+          rc=0
+          npm run build:h5 > /tmp/npm-build-app.log 2>&1 || rc=$?
+          tail -10 /tmp/npm-build-app.log
+          exit $rc
       - name: Verify warningItems in dashboard chunk
         run: |
           JS=$(find app/dist/build/h5/assets -name "pages-dashboard-index.*.js")
