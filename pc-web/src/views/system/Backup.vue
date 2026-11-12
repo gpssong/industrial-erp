@@ -80,6 +80,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import { backupApi } from '@/api/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { downloadBlob } from '@/utils/export'
 
 const query = reactive({ pageNum: 1, pageSize: 20 })
 const data = ref({ records: [], total: 0 })
@@ -239,12 +240,8 @@ async function doDownload(row) {
       return
     }
     const blob = await resp.blob()
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = row.backupName || 'backup.sql'
-    a.click()
-    URL.revokeObjectURL(a.href)
-    ElMessage.success('已下载 ' + a.download)
+    const name = downloadBlob(blob, row.backupName || 'backup.sql')
+    ElMessage.success('已下载 ' + name)
   } catch (e) {
     ElMessage.error('下载失败: ' + (e && e.message ? e.message : e))
   } finally {

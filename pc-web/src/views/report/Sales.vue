@@ -123,6 +123,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart, BarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent, LegendComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
+import { downloadBlob } from '@/utils/export'
 use([CanvasRenderer, LineChart, BarChart, TitleComponent, TooltipComponent, GridComponent, LegendComponent])
 
 const dateRange = ref([dayjs().subtract(29, 'day').format('YYYY-MM-DD'), dayjs().format('YYYY-MM-DD')])
@@ -289,11 +290,7 @@ async function exportCsv(scope) {
     const cd = resp.headers.get('content-disposition') || ''
     const m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(cd)
     const name = m ? decodeURIComponent(m[1] || m[2]) : (scope === 'summary' ? '销售汇总.csv' : '销售明细.csv')
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = name
-    a.click()
-    URL.revokeObjectURL(a.href)
+    downloadBlob(blob, name)
     ElMessage.success('已下载 ' + name)
   } catch (e) {
     ElMessage.error('导出失败: ' + (e && e.message ? e.message : e))

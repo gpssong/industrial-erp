@@ -108,6 +108,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Download, Plus, Upload } from '@element-plus/icons-vue'
 import { xkSupplierApi } from '@/api/xk'
 import { uploadFile } from '@/api/workflow'
+import { downloadBlob, tsvBlob } from '@/utils/export'
 
 const props = defineProps({ suppliers: { type: Array, default: () => [] } })
 const emit = defineEmits(['changed'])
@@ -214,12 +215,8 @@ function onExport() {
     (r.remark || '').replace(/[\t\r\n]+/g, ' ')
   ])
   const text = `${headers}\n${body.map(r => r.join('\t')).join('\n')}`
-  const blob = new Blob(['\ufeff' + text], { type: 'text/tab-separated-values;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `XK证照与检测报告-${new Date().toISOString().slice(0, 10)}.tsv`
-  a.click()
+  const blob = tsvBlob(text)
+  downloadBlob(blob, `XK证照与检测报告-${new Date().toISOString().slice(0, 10)}.tsv`)
   URL.revokeObjectURL(url)
   ElMessage.success(`已导出 ${rows.value.length} 条`)
 }

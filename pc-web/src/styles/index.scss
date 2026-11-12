@@ -1,3 +1,5 @@
+@use './paper' as paper;
+
 // =====================================================================
 // XK16-204 ERP+MES — 全局设计系统 (v1.1.92 Figma Make 视觉移植)
 //
@@ -369,7 +371,7 @@ body {
 .print-workspace { display: grid; grid-template-columns: 250px minmax(600px,1fr); gap: 18px; align-items: start; }
 .print-settings { padding: 20px; position: sticky; top: 88px; }
 .paper-wrap { padding: 35px; background: #dce3ea; border-radius: 14px; overflow: auto; }
-.paper { width: 680px; min-height: 900px; margin: auto; padding: 44px 48px 30px; background: #fff; box-shadow: 0 10px 30px rgba(28,48,69,.14); color: #182331; }
+.paper { width: paper.$paper-width-portrait; min-height: paper.$paper-min-height-portrait; margin: auto; padding: 44px 48px 30px; background: #fff; box-shadow: 0 10px 30px rgba(28,48,69,.14); color: #182331; }
 .paper-title { text-align: center; font-size: 24px; font-weight: 800; letter-spacing: .12em; margin-top: 30px; }
 
 // —— 审计归档 ——

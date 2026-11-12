@@ -135,6 +135,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { labelApi, labelTemplateApi } from '@/api/base'
+import { downloadBlob } from '@/utils/export'
 
 // 嵌入「打印管理」页时 embedded=true：「编辑这一类模板」改为 emit 让父页切子 tab，
 // 独立路由 /base/label-center 访问时仍 router.push（向后兼容）。
@@ -415,11 +416,7 @@ async function exportTspl() {
     const b64 = (d.contentsBase64 || [])[0]
     if (!b64) throw new Error('后端没有回指令内容（contentsBase64 是空的）')
     const bytes = b64ToBytes(b64)
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = d.fileName || 'label.tspl'
-    a.click()
+    downloadBlob(new Blob([bytes], { type: 'application/octet-stream' }), d.fileName || 'label.tspl')
     URL.revokeObjectURL(url)
     ElMessage.success(`已导出 ${d.labels || 1} 张标签 · ${d.encoding || ''} 编码 · 日志已记 EXPORT 通道`)
   } catch (e) {

@@ -130,6 +130,7 @@ import { reactive, ref, onMounted } from 'vue'
 import { bomApi } from '@/api/production'
 import { productApi } from '@/api/base'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 const query = reactive({ pageNum: 1, pageSize: 20, keyword: '' })
 const data = ref({ records: [], total: 0 })
@@ -146,8 +147,7 @@ async function loadData() {
   try { data.value = (await bomApi.page(query)).data } finally { loading.value = false }
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 
 async function loadProducts() {
   if (products.value.length === 0) products.value = (await productApi.page({ pageNum: 1, pageSize: 200 })).data?.records || []

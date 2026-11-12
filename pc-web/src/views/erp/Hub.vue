@@ -96,6 +96,7 @@ import {
 import { productApi, customerApi, supplierApi } from '@/api/base'
 import { salOrderApi, salDeliveryApi, salReturnApi } from '@/api/sales'
 import { arapApi } from '@/api/finance'
+import { downloadBlob } from '@/utils/export'
 
 const router = useRouter()
 const route = useRoute()
@@ -348,11 +349,7 @@ function onExport() {
   const lines = list.map(r => [r.no, r.party, r.content, r.amount ? String(r.amount) : '', r.status].join('\t'))
   const csv = '﻿' + head.join('\t') + '\n' + lines.join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = activeCatObj.value.title + '-记录-' + new Date().toISOString().slice(0, 10) + '.csv'
-  a.click()
-  URL.revokeObjectURL(a.href)
+  downloadBlob(blob, activeCatObj.value.title + '-记录-' + new Date().toISOString().slice(0, 10) + '.csv')
   ElMessage.success('已导出 ' + list.length + ' 条 ' + activeCatObj.value.title + ' 记录')
 }
 // 状态 pill 配色 (真实状态中文标签: 已审核/充足/正常=绿; 草稿/预警=橙; 停用/作废=灰; 已开票=绿)

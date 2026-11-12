@@ -1006,6 +1006,7 @@ import { calibrationEquipmentApi, calibrationRecordApi } from '@/api/qa'
 import { uploadFile } from '@/api/workflow'
 import { useUserStore } from '@/store/user'
 import IqcInline from './IqcInline.vue'
+import { downloadBlob } from '@/utils/export'
 
 const userStore = useUserStore()
 const currentUserName = () => userStore.userInfo?.nickname || userStore.userInfo?.username || ''
@@ -1699,11 +1700,7 @@ async function onExport() {
   ].join('\t'))
   const csv = '﻿' + head.join('\t') + '\n' + lines.join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = '质量检验档案-' + new Date().toISOString().slice(0, 10) + '.csv'
-  a.click()
-  URL.revokeObjectURL(a.href)
+  downloadBlob(blob, '质量检验档案-' + new Date().toISOString().slice(0, 10) + '.csv')
   const envCnt = rows.filter(r => r._source === 'env').length
   ElMessage.success('已导出 ' + rows.length + ' 条检验记录 (含 ' + envCnt + ' 条环境检查)')
 }

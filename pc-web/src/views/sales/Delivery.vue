@@ -336,6 +336,7 @@ import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { feiePrintApi } from '@/api/feie'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 // el-input-number 数字自动去尾 0 (v1.1.6 引入; v1.1.7 补到销售出库):
 // EP 的 precision=N 会强制显示 N 位小数, 用 formatter/parser 接管显示.
@@ -461,8 +462,7 @@ async function loadData() {
   } finally { loading.value = false }
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 
 function onReset() {
   query.billNo = ''

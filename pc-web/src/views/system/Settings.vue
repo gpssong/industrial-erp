@@ -124,6 +124,7 @@ import { useTaxSeparation } from '@/composables/useSystemConfig'
 import { useSystemName } from '@/composables/useSystemName'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 // 前端版本 (vite.config.js 用 define 注入, 构建时替换)
 // 类型定义为全局常量, 避免 TS 报错
@@ -166,8 +167,7 @@ async function loadData() {
   loadTaxSeparation()
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 function onAdd() {
   form.value = { id: null, configName: '', configKey: '', configValue: '', configType: 1, remark: '' }
   dialogVisible.value = true

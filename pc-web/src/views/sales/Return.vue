@@ -111,6 +111,7 @@ import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { feiePrintApi } from '@/api/feie'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 const userStore = useUserStore()
 
@@ -131,8 +132,7 @@ async function loadData() {
   try { data.value = (await salReturnApi.page(query)).data } finally { loading.value = false }
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 
 async function onAdd() {
   loadTaxSeparation()

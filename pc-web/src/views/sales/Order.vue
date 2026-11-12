@@ -397,6 +397,7 @@ import { usePrint, BIZ_TYPES } from '@/composables/usePrint'
 import { feiePrintApi } from '@/api/feie'
 import { ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 // v1.1.33: el-input + inputmode=decimal 数字归一化 (与 Delivery.vue 同模式)
 const normNum = (v) => {
@@ -467,8 +468,7 @@ async function loadData() {
   try { data.value = (await salOrderApi.page(query)).data } finally { loading.value = false }
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 
 async function loadOptions() {
   if (customers.value.length === 0) customers.value = (await customerApi.list()).data || []

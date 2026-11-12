@@ -780,6 +780,7 @@ window.addEventListener('afterprint', removePageRule)
 </script>
 
 <style scoped lang="scss">
+@use '../../styles/paper' as paper;
 .xk-print { display: flex; flex-direction: column; gap: 16px; }
 
 // Figma .print-workspace
@@ -833,12 +834,12 @@ window.addEventListener('afterprint', removePageRule)
   max-height: calc(100vh - 220px);
 }
 .paper {
-  width: 680px; min-height: 900px; margin: auto; padding: 44px 48px 30px;
+  width: paper.$paper-width-portrait; min-height: paper.$paper-min-height-portrait; margin: auto; padding: 44px 48px 30px;
   background: #fff; box-shadow: 0 10px 30px rgba(28, 48, 69, .14); color: #182331;
   font-family: -apple-system, "PingFang SC", sans-serif; font-size: 13px; position: relative;
   flex-shrink: 0;
 }
-.size-A4L .paper { width: 900px; min-height: 620px; }
+.size-A4L .paper { width: paper.$paper-width-landscape; min-height: paper.$paper-min-height-landscape; }
 
 .paper-empty {
   margin: auto; display: flex; flex-direction: column; align-items: center; gap: 10px;

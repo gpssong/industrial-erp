@@ -138,6 +138,7 @@ import { printTemplateApi } from '@/api/system'
 import { customerApi } from '@/api/base'
 import { clearTemplateCache, BIZ_TYPE_LABEL } from '@/composables/usePrint'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 const router = useRouter()
 const BIZ_OPTIONS = [
@@ -195,8 +196,7 @@ async function loadData() {
   } finally { loading.value = false }
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 // v1.1.39: 加载客户列表 (用于弹窗选择)
 async function loadCustomers() {
   if (customers.value.length > 0) return  // 幂等缓存

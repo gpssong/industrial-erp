@@ -150,6 +150,7 @@ import { safetyApi, uploadFile } from '@/api/workflow'
 import { useUserStore } from '@/store/user'
 import { Search, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 const userStore = useUserStore()
 const query = reactive({ pageNum: 1, pageSize: 20, site: '', billStatus: '', overdue: null })
@@ -215,8 +216,7 @@ async function loadData() {
   } finally { loading.value = false }
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 
 function onReset() {
   query.site = ''; query.billStatus = ''; query.overdue = null; query.pageNum = 1

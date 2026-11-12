@@ -604,6 +604,7 @@ import {
 } from '@/api/equipment'
 import { uploadFile } from '@/api/workflow'
 import { useUserStore } from '@/store/user'
+import { downloadBlob } from '@/utils/export'
 
 const userStore = useUserStore()
 const tab = ref('list')
@@ -1046,11 +1047,7 @@ async function onExport() {
   if (!lines.length) { ElMessage.warning('暂无可导出的维保档案'); return }
   const csv = '﻿' + head.join('\t') + '\n' + lines.join('\n')
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = '设备维保档案-' + new Date().toISOString().slice(0, 10) + '.csv'
-  a.click()
-  URL.revokeObjectURL(a.href)
+  downloadBlob(blob, '设备维保档案-' + new Date().toISOString().slice(0, 10) + '.csv')
   ElMessage.success('已导出 ' + lines.length + ' 条维保档案')
 }
 

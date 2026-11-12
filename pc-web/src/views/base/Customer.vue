@@ -78,6 +78,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { customerApi } from '@/api/base'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 const query = reactive({ pageNum: 1, pageSize: 20, keyword: '' })
 const data = ref({ records: [], total: 0 })
@@ -91,8 +92,7 @@ const form = reactive({
 
 async function loadData() { loading.value = true; try { data.value = (await customerApi.page(query)).data } finally { loading.value = false } }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 function onAdd() { Object.assign(form, { id: null, customerCode: '', customerName: '', creditLimit: 0 }); dialogVisible.value = true }
 function onEdit(row) { Object.assign(form, row); dialogVisible.value = true }
 async function onDelete(row) {

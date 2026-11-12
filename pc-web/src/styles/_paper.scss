@@ -1,0 +1,13 @@
+// 打印纸张尺寸 —— 之前 styles/index.scss 与 views/xk/Print.vue 各写一份
+// (680px / 900px 硬编码), 改一处忘另一处就会让预览与实打对不上。
+//
+// ⚠️ 只放"数值", 不放规则: 纸张的布局规则 (padding/阴影/字号) 两边本来就不同,
+// 强行合并会把刚修好的打印右缘裁切问题再弄回去。
+
+// A4 纵向 (~190mm 可打印宽 @96dpi)
+$paper-width-portrait: 680px;
+$paper-min-height-portrait: 900px;
+
+// A4 横向 (~277mm 可打印宽 @96dpi)
+$paper-width-landscape: 900px;
+$paper-min-height-landscape: 620px;

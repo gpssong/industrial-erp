@@ -335,6 +335,8 @@ import { uploadFile } from '@/api/workflow'
 import SupplierReviewPanel from './components/SupplierReviewPanel.vue'
 import SupplierCertPanel from './components/SupplierCertPanel.vue'
 import SupplierPerfPanel from './components/SupplierPerfPanel.vue'
+import { downloadBlob } from '@/utils/export'
+import { todayStr } from '@/utils/date'
 
 const router = useRouter()
 
@@ -551,18 +553,8 @@ function onExport() {
   })
   const tsv = [headers, ...data].map(row => row.join('\t')).join('\n')
   const blob = new Blob(['\ufeff' + tsv], { type: 'text/tab-separated-values;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${activeLabel.value}-${new Date().toISOString().slice(0, 10)}.tsv`
-  a.click()
-  URL.revokeObjectURL(url)
+  downloadBlob(blob, `${activeLabel.value}-${new Date().toISOString().slice(0, 10)}.tsv`)
   ElMessage.success(`已导出 ${list.length} 条 (${activeLabel.value})`)
-}
-
-function todayStr() {
-  const d = new Date(), p = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
 function onAdd() {

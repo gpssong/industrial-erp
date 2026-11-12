@@ -123,6 +123,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import { userApi, roleApi } from '@/api/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 const query = reactive({ pageNum: 1, pageSize: 20, keyword: '' })
 const data = ref({ records: [], total: 0 })
@@ -190,8 +191,7 @@ async function loadData() {
   } finally { loading.value = false }
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 
 function handleAdd() {
   // P1-8: 不再预填默认密码, 必须显式输入 (满足复杂度)

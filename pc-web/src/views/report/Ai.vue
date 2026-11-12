@@ -94,6 +94,7 @@ import { salDeliveryApi } from '@/api/sales'
 import { purReceiptApi } from '@/api/purchase'
 import { prdFinishedInApi } from '@/api/production'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { downloadBlob } from '@/utils/export'
 
 const tab = ref('chat')
 // v1.1.79: 对话记录持久化 — localStorage 兜底 (key=erp_ai_chat_log_v1, 每用户独立前缀避免串号)
@@ -347,11 +348,7 @@ function downloadCsv(t) {
   if (t.totals && (t.rows || []).length) lines.push(csvRow(cols, t.totals))
   if (t.note) lines.push(csvCell(t.note))
   const blob = new Blob(['\ufeff' + lines.join('\n') + '\n'], { type: 'text/csv;charset=utf-8' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = (t.fileName || 'AI导出') + '.csv'
-  a.click()
-  URL.revokeObjectURL(a.href)
+  downloadBlob(blob, (t.fileName || 'AI导出') + '.csv')
   ElMessage.success('已导出 ' + (t.count || (t.rows || []).length) + ' 行')
 }
 

@@ -130,6 +130,7 @@ import { reactive, ref, onMounted } from 'vue'
 import { roleApi, menuApi } from '@/api/system'
 import { userApi } from '@/api/system'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 // v1.1.130: App 端菜单权限白名单 — 按 App 实际页面维护 (不再复用 PC 菜单树).
 // 对齐 app/src/pages/*、utils/permission.js 的 PAGE_PERMS、dashboard 的 APP_MENU_TO_PAGE.
@@ -257,8 +258,7 @@ function loadData() {
   }).finally(() => { loading.value = false })
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 
 function handleAdd() {
   Object.assign(form, { id: null, roleName: '', roleCode: '', remark: '', status: 1, clientScope: 'BOTH' })

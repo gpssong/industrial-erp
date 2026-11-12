@@ -80,6 +80,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { feiePrintApi } from '@/api/feie'
 import { ElMessage } from 'element-plus'
+import { useTableQuery } from '@/composables/useTableQuery'
 
 const BIZ_TYPE_OPTIONS = [
   { label: '生产加工单', value: 'PRD_ORDER' },
@@ -113,8 +114,7 @@ async function loadData() {
   }
 }
 // v1.1.112 (R20): el-pagination handler 必须显式接参, 否则 pageNum 不更新, 点第 2 页无响应
-function queryOnPageChange(p) { if (p === query.pageNum) return; query.pageNum = p; loadData() }
-function queryOnSizeChange(s) { if (s === query.pageSize) return; query.pageSize = s; query.pageNum = 1; loadData() }
+const { queryOnPageChange, queryOnSizeChange } = useTableQuery(query, loadData)
 
 function onReset() {
   query.bizType = ''
