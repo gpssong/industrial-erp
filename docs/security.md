@@ -115,6 +115,9 @@ sudo /usr/syno/sbin/synouser --login <user> '<新口令>'   # 校验账号库里
 - compose 里不写口令字面值, 一律 `${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD_MUST_BE_SET}`, 值放同目录 `.env` (`600`)。
 - 脚本从 `.env` 取值, 不硬编码; 文档与 SQL 注释里的示例命令写 `-p"${MYSQL_ROOT_PASSWORD}"`。
 - 轮换完把 NAS 上残留的旧字面量逐文件替换掉 (本次 `.150` 95 个文件 / `.32` 56 个文件), 替换完再全盘 `grep` 复查应为 0。
+- **容器定义里的旧字面量要靠重建清, 改 `.env` 不够**: 容器 env 与 healthcheck 都是**建容器时烘进去的**。本次 `.32` 的 `erp-mysql-failover` 一直是建在轮换之前的 (env 与 healthcheck 都带旧口令), 靠 `docker compose -f /vol2/erp-system/docker-compose.failover.yml up -d erp-mysql-failover` 重建才换成新口令 —— 重建后 15 秒内 healthy, 两站容器全量扫描旧口令均为 0。
+- **重建 `.32` 的 MySQL 容器后复制不会自己起来**: compose 里带 `--skip-slave-start=ON`, 要么等 3 分钟一次的 `erp-replica-ensure.sh` 定时器, 要么立刻手工跑一次 (需 root) —— 否则备库会静默停在 `Slave_IO_Running: No`。
+- `mysqladmin ping` **认证失败也返回 0**, 所以健康检查在口令写错时照样显示 healthy —— 别把 healthy 当成「口令对」的证据, 要单独 `mysql -uroot -p'…' -e 'select 1'` 验。
 
 ### 历史遗留 (git 历史重写, 待本人确认)
 
