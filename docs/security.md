@@ -69,18 +69,58 @@ docker compose logs --tail=50 backend
 4. 只改 `.150` 主库, 复制会自动带到 `.32`; 阿里云按既有回切流程对齐。
 5. 改完用一张真实工单走一次 App 飞鹅打印验证 (旧 UKEY 会静默失败, 界面只看得到「打印成功」的假象)。
 
-### 历史遗留 (未清理, 需决策)
+### 仓库明文口令: 现状 (2026-11-13 更新)
 
-以下是**仓库第一天就带进来的运维口令**, 数量大且分散, 本轮**没有动**:
+仓库跟踪文件里的明文运维口令**已清零**。`grep -rE '***REMOVED_CREDENTIAL***|***REMOVED_CREDENTIAL***|***REMOVED_CREDENTIAL***|<第三方 key>'` 在仓库根下零命中; 脚本与 compose 改成读环境变量 / `${VAR:?}` 引用, 凭据真值只落在两处:
 
-| 凭据 | 出现范围 (跟踪文件) |
+| 载体 | 位置 | 权限 |
+|---|---|---|
+| 本机凭据文件 | `~/.config/erp-ops/env` | `600`, 只在本机, **不入版本库** |
+| 各站运行时 `.env` | `.150` `/volume3/docker/erp-system/.env`、`.32` `/vol2/erp-system/.env` | `600`, 只在对应 NAS 上 |
+
+> ⚠️ **git 历史里仍有旧值**。改文件不会让历史里的口令消失 ⇒ 唯一有效的彻底处置是 `git filter-repo` 重写历史 (需 force-push, 必须本人确认), 或者**把那些口令本身换掉** —— 后者已在 2026-11-13 完成 (见下一节)。
+
+### 生产凭据轮换 (2026-11-13 实做)
+
+轮换范围: `.150` (主库) / `.32` (热备) 的 SSH 口令与 MySQL root 口令, 以及两站 NAS 磁盘上的明文残留。
+
+**MySQL root —— 双口令窗口的正确开法**
+
+```sql
+-- 1) 开窗口: 新旧两个口令同时有效
+ALTER USER 'root'@'%' IDENTIFIED BY '<新口令>' RETAIN CURRENT PASSWORD;
+ALTER USER 'root'@'localhost' IDENTIFIED BY '<新口令>' RETAIN CURRENT PASSWORD;
+-- 2) 换完所有消费者后关窗口 (不可逆, 但可回滚: IDENTIFIED BY '<旧口令>' 会把旧口令设回当前口令)
+ALTER USER 'root'@'%' DISCARD OLD PASSWORD;
+ALTER USER 'root'@'localhost' DISCARD OLD PASSWORD;
+```
+
+顺序不能颠倒: **先让所有消费者 (容器 env、备份脚本、复制脚本) 用上新口令, 再关窗口**。容器 env 是**建容器时烘进去的** —— 改 `.env` 不会影响运行中的容器, 必须重建容器, 否则关窗口的瞬间应用就断。
+
+**DSM (群晖) 改 SSH 口令 —— 必须走 `synouser`**
+
+用 `chpasswd` 直接改 `/etc/shadow` 会被 DSM 的账号库同步覆盖回去 (实测: 改完当时能登录, 十几分钟后口令自己变回旧值)。唯一稳的做法是 DSM 原生接口:
+
+```bash
+sudo /usr/syno/sbin/synouser --setpw <user> '<新口令>'
+sudo /usr/syno/sbin/synouser --login <user> '<新口令>'   # 校验账号库里存的就是这个
+```
+
+**NAS 侧去明文口径**
+
+- compose 里不写口令字面值, 一律 `${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD_MUST_BE_SET}`, 值放同目录 `.env` (`600`)。
+- 脚本从 `.env` 取值, 不硬编码; 文档与 SQL 注释里的示例命令写 `-p"${MYSQL_ROOT_PASSWORD}"`。
+- 轮换完把 NAS 上残留的旧字面量逐文件替换掉 (本次 `.150` 95 个文件 / `.32` 56 个文件), 替换完再全盘 `grep` 复查应为 0。
+
+### 历史遗留 (git 历史重写, 待本人确认)
+
+| 项 | 状态 |
 |---|---|
-| 飞牛 NAS 的 SSH 口令 | `docker/failover-fn/README.md`、`RUNBOOK.md`、`docs/CHANGELOG.md` (10 处)、`scripts/entity-schema-check.py`、`sql/101_*.sql` |
-| home/群晖 NAS 的 SSH 口令 | `scripts/deploy-home-dist.sh`、`deploy-version-bump.sh`、`restart-pc-web.sh`、`scripts/entity-schema-check.py`、`docs/CHANGELOG.md` (13 处) |
-| MySQL root 口令 (三站) | 约 50 个跟踪文件 (`docker-compose*.yml`、`scripts/*.sh`、`sql/*.sql` 注释、docs) |
+| 仓库工作区明文口令 | ✅ 已清零 (2026-11-13) |
+| 两台 NAS 磁盘上的明文口令 | ✅ 已清零 (2026-11-13) |
+| 阿里云 MySQL root / 复制账号 / 飞鹅账号口令 | ✅ 从来不在跟踪文件里, 只在各自 `.env` |
+| **git 历史里的旧值** | ⏳ 仍需 `git filter-repo` 重写 (force-push, 需本人确认) |
+| **飞鹅 UKEY** | ⏳ 见上面「待办」段, 需在飞鹅后台重置凭证本身 |
 
-> 本节刻意不写出这些口令的字面值 —— 记录明文凭据的文档本身不该再往里印一遍。需要取值时看各站 `.env` 与 `docker/failover-fn/` 的环境文件。
+口令本身已在 2026-11-13 轮换过 (MySQL root 与两站 SSH), 飞鹅 UKEY 是最后一项。
 
-- 为什么没顺手一起改: 这些值多数是**脚本里真实在用**的 (`sshpass -p '…'`), 单改成 `****` 会让部署脚本直接坏掉, 必须先逐个改成读 env / 读 `.env` 才能脱敏 —— 是一次独立的改造工作, 不该混在文档提交里。
-- 阿里云 MySQL root、主备复制账号口令、飞鹅账号密码 **不在**跟踪文件里, 只在各自机器的 `.env` / compose 环境文件中。
-- 真要做, 顺序建议: 脚本改读 env → 三站 `.env` 补齐 → 轮换 SSH/root 口令 → 再逐文件脱敏 + `git filter-repo` 重写历史 (需 force-push, 必须本人确认)。

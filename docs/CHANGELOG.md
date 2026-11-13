@@ -15,6 +15,21 @@
 
 **版本/产物**: 版本五处对齐 1.1.183 (`app/package.json`、`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`manifest.json` versionName 1.1.183 / versionCode 1183、`profile/index.vue` `APP_VERSION`)。**本条只入库代码, 尚未构建与部署**。
 
+**同批: 工程质量门禁 P0–P3（无业务行为变更）**
+
+- **P0 门禁真能拦**: `.github/workflows/ci-build-check.yml` 补 backend 编译与测试步骤; 新增 [scripts/pre-commit.sh](../scripts/pre-commit.sh) 本地钩子, 提交前跑后端测试 + pc-web lint。钩子探的是 `node_modules/.bin/eslint` 而不是 `eslint` 命令 —— 目录在但包被 npm 剪掉时, 原来只报 `command not found`, 看不出是依赖不同步。
+- **P1 仓库明文口令清零**: 仓库内不再出现任何 NAS / MySQL / 第三方服务明文口令, 凭据统一读 `~/.config/erp-ops/env`（600, 不进版本库）; 部署脚本与 compose 走 `${VAR:?}` 引用。
+- **P2 去重与拆分**: 前端抽出公共日期 / 导出 / 表格查询 / 打印能力, 22 个文件的重复代码收敛; 两个超大文件拆开 —— [QmsInspectionService](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionService.java) 2342→2202 行, [Safety.vue](../pc-web/src/views/xk/Safety.vue) 2158→1154 行（拆出 `safety/CalibrationTab.vue`、`safety/EnvCheckTab.vue`）。
+- **P3 测试与 lint**: 六个此前零测试的模块补 51 例（em / finance / outsource / pdm / qa / workflow）; pc-web 加 ESLint 闸, 只拦确定性缺陷。
+
+**同批: 维保计划删除守卫失效（`5afdcbb`）**
+
+`EmMaintainPlanService.delete` 的守卫判的是 `STATUS_CHECKED`, 而计划状态只有 ACTIVE / DRAFT / DISABLED —— `CHECKED` 从未被写入任何一条计划, 所以「已激活的计划不可删除, 请先停用」这句提示永远走不到, **激活中的预防性维保配置可以被直接删掉**。改为拦 `ACTIVE`, 与 PC 表单里的「已停用」选项对上; 单测同步改成覆盖三种状态。
+
+**同批: 生产凭据轮换与去明文（纯运维, 无代码变更）**
+
+`.150` / `.32` 两站的 MySQL root 与 SSH 口令完成轮换, 双口令窗口已关闭; NAS 侧 compose 与脚本里的明文口令全部改为 `.env` 引用。操作口径与踩坑见 [docs/security.md](security.md) 的「生产凭据轮换」段。
+
 ### v1.1.182 (2026-11-12 — OCR 批号候选排序补「同行多候选取最左为牌号」；纯后端 jar，非 App / 非 SQL)
 
 > **接 v1.1.181 真机验收**：框选裁片已准确落在打印批号那一行，TextIn 也认出了 `SK216A08C1102431`，但 `candidates[0]` 仍是牌号 `LL0220KJ`，前端照旧把它填进批号框 —— 用户看到的还是「识别到了不对的东西」。
