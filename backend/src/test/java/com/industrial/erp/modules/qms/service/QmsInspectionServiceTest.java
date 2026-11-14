@@ -954,6 +954,47 @@ class QmsInspectionServiceTest {
         verify(purOrderDetails, never()).selectByOrderId(anyLong());
     }
 
+    // ==================================================================
+    // v1.1.186 补充批 (2026-11-14): App 旧包保存草稿时 PUT /qms/inspection/{id}
+    // ==================================================================
+
+    /** 旧包会把单头的 批号 / 抽检数量 单独 PUT 上来; 后端缺端点 → 405 → 现场「保存失败」. */
+    @Test
+    void draftHeaderUpdatePersistsBatchNoAndSampleQty() {
+        heads.put(7101L, headRow(7101L, "PUR_RECEIPT", 801L, "IQC"));
+
+        service.updateDraftHeader(7101L, "  20260910-A  ", new BigDecimal("30"));
+
+        MesQualityInspection saved = heads.get(7101L);
+        assertThat(saved.getBatchNo()).isEqualTo("20260910-A");
+        assertThat(saved.getSampleQty()).isEqualByComparingTo("30");
+    }
+
+    @Test
+    void draftHeaderUpdateRejectsCheckedInspection() {
+        MesQualityInspection head = headRow(7102L, "PUR_RECEIPT", 802L, "IQC");
+        head.setStatus("CHECKED");
+        heads.put(7102L, head);
+
+        assertThatThrownBy(() -> service.updateDraftHeader(7102L, "X", BigDecimal.ONE))
+                .isInstanceOf(BizException.class).hasMessageContaining("已签核");
+        verify(inspections, never()).updateById(any(MesQualityInspection.class));
+    }
+
+    @Test
+    void draftHeaderUpdateLeavesAbsentFieldsAlone() {
+        MesQualityInspection head = headRow(7103L, "PUR_RECEIPT", 803L, "IQC");
+        head.setBatchNo("KEEP");
+        head.setSampleQty(new BigDecimal("7"));
+        heads.put(7103L, head);
+
+        service.updateDraftHeader(7103L, null, null);
+
+        assertThat(heads.get(7103L).getBatchNo()).isEqualTo("KEEP");
+        assertThat(heads.get(7103L).getSampleQty()).isEqualByComparingTo("7");
+        verify(inspections, never()).updateById(any(MesQualityInspection.class));
+    }
+
     private MesQualityInspection headRow(Long id, String sourceBillType, Long sourceBillId, String type) {
         MesQualityInspection head = new MesQualityInspection();
         head.setId(id);

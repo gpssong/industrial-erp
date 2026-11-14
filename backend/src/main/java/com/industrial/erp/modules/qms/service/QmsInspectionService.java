@@ -893,6 +893,30 @@ public class QmsInspectionService {
         }
     }
 
+    /**
+     * v1.1.186 补充批 — 补上 App 自 v1.1.103 起就在调、后端从未实现过的 {@code PUT /qms/inspection/{id}}。
+     *
+     * <p>App 原料入库/首检/巡检/成品检页「保存」时会把单头的 批号 + 抽检数量 一并 PUT 上来;
+     * 后端没有这个映射 → Spring 抛 405 → 现场看到「保存失败」。客户端在 v1.1.186 已删掉这次调用,
+     * 但车间手机换包要人工安装, 所以这里补一个只写草稿单头的端点, 让旧包也能存成功。
+     *
+     * <p>只动 batch_no / sample_qty, 且仅限草稿 (与签核同口径); 入参为 null 表示该字段不动。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void updateDraftHeader(Long id, String batchNo, BigDecimal sampleQty) {
+        MesQualityInspection rec = lockInspectionDraft(id);
+        if (batchNo == null && sampleQty == null) return;
+        if (batchNo != null) {
+            QmsIqcItemService.requireLength(batchNo, 64, "批次号");
+            rec.setBatchNo(batchNo.trim());
+        }
+        if (sampleQty != null) {
+            if (sampleQty.signum() < 0) throw BizException.of("抽检数量不能为负数");
+            rec.setSampleQty(sampleQty);
+        }
+        if (inspectionMapper.updateById(rec) != 1) throw BizException.of("检验单已变化，请刷新后重试");
+    }
+
     private MesQualityInspection lockInspectionDraft(Long id) {
         if (id == null) throw BizException.of("检验单 id 必填");
         MesQualityInspection head = inspectionMapper.selectByIdForUpdate(id);

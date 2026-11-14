@@ -80,4 +80,15 @@ class QmsProcessInspectionContractTest {
         assertThat(lock.getAnnotation(Select.class).value()).singleElement()
                 .asString().contains("FOR UPDATE", "deleted = 0", "#{id}");
     }
+
+    /** App 旧包「保存检验记录」PUT /qms/inspection/{id}: 必须映射到 PUT {id}, 权限与存检验项同口径. */
+    @Test
+    void draftHeaderPutIsMappedAndSharesItemWritePermissions() throws Exception {
+        Method method = QmsInspectionController.class.getMethod("updateDraftHeader", Long.class, java.util.Map.class);
+        assertThat(method.getAnnotation(PutMapping.class).value()).containsExactly("/{id}");
+        SaCheckPermission auth = method.getAnnotation(SaCheckPermission.class);
+        assertThat(auth.value()).containsExactlyInAnyOrder("qms:iqc:detail", "quality:inspection:check");
+        assertThat(auth.mode()).isEqualTo(SaMode.OR);
+        assertThat(auth.orRole()).containsExactly("admin");
+    }
 }

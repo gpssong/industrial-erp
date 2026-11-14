@@ -3,6 +3,29 @@
 
 ## changelog (倒序)
 
+### v1.1.187 (2026-11-14 — 后端补上 `PUT /qms/inspection/{id}`：旧版 App 存草稿单头不再 405；仅后端 jar)
+
+> **触发**: v1.1.186 上线后现场仍报「保存失败: 请求方法不支持: PUT /api/qms/inspection/2119676240634888193 (该接口只接受 [GET])」。
+
+**为什么不重发 APK 就够了**: v1.1.186 只是把 App `scan/in.vue` 里的死调用删掉了，而**车间手机上装的还是旧 APK** —— 旧包仍然会发那次 `PUT /qms/inspection/{id}`。手机换包要人工安装，靠改客户端等于让现场先坏一天。后端补上这个端点，新旧包都能存成功。
+
+**修法** (纯后端):
+
+- [QmsInspectionController](../backend/src/main/java/com/industrial/erp/modules/qms/controller/QmsInspectionController.java): 新增 `@PutMapping("/{id}") updateDraftHeader`，权限与「存检验项」同口径 —— `qms:iqc:detail` **OR** `quality:inspection:check`，`orRole=admin`。
+- [QmsInspectionService](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionService.java): `updateDraftHeader(id, batchNo, sampleQty)` —— 复用 `lockInspectionDraft`（`FOR UPDATE` + `@Version` 乐观锁），**只许改草稿**，已签核一律拒绝；只动 `batch_no` / `sample_qty`，入参 `null` 表示该字段不动；批号 `trim` + 长度 ≤ 64（与检验项同一把尺），抽检数量不允许负数，`updateById != 1` 回「检验单已变化，请刷新后重试」。
+- 注意：这个端点**不放宽任何写权限面** —— 能用它的账号本来就能通过 `PUT /qms/iqc/{id}/items` 改同一张单的检验项。
+
+**测试**: [QmsInspectionServiceTest](../backend/src/test/java/com/industrial/erp/modules/qms/service/QmsInspectionServiceTest.java) 新增 3 例（写入批号+抽检数量并 trim / 已签核拒绝且不落库 / 两字段都缺省时不动也不写库），[QmsProcessInspectionContractTest](../backend/src/test/java/com/industrial/erp/modules/qms/controller/QmsProcessInspectionContractTest.java) 新增 1 例（`PUT /{id}` 映射 + OR 权限集）。后端全量 **752 例 0 失败**。
+
+**验证**（`.150` 主站，真实非超管 `gpssong1`（`is_admin=0`）的既有会话，复刻旧 APK 的请求体 `{"batchNo":"E2E-V1187","sampleQty":3000}`）:
+- `PUT /api/qms/inspection/2119676240634888193` → **HTTP 200 / code 200**（此前同一条回 405）；
+- 随后 `GET` 该单 → `batchNo` 已落库；验证完按原值回滚（`batch_no=NULL`、`sample_qty=3000`，与测试前一致）；
+- 负例：对已签核单 `2117442189635141633` 同一请求 → `该检验单已签核或不是草稿，不可修改`，`batch_no` 保持 `NULL`。
+
+**版本/产物**: 版本七处对齐 1.1.187，`scripts/check-version.sh` 7×OK；本次**只重打后端 jar**（md5 `2c40c8a8ceab142d2a9acb0eb2e42b1b`），PC dist / App H5 / APK 无代码改动、未重出。
+
+**部署**: `.150` 主站 `erp-system-backend:1.1.187`（镜像层 jar md5 与容器内一致，`SYSTEM_VERSION_INFO` 回写 `1.1.187`）；阿里云只 build `erp-backend:1.1.187` 备着（该站是纯反代，`erp-backend` 容器本来停着）。⚠️ 飞牛 `.32` canary 当时从 Mac 与 `.150` 都不可达（ping/TCP22 均不通），本次**未部署 canary**，等它恢复后补。
+
 ### v1.1.186 (2026-11-14 — App「保存检验记录」不再报「系统繁忙: Request method 'PUT' is not supported」; 后端 jar + App H5/APK + PC dist)
 
 > **触发**: 现场在 App 原料入库页点「保存检验记录」报「保存失败: 系统繁忙, 请稍后再试: Request method 'PUT' is not supported」。

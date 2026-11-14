@@ -95,6 +95,30 @@ public class QmsInspectionController {
         return R.ok(qms.detail(id));
     }
 
+    /**
+     * v1.1.186 补充批 — App 旧包「保存检验记录」会 PUT 单头的 批号/抽检数量。
+     * 后端此前没有该映射, 旧包保存一直失败 (405); 权限与「存检验项」同口径,
+     * 写入只落在草稿 (已签核一律拒绝)。
+     */
+    @Operation(summary = "保存草稿单头 (批号 / 抽检数量)")
+    @SaCheckPermission(value = {"qms:iqc:detail", "quality:inspection:check"}, mode = SaMode.OR, orRole = "admin")
+    @PutMapping("/{id}")
+    public R<Void> updateDraftHeader(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> body) {
+        Object batchNo = body == null ? null : body.get("batchNo");
+        qms.updateDraftHeader(id,
+                batchNo == null ? null : String.valueOf(batchNo),
+                parseDecimalAny(body, "sampleQty"));
+        return R.ok();
+    }
+
+    private static java.math.BigDecimal parseDecimalAny(Map<String, Object> body, String key) {
+        Object v = body == null ? null : body.get(key);
+        if (v == null) return null;
+        String s = String.valueOf(v).trim();
+        if (s.isEmpty()) return null;
+        try { return new java.math.BigDecimal(s); } catch (Exception e) { return null; }
+    }
+
     @Operation(summary = "审核检验单 (写 result + 联动批次锁/放行)")
     @SaCheckPermission(value = {"quality:inspection:check"}, mode = SaMode.OR, orRole = "admin")
     @PostMapping("/{id}/check")
