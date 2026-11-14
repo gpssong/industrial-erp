@@ -3,6 +3,24 @@
 
 ## changelog (倒序)
 
+### 运维 (2026-11-14 — git 历史重写剥离泄漏凭据与大 blob + `.150` 上传目录杂物清理; 无版本号变更、无代码变更)
+
+> **触发**: 用户指令「git重写，.150杂物清理」—— 授权对已泄漏进历史的凭据做 `git filter-repo` 重写并 force-push（仅此一次），同时清掉主站上传目录里堆积的部署杂物。
+
+**git 历史重写**
+
+- 在**独立裸克隆** `/tmp/erp-rewrite.git` 里执行 `git filter-repo --replace-text /tmp/erp-redact.txt --strip-blobs-bigger-than 3M --force`（绝不在带 worktree 的工作仓直接跑 —— 首跑时把 `refs/heads/main` 删了，靠 reflog + `git reset --mixed` 才恢复）。
+- 替换 7 个明文值（3 个 JWT 密钥、MySQL root、两站 SSH、1 个 24 位令牌）→ `***REMOVED_CREDENTIAL***`；剥离历史中 >3MB 的 dist 压缩包，同时把 HEAD 上仍在的 4 个 tar.gz（`pc-web/dist.tar.gz`、`pc-web-clean/-fix4/-fix5.tar.gz`）从工作区移除。
+- `main` `8fd3f39` → `0efe620`（485→484 个提交，被剪掉的唯一提交是 `ab58ee8 2026-08-22 build: pc-web dist updated (v1.1.19.4)`）；8 个标签同步重写后 force-push。仓库体积 36M → 24M。
+- **验证**（`/tmp/verify_rewrite.py`，遍历 `refs/heads/main` + 全部标签的可达对象）: 4040 个 blob、>3MB blob **0 个**、7 个字面量命中数均为 **0**、脱敏标记 5431 处；`docs/CHANGELOG.md`/`docs/security.md`/`CLAUDE.md` 与旧提交逐行 diff 只有口令字面量变化（分别 6 / 1 / 0 行），无意外改动。
+- 本地工作仓 `git reset --hard origin/main` 到 `0efe620`，工作区干净；本地与远端标签各 8 个且 SHA 一一对应。重写前备份在 `~/erp-git-backup-20261114/`（bundle + mirror，**其中仍含旧口令明文，用完应删或加密**）。
+
+**`.150` 上传目录清理**
+
+- `/volume3/docker/erp-system/upload` 从 **4.9G → 336K**（675 项 → 61 个文件），删的是历次部署中转产物（jar/b64/tgz/解包 staging 目录）与一个**含明文口令的临时脚本** `deploy-1162-150.sh`（同批 `home_askpass.sh`、`erp_backend_env.txt`、`erp-env-*.list` 一并删除）。
+- 业务附件**未动**: 后端实际挂载的是 `data/upload`（156M），不是这个中转目录 —— 清理前先按 `docker inspect` 的 Mounts 核对过。
+- 清理后按 `~/.config/erp-ops/env` 的三个密钥值全盘复查 → 0 命中；`.150` backend 健康（`captcha` 8088 回 200）。
+
 ### v1.1.184 (2026-11-14 — 进货检验的「不适用」= 公司入库不检验, 保存与放行不再被达因/印刷口径拦住; 后端 jar + PC dist, 三站已部署)
 
 > **触发**: App 进货检验页（原料检验）点「保存」必报「保存失败: 检验项 MFR_DENSITY 不属于达因/印刷质量项，不能判不适用」。用户口径: **原料检验里的「不适用」是指公司入库不检验**（现场没有熔指/密度/重金属检测条件，靠供方报告覆盖），不是印刷项那条规则 —— 这种情况必须放行。

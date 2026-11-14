@@ -78,7 +78,9 @@ docker compose logs --tail=50 backend
 | 本机凭据文件 | `~/.config/erp-ops/env` | `600`, 只在本机, **不入版本库** |
 | 各站运行时 `.env` | `.150` `/volume3/docker/erp-system/.env`、`.32` `/vol2/erp-system/.env` | `600`, 只在对应 NAS 上 |
 
-> ⚠️ **git 历史里仍有旧值**。改文件不会让历史里的口令消失 ⇒ 唯一有效的彻底处置是 `git filter-repo` 重写历史 (需 force-push, 必须本人确认), 或者**把那些口令本身换掉** —— 后者已在 2026-11-13 完成 (见下一节)。
+> ✅ **git 历史已于 2026-11-14 重写**。`git filter-repo` 把历史里的 7 个明文值 (3 个 JWT 密钥、MySQL root、两站 SSH、1 个 24 位令牌) 全部替换为 `***REMOVED_CREDENTIAL***`, 并剥离了历史中 >3MB 的 dist 压缩包 (4 个仍在 HEAD 的 tar.gz 从工作区一并移除)。`main` 由 `8fd3f39` 变为 `0efe620` 并 force-push (8 个标签同步重写), 重写后 485 个提交里 7 个字面量零命中、>3MB blob 零个。
+>
+> 重写前备份: `~/erp-git-backup-20261114/erp-full-20261114.bundle` 与 `erp-mirror.git`。旧提交在**本地**仍可由标签分支 `v1.1.168-label-editor-p1` (未重写、有未提交工作) 访问, 远端已不存在。
 
 ### 生产凭据轮换 (2026-11-13 实做)
 
@@ -119,15 +121,23 @@ sudo /usr/syno/sbin/synouser --login <user> '<新口令>'   # 校验账号库里
 - **重建 `.32` 的 MySQL 容器后复制不会自己起来**: compose 里带 `--skip-slave-start=ON`, 要么等 3 分钟一次的 `erp-replica-ensure.sh` 定时器, 要么立刻手工跑一次 (需 root) —— 否则备库会静默停在 `Slave_IO_Running: No`。
 - `mysqladmin ping` **认证失败也返回 0**, 所以健康检查在口令写错时照样显示 healthy —— 别把 healthy 当成「口令对」的证据, 要单独 `mysql -uroot -p'…' -e 'select 1'` 验。
 
-### 历史遗留 (git 历史重写, 待本人确认)
+### 历史遗留处置
 
 | 项 | 状态 |
 |---|---|
 | 仓库工作区明文口令 | ✅ 已清零 (2026-11-13) |
 | 两台 NAS 磁盘上的明文口令 | ✅ 已清零 (2026-11-13) |
 | 阿里云 MySQL root / 复制账号 / 飞鹅账号口令 | ✅ 从来不在跟踪文件里, 只在各自 `.env` |
-| **git 历史里的旧值** | ⏳ 仍需 `git filter-repo` 重写 (force-push, 需本人确认) |
+| **git 历史里的旧值** | ✅ 已重写 (2026-11-14, force-push `main` + 8 个标签; 新 head `0efe620`) |
 | **飞鹅 UKEY** | ⏳ 见上面「待办」段, 需在飞鹅后台重置凭证本身 |
 
 口令本身已在 2026-11-13 轮换过 (MySQL root 与两站 SSH), 飞鹅 UKEY 是最后一项。
+
+**重写操作口径 (下次别再踩)**
+
+1. **绝不在带 worktree 的工作仓直接跑 `git filter-repo`** —— 本次首跑把 `refs/heads/main` 删掉了, 工作区被清空, 靠 reflog + `git reset --mixed` 才救回来。
+2. 正确做法: `git clone --mirror <repo> /tmp/erp-rewrite.git` → 删掉 `refs/remotes/*` → 在裸克隆里跑 → 用 `/tmp/verify_rewrite.py` 这类脚本把「可达 blob 逐个 grep」验一遍 → 再从裸克隆 `push --force --all` + `--tags`。
+3. **别加 `--refs`**: `--refs refs/heads/main --refs 'refs/tags/*'` 在裸克隆里静默匹配不到任何东西 (只会写出一个空 commit-map)。
+4. 重写后本地工作仓 `git fetch` 可能卡在 `index-pack`; 直接从本地裸克隆 fetch 同一批对象即可 (SHA 与远端一致)。
+5. 备份 (`~/erp-git-backup-20261114/`) 里仍含旧口令明文, 用完应删或加密保存。
 
