@@ -48,7 +48,7 @@ import java.util.Map;
 @Service
 public class PurReceiptService {
 
-    public PurReceiptService(PurReceiptMapper receiptMapper, PurReceiptDetailMapper receiptDetailMapper, PurOrderMapper orderMapper, PurOrderDetailMapper orderDetailMapper, BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, OperLogPublisher operLogPublisher, BaseProductMapper productMapper, QmsInspectionService qmsInspectionService, com.industrial.erp.modules.purchase.service.PurInboundPlanService inboundPlanService) {
+    public PurReceiptService(PurReceiptMapper receiptMapper, PurReceiptDetailMapper receiptDetailMapper, PurOrderMapper orderMapper, PurOrderDetailMapper orderDetailMapper, BaseSupplierMapper supplierMapper, BaseWarehouseMapper warehouseMapper, BillNoGenerator billNoGenerator, StockService stockService, FinArapService arapService, PermissionService permService, OperLogPublisher operLogPublisher, BaseProductMapper productMapper, QmsInspectionService qmsInspectionService, com.industrial.erp.modules.purchase.service.PurInboundPlanService inboundPlanService, com.industrial.erp.modules.mes.service.MesReportService mesReportService) {
         this.receiptMapper = receiptMapper;
         this.receiptDetailMapper = receiptDetailMapper;
         this.orderMapper = orderMapper;
@@ -63,6 +63,7 @@ public class PurReceiptService {
         this.productMapper = productMapper;
         this.qmsInspectionService = qmsInspectionService;
         this.inboundPlanService = inboundPlanService;
+        this.mesReportService = mesReportService;
     }
 
     private final PurReceiptMapper receiptMapper;
@@ -86,6 +87,9 @@ public class PurReceiptService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     @Nullable
     private com.industrial.erp.modules.purchase.bill.ReportNoGenerator reportNoGenerator;
+
+    /** v1.1.188 — 入库审核登记 RAW 原料批 (XK 批次溯源「原料批」列表来源). */
+    private final com.industrial.erp.modules.mes.service.MesReportService mesReportService;
 
     public IPage<PurReceipt> page(Integer pageNum, Integer pageSize, String billNo, Long supplierId, String billStatus, String productName) {
         // v1.1.130: XK 单据打印页要读一张已审核入库单, report:print 独立后该入口也要能读
@@ -366,6 +370,11 @@ public class PurReceiptService {
                     d.getQty(), d.getPrice(), r.getBillNo(),
                     r.getSupplierId(), null, "采购入库 " + r.getBillNo()
             );
+            // v1.1.188 XK 批次溯源: 入库审核登记 RAW 原料批 (此前只有领料入口且批号常为空, 「原料批」列表恒空)
+            if (StrUtil.isNotBlank(d.getBatchNo())) {
+                mesReportService.registerRawOnReceipt(d.getBatchNo(), d.getProductId(),
+                        r.getSupplierId(), r.getBillNo(), d.getQty());
+            }
             // 累计订单已入库数
             if (d.getOrderDetailId() != null) {
                 PurOrderDetail od = orderDetailMapper.selectById(d.getOrderDetailId());

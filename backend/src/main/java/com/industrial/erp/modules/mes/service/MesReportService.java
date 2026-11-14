@@ -382,6 +382,54 @@ public class MesReportService {
     }
 
     /**
+     * v1.1.188 — 采购入库审核登记 RAW 原料批 (XK 批次溯源「原料批」的数据来源)。
+     *
+     * <p>此前 RAW 只由 {@link #registerRawOnIssue} 在领料时登记, 而领料明细批号常年为空,
+     * 采购入库审核又只写 {@code inv_stock} 自由文本 ⇒ 溯源的「原料批」列表恒空。入库审核
+     * 才是原料批第一次进入公司的时刻, 供应商/来源入库单都是此刻才确定。
+     *
+     * @param rawBatchNo    明细 batch_no (供应商批号), 空则不登记
+     * @param productId     原料商品
+     * @param supplierId    供应商
+     * @param receiptBillNo 采购入库单号
+     * @param qty           入库数量
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void registerRawOnReceipt(String rawBatchNo, Long productId, Long supplierId,
+                                     String receiptBillNo, BigDecimal qty) {
+        if (StrUtil.isBlank(rawBatchNo)) return;
+        String batchNo = rawBatchNo.trim();
+        MesBatch exist = batchMapper.selectOne(new LambdaQueryWrapper<MesBatch>()
+                .eq(MesBatch::getBatchNo, batchNo).last("LIMIT 1"));
+        if (exist != null) {
+            // 幂等: 反审核后重新审核 / 同批号多次到货 —— 只补空白追溯字段, 不覆盖既有来源
+            MesBatch u = new MesBatch();
+            u.setId(exist.getId());
+            boolean dirty = false;
+            if (StrUtil.isBlank(exist.getBatchType())) { u.setBatchType(Constants.BATCH_TYPE_RAW); dirty = true; }
+            if (exist.getProductId() == null && productId != null) { u.setProductId(productId); dirty = true; }
+            if (exist.getSupplierId() == null && supplierId != null) { u.setSupplierId(supplierId); dirty = true; }
+            if (StrUtil.isBlank(exist.getReceiptBillNo()) && StrUtil.isNotBlank(receiptBillNo)) {
+                u.setReceiptBillNo(receiptBillNo); dirty = true;
+            }
+            if (dirty) batchMapper.updateById(u);
+            return;
+        }
+        MesBatch raw = new MesBatch();
+        raw.setBatchNo(batchNo);
+        raw.setBatchType(Constants.BATCH_TYPE_RAW);
+        raw.setProductId(productId);
+        raw.setSupplierId(supplierId);
+        raw.setReceiptBillNo(receiptBillNo);
+        raw.setStatus("ACTIVE");
+        raw.setQty(qty);
+        // production_date 属供应商 (pur_receipt_detail.production_date), 此处不写, 不编造"今天"
+        raw.setCreateBy(SecurityContext.getUserId());
+        batchMapper.insert(raw);
+        log.info("[MES] 采购入库登记 RAW 批次 {} ← {} qty={}", batchNo, receiptBillNo, qty);
+    }
+
+    /**
      * v1.1.132 XK 开工投料 — 原料批号是否已在 {@code mes_batch} 登记过。
      *
      * <p>开工确认接口用它回一份「未登记批号」清单给 App 提示 (操作工手录的常是供应商

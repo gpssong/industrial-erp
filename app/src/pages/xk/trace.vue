@@ -29,7 +29,7 @@
         <text class="retry" @click="load">重试</text>
       </view>
       <view v-else-if="!filtered.length" class="hint">
-        {{ direction === 'RM_TO_FG' ? '暂无原料批次（生产领料登记后生成）' : '暂无成品批次（成品入库登记后生成）' }}
+        {{ direction === 'RM_TO_FG' ? '暂无原料批次（采购入库审核或生产领料登记后生成）' : '暂无成品批次（成品入库登记后生成）' }}
       </view>
 
       <view v-for="b in filtered" :key="b.batchNo"

@@ -3,6 +3,35 @@
 
 ## changelog (倒序)
 
+### v1.1.188 (2026-11-14 — XK 批次溯源「原料批」不再恒空：采购入库审核时登记 RAW 原料批 + sql/160 回填历史；后端 jar + App H5)
+
+> **触发**: 用户原话「原料入库以后在xk批次溯源的原料批中没有原料批次」（App / PC 的 XK 批次溯源页，原料批 tab 一条都没有）。
+
+**根因**（取证在 `.150` 主库）: [mes_batch](../backend/src/main/java/com/industrial/erp/modules/mes/entity/MesBatch.java) 里当时只有 `batch_type=FG` 的成品批，RAW 行为 0。而写 RAW 的入口**只有**领料/开工那条 (`MesReportService.registerRawOnIssue`)，它要求工单已登记原料批号、且批号为空直接 no-op —— 现场入库时录的批号（`pur_receipt_detail.batch_no`）从来没进过 `mes_batch`。[PurReceiptService.check()](../backend/src/main/java/com/industrial/erp/modules/purchase/service/PurReceiptService.java) 入库审核只做 `stockService.inStock(...)`、写台账，**完全不碰 `mes_batch`**。溯源列表 `GET /xk/trace/batches?batchType=RAW` 查的就是这张表 ⇒ 无论入多少货都恒空。
+
+**修法**（三处 + 一份回填 SQL）:
+
+- [MesReportService](../backend/src/main/java/com/industrial/erp/modules/mes/service/MesReportService.java) 新增 `registerRawOnReceipt(rawBatchNo, productId, supplierId, receiptBillNo, qty)`：批号 `trim`，空白直接返回；**幂等** —— 已存在批次只回填原本为空的 `batchType`/`productId`/`supplierId`/`receiptBillNo`（不覆盖已有值），不存在才插 `RAW` + `ACTIVE` 并带 `qty` / `createBy`；**有意不写 `production_date`** —— 入库日期不是原料生产日期，留空等现场补。
+- [PurReceiptService.check()](../backend/src/main/java/com/industrial/erp/modules/purchase/service/PurReceiptService.java:373) 在每行 `stockService.inStock(...)` 之后按**明细行**登记：只处理 `batch_no` 非空的行，供应商取单头、单据号取本入库单号、数量取该行数量。没录批号的行不登记（不伪造批号），也不阻断审核。
+- [app/src/pages/xk/trace.vue](../app/src/pages/xk/trace.vue) 「原料批」空态文案改为「暂无原料批次（采购入库审核或生产领料登记后生成）」，把生成条件直接写在页面上。
+- [sql/160](../sql/160_mes_batch_raw_backfill_from_receipt.sql) 幂等回填：从 `pur_receipt_detail JOIN pur_receipt`（`bill_status='CHECKED'`、批号 `trim` 后非空）按 `TRIM(batch_no)` 分组插入 RAW 批，带 `remark='v1.1.188 回填(采购入库)'` 与 `NOT EXISTS` 守卫，同样不写 `production_date`。**只在 `.150` 主库跑一次**（`.32`/阿里云靠复制），跑前先查它会写多少行。
+
+**测试**: [PurReceiptServiceTest](../backend/src/test/java/com/industrial/erp/modules/purchase/service/PurReceiptServiceTest.java:371) 新增「两行明细只有一行带批号 → 只登记一次」，[MesBatchReceiptRegisterTest](../backend/src/test/java/com/industrial/erp/modules/mes/service/MesBatchReceiptRegisterTest.java) 4 例（新批插入 `RAW`/`ACTIVE` 带供应商与单号 / 已有批只回填空字段 / 已有值不被覆盖且不插不更 / 空白批号零交互）。定向 19/19，后端全量 **757 例 0 失败**。
+
+**验证**（`.150` 主站，真实非超管 `gpssong1`（`is_admin=0`，持 `production:report:list`）临时口令登录，验后已还原原 hash 并删临时文件）:
+
+- `GET /api/xk/trace/batches?batchType=RAW` → **200**，回 `251/WQ` 与 `SK216A08C1` 两批（各 `1500.0000`、`receiptBillNo=RKP202611140005`、`supplierId` 有值、`productionDate=null`、`remark=v1.1.188 回填(采购入库)`）；
+- `GET /api/xk/trace/full/SK216A08C1` → **200**（溯源链可展开）。
+
+**版本/产物**: 版本七处对齐 1.1.188，`scripts/check-version.sh` 7×OK；jar md5 `552d7d3fe053c575937d1e8cececea54`（103,164,867 B）；App H5 `index.html` `a211e0431dd541dd85a97f0f5d2982f8`（新块 `pages-xk-trace.dr0ck6RU.js` 内含新空态文案）；PC 无代码改动、dist 未重出；APK `erp-app-20261114.apk` md5 `9aecbb92a11d97edeb665313940eaba5`（4,518,422 B / versionCode 1188，走 `scripts/build-app.sh`，内嵌 H5 与已部署产物逐字节一致）。
+
+**部署**:
+
+- `.32` 飞牛 canary（v1.1.187 期间不可达，本轮恢复后先补）：镜像 `erp-system-backend:1.1.188`，容器 healthy、镜像本体 jar md5 一致、`ERP_VERSION=1.1.188`、公网 captcha 200；App H5 整目录替换（旧包备份 `/vol2/erp-system/app-h5-before-v1188.tgz`）后 restart，`:18090` index md5 与源一致、`pages-xk-trace.dr0ck6RU.js` 200。
+- `.150` 主站：镜像 `erp-system-backend:1.1.188`、`SYSTEM_VERSION_INFO` 回写 `1.1.188`；[sql/160](../sql/160_mes_batch_raw_backfill_from_receipt.sql) 在主库执行，回填出上面两批；`.32` 复制 `IO/SQL=Yes`。
+- 阿里云（纯反代，`erp-backend` 容器按拓扑保持停用）：jar 换成 `industrial-erp-1.1.188.jar`（md5 与本地一致）、`.env` `ERP_VERSION=1.1.188`（备份 `.env.bak_v1188`）、只 `docker compose build erp-backend` 产出 `erp-backend:1.1.188` 并核镜像本体 md5；App H5 已替换（备份 `/opt/erp-system/backup/app-h5-before-v1188.tgz`），`erp-app-h5` 重启后 `:18090` md5 一致。
+- ⚠️ 车间手机要装 `erp-app-20261114.apk`（1.1.188）才看到新空态文案；H5 替换只覆盖浏览器入口。
+
 ### v1.1.187 (2026-11-14 — 后端补上 `PUT /qms/inspection/{id}`：旧版 App 存草稿单头不再 405；仅后端 jar)
 
 > **触发**: v1.1.186 上线后现场仍报「保存失败: 请求方法不支持: PUT /api/qms/inspection/2119676240634888193 (该接口只接受 [GET])」。

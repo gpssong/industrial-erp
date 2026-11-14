@@ -8,6 +8,7 @@ import com.industrial.erp.modules.base.mapper.BaseSupplierMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.finance.service.FinArapService;
 import com.industrial.erp.modules.inventory.service.StockService;
+import com.industrial.erp.modules.mes.service.MesReportService;
 import com.industrial.erp.modules.purchase.entity.PurOrder;
 import com.industrial.erp.modules.purchase.entity.PurOrderDetail;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
@@ -38,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -61,6 +63,7 @@ class PurReceiptServiceTest {
     @Mock private OperLogPublisher operLogPublisher;
     @Mock private BaseProductMapper productMapper;
     @Mock private QmsInspectionService qmsInspectionService;
+    @Mock private MesReportService mesReportService;
     @Mock private PurInboundPlanService inboundPlanService;
 
     @InjectMocks private PurReceiptService service;
@@ -328,5 +331,45 @@ class PurReceiptServiceTest {
         assertThatThrownBy(() -> service.check(receiptId))
                 .isInstanceOf(BizException.class)
                 .hasMessageContaining("未关联 IQC");
+    }
+
+    // ===== v1.1.188: 入库审核登记 RAW 原料批 (XK 批次溯源「原料批」列表的数据来源) =====
+
+    @Test
+    @DisplayName("check: 逐明细行登记原料批; 无批号的行跳过")
+    void check_registersRawBatchPerLineWithBatchNo() {
+        Long receiptId = 780L;
+        PurReceipt receipt = new PurReceipt();
+        receipt.setId(receiptId);
+        receipt.setBillNo("RKP202611140005");
+        receipt.setBillStatus("DRAFT");
+        receipt.setSupplierId(60L);
+        receipt.setWarehouseId(1L);
+        lenient().when(receiptMapper.selectById(receiptId)).thenReturn(receipt);
+
+        PurReceiptDetail withBatch = new PurReceiptDetail();
+        withBatch.setReceiptId(receiptId);
+        withBatch.setProductId(200L);
+        withBatch.setBatchNo("SK216A08C1");
+        withBatch.setQty(new BigDecimal("1500"));
+        withBatch.setPrice(BigDecimal.ZERO);
+
+        PurReceiptDetail noBatch = new PurReceiptDetail();
+        noBatch.setReceiptId(receiptId);
+        noBatch.setProductId(201L);
+        noBatch.setQty(new BigDecimal("8"));
+        noBatch.setPrice(BigDecimal.ZERO);
+
+        lenient().when(receiptDetailMapper.selectByReceiptId(receiptId))
+                .thenReturn(Arrays.asList(withBatch, noBatch));
+        BaseWarehouse w = new BaseWarehouse();
+        w.setId(1L); w.setWarehouseName("原料仓");
+        lenient().when(warehouseMapper.selectById(1L)).thenReturn(w);
+
+        service.check(receiptId);
+
+        verify(mesReportService).registerRawOnReceipt(
+                "SK216A08C1", 200L, 60L, "RKP202611140005", new BigDecimal("1500"));
+        verify(mesReportService, times(1)).registerRawOnReceipt(any(), any(), any(), any(), any());
     }
 }
