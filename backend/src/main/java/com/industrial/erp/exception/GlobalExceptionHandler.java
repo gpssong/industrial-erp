@@ -11,6 +11,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.BindException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -60,6 +61,22 @@ public class GlobalExceptionHandler {
     public R<?> handleDuplicate(DuplicateKeyException e) {
         log.warn("重复数据: {}", e.getMessage());
         return R.fail("数据已存在, 请检查编码/名称是否重复");
+    }
+
+    /**
+     * v1.1.186: 请求方法不支持 (405) 单独回, 不再落到兜底 handler 被说成「系统繁忙」。
+     * 现场报「保存检验记录失败: 系统繁忙, 请稍后再试: Request method 'PUT' is not supported」——
+     * 兜底文案把"调错了端点"伪装成"系统忙", 排查成本极高。
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public R<?> handleMethodNotSupported(HttpRequestMethodNotSupportedException e, HttpServletRequest req) {
+        StringBuilder msg = new StringBuilder("请求方法不支持: ")
+                .append(req.getMethod()).append(' ').append(req.getRequestURI());
+        if (e.getSupportedHttpMethods() != null) {
+            msg.append(" (该接口只接受 ").append(e.getSupportedHttpMethods()).append(')');
+        }
+        log.warn("[MethodNotAllowed] {}", msg);
+        return R.fail(405, msg.toString());
     }
 
     @ExceptionHandler(Exception.class)

@@ -646,18 +646,12 @@ export default {
         return
       }
       try {
+        // v1.1.186: 这里原来还跟着一次 PUT /qms/inspection/{iqcId} (存批号/抽检数量),
+        // 但后端从来没有这个端点 —— Spring 抛 "Request method 'PUT' is not supported",
+        // 兜底 handler 又把它说成「系统繁忙」, 整次保存因此报错。
+        // 单头的批号/抽检数量在「生成报告并入库」时随 sign-for-order 一起提交 (见 doSubmit),
+        // 草稿保存只存检验项判定 —— 与 PC 侧「保存草稿 = 只存检验项」口径一致。
         await qmsApi.iqcSaveItems(this.iqcId, this.items)
-        if (this.iqcId) {
-          await request({
-            url: `/qms/inspection/${this.iqcId}`,
-            method: 'PUT',
-            data: {
-              id: this.iqcId,
-              batchNo: this.orderBatch,
-              sampleQty: this.form.sampleQty || 0
-            }
-          })
-        }
         uni.showToast({ title: '已保存', icon: 'success' })
       } catch (e) {
         console.error('[save draft] failed:', e)

@@ -3,6 +3,32 @@
 
 ## changelog (倒序)
 
+### v1.1.186 (2026-11-14 — App「保存检验记录」不再报「系统繁忙: Request method 'PUT' is not supported」; 后端 jar + App H5/APK + PC dist)
+
+> **触发**: 现场在 App 原料入库页点「保存检验记录」报「保存失败: 系统繁忙, 请稍后再试: Request method 'PUT' is not supported」。
+
+**根因**: App 调了一个**后端从来没有过的端点**，而且兜底异常处理器把「方法不对」说成了「系统繁忙」。
+
+- [in.vue](../app/src/pages/scan/in.vue) 的 `onSaveDraft` 除了 `iqcSaveItems`（`PUT /qms/iqc/{id}/items`，后端有），还跟着调了一次 `PUT /qms/inspection/{iqcId}`（想存单头的批号/抽检数量）。
+- 该端点**后端从未提供**：`QmsInspectionController` 只有 `GET /{id}`、`POST /{id}/check`、`POST /{id}/reject`、`POST /{id}/reset-to-draft`、`PUT /{id}/process-record` 等，**没有** `PUT /{id}`；PC 侧 `pc-web/src/api/quality.js` 也没有对应调用。这个死调用是 v1.1.80~v1.1.103 引入 App 时留下的（commit `e2dc414`）。
+- Spring 抛 `HttpRequestMethodNotSupportedException` → 落到 `GlobalExceptionHandler` 的兜底 `handleException` → 回 500「系统繁忙, 请稍后再试: …」，于是**第一次的检验项其实已经存成功，整次保存却显示失败**。
+
+**修法**（两处，缺一不可）:
+
+- [app/src/pages/scan/in.vue](../app/src/pages/scan/in.vue): 删掉那个死调用。草稿保存 = 只存检验项判定，与 PC 侧口径一致；单头的批号/抽检数量本来就在「生成报告并入库」时随 `sign-for-order` 一起提交（`sampleQty` + 逐行 `batchNo`），没有丢字段。
+- [GlobalExceptionHandler](../backend/src/main/java/com/industrial/erp/exception/GlobalExceptionHandler.java): 新增 `HttpRequestMethodNotSupportedException` 专用处理，回 **405** 并说清「请求方法不支持: PUT /api/qms/inspection/xxx（该接口只接受 …）」——以后再有调错端点，不会再被伪装成「系统繁忙」。
+
+**测试**: 新增 [GlobalExceptionHandlerMethodNotSupportedTest](../backend/src/test/java/com/industrial/erp/exception/GlobalExceptionHandlerMethodNotSupportedTest.java) 1 例（回 405、含方法与路径、不含「系统繁忙」）。后端全量 **748 例 0 失败**。
+
+**验证**（`.150` 主站，真实非超管 `gpssong1`（WAREHOUSE_MGR+FINANCE, `is_admin=0`）复刻 App 的保存动作）：
+- `PUT /qms/iqc/{id}/items` → `{"code":200,"msg":"操作成功"}`（这就是现在「保存检验记录」唯一走的一步）；
+- 旧死调用 `PUT /qms/inspection/{id}` → `{"code":405,"msg":"请求方法不支持: PUT /api/qms/inspection/2119676240634888193 (该接口只接受 [GET])"}`；
+- 判定数据无损：保存前后「item_code/实测值/判定/依据」指纹一致（`acaaab2c…`）。⚠️ 注意 `batchSave` 是**全量替换**语义 —— 每次保存都会重建检验项行（新 id、无软删残留），这是既有行为，用户自己在 App 上点保存也一样，不是本次改动引入的。
+
+**版本/产物**: 版本七处对齐 1.1.186（`app/package.json`、`app/src/manifest.json` versionName 1.1.186 / versionCode 1186、`app/src/pages/profile/index.vue` `APP_VERSION`、`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`SystemVersionInitializer` `@Value` 默认值），`scripts/check-version.sh` 7×OK。
+
+> ⚠️ 车间手机必须装 **1.1.186** APK（`erp-app-20261114.apk` md5 `108f01323cc193ce4c9b3c6f7ff9746c`）—— 1.1.185 的 APK 只修了「删照片」，保存按钮那处死调用还在。
+
 ### v1.1.185 (2026-11-14 — App 删照片真删: 删掉后再进页面不再出现; 后端 jar + App H5/APK + PC dist)
 
 > **触发**: 现场报「原料入库上传的照片删掉以后再进去又出现了」（App 原料入库页，照片区显示 `19 / 6`）。
