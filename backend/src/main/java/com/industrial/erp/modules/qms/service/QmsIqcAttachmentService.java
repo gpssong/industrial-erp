@@ -1,8 +1,11 @@
 package com.industrial.erp.modules.qms.service;
 
 import cn.hutool.core.util.StrUtil;
+import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
+import com.industrial.erp.modules.qms.entity.MesQualityInspection;
 import com.industrial.erp.modules.qms.entity.QmsIqcAttachment;
+import com.industrial.erp.modules.qms.mapper.MesQualityInspectionMapper;
 import com.industrial.erp.modules.qms.mapper.QmsIqcAttachmentMapper;
 import com.industrial.erp.security.SecurityContext;
 import org.springframework.stereotype.Service;
@@ -24,9 +27,12 @@ import java.util.List;
 public class QmsIqcAttachmentService {
 
     private final QmsIqcAttachmentMapper attachmentMapper;
+    private final MesQualityInspectionMapper inspectionMapper;
 
-    public QmsIqcAttachmentService(QmsIqcAttachmentMapper attachmentMapper) {
+    public QmsIqcAttachmentService(QmsIqcAttachmentMapper attachmentMapper,
+                                   MesQualityInspectionMapper inspectionMapper) {
         this.attachmentMapper = attachmentMapper;
+        this.inspectionMapper = inspectionMapper;
     }
 
     @Transactional(readOnly = true)
@@ -79,5 +85,24 @@ public class QmsIqcAttachmentService {
         a.setVerifiedBy(SecurityContext.getUserId());
         a.setVerifiedTime(LocalDateTime.now());
         attachmentMapper.updateById(a);
+    }
+
+    /**
+     * v1.1.185 — 删一张现场照片/附件 (App 三个检验页共用).
+     *
+     * <p>软删 (deleted=1), 与 sql/117 的 trg_qms_iqc_attachment_protect 对齐:
+     * 所属检验单已审核 (CHECKED) 的附件拒删 —— XK 审计链不允许事后抽掉凭证照片。
+     * 物理文件保留在上传目录 (标签照片需归档 ≥2 年), 这里只摘掉单据上的挂接关系。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void delete(Long id) {
+        if (id == null) throw BizException.of("附件 id 必填");
+        QmsIqcAttachment a = attachmentMapper.selectById(id);
+        if (a == null) throw BizException.of("附件不存在或已删除");
+        MesQualityInspection insp = inspectionMapper.selectById(a.getIqcId());
+        if (insp != null && Constants.STATUS_CHECKED.equals(insp.getStatus())) {
+            throw BizException.of("XK 合规: 已审核的检验单附件不可删除, 请先反审核该检验单");
+        }
+        attachmentMapper.deleteById(id);
     }
 }

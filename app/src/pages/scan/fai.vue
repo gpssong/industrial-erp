@@ -298,7 +298,26 @@ export default {
       finally { if (seq === this.requestSeq) this.uploading = false }
     },
     onPreview(p) { uni.previewImage({ urls: [this.base(p)], current: this.base(p) }) },
-    onDelPhoto(i) { if (!this.formReadOnly) this.photos.splice(i, 1) },
+    /**
+     * v1.1.185 — 删照片要真删 (原来只前端 splice, 服务端附件行还在 → 重进页面又出现)。
+     * 还没绑到检验单上的临时照片 (无 id) 仍走本地移除。
+     */
+    async onDelPhoto(i) {
+      if (this.formReadOnly) return
+      const p = this.photos[i]
+      if (!p) return
+      if (!p.id) { this.photos.splice(i, 1); return }
+      try {
+        await qmsApi.iqcDeleteAttachment(p.id)
+        const list = await qmsApi.iqcAttachments(this.faiId)
+        this.attachments = list || []
+        this.photos = this.attachments.filter((a) => ['LABEL_PHOTO', 'PACK_PHOTO', 'SAMPLE_PHOTO', 'REPORT'].includes(a.attachType))
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        console.error('[delete photo] failed:', e)
+        uni.showToast({ title: '删除失败: ' + ((e && (e.msg || e.message)) || '网络错'), icon: 'none', duration: 2500 })
+      }
+    },
     async onSaveDraft() {
       if (this.formReadOnly || !this.items.length) return
       if (!this.semiInId) { uni.showToast({ title: '请先选半成品入库单', icon: 'none' }); return }

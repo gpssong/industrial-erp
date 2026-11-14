@@ -3,6 +3,30 @@
 
 ## changelog (倒序)
 
+### v1.1.185 (2026-11-14 — App 删照片真删: 删掉后再进页面不再出现; 后端 jar + App H5/APK + PC dist)
+
+> **触发**: 现场报「原料入库上传的照片删掉以后再进去又出现了」（App 原料入库页，照片区显示 `19 / 6`）。
+
+**根因**: 删除只发生在浏览器内存里，服务端一行都没删。
+
+- [in.vue](../app/src/pages/scan/in.vue) 的 `onDeletePhoto` 只有一句 `this.photos.splice(i, 1)`（旧注释写着「一期: 前端隐藏, 实际删除走 verify 流程」），照片本体早已通过 `POST /qms/iqc/{id}/attachment/bind` 登记进 `qms_iqc_attachment`。
+- 每次进页面 `bootstrap()` 都从 `GET /qms/iqc/{id}/attachments` 重读附件并回填照片区 ⇒ 删掉的行**原样读回来**。
+- 后端根本没有删附件的端点：`QmsIqcAttachmentController` 只有 list / bind / verify 三个；`qms_iqc_attachment` 里 `deleted = 1` 的行数为 **0**。
+- 线上取证（`.150` 主库）：`QI202611090001`（`DRAFT`）挂着 **22** 条照片附件，`QI202611030002`（`CHECKED`）4 条。
+
+**修法**（删 = 软删，语义与 XK 审计链一致）:
+
+- [QmsIqcAttachmentService](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsIqcAttachmentService.java): 新增 `delete(id)` —— 附件不存在直接报错；**所属检验单已审核 (`CHECKED`) 拒删**（「XK 合规: 已审核的检验单附件不可删除, 请先反审核该检验单」），与 sql/117 的触发器 `trg_qms_iqc_attachment_protect` 同一口径；物理文件保留在上传目录（标签照片需归档 ≥2 年），只摘单据上的挂接关系。
+- [QmsIqcAttachmentController](../backend/src/main/java/com/industrial/erp/modules/qms/controller/QmsIqcAttachmentController.java): 新增 `DELETE /qms/iqc/attachment/{id}`，权限与 bind 同口径（`qms:iqc:detail` | `quality:inspection:check` | admin）—— 手机上只有 `quality:inspection:*` 的检验员也要能删自己刚拍的照片。
+- [app/src/api/qms.js](../app/src/api/qms.js): 新增 `iqcDeleteAttachment(id)`。
+- App 三个检验页（[原料入库 in.vue](../app/src/pages/scan/in.vue)、[首检 fai.vue](../app/src/pages/scan/fai.vue)、[成品检 oqc.vue](../app/src/pages/scan/oqc.vue)）删照片改为「调端点 → 重读附件列表 → 回填照片区」，失败弹错误且**不做本地移除**；还没绑到检验单上的临时照片（无 id）仍走本地移除。列表口径没变：`selectByIqcId` 只取 `deleted = 0`，软删后不再回读。
+
+**测试**: 新增 [QmsIqcAttachmentServiceTest](../backend/src/test/java/com/industrial/erp/modules/qms/service/QmsIqcAttachmentServiceTest.java) 3 例 —— `DRAFT` 删得掉、`CHECKED` 拒删（且不调 delete）、附件不存在报错。后端全量 **747 例 0 失败**。
+
+**版本/产物**: 版本七处对齐 1.1.185（`app/package.json`、`app/src/manifest.json` versionName 1.1.185 / versionCode 1185、`app/src/pages/profile/index.vue` `APP_VERSION`、`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`SystemVersionInitializer` `@Value` 默认值），`scripts/check-version.sh` 7×OK。APK `erp-app-20261114.apk` md5 `e93ebb676e1f19a5cf6c0755d5a04219`（内嵌版本与 OS 级 versionName/versionCode 均 1.1.185/1185）。
+
+> ⚠️ 车间手机必须装 1.1.185 的 APK 才有删除功能（H5 只覆盖浏览器入口）；旧的 1.1.184 APK 仍是「只本地隐藏」的老行为。
+
 ### 运维 (2026-11-14 — git 历史重写剥离泄漏凭据与大 blob + `.150` 上传目录杂物清理; 无版本号变更、无代码变更)
 
 > **触发**: 用户指令「git重写，.150杂物清理」—— 授权对已泄漏进历史的凭据做 `git filter-repo` 重写并 force-push（仅此一次），同时清掉主站上传目录里堆积的部署杂物。

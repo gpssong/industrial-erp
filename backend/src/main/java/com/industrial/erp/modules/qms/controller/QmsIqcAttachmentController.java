@@ -59,4 +59,18 @@ public class QmsIqcAttachmentController {
         attachService.markVerified(id);
         return R.ok();
     }
+
+    /**
+     * v1.1.185 — 删一张现场照片/附件 (App 原料入库 / 首检 / 成品检三页共用)。
+     *
+     * <p>权限口径与 bind 一致 (App 端只有 quality:inspection:* 的检验员也要能删自己刚拍的照片)。
+     * 删除语义: 软删 + 已审核单据拒删, 由 service 统一裁决, DB 侧还有 sql/117 的触发器兜底。
+     */
+    @SaCheckPermission(value = {"qms:iqc:detail", "quality:inspection:check"},
+            mode = SaMode.OR, orRole = "admin")
+    @DeleteMapping("/attachment/{id}")
+    public R<Void> delete(@PathVariable Long id) {
+        attachService.delete(id);
+        return R.ok();
+    }
 }

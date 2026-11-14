@@ -99,6 +99,16 @@ export function iqcVerifyAttachment(attachmentId) {
 }
 
 /**
+ * ⑧' 删一张现场照片/附件 (v1.1.185).
+ *
+ * 之前 App 只在前端 splice, 服务端 qms_iqc_attachment 行留着 → 重新进页面又读回来, 删了又出现。
+ * 后端软删 (deleted=1), 所属检验单已审核 (CHECKED) 时拒删。
+ */
+export function iqcDeleteAttachment(attachmentId) {
+  return request({ url: `/qms/iqc/attachment/${attachmentId}`, method: 'DELETE' })
+}
+
+/**
  * ⑨ 从 IQC 自动建 DRAFT 采购入库单 (供 App 端"生成报告并自动入库" 调).
  * 后端: POST /purchase/receipt/create-from-iqc  { planId, iqcId }
  * @returns {Promise<{receiptId: Long}>}

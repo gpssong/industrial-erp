@@ -593,9 +593,7 @@ export default {
           fileSizeKb: Math.round((r.size || 0) / 1024),
           attachType: 'LABEL_PHOTO'
         })
-        const list = await qmsApi.iqcAttachments(this.iqcId)
-        this.attachments = list || []
-        this.photos = this.attachments.filter((a) => ['LABEL_PHOTO', 'PACK_PHOTO', 'SAMPLE_PHOTO'].includes(a.attachType))
+        await this.reloadAttachments()
         uni.showToast({ title: '已添加', icon: 'success' })
       } catch (e) {
         console.error('[upload photo] failed:', e)
@@ -605,8 +603,35 @@ export default {
       }
     },
     onDeletePhoto(i) {
-      // 一期: 前端隐藏, 实际删除走 verify 流程; 简化避免误删
-      this.photos.splice(i, 1)
+      const p = this.photos[i]
+      if (!p) return
+      // 还没绑到检验单上的临时照片 (无 id): 只本地移除
+      if (!p.id) {
+        this.photos.splice(i, 1)
+        return
+      }
+      this.removePhoto(p)
+    },
+    /**
+     * v1.1.185 — 删照片必须真删。
+     * 原来只做前端 splice, 服务端 qms_iqc_attachment 那行还在 → 重新进页面
+     * bootstrap 从 attachments 读回来, 删掉的照片又出现 (现场报「删掉后再进去又出现了」)。
+     */
+    async removePhoto(p) {
+      try {
+        await qmsApi.iqcDeleteAttachment(p.id)
+        await this.reloadAttachments()
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        console.error('[delete photo] failed:', e)
+        uni.showToast({ title: '删除失败: ' + (e.msg || e.message || '网络错'), icon: 'none', duration: 2500 })
+      }
+    },
+    // 重读附件并回填照片区 (删完/传完都走这里, 免得两处口径漂)
+    async reloadAttachments() {
+      const list = await qmsApi.iqcAttachments(this.iqcId)
+      this.attachments = list || []
+      this.photos = this.attachments.filter((a) => ['LABEL_PHOTO', 'PACK_PHOTO', 'SAMPLE_PHOTO'].includes(a.attachType))
     },
     onPreviewPhoto(url) {
       if (typeof uni === 'undefined' || !uni.previewImage) return

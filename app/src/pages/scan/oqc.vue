@@ -277,7 +277,24 @@ export default {
       }
     },
     onPreview(p) { uni.previewImage({ urls: [this.base(p)], current: this.base(p) }) },
-    onDelPhoto(i) { if (!this.formReadOnly) this.photos.splice(i, 1) },
+    /**
+     * v1.1.185 — 删照片要真删 (原来只前端 splice, 服务端附件行还在 → 重进页面又出现)。
+     */
+    async onDelPhoto(i) {
+      if (this.formReadOnly) return
+      const p = this.photos[i]
+      if (!p) return
+      if (!p.id) { this.photos.splice(i, 1); return }
+      const seq = this.requestSeq
+      try {
+        await qmsApi.iqcDeleteAttachment(p.id)
+        await this.loadPhotos(seq)
+        uni.showToast({ title: '已删除', icon: 'success' })
+      } catch (e) {
+        console.error('[oqc.photo] 删除失败:', e)
+        uni.showToast({ title: '删除失败: ' + ((e && (e.msg || e.message)) || '网络错'), icon: 'none', duration: 2500 })
+      }
+    },
     async onSaveDraft() {
       if (this.formReadOnly || !this.items.length) return
       this.submitting = true
