@@ -45,6 +45,17 @@
 - 业务附件**未动**: 后端实际挂载的是 `data/upload`（156M），不是这个中转目录 —— 清理前先按 `docker inspect` 的 Mounts 核对过。
 - 清理后按 `~/.config/erp-ops/env` 的三个密钥值全盘复查 → 0 命中；`.150` backend 健康（`captcha` 8088 回 200）。
 
+**同批: 两站旧 jar 备份与旧镜像清理（v1.1.185 收尾）**
+
+- `.150` `/volume3/docker/erp-system/backend`：69 个历史 jar 备份（`industrial-erp-*.jar.bak*` / `.old` / `.retired`）共 **6.9G → 427M**，只保留当前 `industrial-erp-1.1.185.jar` 与上一版 `industrial-erp-1.1.184.jar.bak_v1185_20261114`（回滚用）。删前先核对**没有脚本依赖具体旧 jar 名**（`scripts/nas-backup/backup.sh` 的备份落在 `data/erp-backup/backend/`，不进 build 目录，不会撞 Dockerfile 的 `industrial-erp-*.jar` glob），删后 `ls industrial-erp-*.jar | wc -l` 仍为 1。
+- `.150` docker 镜像：20 个 `erp-system-backend:*` tag → 只留 `1.1.185` / `1.1.184`（每个 655M，回收约 11G）。
+- 阿里云 `/opt/erp-system/backend`：591M → 197M（留 1.1.185 + 1.1.184 备份）；镜像 `erp-backend:*` 5 个 → 3 个（`1.1.175` 被停着的 `erp-backend` 容器引用，删不掉也不影响 —— 接管脚本 `docker compose up -d --no-build erp-backend` 会按 `.env` 的 `ERP_VERSION=1.1.185` 重建）。
+- 两站清完 backend 仍 healthy（`captcha` 200）、`erp-backend` 仍跑 `1.1.185`。
+
+**同批: 现场那 22 张重复照片按新端点清掉**
+
+`QI202611090001`（`DRAFT`，iqc_id `2119676240634888193`）的 22 张 `LABEL_PHOTO` 全是同一袋料的重复拍摄 —— 用**刚上线的删除端点**（与 App 同一个 `DELETE /qms/iqc/attachment/{id}`）删掉 16 条，保留**最新 6 张**（App 端上限也是 6 张，且页面提示「建议 6 张以上」，不能清零 —— 检验提交要求至少 1 张标签照片）。删除清单留底 `/volume3/docker/erp-system/upload/photo-prune-1185-manifest.tsv`（id / 类型 / 文件名 / file_url / 时间），软删可回滚。复核：库内 `deleted=0` = 6、`deleted=1` = 16、`GET /attachments` 只回 6 条。
+
 ### v1.1.184 (2026-11-14 — 进货检验的「不适用」= 公司入库不检验, 保存与放行不再被达因/印刷口径拦住; 后端 jar + PC dist, 三站已部署)
 
 > **触发**: App 进货检验页（原料检验）点「保存」必报「保存失败: 检验项 MFR_DENSITY 不属于达因/印刷质量项，不能判不适用」。用户口径: **原料检验里的「不适用」是指公司入库不检验**（现场没有熔指/密度/重金属检测条件，靠供方报告覆盖），不是印刷项那条规则 —— 这种情况必须放行。
