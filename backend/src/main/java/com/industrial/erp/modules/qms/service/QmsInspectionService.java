@@ -923,7 +923,7 @@ public class QmsInspectionService {
         validateQuantities(head.getSampleQty(), head.getQualifiedQty(), head.getUnqualifiedQty(), dto.getResult() != null);
         List<QmsIqcItem> existing = iqcItemMapper.selectByIqcId(id);
         validateTemplateCodes(head, existing);
-        QmsIqcItemService.validateTemplateSubmission(existing, dto.getItems());
+        QmsIqcItemService.validateTemplateSubmission(existing, dto.getItems(), head.getInspectionType());
         if (dto.getResult() != null) validateProcessResult(head, dto.getItems(), dto.getResult());
         if (dto.getBatchNo() != null) head.setBatchNo(dto.getBatchNo().trim());
         if (dto.getPhotoUrls() != null) head.setPhotoUrls(StrUtil.isBlank(dto.getPhotoUrls()) ? "[]" : dto.getPhotoUrls());
@@ -1454,8 +1454,9 @@ public class QmsInspectionService {
         for (String[] r : DEFAULT_IQC_ITEMS_COMMON) tpl.add(r);
         if (isFoodGrade) for (String[] r : DEFAULT_IQC_ITEMS_FOOD) tpl.add(r);
         int line = 1;
-        // v1.1.175: 熔指密度/熔体质量流动速率/密度 — 进货检验现场不具备检测条件, 默认标记"不适用"
-        Set<String> NA_ITEMS = Set.of("MFR_DENSITY", "MFR", "DENSITY", "FOOD_CONTACT_HEAVY_METAL");
+        // v1.1.184: 默认判定以模板第 6 列为唯一真源 (N/A=2 不适用 / PASS=1 合格),
+        // 此前这里另有一套 NA 集合, 与模板列不一致 (食品接触重金属: 模板 PASS、代码 N/A),
+        // 且保存闸又不认 N/A → App「保存检验记录」必然报「不能判不适用」。
         for (String[] r : tpl) {
             QmsIqcItem it = new QmsIqcItem();
             it.setIqcId(ins.getId());
@@ -1465,13 +1466,18 @@ public class QmsInspectionService {
             it.setRequirement(r[2]);
             it.setMethod(r[3]);
             it.setUnit(r[4]);
-            it.setPassFlag(NA_ITEMS.contains(r[0]) ? 2 : 1);  // 2=不适用, 1=PASS(默认)
+            it.setPassFlag(defaultIqcFlag(r));  // 2=不适用, 1=合格(默认)
             it.setIsFoodGradeItem(isFoodGrade ? 1 : 0);
             it.setSource("TEMPLATE");
             iqcItemMapper.insert(it);
         }
         log.info("[QMS-XK] loadDefaultIqcItems: iqc={} food={} items={}",
                 ins.getBillNo(), isFoodGrade, tpl.size());
+    }
+
+    /** 进货检验模板第 6 列 → 默认判定: N/A=2 (公司入库不检验), PASS=1 (合格). */
+    private static int defaultIqcFlag(String[] templateRow) {
+        return templateRow.length > 5 && "N/A".equals(templateRow[5]) ? 2 : 1;
     }
 
     private String inspectionStage(MesQualityInspection ins) {
@@ -1795,7 +1801,7 @@ public class QmsInspectionService {
         if (food) for (String[] row : foodProcessTemplate(stage, head.getInspectionType())) expected.add(row[0]);
         Set<String> actual = new HashSet<>();
         for (QmsIqcItem item : items) {
-            QmsIqcItemService.validateItem(item);
+            QmsIqcItemService.validateItem(item, head.getInspectionType());
             requireNaOnlyForPrintOrCorona(item);
             if (!actual.add(item.getItemCode()) || (item.getSource() != null && !"TEMPLATE".equals(item.getSource()))) {
                 throw BizException.of("模板项重复或被手工项替代，不能签核");

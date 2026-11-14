@@ -204,6 +204,35 @@ class QmsIqcItemServiceTest {
         verify(items).update(isNull(), any());
     }
 
+    /**
+     * v1.1.184 — 进货检验 (IQC) 的「不适用」语义是「公司入库不检验」, 与工序/出厂检验的
+     * 「不得用不适用规避实测」不是一回事: 熔指/密度这类项目现场本就检测不了,
+     * 服务端建单时默认就写了 pass_flag=2, 保存时必须认账, 否则「保存检验记录」永远失败。
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"MFR_DENSITY", "MFR", "DENSITY", "FOOD_CONTACT_HEAVY_METAL"})
+    void iqcAcceptsNotApplicableForItemsCompanyDoesNotInspectAtReceiving(String itemCode) {
+        head.setInspectionType("IQC");
+        QmsIqcItem input = new QmsIqcItem();
+        input.setItemCode(itemCode);
+        input.setItemName("熔指密度");
+        input.setPassFlag(2);
+        service.batchSave(1L, List.of(input));
+        verify(items).insert(any(QmsIqcItem.class));
+    }
+
+    /** 工序/出厂检验 (XK 许可固定清单) 的防线不变: 非达因/印刷项仍不得判不适用. */
+    @ParameterizedTest
+    @ValueSource(strings = {"FAI", "PAT", "OQC"})
+    void processInspectionStillRejectsNotApplicableOutsideCoronaAndPrint(String type) {
+        head.setInspectionType(type);
+        stored.setItemCode("MFR_DENSITY");
+        QmsIqcItem input = input();
+        input.setPassFlag(2);
+        assertThatThrownBy(() -> service.batchSave(1L, List.of(input))).hasMessageContaining("不能判不适用");
+        verify(items, never()).update(isNull(), any());
+    }
+
     private QmsIqcItem input() {
         QmsIqcItem input = new QmsIqcItem();
         input.setItemCode(stored.getItemCode());

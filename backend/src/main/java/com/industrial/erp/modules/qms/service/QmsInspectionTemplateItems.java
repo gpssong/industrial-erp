@@ -26,7 +26,7 @@ public final class QmsInspectionTemplateItems {
 
     /** 食品级专用检验项模板 (3 项, 仅 is_food_grade=1 商品加载). */
     public static final String[][] DEFAULT_IQC_ITEMS_FOOD = {
-            {"FOOD_CONTACT_HEAVY_METAL", "食品接触重金属", "铅≤1mg/kg, 镉≤0.5mg/kg", "ICP-OES", "mg/kg", "PASS"},
+            {"FOOD_CONTACT_HEAVY_METAL", "食品接触重金属", "铅≤1mg/kg, 镉≤0.5mg/kg", "ICP-OES", "mg/kg", "N/A"},
             {"SENSORY_ODOR",   "嗅味",       "无异味",                       "嗅觉检测",  null,    "PASS"},
             {"APPEARANCE",     "色泽透明度", "色泽均匀、无杂质",              "目测",      null,    "PASS"}
     };

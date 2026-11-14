@@ -3,6 +3,33 @@
 
 ## changelog (倒序)
 
+### v1.1.184 (2026-11-14 — 进货检验的「不适用」= 公司入库不检验, 保存与放行不再被达因/印刷口径拦住; 后端 jar + PC dist, 三站已部署)
+
+> **触发**: App 进货检验页（原料检验）点「保存」必报「保存失败: 检验项 MFR_DENSITY 不属于达因/印刷质量项，不能判不适用」。用户口径: **原料检验里的「不适用」是指公司入库不检验**（现场没有熔指/密度/重金属检测条件，靠供方报告覆盖），不是印刷项那条规则 —— 这种情况必须放行。
+
+**根因**: 两件事叠在一起。
+1. v1.1.149 的 `QmsItemCodes.isNaAllowed` 只有一份清单（达因/印刷 4 项），**不分检验类型**；服务端建 IQC 单时却又按另一份 NA 集合（`MFR_DENSITY`/`MFR`/`DENSITY`/`FOOD_CONTACT_HEAVY_METAL`）默认写 `pass_flag=2`。于是默认值必然被保存闸拒掉，App 上「改判定」也救不回来（这几项本来就不该实测）。
+2. 默认判定有两套真源: 代码里一套 NA 集合、模板第 6 列一套（`FOOD_CONTACT_HEAVY_METAL` 模板写 `PASS`、代码判 `N/A`），两边已经漂移。
+
+**修法**（`pass_flag=2` 的放行范围按检验类型拆分，模板列为唯一真源）:
+- [QmsItemCodes](../backend/src/main/java/com/industrial/erp/modules/qms/QmsItemCodes.java): 新增 `IQC_NA_ITEMS` 与 `isNaAllowed(itemCode, inspectionType)` —— 达因/印刷 4 项在**所有**检验类型都放行；`MFR_DENSITY`/`MFR`/`DENSITY`/`FOOD_CONTACT_HEAVY_METAL` **只在 IQC** 放行。工序检/出厂检（FAI/PAT/OQC/OQC_RETURN）仍只开 4 项，XK 固定清单那条防线不动。
+- [QmsIqcItemService](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsIqcItemService.java): `validateItem` 带上 `inspectionType`，IQC 与工序检分别给不同的拒绝文案；`batchSave` 与模板提交校验两条路径都传真实类型。签核路径（`QmsInspectionService.validateTemplateCodes` / `validateFinishedResult`）仍走 `NA_ONLY_ITEMS`，未放宽。
+- [QmsInspectionService](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionService.java): 建 IQC 单的默认判定改由模板第 6 列派生（`N/A`→2、`PASS`→1，`defaultIqcFlag`），删掉代码里那套重复集合。
+- [QmsInspectionTemplateItems](../backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionTemplateItems.java): 食品级 `FOOD_CONTACT_HEAVY_METAL` 第 6 列 `PASS`→`N/A`，与「公司入库不检验」对齐。
+- [Inspection.vue](../pc-web/src/views/quality/Inspection.vue): PC 判定下拉按检验类型给「不适用」选项 —— IQC 放行那 4 项，其余类型仍只放达因/印刷 4 项。
+
+**放行链路复核**（没被这条闸碰到）: IQC 审核 `check()` 只对工序检/成品检逐项门禁；`hasPassedIqcForPlan` 判的是单头「已审核 + PASS」；App 进货页 `allPassed` 本来就排除 `passFlag=2` 的项。所以「判不适用 → 保存 → 审核 PASS → 生成入库单」全程可走通。
+
+**验证**（`.150` 主站，真实非超管 `gpssong1`（WAREHOUSE_MGR+FINANCE，`is_admin=0`），改动前后同一单 `IQC 2119676240634888193`）:
+- 原样提交（含 `MFR_DENSITY`/`MFR` 不适用）→ `{"code":200,"msg":"操作成功"}`（用户报的失败已消失）；
+- 同一单把 `SENSORY` 改成不适用 → `{"code":500,"msg":"检验项 SENSORY 不属于「公司入库不检验」项目，不能判不适用"}`；
+- 同账号对 FAI `BLOW_ODOR` 判不适用 → `{"code":500,"msg":"检验项 BLOW_ODOR 不属于达因/印刷质量项，不能判不适用"}`（工序检口径未松动）；
+- 复检 DB: IQC 各判定未被改动、单头仍 DRAFT/HOLD；测试用 `gpssong1` 临时口令已还原并删除中转文件。
+
+**版本/产物**: 版本七处对齐 1.1.184（`app/package.json`、`app/src/manifest.json` versionName 1.1.184 / versionCode 1184、`app/src/pages/profile/index.vue` `APP_VERSION`、`pc-web/package.json`、`application.yml` `ERP_VERSION` 默认值、`SystemVersionInitializer` `@Value` 默认值），`bash scripts/check-version.sh` 7×OK。jar md5 `b21e748d1f338b910224bf49a09a6026`，PC `dist/index.html` md5 `3d5df66334498a65a487171bdb653936`。三站已部署（`.32` canary → `.150` 主站 → 阿里云）；`.32` 复制 `Replica_IO/SQL_Running=Yes`、`Seconds_Behind_Source=0`、`Last_Errno=0`。⚠️ 已部署的 jar 构建于 `SystemVersionInitializer` 的 `@Value` 默认值对齐之前 —— 该默认值只在 `erp.version` 完全缺失时生效，三站容器均显式带 `ERP_VERSION=1.1.184`，运行行为与版本显示不受影响；下次因业务改动重打 jar 时自动一致。
+
+> ⚠️ 部署口径两处变化: ① `.32` 已 `super_read_only=1`，canary **只能做只读验证**（read back + healthy + 版本/镜像 md5），写入类验证改为在主站用非超管账号做；② 阿里云已改为**纯反代**（`/`、`/api` 转 `n150.93gushi.com:8088`），其 `erp-backend` 容器自 2026-11-10 起有意停着，因此 `erp-pc-web` 的 `upstream erp-backend` 解析不到 —— 本轮开始该容器处于 stopped 状态，**不要再单独重启它**，否则会进 restart loop。
+
 ### v1.1.183 (2026-11-12 — 只读备库上 backend 不再被「版本号回写」打挂; 纯后端 jar, 未部署)
 
 > **触发**: 2026-11-12 在 `.32` 取证发现, 该站从 v1.1.176 起就没重启过 (`Started=2026-11-09`、`RestartCount=0`), 而 11-10 的只读加固是在那之后做的 —— 这颗雷一直没炸, 但只要 `.32` 或阿里云热备的 backend 一重启就会炸: 接管流程第 5 步起 backend -> 容器直接退出 -> 外部入口黑屏。

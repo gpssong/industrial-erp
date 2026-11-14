@@ -444,7 +444,13 @@ const itemsSaving = ref(false)
 const TEMPLATE_TYPES = ['FAI', 'PAT', 'OQC', 'OQC_RETURN']
 // v1.1.149 本公司不做印刷: 达因/印刷质量 4 项才有「不适用」
 const NA_ITEM_CODES = ['PAT_CORONA', 'OQC_FILM_CORONA', 'BAG_PRINT', 'OQC_BAG_PRINT']
-function isNaItem(code) { return NA_ITEM_CODES.includes(String(code || '')) }
+// v1.1.184 进货检验 (IQC) 的「不适用」= 公司入库不检验 (现场无检测条件), 与工序/出厂检验不同口径
+const IQC_NA_ITEM_CODES = ['MFR_DENSITY', 'MFR', 'DENSITY', 'FOOD_CONTACT_HEAVY_METAL']
+function isNaItem(code) {
+  const c = String(code || '')
+  if (NA_ITEM_CODES.includes(c)) return true
+  return checkRow.value?.inspectionType === 'IQC' && IQC_NA_ITEM_CODES.includes(c)
+}
 const itemLocked = computed(() => checkRow.value?.status === 'CHECKED')
 // 数量录入区仅成品检 (OQC/OQC_RETURN) 展开: 工序检数量由 App 报工链路写入, PC 不回改
 const showQty = computed(() => checkItems.value.length

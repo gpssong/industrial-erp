@@ -38,9 +38,10 @@ public class QmsIqcItemService {
     @Transactional(rollbackFor = Exception.class)
     public void batchSave(Long iqcId, List<QmsIqcItem> items) {
         MesQualityInspection head = lockDraft(iqcId);
+        String type = head.getInspectionType();
         if (isTemplateManaged(head)) {
             List<QmsIqcItem> existing = iqcItemMapper.selectByIqcId(iqcId);
-            Map<String, QmsIqcItem> submitted = validateTemplateSubmission(existing, items);
+            Map<String, QmsIqcItem> submitted = validateTemplateSubmission(existing, items, type);
             for (QmsIqcItem row : existing) {
                 QmsIqcItem input = submitted.get(row.getItemCode());
                 int updated = iqcItemMapper.update(null, new LambdaUpdateWrapper<QmsIqcItem>()
@@ -56,7 +57,7 @@ public class QmsIqcItemService {
             }
             return;
         }
-        if (items != null) for (QmsIqcItem item : items) validateItem(item);
+        if (items != null) for (QmsIqcItem item : items) validateItem(item, type);
         iqcItemMapper.deleteByIqcId(iqcId);
         if (items == null || items.isEmpty()) return;
         int line = 1;
@@ -89,12 +90,13 @@ public class QmsIqcItemService {
                 || Constants.INSPECTION_OQC_RETURN.equals(head.getInspectionType());
     }
 
-    static Map<String, QmsIqcItem> validateTemplateSubmission(List<QmsIqcItem> existing, List<QmsIqcItem> items) {
+    static Map<String, QmsIqcItem> validateTemplateSubmission(List<QmsIqcItem> existing, List<QmsIqcItem> items,
+                                                          String inspectionType) {
         if (existing == null || existing.isEmpty()) throw BizException.of("检验单缺少服务器模板项，不能手工替代");
         if (items == null || items.size() != existing.size()) throw BizException.of("必须提交完整检验项，不允许删除模板项");
         Map<String, QmsIqcItem> submitted = new HashMap<>();
         for (QmsIqcItem item : items) {
-            validateItem(item);
+            validateItem(item, inspectionType);
             if (StrUtil.isBlank(item.getItemCode()) || submitted.put(item.getItemCode(), item) != null) {
                 throw BizException.of("检验项编码为空或重复");
             }
@@ -124,7 +126,7 @@ public class QmsIqcItemService {
         return input != null && !Objects.equals(input, stored);
     }
 
-    static void validateItem(QmsIqcItem item) {
+    static void validateItem(QmsIqcItem item, String inspectionType) {
         if (item == null) throw BizException.of("检验项不能为空");
         requireLength(item.getItemCode(), 64, "检验项编码");
         requireLength(item.getItemName(), 64, "检验项名称");
@@ -138,7 +140,11 @@ public class QmsIqcItemService {
                 && item.getPassFlag() != 1 && item.getPassFlag() != 2) {
             throw BizException.of("检验项判定仅支持 -1待检、0不合格、1合格、2不适用");
         }
-        if (Integer.valueOf(2).equals(item.getPassFlag()) && !QmsItemCodes.isNaAllowed(item.getItemCode())) {
+        if (Integer.valueOf(2).equals(item.getPassFlag()) && !QmsItemCodes.isNaAllowed(item.getItemCode(), inspectionType)) {
+            // v1.1.184: 进货检验的「不适用」= 公司入库不检验; 工序/出厂检验的「不适用」只开给达因/印刷 4 项
+            if (Constants.INSPECTION_IQC.equals(inspectionType)) {
+                throw BizException.of("检验项 " + item.getItemCode() + " 不属于「公司入库不检验」项目，不能判不适用");
+            }
             throw BizException.of("检验项 " + item.getItemCode() + " 不属于达因/印刷质量项，不能判不适用");
         }
     }

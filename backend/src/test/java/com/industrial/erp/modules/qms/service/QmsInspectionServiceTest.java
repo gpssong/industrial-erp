@@ -151,7 +151,7 @@ class QmsInspectionServiceTest {
         doAnswer(inv -> {
             Long id = inv.getArgument(0);
             List<QmsIqcItem> submitted = inv.getArgument(1);
-            Map<String, QmsIqcItem> byCode = QmsIqcItemService.validateTemplateSubmission(rows.get(id), submitted);
+            Map<String, QmsIqcItem> byCode = QmsIqcItemService.validateTemplateSubmission(rows.get(id), submitted, "FAI");
             rows.get(id).forEach(row -> {
                 QmsIqcItem input = byCode.get(row.getItemCode());
                 row.setResultValue(input.getResultValue());
@@ -1260,5 +1260,37 @@ class QmsInspectionServiceTest {
         QmsIqcItem copy = new QmsIqcItem();
         BeanUtils.copyProperties(source, copy);
         return copy;
+    }
+
+    /**
+     * v1.1.184 — 进货检验默认判定必须以模板第 6 列 (N/A / PASS) 为唯一真源:
+     * 此前代码里另有一套 NA 集合, 与模板列不一致 (食品接触重金属: 模板写 PASS、代码写 N/A),
+     * 且保存闸又不认 N/A, 导致 App「保存检验记录」必然失败。
+     */
+    @Test
+    void iqcDefaultItemsFollowTemplateDefaultColumn() {
+        MesQualityInspection ins = new MesQualityInspection();
+        ins.setId(9101L);
+        ins.setProductId(20L);
+        service.loadDefaultIqcItems(ins);
+        ArgumentCaptor<QmsIqcItem> cap = ArgumentCaptor.forClass(QmsIqcItem.class);
+        verify(items, atLeastOnce()).insert(cap.capture());
+        Map<String, Integer> flags = cap.getAllValues().stream()
+                .collect(Collectors.toMap(QmsIqcItem::getItemCode, QmsIqcItem::getPassFlag, (a, b) -> a));
+        assertThat(flags.get("MFR_DENSITY")).isEqualTo(2);
+        assertThat(flags.get("MFR")).isEqualTo(2);
+        assertThat(flags.get("DENSITY")).isEqualTo(2);
+        assertThat(flags.get("FOOD_CONTACT_HEAVY_METAL")).isEqualTo(2);
+        assertThat(flags.get("SENSORY")).isEqualTo(1);
+        assertThat(flags.get("SUPPLIER_REPORT")).isEqualTo(1);
+        // 单一真源: 模板第 6 列写什么, 默认判定就是什么 (今天 FOOD_CONTACT_HEAVY_METAL 模板写 PASS、代码写 N/A)
+        for (String[] row : QmsInspectionTemplateItems.DEFAULT_IQC_ITEMS_COMMON) {
+            assertThat(flags.get(row[0])).as("模板列与默认判定不一致: %s", row[0])
+                    .isEqualTo("N/A".equals(row[5]) ? 2 : 1);
+        }
+        for (String[] row : QmsInspectionTemplateItems.DEFAULT_IQC_ITEMS_FOOD) {
+            assertThat(flags.get(row[0])).as("模板列与默认判定不一致: %s", row[0])
+                    .isEqualTo("N/A".equals(row[5]) ? 2 : 1);
+        }
     }
 }
