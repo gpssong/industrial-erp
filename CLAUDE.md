@@ -177,6 +177,8 @@ erp-app-h5      Up (healthy)  18090:80   (H5 dist bind-mount: /volume3/docker/er
 
 外部域名: `http://home.93gushi.com:8088` (PC) / `http://home.93gushi.com:18090` (App H5).
 
+**⚠️ 手工重建 `erp-backend` 必带 `--hostname backend --network-alias backend`** (v1.1.191 同日事故): pc-web 的 nginx 用 `resolver 127.0.0.11` + `proxy_pass http://$erp_backend:8080` 在**请求时**解析服务名 `backend`, 这个名字原本由 compose 服务名提供; `docker run --name erp-backend` **不会**产生该别名 ⇒ nginx 报 `backend could not be resolved (3: Host not found)` ⇒ PC/App 全站 `/api` 502, 而两个容器仍显示 healthy。重建后自检 `docker exec erp-pc-web getent hosts backend` 必须回 `<ip> backend backend`。同一条脚本还要带 `ERP_VERSION`、镜像别用 `:latest`。见 [docs/17](docs/17_群晖NAS部署指南.md) / [docs/CHANGELOG.md](docs/CHANGELOG.md) 顶部 v1.1.191-hotfix。
+
 ## 双站分工
 
 - **home 主站 (192.168.0.150, Synology DS918+)** — 生产数据, baked-in jar 镜像

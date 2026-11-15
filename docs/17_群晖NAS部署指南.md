@@ -247,8 +247,14 @@ cd /volume1/docker/erp-system
 sudo docker build --no-cache -t erp-system-backend:latest ./backend
 
 # 重启容器 (手动 docker run, 不用 compose)
+# ⚠️ --hostname backend / --network-alias backend 不是可选项!
+#    pc-web 的 nginx 是 resolver 127.0.0.11 + proxy_pass http://$erp_backend:8080,
+#    靠 Docker DNS 在**请求时**解析服务名 backend (这个名字原本由 compose 服务名提供)。
+#    手工 docker run 不带别名 ⇒ nginx 报 "backend could not be resolved (3: Host not found)"
+#    ⇒ 全站 /api 502, 而后端与 pc-web 两个容器都还是 healthy (2026-11-15 事故, 挂了约 3 小时)。
 sudo docker rm -f erp-backend
 sudo docker run -d --name erp-backend --restart unless-stopped \
+  --hostname backend --network-alias backend \
   --network erp-system_erp-net -p 8080:8080 \
   -e SPRING_PROFILES_ACTIVE=prod -e TZ=Asia/Shanghai \
   -e MYSQL_ROOT_PASSWORD=<你的密码> \
@@ -258,17 +264,24 @@ sudo docker run -d --name erp-backend --restart unless-stopped \
   -e SPRING_DATA_REDIS_HOST=erp-redis -e SPRING_DATA_REDIS_PORT=6379 \
   -e JAVA_OPTS="-Xms256m -Xmx768m -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -Dfile.encoding=UTF-8 -Duser.timezone=GMT+8" \
   -e ERP_UPLOAD_PATH=/opt/industrial-erp/upload -e ERP_BACKUP_PATH=/opt/industrial-erp/backup \
+  -e ERP_VERSION=<与镜像 tag 一致的版本号> \
   -v /volume1/docker/erp-system/data/upload:/opt/industrial-erp/upload \
   -v /volume1/docker/erp-system/data/backup:/opt/industrial-erp/backup \
-  erp-system-backend:latest
+  erp-system-backend:<版本号>
 
 # 验证 jar 是新的
 sudo docker exec erp-backend sh -c "stat /opt/app/app.jar"
 # 期望: size=新 size, Modify=刚刚替换时间
+
+# 验证别名真的挂上了 (必须回一行 "<ip> backend backend"; 回 NOT_RESOLVED 就是漏了)
+sudo docker exec erp-pc-web getent hosts backend
+# 端到端: 走 nginx 的这一跳必须 200, 不是 502
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8088/api/auth/captcha
 ```
 
 **注意**:
 - `docker compose up` 在 NAS 上会因 yaml line 84 `${VAR:?msg}` 报 "mapping values are not allowed", 必须用 `docker run` 手动起。
+- 镜像 tag 别用 `:latest`、`ERP_VERSION` 别省: 运行时版本号读**容器 env**(`SystemVersionInitializer` 用它回写 `sys_config.SYSTEM_VERSION_INFO`), 漏了会让界面版本号停在旧值; 而 `:latest` 一旦被下一次 build 覆盖, 回滚就失去参照。`.150` 现网用的是 `/volume3/docker/erp-system/run_home_backend.sh`, 已按此口径修正。
 - `SA_TOKEN_JWT_SECRET_KEY` 必须从 `.env` 读, 后端启动时强制校验, 无默认值。
 - Sa-Token 用 `Authorization: <token>` header, **不是** `satoken: <token>`。
 

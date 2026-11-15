@@ -3,6 +3,41 @@
 
 ## changelog (倒序)
 
+### v1.1.191-hotfix (2026-11-15 上午 — 线上事故：`.150` 手工重建 `erp-backend` 丢了 `backend` DNS 别名，PC / App 全站 `/api` 502 约 3 小时；零代码改动、版本仍 1.1.191)
+
+> **触发**: 用户报「网页端和APP端都故障了」—— PC 登录页弹四个 `Request failed with status code 502`，App 工作台（铜板 / WAREHOUSE_MGR）弹「服务暂不可用，请稍后重试」。
+
+**取证（只读，先定位再动手）**:
+
+| 探针 | 结果 | 含义 |
+|---|---|---|
+| `erp-backend` / `erp-pc-web` `docker ps` | 两个都 **healthy** | 容器本身没死，别被 healthcheck 骗 |
+| `curl http://127.0.0.1:8080/api/auth/captcha`（宿主直打后端） | **200** | 后端自己没问题 |
+| `curl http://127.0.0.1:8088/`（PC 静态） | **200** | pc-web 也没问题 |
+| `curl http://127.0.0.1:8088/api/auth/captcha`（走 nginx） | **502** | 断在 pc-web → backend 这一跳 |
+| pc-web nginx error.log | `backend could not be resolved (3: Host not found)` | **Docker 内置 DNS 解析不到 `backend` 这个名字** |
+| pc-web 容器内 `getent hosts backend` | `NOT_RESOLVED` | 同上 |
+| `docker inspect erp-backend` 的 `NetworkSettings.Networks.*.Aliases` | `[5b5e459bea2c]`（只有容器 ID） | 缺 `backend` 别名 |
+
+**根因**: `pc-web` 的 nginx 用 `resolver 127.0.0.11 valid=10s` + `set $erp_backend backend; proxy_pass http://$erp_backend:8080$request_uri;`，即**请求时**才让 Docker DNS 解析服务名 `backend`。这个名字历史上由 compose 提供（`docker-compose.yml` 的服务名 `backend` 自动成为网络别名）。上午 10:50 有人用 `/volume3/docker/erp-system/run_home_backend.sh` **手工 `docker run`** 重建了后端容器，而该脚本**没带 `--hostname backend` / `--network-alias backend`** —— `docker run` 不会把 `--name erp-backend` 变成别名，容器 hostname 是随机 hex ⇒ nginx 每次 `/api` 请求都解析失败 ⇒ 全站 502。App 的「服务暂不可用」是同一个 502 经 `/api` 透出来的（`DEFAULT_API = http://home.93gushi.com:8088/api`），**不是 App 的问题**。
+
+**修复**: 改 `run_home_backend.sh` 并重跑，容器重建（镜像仍是 `erp-system-backend:1.1.191`，jar 未变）:
+
+```bash
+docker run -d --name erp-backend \
+  --hostname backend --network-alias backend \
+  --network erp-system_erp-net --restart unless-stopped \
+  -p 8080:8080 ... erp-system-backend:1.1.191
+```
+
+顺手修掉同一脚本里的两个隐雷: ① 镜像从 `:latest` 钉到 `:1.1.191`；② 补 `ERP_VERSION=1.1.191`（缺它时界面「系统参数」版本号会停在 `SystemVersionInitializer` 的默认值）。旧脚本留档为 `run_home_backend.sh.bak_v1191_nohostname`。
+
+**验证**: pc-web 内 `getent hosts backend` → `172.18.0.3 backend backend`；`127.0.0.1:8080` / `:8088` captcha 均 200；公网 `n150.93gushi.com:8088` 与 `home.93gushi.com:8088` index + captcha 200；阿里云 `47.96.188.129:8088` 200；端到端登录（验证码从 `erp-redis` 的 `erp:login:limit:captcha:<key>` 取）：登录 200、PC `/auth/me` 204,043 B、App `/auth/me`（`X-Client-Type: APP`）21,340 B（v1.1.191 裁剪+gzip 未受影响）；浏览器实测 gpssong 登录 → `#/dashboard` 有实时数据、无 502 toast。`.32` canary `:18080` 静态与 `/api` 均 200，未受影响。
+
+**教训**: ① 容器 healthy ≠ 可用 —— healthcheck 打的是容器自己的端口，跨容器 DNS 断了它一样绿；② `.150` 上「手工 `docker run`」是常态，凡是 pc-web 反代的目标容器，重建时必须显式带 `--hostname` / `--network-alias`（`docs/17_群晖NAS部署指南.md` 的示例已同步修正）；③ 502 一律先看**反代容器**的 nginx error.log，别急着重启后端。
+
+详见上一节 v1.1.191 的功能变更。
+
 ### v1.1.191 (2026-11-15 — App 冷启动瘦身：`/auth/me` 不再把整份 PC 菜单塞给 App + 开服务端 gzip；仅后端 jar)
 
 > **触发**: 用户原话「APP端首次打开加载时间还是很长。」—— v1.1.190 只把工作台内部的 11 次串行请求压成 2 轮并行，**冷启动第一跳的响应体积**没动。
