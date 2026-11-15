@@ -12,7 +12,6 @@ import com.industrial.erp.modules.base.entity.BaseCustomer;
 import com.industrial.erp.modules.base.mapper.BaseCustomerMapper;
 import com.industrial.erp.modules.em.entity.BaseEquipment;
 import com.industrial.erp.modules.em.service.EquipmentService;
-import com.industrial.erp.modules.mes.entity.MesBatch;
 import com.industrial.erp.modules.mes.service.MesReportService;
 import com.industrial.erp.modules.purchase.entity.PurReceipt;
 import com.industrial.erp.modules.purchase.service.PurReceiptService;
@@ -23,10 +22,12 @@ import com.industrial.erp.modules.system.mapper.SysUserMapper;
 import com.industrial.erp.modules.system.service.SysConfigService;
 import com.industrial.erp.modules.workflow.service.WfDashboardService;
 import com.industrial.erp.modules.workflow.service.WfMaintainRecordService;
+import com.industrial.erp.modules.xk.dto.XkBatchView;
 import com.industrial.erp.modules.xk.entity.XkAuditLog;
 import com.industrial.erp.modules.xk.entity.XkEnvCheck;
 import com.industrial.erp.modules.xk.entity.XkSafetyCheck;
 import com.industrial.erp.modules.xk.service.XkAuditService;
+import com.industrial.erp.modules.xk.service.XkBatchViewService;
 import com.industrial.erp.modules.xk.service.XkEnvCheckService;
 import com.industrial.erp.modules.xk.service.XkSafetyCheckService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -74,6 +75,8 @@ public class XkController {
     /** v1.1.147 XK 单据打印: 入库单要有制单人姓名 (仓库员签署), 追溯要有客户名 (流向出口). */
     private final SysUserMapper userMapper;
     private final BaseCustomerMapper customerMapper;
+    /** v1.1.189 批次台账补品名/供应商名 (mes_batch 只有 id). */
+    private final XkBatchViewService batchViewService;
 
     public XkController(ReportMapper reportMapper,
                         WfDashboardService wfDashboardService,
@@ -88,7 +91,8 @@ public class XkController {
                         XkEnvCheckService xkEnvCheckService,
                         SysConfigService sysConfigService,
                         SysUserMapper userMapper,
-                        BaseCustomerMapper customerMapper) {
+                        BaseCustomerMapper customerMapper,
+                        XkBatchViewService batchViewService) {
         this.reportMapper = reportMapper;
         this.wfDashboardService = wfDashboardService;
         this.wfMaintainRecordService = wfMaintainRecordService;
@@ -103,6 +107,7 @@ public class XkController {
         this.sysConfigService = sysConfigService;
         this.userMapper = userMapper;
         this.customerMapper = customerMapper;
+        this.batchViewService = batchViewService;
     }
 
     // ==================================================================
@@ -195,9 +200,10 @@ public class XkController {
     // v1.1.130: 拆出独立 perm production:report:trace (与扫码报工分开授权); OR 兼容旧授权
     @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/trace/batches")
-    public R<List<MesBatch>> traceBatches(@RequestParam(required = false) String batchType,
-                                          @RequestParam(required = false) Long productId) {
-        return R.ok(mesReportService.listBatches(batchType, productId));
+    public R<List<XkBatchView>> traceBatches(@RequestParam(required = false) String batchType,
+                                             @RequestParam(required = false) Long productId) {
+        // v1.1.189: 带品名/供应商名 (mes_batch 只有 id, 现场看不懂)
+        return R.ok(batchViewService.listViews(batchType, productId));
     }
 
     @Operation(summary = "XK 批次溯源 — 双向链路追溯")
@@ -212,13 +218,36 @@ public class XkController {
     @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/trace/full/{batchNo}")
     public R<MesReportService.FullTrace> traceFull(@PathVariable String batchNo) {
+        return R.ok(buildFullTrace(batchNo));
+    }
+
+    /**
+     * v1.1.189 — 批号走查询参数版全链追溯.
+     *
+     * <p>批号里可能有 "/" (现场供应商批号如 {@code 251/WQ}), 放进 URL 路径会被 Tomcat
+     * 以「非法编码斜杠」拒掉 (400 + HTML 错误页), 前端拿到非 JSON 就只能报「服务暂不可用」。
+     * 查询参数不受该限制 ⇒ 客户端一律用这个端点, 路径版保留兼容不带斜杠的批号。
+     */
+    @Operation(summary = "XK 批次溯源 — 服务端全链追溯 (批号走查询参数, 支持含斜杠批号)")
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
+    @GetMapping("/trace/full")
+    public R<MesReportService.FullTrace> traceFullByQuery(@RequestParam("batchNo") String batchNo) {
+        return R.ok(buildFullTrace(batchNo));
+    }
+
+    private MesReportService.FullTrace buildFullTrace(String batchNo) {
         MesReportService.FullTrace t = mesReportService.traceFull(batchNo);
         // v1.1.147: FullTrace.customerName 一直是空壳 —— 这里按 customer 回填, 现场才能看到「流向哪个客户」
         if (t != null && t.customer != null && StrUtil.isBlank(t.customerName)) {
             BaseCustomer c = customerMapper.selectById(t.customer);
             if (c != null) t.customerName = c.getCustomerName();
         }
-        return R.ok(t);
+        // v1.1.189: 品名/供应商名 (mes_batch 只有 id)
+        if (t != null && t.batch != null) {
+            t.productName = batchViewService.productNameOf(t.batch);
+            t.supplierName = batchViewService.supplierNameOf(t.batch);
+        }
+        return t;
     }
 
     // ==================================================================

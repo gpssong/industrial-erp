@@ -592,6 +592,9 @@ public class MesReportService {
         /** 该批次最终流向的客户 id (经下游 link 找到 customer_id 非空则填, 否则 null). */
         public Long customer;
         public String customerName;
+        /** v1.1.189: 批次对应的品名 / 供应商名 (mes_batch 只存 id, 由上层回填). */
+        public String productName;
+        public String supplierName;
     }
 
     /**

@@ -61,9 +61,10 @@ export const mesApi = {
   orderProgress: (orderId) => request.get(`/mes/order/${orderId}/progress`),
   /** 批次追溯 (单层, 前端逐层调) */
   batchTrace: (batchNo, depth = 0) =>
-    request.get(`/mes/batch/trace/${encodeURIComponent(batchNo)}`, { params: { depth } }),
+    // v1.1.189: 批号走查询参数 (批号含 "/" 时 %2F 会被 Tomcat 拒掉 → 400 + HTML 错误页)
+    request.get('/mes/batch/trace', { params: { batchNo, depth } }),
   /** 批次全链追溯 (服务端双向 BFS 展开 料→半成品→成品→客户, 一次返回整链) — v1.1.99 C2 */
-  batchTraceFull: (batchNo) => request.get(`/mes/batch/trace-full/${encodeURIComponent(batchNo)}`),
+  batchTraceFull: (batchNo) => request.get('/mes/batch/trace-full', { params: { batchNo } }),
   /** 批次列表 (按类型/产品筛) */
   batchList: (params) => request.get('/mes/batch/page', { params }),
   /** 工序定义 CRUD (按产品配工序链) */

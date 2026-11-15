@@ -125,6 +125,9 @@ export const traceBatches = async (direction) => {
     const list = (data || []).map(b => ({
       batchNo: b.batchNo,
       batchType: b.batchType,
+      // v1.1.189: 后端补了品名/供应商名 (现场只看得到批号不知道是什么料)
+      productName: b.productName || '',
+      supplierName: b.supplierName || '',
       // mes_batch 只有来源单号, 没有供应商/商品名 —— 如实展示来源单据
       source: b.receiptBillNo ? '入库单 ' + b.receiptBillNo
         : b.sourcePrdOrderNo ? '工单 ' + b.sourcePrdOrderNo
@@ -141,10 +144,14 @@ export const traceBatches = async (direction) => {
 /**
  * v1.1.147: 全链追溯 (料→半成品→成品→客户, 服务端一次展开).
  * 旧版用 /xk/trace/{batchNo} 只取上下游各 2 条, 且把用户 id 当操作人显示 —— 已废弃.
+ *
+ * v1.1.189: 批号走**查询参数**而不是 URL 路径 —— 现场供应商批号可能带 "/"
+ * (如 251/WQ), 编码成 %2F 会被 Tomcat 以「非法编码斜杠」拒掉 (400 + HTML 错误页),
+ * 前端拿到非 JSON 就只能弹「服务暂不可用」。
  */
 export const traceFull = async (batchNo) => {
   try {
-    const t = await request({ url: '/xk/trace/full/' + encodeURIComponent(batchNo), method: 'GET' })
+    const t = await request({ url: '/xk/trace/full?batchNo=' + encodeURIComponent(batchNo), method: 'GET' })
     if (!t) return fail('该批次暂无追溯记录')
     const mapLink = (l) => ({
       parentBatchNo: l.parentBatchNo || '',
@@ -156,6 +163,8 @@ export const traceFull = async (batchNo) => {
     })
     return ok({
       batchNo: t.batchNo || batchNo,
+      productName: t.productName || '',
+      supplierName: t.supplierName || '',
       batch: t.batch ? {
         batchNo: t.batch.batchNo,
         batchType: t.batch.batchType,

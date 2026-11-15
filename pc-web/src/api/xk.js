@@ -107,8 +107,9 @@ export const xkMock = {
       return empty(200, r.data.map(b => ({
         batchNo: b.batchNo,
         batchType: b.batchType,
+        // v1.1.189: 后端补了品名/供应商名 (mes_batch 只有 id)
         productName: b.productName || (b.productId ? '#' + b.productId : '批次'),
-        supplier: b.receiptBillNo ? '入库单 ' + b.receiptBillNo : (b.sourcePrdOrderNo ? '工单 ' + b.sourcePrdOrderNo : '-'),
+        supplier: b.supplierName || (b.receiptBillNo ? '入库单 ' + b.receiptBillNo : (b.sourcePrdOrderNo ? '工单 ' + b.sourcePrdOrderNo : '-')),
         qty: b.qty ?? 0, unit: b.unitName || '',
         receiptDate: b.productionDate || b.createTime || '-',
         qcStatus: b.status || 'ACTIVE',
@@ -121,7 +122,8 @@ export const xkMock = {
 
   async traceTimeline(batchNo) {
     // v1.1.99 C2: 全链追溯, 服务端一次展开 料→半成品→成品→客户 (带客户出口)
-    const r = await request.get('/xk/trace/full/' + batchNo)
+    // v1.1.189: 批号走查询参数 —— 批号含 "/" 时编码斜杠会被 Tomcat 拒掉 (400 + HTML 错误页)
+    const r = await request.get('/xk/trace/full', { params: { batchNo } })
     if (r.code === 200 && r.data) {
       const t = r.data
       const stations = []

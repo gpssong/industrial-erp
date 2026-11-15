@@ -357,7 +357,8 @@ export const api = {
   scheduleSave:    (data) => request({ url: '/mes/schedule', method: 'POST', data, contentType: 'json' }),
   scheduleCancel:  (id) => request({ url: '/mes/schedule/' + id + '/cancel', method: 'POST' }),
   oee:             (equipmentId) => request({ url: '/mes/oee/' + equipmentId }),
-  batchTraceFull:  (batchNo) => request({ url: '/mes/batch/trace-full/' + batchNo }),
+  // v1.1.189: 批号走查询参数 (批号含 "/" 时路径版会被 Tomcat 拒掉 → 400 + HTML 错误页)
+  batchTraceFull:  (batchNo) => request({ url: '/mes/batch/trace-full?batchNo=' + encodeURIComponent(batchNo) }),
   // 设备列表 (App 端选设备调)
   equipmentList:   () => request({ url: '/base/equipment/list' }),
   // 报表

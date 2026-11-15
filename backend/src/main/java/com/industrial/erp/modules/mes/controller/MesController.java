@@ -89,6 +89,27 @@ public class MesController {
         return R.ok(mes.traceFull(batchNo));
     }
 
+    /**
+     * v1.1.189 — 批号走查询参数版 (批号可能含 "/", 如 251/WQ).
+     *
+     * <p>路径里的编码斜杠 %2F 会被 Tomcat 直接拒掉 (400 + HTML 错误页),
+     * 前端拿到非 JSON 只能报「服务暂不可用」。查询参数没这个限制。
+     */
+    @Operation(summary = "批次追溯 (批号走查询参数, 支持含斜杠批号)")
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
+    @GetMapping("/batch/trace")
+    public R<MesReportService.TraceResult> traceByQuery(@RequestParam("batchNo") String batchNo,
+                                                        @RequestParam(name = "depth", defaultValue = "0") int depth) {
+        return R.ok(mes.batchTrace(batchNo, depth));
+    }
+
+    @Operation(summary = "批次全链追溯 (批号走查询参数, 支持含斜杠批号)")
+    @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
+    @GetMapping("/batch/trace-full")
+    public R<MesReportService.FullTrace> traceFullByQuery(@RequestParam("batchNo") String batchNo) {
+        return R.ok(mes.traceFull(batchNo));
+    }
+
     @Operation(summary = "批次列表 (按类型/产品筛)")
     @SaCheckPermission(value = {"production:report:trace", "production:report:list"}, mode = SaMode.OR, orRole = "admin")
     @GetMapping("/batch/page")

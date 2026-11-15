@@ -13,6 +13,7 @@ import com.industrial.erp.modules.system.service.SysConfigService;
 import com.industrial.erp.modules.workflow.service.WfDashboardService;
 import com.industrial.erp.modules.workflow.service.WfMaintainRecordService;
 import com.industrial.erp.modules.xk.service.XkAuditService;
+import com.industrial.erp.modules.xk.service.XkBatchViewService;
 import com.industrial.erp.modules.xk.service.XkEnvCheckService;
 import com.industrial.erp.modules.xk.service.XkSafetyCheckService;
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,8 @@ class XkPrintPreviewBrandTest {
                 mock(XkEnvCheckService.class),
                 cfg,
                 mock(SysUserMapper.class),
-                mock(BaseCustomerMapper.class));
+                mock(BaseCustomerMapper.class),
+                mock(XkBatchViewService.class));
     }
 
     @Test

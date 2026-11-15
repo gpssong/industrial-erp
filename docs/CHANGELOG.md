@@ -3,6 +3,39 @@
 
 ## changelog (倒序)
 
+### v1.1.189 (2026-11-15 — XK 批次溯源两处修复：批号含斜杠点开不再报「服务暂不可用」+ 批次台账显示品名；后端 jar + App H5/APK + PC dist)
+
+> **触发**: 用户原话「原料显示品名加批号。点击ldpe显示服务暂不可用」（App 批次溯源页）。
+
+**根因①（点不开）**: 批号 `251/WQ` 里带斜杠。App `api/xk.js` 把批号 `encodeURIComponent` 成 `251%2FWQ` 放进 URL **路径**，而 **Tomcat 默认拒绝编码斜杠**（`ALLOW_ENCODED_SLASH=false`）⇒ 直接回 **HTTP 400 + Tomcat 的 HTML 错误页**；App 请求层把「非 JSON 响应」一律说成「服务暂不可用, 请稍后重试」并弹 toast（[api/index.js:87](../app/src/api/index.js)）。PC 侧 `/xk/trace/full/' + batchNo` 连转义都没有，带斜杠批号同样断。现场复现（`.150` 公网口，未登录即 400）：`/api/xk/trace/full/251%2FWQ` → `400 text/html`，而 `/api/xk/trace/full/SK216A08C1` → `401 application/json`。
+
+**根因②（看不到品名）**: `/xk/trace/batches` 只回裸 `mes_batch` —— 有 `product_id` 没有 `product_name`。App 列表根本没这一项，PC「产品」列显示的是 `#2077003055241953281`。另外 FG 成品批的 `mes_batch.product_id` 本来就是空的。
+
+**修法**:
+
+- 后端 **批号改走查询参数**（查询串不受编码斜杠限制）：新增 `GET /xk/trace/full?batchNo=`（[XkController](../backend/src/main/java/com/industrial/erp/modules/xk/controller/XkController.java)）与 `GET /mes/batch/trace?batchNo=`、`GET /mes/batch/trace-full?batchNo=`（[MesController](../backend/src/main/java/com/industrial/erp/modules/mes/controller/MesController.java)）；路径版 `/xk/trace/full/{batchNo}` 保留兼容不带斜杠的批号，权限口径不变（`production:report:trace` OR `production:report:list`）。
+- 后端 **批次台账带名字**：新增 [XkBatchView](../backend/src/main/java/com/industrial/erp/modules/xk/dto/XkBatchView.java) + [XkBatchViewService](../backend/src/main/java/com/industrial/erp/modules/xk/service/XkBatchViewService.java) —— 批量查名不做 N+1：RAW 走 `base_product.product_name`，FG 的 `product_id` 为空 ⇒ 按来源工单 `prd_order.bill_no` 回查 `product_name`；另带 `supplierName`（`base_supplier`）与 `unitName`（`base_unit`，FG 回查工单）。详情 `FullTrace` 补 `productName` / `supplierName`。
+- App [api/xk.js](../app/src/api/xk.js) / [api/index.js](../app/src/api/index.js)、PC [api/xk.js](../pc-web/src/api/xk.js) / [api/production.js](../pc-web/src/api/production.js)：全部改查询参数。
+- App [pages/xk/trace.vue](../app/src/pages/xk/trace.vue)：列表行显示「品名 + 批号 + 供应商」，详情加「品名 / 供应商」两行，搜索框也覆盖品名（placeholder 改「搜索批号 / 品名 / 来源单据」）；PC「供应商」列改显示真供应商名（原来错显示「入库单 …」）。
+
+**测试**: 新 [XkBatchViewServiceTest](../backend/src/test/java/com/industrial/erp/modules/xk/service/XkBatchViewServiceTest.java) 4 例（RAW 解析品名+供应商 / FG 无 product_id 回查工单 / 查不到给空串不报错 / 单位名取自 base_unit）+ 新 [XkTraceBatchEndpointContractTest](../backend/src/test/java/com/industrial/erp/modules/xk/controller/XkTraceBatchEndpointContractTest.java) 2 例（查询参数端点映射 + 权限 OR 集 + 路径版保留）。定向 8/8，后端全量 **763 例 0 失败**。
+
+**验证**（`.150` 主站公网入口，真实非超管 `gpssong1`（`is_admin=0`，角色 WAREHOUSE_MGR/FINANCE）临时口令登录，验后已把密码哈希**逐字节还原**为 `$2a$10$BSJWODNtNZHGl4DjQXgv2.LL0G6vxBy1GdOF5ALPSsdR4Lx0oOW7y` 并删临时文件）:
+
+- `GET /api/xk/trace/batches?batchType=RAW` → **200**，`251/WQ` 带 `productName=ldpe`、`SK216A08C1` 带 `productName=lldpe`，两者 `supplierName=浙江宁杨石化有限公司`、`receiptBillNo=RKP202611140005`、`qty=1500`；
+- `GET /api/xk/trace/full?batchNo=251%2FWQ` → **200 JSON**（修复前同批号是 400 + HTML），顶层 `productName=ldpe`、`supplierName=浙江宁杨石化有限公司`；
+- `GET /api/xk/trace/full?batchNo=SK216A08C1` → 200；`GET /mes/batch/trace-full?batchNo=251%2FWQ` → 200；`GET /mes/batch/trace?batchNo=251%2FWQ` → 200；
+- 路径版 `/api/xk/trace/full/251%2FWQ` 仍是 400（Tomcat 层，客户端已全改查询参数；旧 APK 在车间手机上装 1.1.189 后即走查询参数）。
+
+**版本/产物**: 七处对齐 1.1.189（`scripts/check-version.sh` 7×OK）；jar md5 `0a74f9c49f0b6e33347723d544e1498e`（103,173,354 B）；PC dist `index.html` md5 `48bf36ce1db821749ada39357cfea198`（新块 `assets/Trace-DEmco2p_.js`）；App H5 `index.html` md5 `733521f501f086487016b96faff635f1`（新块 `assets/pages-xk-trace.C5BQ1v5C.js`）；APK `erp-app-20261115.apk` md5 `1275035878393cc270818b65bffc2e4d`（4,518,570 B / versionCode 1189，走 `scripts/build-app.sh`）。
+
+**部署**:
+
+- `.150` 主站（**经公网域名 `n150.93gushi.com` SSH，局域网当时不通**）：镜像 `erp-system-backend:1.1.189`（镜像本体 jar md5 与本地一致）、容器 `erp-backend` healthy、`ERP_VERSION=1.1.189`、`SYSTEM_VERSION_INFO` 回写 `1.1.189`；PC dist 整目录原地替换（保持 bind mount inode）+ `docker restart erp-pc-web`，对外 `curl :8088/index.html` md5 与源一致、新块 `assets/Trace-DEmco2p_.js` 200；旧 jar 改名 `industrial-erp-1.1.188.jar.bak_v1189_20261115` 留退路。
+- 阿里云（纯反代，`erp-backend` / `erp-pc-web` 容器按拓扑保持停用，只备料）：jar 换 `industrial-erp-1.1.189.jar`、`.env` `ERP_VERSION=1.1.189`（备份 `.env.bak_v1189`）、只 `docker compose build erp-backend` 产出 `erp-backend:1.1.189` 并核镜像本体 jar md5；App H5 整目录原地替换（备份 `backup/app-h5-before-v1189.tgz`）后 `docker restart erp-app-h5`，`:18090` index md5 一致、新块 `assets/pages-xk-trace.C5BQ1v5C.js` 200；PC dist 一并更新（容器仍停用）。
+- ⚠️ 飞牛 `.32` canary 本轮**从 Mac 与阿里云均不可达**（局域网不通、无公网入口），本轮**未部署**，恢复后补。
+- ⚠️ 车间手机要装 `erp-app-20261115.apk`（1.1.189）才有「品名 + 批号」显示与可点开的全链追溯；H5 替换只覆盖浏览器入口。
+
 ### v1.1.188 (2026-11-14 — XK 批次溯源「原料批」不再恒空：采购入库审核时登记 RAW 原料批 + sql/160 回填历史；后端 jar + App H5)
 
 > **触发**: 用户原话「原料入库以后在xk批次溯源的原料批中没有原料批次」（App / PC 的 XK 批次溯源页，原料批 tab 一条都没有）。

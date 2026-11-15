@@ -14,7 +14,7 @@
     </view>
 
     <view class="search-row">
-      <input v-model="search" placeholder="搜索批号 / 来源单据" class="search-input" />
+      <input v-model="search" placeholder="搜索批号 / 品名 / 来源单据" class="search-input" />
     </view>
 
     <view class="card">
@@ -40,6 +40,8 @@
         </view>
         <view class="batch-line">
           <text class="type-badge">{{ typeLabel(b.batchType) }}</text>
+          <text v-if="b.productName" class="product-name">{{ b.productName }}</text>
+          <text v-if="b.supplierName" class="supplier-name">{{ b.supplierName }}</text>
           <text v-if="b.source" class="source">{{ b.source }}</text>
         </view>
         <view class="batch-line muted">
@@ -66,6 +68,12 @@
         </view>
         <view class="kv" v-if="detail.batch">
           <text class="k">批次类型</text><text class="v">{{ typeLabel(detail.batch.batchType) }}</text>
+        </view>
+        <view class="kv" v-if="detail.productName">
+          <text class="k">品名</text><text class="v">{{ detail.productName }}</text>
+        </view>
+        <view class="kv" v-if="detail.supplierName">
+          <text class="k">供应商</text><text class="v">{{ detail.supplierName }}</text>
         </view>
         <view class="kv" v-if="detail.batch && detail.batch.receiptBillNo">
           <text class="k">来源入库单</text><text class="v">{{ detail.batch.receiptBillNo }}</text>
@@ -155,6 +163,7 @@ export default {
       const q = this.search.toLowerCase()
       return this.batches.filter(b =>
         (b.batchNo || '').toLowerCase().includes(q) ||
+        (b.productName || '').toLowerCase().includes(q) ||
         (b.source || '').toLowerCase().includes(q))
     },
     customerText() {
@@ -239,6 +248,8 @@ export default {
 .batch-line { font-size: 13px; color: #333; margin-top: 4px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .batch-line.muted { font-size: 11px; color: #888; }
 .type-badge { background: #eef4fa; color: #1e6091; font-size: 10px; padding: 1px 6px; border-radius: 3px; }
+.product-name { font-size: 13px; color: #333; font-weight: 600; }
+.supplier-name { font-size: 11px; color: #888; }
 .source { font-size: 11px; color: #666; }
 .gap { margin-left: 8px; }
 .hold-reason { font-size: 11px; color: #e67e22; margin-top: 4px; }
