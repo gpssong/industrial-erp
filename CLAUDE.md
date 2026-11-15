@@ -105,6 +105,7 @@
 - **待定方案（等用户答复才排期）**: [docs/31_标签打印方案.md](docs/31_标签打印方案.md) — 「ERP 打实体标签 / 能不能集成标签管家」。结论：标签管家 App 本体无 API 不可集成，厂商可编程的是启锐 **PSDK**（含 UniApp，TSPL/CPCL，蓝牙/WiFi/USB）与**爱印云打印**（HTTP/MQTT + API Key）；真正卡点是合格证 6 项主数据（生产者名称/地址/XK 编号/执行标准/贮存条件/检验员代号）库里无字段。
 - **部署速查**: [docs/17_群晖NAS部署指南.md](docs/17_群晖NAS部署指南.md) (home) + [docs/19_飞牛OS后端部署指南.md](docs/19_飞牛OS后端部署指南.md) (飞牛 canary)
 - **APK 出包与备份**: `scripts/build-app.sh` → 本地 `~/Library/CloudStorage/飞牛同步-Mac/erp/` + `~/Desktop/`，并直传飞牛 **`.32:/vol1/1000/mac使用/erp/erp-app-v<版本>-<日期>.apk`**（2026-11-15 用户指定；经 `.150` 跳板、两端 md5 校验，失败只告警不阻断；凭据取自 `~/.config/erp-ops/env` 的 `ERP_HOME_SSH_PASS`）
+- **App 冷启动 30s 陷阱（2026-11-15 定位）**: App 走 CapacitorHttp 原生层（Java），**先试 IPv6**；域名 AAAA 若是黑洞（旧 PD 残留）⇒ 首次建连要等 ≈30s 才回落 IPv4（浏览器有 Happy Eyeballs 所以 PC 不受影响、热身后也快）。`home.93gushi.com` 的 AAAA `240e:390:88f0:c5c1::3f3` 就是这种陈旧记录 ⇒ **在阿里云 DNS 删掉该 AAAA**（或更新为当前路由器 IPv6）。别改代码绕过：cookie 是 host 级 + `SameSite=Lax`，换域名/IP 字面量/关 CapacitorHttp 都会丢登录态。量冷启动用 `scripts/app-coldstart-probe.sh`（ADB+CDP，量「静态框架 / 数据区块」首现 ms）。
 - **必读 memory**: `~/.claude/projects/-Users-tongban/memory/MEMORY.md` — 50+ 条踩坑 + 设计原则 R1~R24
 
 ## 架构速览

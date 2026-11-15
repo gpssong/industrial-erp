@@ -32,7 +32,11 @@ PERM_RE = re.compile(r'@SaCheck(?:Login|Permission|Role)\b')
 METHOD_MAPPING_RE = re.compile(r'@(?:Get|Post|Put|Delete|Patch)Mapping\b')
 
 EXEMPT_KEYWORDS = re.compile(
-    r'AuthController|McpController|Upload|Backup|Dict|Dashboard|AppController|IntegrationController',
+    # 设备上报类 controller: 用设备密钥 (X-Device-Key) 鉴权, 不是用户登录态.
+    #   v1.1.119 ESP32 米克重上报 (/device/weight/report) —— SaTokenConfig 只对这条
+    #   精确路径豁免登录态, Controller 内自己比密钥且未配置时 fail-closed.
+    #   这类端点加 @SaCheckPermission 会把设备直接挡在门外 (设备没有登录态), 故豁免.
+    r'AuthController|McpController|Upload|Backup|Dict|Dashboard|AppController|IntegrationController|DeviceWeightReport',
     re.IGNORECASE
 )
 

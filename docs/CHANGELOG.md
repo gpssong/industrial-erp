@@ -3,6 +3,66 @@
 
 ## changelog (倒序)
 
+### 2026-11-15 下午 — App 冷启动 33 秒的根因 = `home.93gushi.com` 陈旧 AAAA 记录（IPv6 黑洞）；同批修 CI perm 闸门误报（零版本变更）
+
+**触发**: 用户报「APP端关闭后再打开还是加载时间过长」+ 一张 CI 邮件（`Check Controller perm coverage (strict)` 失败）。
+
+#### 一、App 冷启动：33 秒卡在哪（真机实测，非推测）
+
+车间 Redmi（M2007J1SC，装 1.1.190）上用 `scripts/app-coldstart-probe.sh`（本次新增）量：
+
+| 阶段 | 耗时 |
+|---|---|
+| 静态框架（全部功能网格） | **1.15 s** |
+| 数据区块（库存预警 / 现场待办） | **33.07 s**（三次冷启动稳定复现：33.06 / 33.01 / 33.16 s）|
+
+logcat 时间线（`adb logcat -v time`）：
+
+```
+14:44:35.9  Handling CapacitorHttp request: .../api/system/config/key/APP_MODULE_ENABLED
+14:44:36.0  Handling CapacitorHttp request: .../api/auth/captcha
+14:44:36.1  Handling CapacitorHttp request: .../api/auth/me
+14:44:36.1  Handling CapacitorHttp request: .../api/system/config/key/APP_DASHBOARD_CONFIG
+14:44:36.0  E/Capacitor/Console: Uncaught (in promise) #<Object>
+             ← 这里到 14:45:07 之间 31 秒没有任何请求
+14:45:07.5  Getting cookies at: .../api/auth/me  (四个启动请求才真正发出)
+14:45:07.8  6 个区块请求并发发出 (v1.1.190 的并行编排正常)
+```
+
+**逐层排除**：
+
+| 探针 | 结果 | 含义 |
+|---|---|---|
+| 手机 `curl http://home.93gushi.com:8088/api/auth/captcha` | 200 / 0.22 s | 手机网络通、服务器通 |
+| App 内 CDP fetch（同 URL，冷启动后第一次） | **31.66 s** | 慢在 App 的原生 HTTP 层 |
+| 同上，第二次请求 | **49 ms** | 同一进程内只要连接建立过就很快 → 代价在**首次建连** |
+| 冷启动后先打 **IP 直连** `123.96.235.183:8088` | **115 ms** | 不是服务端慢、不是 cookie 读慢 |
+| 紧接着打**域名** | **31.5 s** | 差异只在「域名 vs IP」⇒ **DNS 解析 / 选路** |
+| `dig home.93gushi.com AAAA` | `240e:390:88f0:c5c1::3f3` | 旧 PD（88f0）的 IPv6 |
+| 手机当前 IPv6 前缀 | `240e:390:88f2:…` | **PD 已变**（88f2），home 的 AAAA 是陈旧记录 |
+| `curl -6 home.93gushi.com`（Mac 与手机） | 12 s / 17.5 s 超时 | 该 IPv6 是**黑洞**（静默丢包） |
+| `curl -6 n150.93gushi.com` | 33 ms 立即失败 | n150 的 AAAA（88f2 当前 PD）是快速拒绝，不是黑洞 |
+| `curl -4` 两者 | 200 / 0.03 s | IPv4 一切正常 |
+
+**结论**：App 的请求走 CapacitorHttp 原生层（Java/OkHttp），**先试 IPv6**，遇到黑洞地址要等 TCP 超时 ≈30 s 才回落 IPv4；浏览器/Chromium 有 Happy Eyeballs（IPv4/IPv6 并行竞速），所以 PC 网页端、以及 App 内热身后的请求都很快 —— 这就是「只有 App 慢、只有冷启动慢」的原因。
+
+**修复（需域名侧操作，代码绕不过去）**：`93gushi.com` 的权威 DNS 在阿里云（`dns9/dns10.hichina.com`），请在**阿里云云解析**把 `home` 的 **AAAA 记录删掉**（或改成路由器当前 IPv6 `240e:390:88f2:ee91::3f3`）。TTL 600，约 10 分钟生效；**不用重装 APK**，所有车间手机立刻生效。
+
+**为什么不能靠改代码绕过**（三条都实测/核对过）：
+
+- 换 `n150.93gushi.com`：实测 AAAA 快速拒绝后停顿确实消失（DOM 2.6 s 稳定），但**会话 cookie 是 host 级 + `SameSite=Lax`**，n150 不带 home 的 cookie ⇒ `/auth/me` 401、数据加载不出来；且 `home` 的 A 记录是阿里云 DNS 故障切换脚本（`scripts/erp-dns-switch.sh`）管的对象，换域名会让 `.150` 挂掉时 App 切不到阿里云。
+- 改用 IPv4 字面量 + `Host` 头：cookie 按 URL host 存取，IP 域拿不到会话 ⇒ 同上 401。
+- 关掉 `CapacitorHttp`（让请求走 WebView 自带网络栈）：Chromium 免疫黑洞，但 cookie 是 `SameSite=Lax`（`application.yml` `sa-token.cookie.same-site`），跨站 XHR 不会被带上 ⇒ 登录态失效。
+
+**本次顺手做的可复用工具**：`scripts/app-coldstart-probe.sh` —— ADB + CDP 直连 WebView，量「静态框架 / 数据区块」各自首现时刻，改完 DNS 一条命令复验。
+
+#### 二、CI `Check Controller perm coverage (strict)` 误报（v1.1.119 起一直红）
+
+- `python3 scripts/check-perm.py --strict` 本地复现：`DeviceWeightReportController.report` 报缺 perm 防护。
+- 真身：v1.1.119 的 ESP32 米克重上报端点，鉴权是**设备密钥**（`X-Device-Key`，未配置时 fail-closed），不是用户登录态；`SaTokenConfig` 只对 `/device/weight/report` 这条**精确路径**豁免登录态。加 `@SaCheckPermission` 会把现场设备挡在门外（设备没有登录态）。
+- 修法：`scripts/check-perm.py` 的 `EXEMPT_KEYWORDS` 增加 `DeviceWeightReport`，并在注释里写明「设备密钥鉴权 ≠ 登录态」的原因，避免以后被当成漏防护。
+- 复验：`python3 scripts/check-perm.py --strict` → `✓ 全部 controller 已 perm 防护 (共扫描 65 个)`，exit 0。
+
 ### build (2026-11-15 — APK 飞牛备份目录改到 `/vol1/1000/mac使用/erp`；零版本变更、零产物重出)
 
 用户原话「/vol1/1000/mac使用/erp  apk的飞牛备份地址用这个」。
