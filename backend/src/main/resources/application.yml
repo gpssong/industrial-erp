@@ -1,5 +1,10 @@
 server:
   port: 8080
+  # v1.1.191: 菜单/权限这类 JSON 体积大且重复度高 (实测 /auth/me 204KB 未压缩), 开 gzip 后约 1/10.
+  # 只压默认的文本类型 (json/xml/js/css/html), 二进制下载与 SSE 不在列表内, 不受影响.
+  compression:
+    enabled: true
+    min-response-size: 2048
   servlet:
     context-path: /api
     encoding:
@@ -98,7 +103,7 @@ sa-token:
     path: /
 
 erp:
-  version: ${ERP_VERSION:1.1.190}
+  version: ${ERP_VERSION:1.1.191}
   # v1.1.75 AI 集成第一步 — 通用 LLM 网关 (OpenAI 兼容协议, 支持通义/DeepSeek/OpenAI/OpenRouter).
   # key 为空时 AI 端点快速失败并提示"未配置", 不影响其他功能. 密钥只走 env, 不进 git.
   #

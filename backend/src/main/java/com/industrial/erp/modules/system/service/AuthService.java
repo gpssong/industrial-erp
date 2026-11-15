@@ -160,9 +160,7 @@ public class AuthService {
             String clientType = resolveClientType(request);
             vo.setPermissions(permsByClientType(user.getId(), clientType));
             // v1.0.10+: 分离 PC 和 App 菜单权限
-            vo.setPcMenus(menuMapper.selectMenusByUserIdAndClient(user.getId(), "PC"));
-            vo.setAppMenus(menuMapper.selectMenusByUserIdAndClient(user.getId(), "APP"));
-            vo.setMenus(vo.getPcMenus()); // keep backwards compat for /me
+            applyMenusByClient(vo, clientType, user.getId());
             // clientScope: 检查角色允许的端, 决定能否 App 登录
             List<String> clientScopes = roleMapper.selectClientScopesByUserId(user.getId());
             if (clientScopes != null && !clientScopes.isEmpty()) {
@@ -283,9 +281,7 @@ public class AuthService {
         String clientType = resolveClientType(request);
         vo.setPermissions(permsByClientType(uid, clientType));
         // v1.0.10+: 分离 PC/App 菜单
-        vo.setPcMenus(menuMapper.selectMenusByUserIdAndClient(uid, "PC"));
-        vo.setAppMenus(menuMapper.selectMenusByUserIdAndClient(uid, "APP"));
-        vo.setMenus(vo.getPcMenus()); // keep backwards compat
+        applyMenusByClient(vo, clientType, uid);
         // clientScope
         List<String> clientScopes = roleMapper.selectClientScopesByUserId(uid);
         if (clientScopes != null && !clientScopes.isEmpty()) {
@@ -310,6 +306,18 @@ public class AuthService {
         h = h.trim().toUpperCase();
         if ("APP".equals(h) || "PC".equals(h)) return h;
         return null;
+    }
+
+    /**
+     * v1.1.191: 菜单按客户端裁剪.
+     * <p>实测 /auth/me 响应 204KB 未压缩, 其中 pcMenus 86.5KB + 兼容字段 menus(同一份 86.5KB) 对 App 全是无用负载 —
+     * App 只读 appMenus + permissions. PC 端不带 X-Client-Type, 行为保持不变(含 menus 兼容字段).
+     */
+    void applyMenusByClient(LoginVO vo, String clientType, Long uid) {
+        vo.setAppMenus(menuMapper.selectMenusByUserIdAndClient(uid, "APP"));
+        if ("APP".equals(clientType)) return;
+        vo.setPcMenus(menuMapper.selectMenusByUserIdAndClient(uid, "PC"));
+        vo.setMenus(vo.getPcMenus()); // keep backwards compat for /me
     }
 
     /**

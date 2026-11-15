@@ -3,6 +3,36 @@
 
 ## changelog (倒序)
 
+### v1.1.191 (2026-11-15 — App 冷启动瘦身：`/auth/me` 不再把整份 PC 菜单塞给 App + 开服务端 gzip；仅后端 jar)
+
+> **触发**: 用户原话「APP端首次打开加载时间还是很长。」—— v1.1.190 只把工作台内部的 11 次串行请求压成 2 轮并行，**冷启动第一跳的响应体积**没动。
+
+**取证（真实非超管账号，复用线上 Sa-Token 会话，不重置口令）**: 直接量 `/auth/me` 的响应体。
+
+| 站点 / 账号 | 带 `X-Client-Type: APP` | 不带 header（PC 旧调用） |
+|---|---|---|
+| `.32` 侯丽君 (isAdmin=0) | **28,683 B** / gzip 3,404 B | **199,549 B** / gzip 15,921 B |
+| `.150` gpssong1 (isAdmin=0) | **17,641 B** / gzip 2,413 B | **161,399 B** / gzip 13,156 B |
+
+**根因**: `AuthService.login()` 与 `currentUser()` 无论什么客户端都查三份菜单 —— `appMenus` + `pcMenus` + **兼容字段 `menus`**，而 `menus` 与 `pcMenus` 是**同一份 JSON 又序列化一遍**。`.32` 上 `menus` 237 个主菜单、`pcMenus` 同一份、`permissions` 231 条；App 侧 `menus`/`pcMenus` 一个都不读（`app/src/api/index.js` 恒定带 `X-Client-Type: APP`，四处消费点只认 `appMenus` + `permissions`）。再加上服务端**没开压缩**（`Content-Encoding` 缺失），4G 下单这一跳就要几百毫秒，而它是**登录后、工作台之前**的必经一跳。
+
+**改法（两处，PC 行为零变化）**:
+
+- `AuthService.applyMenusByClient(vo, clientType, uid)` 收口三处赋值：任何客户端都查 `appMenus`；`APP` 到此返回；**只有 PC / 无 header** 才补 `pcMenus` + `menus`（PC 的 `/me` 逐字节保持原样，含 `menus` 兼容字段）。
+- `application.yml` 开 `server.compression`（`enabled: true`、`min-response-size: 2048`）。只压 Spring 默认文本类型（json/xml/js/css/html），**文件下载与 SSE 不在列表内**，不受影响。
+
+**测试**: 新增 `AuthServiceMenuScopeTest` 2 例 —— `appClientGetsOnlyAppMenus`（APP：`appMenus` 有值、`pcMenus`/`menus` 为空、且不查 PC 菜单）、`pcClientKeepsBackwardsCompatibleMenus`（无 header：`menus == pcMenus` 兼容保留）。后端全量 **765 例 0 失败**。
+
+**效果**: App 侧 `/auth/me` 在 `.32` 由 199,549 B 降到 **28,683 B**（gzip 后 **3,404 B**，降幅约 **78.6%**）；`.150` 由 161,399 B 降到 **17,641 B**（gzip **2,413 B**，约 **81.7%**）。
+
+**版本/产物**: 七处对齐 1.1.191（`scripts/check-version.sh` 7×OK）；jar md5 `b9894e357d4fd8a799fd2620a4b23011`（103,173,629 B）。⚠️ 本轮后端有逻辑改动，App H5 与 APK 同批重出，同时把 v1.1.190 的并行编排带上（此前 `.32` 上的 H5 还是 1.1.188）：H5 `index.html` md5 `29a5fdf160b0f72c6404dbe5cc2f7ec2`；APK `erp-app-20261115.apk` md5 `50b04b366bf38df13161b0e562d503cc`（4,518,939 B / versionCode 1191，走 `scripts/build-app.sh`，脚本内嵌版本校验 = 1.1.191）。
+
+**部署**: `.32` canary —— 克隆运行中容器 env 重建（非 compose）`erp-system-backend:1.1.191`，healthy 8 轮poll 内就绪，镜像本体 jar md5 与源一致，`SHOW SLAVE STATUS` `Slave_IO_Running/Slave_SQL_Running: Yes`、`Seconds_Behind_Master: 0`；H5 原地替换（保留 inode，备份 `h5.bak_v1190_20261115`）+ `docker restart erp-app-h5`，`:18090` 回出的 `index.html` md5 与源一致、bundle 内版本 1.1.191。`.150` 主站 —— 镜像 `erp-system-backend:1.1.191`、容器 healthy（19 轮 poll）、容器内 jar md5 一致、`ERP_VERSION=1.1.191`，回滚孪生 env 指向 1.1.189 已就位。阿里云 —— 覆盖 `backend/industrial-erp-1.1.191.jar` 后 `docker compose build erp-backend`（EXIT=0，镜像 `erp-backend:1.1.191` 本体 jar md5 一致），**backend/pc-web 容器按拓扑保持停用**；H5 整目录替换（备份 `backup/app-h5-before-v1191.tgz`、旧目录 `app-h5.retired.v1191`）+ `docker restart erp-app-h5`，`:18090` 回出 md5 一致。
+
+**实测（真实非超管账号，部署后复量）**: `.32` 侯丽君 `X-Client-Type: APP` → 200、body 28,683 B、`Content-Encoding: gzip` 后 3,403 B、`menus:0 appMenus:1 pcMenus:0`；同会话不带 header → 199,549 B、`menus:1 appMenus:1 pcMenus:1`（PC 兼容字段原样）。`.150` gpssong1 → APP 17,641 B / gzip 2,413 B、`menus:0`；不带 header 161,399 B / 13,156 B、`menus:1`；带 `X-Client-Type: PC` 161,383 B / 13,149 B、`menus:1`（与无 header 同口径）。captcha 两站均 200。
+
+⚠️ 冷启动的端到端秒数仍需机主解锁手机实测：车间手机要装 `erp-app-20261115.apk`（1.1.191），H5 替换只覆盖浏览器入口。
+
 ### v1.1.190 (2026-11-15 — App 工作台加载提速：11 次串行请求改 2 轮并行，4G 下 3.4s → 0.86s；纯 App H5 + APK，后端/PC/SQL 零改动)
 
 > **触发**: 用户原话「APP端加载时间有点长，被我修复它」；追问后明确「工作台数据逐步出现慢」，且现场 **厂区 WiFi 与 4G/5G 都会用**。
