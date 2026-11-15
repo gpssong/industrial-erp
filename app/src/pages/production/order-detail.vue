@@ -242,6 +242,7 @@
           <view class="ws-sub">{{ sheet.stage === 'BAG' ? '制袋车间' : '吹膜车间' }} · {{ order.billNo }} · {{ order.productName || '—' }}</view>
 
           <text class="ws-label">1. 生产环境检查 (GB 31603-2015, 共 {{ sheet.items.length || 11 }} 项)</text>
+          <view class="ws-tip">各项默认按「符合」预置, 现场直接开工即可; 发现问题的项点「不符合」并写明情况, 系统会拦截开工并登记整改单。</view>
           <view v-if="sheet.loadingTemplate" class="ws-tip">检查项加载中...</view>
           <view v-else class="ws-env-list">
             <view v-for="(it, i) in sheet.items" :key="it.code" class="ws-env-item">
@@ -716,7 +717,9 @@ async function loadEnvTemplate(stage) {
     const items = (r && r.items) || []
     sheet.items = items
     const results = {}
-    items.forEach(it => { results[it.code] = { pass: null, note: '' } })
+    // v1.1.193: 逐项检查默认判「符合」—— 现场不用逐项点 11 次;
+    // 点了「不符合」的项仍然拦截开工 (后端 requireEnvQualified), 必须先登记整改单
+    items.forEach(it => { results[it.code] = { pass: true, note: '' } })
     sheet.results = results
   } catch (e) {
     if (e && e.code === 401) return

@@ -3,6 +3,49 @@
 
 ## changelog (倒序)
 
+### 2026-11-15 晚 — v1.1.193 App 吹膜/制袋开工的「生产环境检查 (GB 31603, 11 项)」默认全部判「符合」（app-only 发布，H5 两站 + APK 已闭环）
+
+**触发**: 用户原话「APP端吹膜开工的环境检查全部默认合格。」+ 附件截图（`吹膜开工确认 · PD202611030002`，11 项「符合」全绿）。
+
+**改前取证（重要，别再误判）**：
+
+| 查了什么 | 结论 |
+|---|---|
+| [order-detail.vue](app/src/pages/production/order-detail.vue) `loadEnvTemplate()` | 初始化是 `{ pass: null }`（未判定），**从来不是**预置合格 |
+| v1.1.181 / 20261114 / 20261115 三个 APK 内嵌 chunk | 三个都只有 `pass:null,note:""`，无 `pass:!0` |
+| 阿里云在跑的 H5 bundle | 同样 `pass:null` |
+| 真机（Redmi，1.1.192）打开开工弹窗 | 11 项按钮 class `ws-env-btn ok`（**无 `on`**），计算色 `rgb(96,98,102)` 灰 —— 未判定 |
+| 用户截图像素实测 | 「符合」底色 `#F2FAEB`＝`.on` 选中态、不符合纯白 ⇒ 那次会话里 11 项**已被逐项点过**（DB 里 `PD202611030002` 确有 `开工: gpssong1` 的记录）|
+| 真正默认全合格的地方 | **PC**「安全卫生 → 生产环境检查」[EnvCheckTab.vue](pc-web/src/views/xk/safety/EnvCheckTab.vue:193) 把模板每项初始化成 `status:'PASS'`，不切就能存「全部合格」 |
+
+用户拍板口径 = **App 端默认全部合格**（现场不用逐项点 11 次）。
+
+**改法（纯 App 前端，零后端 / 零 SQL / 零 PC）**：
+
+1. [order-detail.vue](app/src/pages/production/order-detail.vue) `loadEnvTemplate()`：`results[it.code] = { pass: true, note: '' }`（原 `{ pass: null }`），吹膜/制袋共用这一处，两个车间同时生效。
+2. 清单上方加提示行：「各项默认按「符合」预置, 现场直接开工即可; 发现问题的项点「不符合」并写明情况, 系统会拦截开工并登记整改单。」
+
+**门禁没有松**：
+
+- 点「不符合」的项 → 说明框必填、底部红字「有 N 项不符合, 禁止开工」、提交按钮变「登记不合格并整改」；
+- 后端 [MesWorkStartService.validateEnvItems](backend/src/main/java/com/industrial/erp/modules/mes/service/MesWorkStartService.java) 仍要求 **11 项齐全且全 `pass=true`**，有不符合项先落 XK 整改单、整改合格后才准开工（XK16-204 口径不变）；
+- App 的「未确认」计数保留作兜底（模板项缺 `code` 时仍会提示逐项确认）。
+
+**验证（真机 Redmi M2007J1SC，装 1.1.193，ADB + WebView CDP 直读 DOM）**：
+
+| 场景 | 实测 |
+|---|---|
+| 吹膜开工确认（草稿单 `PD202611050002`） | 标题「吹膜开工确认」，11 项，`okSelected: 11` / `badSelected: 0`，色 `rgb(240,249,235)/rgb(103,194,58)`；第 11 项「吹膜风环与冷却风/压缩空气洁净」＝ BLOW 模板 ENV_11 |
+| 制袋开工确认（`PD202610200001`） | 11 项同样 `okSelected: 11`（同一段代码） |
+| 点第 1 项「不符合」 | `badSelected: 1`，说明输入框出现，红字「有 1 项不符合, 禁止开工…」，提交按钮变「登记不合格并整改」 |
+| 改回「符合」 | `okSelected: 11`，按钮回「确认开工」 |
+
+⚠️ 未提交开工（不产生生产记录），弹窗已关闭。
+
+**产物**: H5 `index.html` `384cb7c0c751d200769abfa49a112d0f`（chunk `pages-production-order-detail.DFYXzAbb.js` `29f781ebc8a45356d6c7788f750be6f6`）；APK `erp-app-20261115.apk` `69652d18c8e7200b18503c5d45eeabfc`（4,519,724 B / versionCode 1193），已按约定备份到 `gpssong@192.168.0.32:/vol1/1000/mac使用/erp/erp-app-v1.1.193-20261115.apk`。
+
+**部署**: H5 整目录替换到 `.32` `/vol2/erp-system/app-h5/dist/build/h5`（restart `erp-app-h5`，容器口 `:18090` 回同一 md5；回退件 `/vol1/1000/mac使用/erp/h5.bak_v1193.tgz`）与阿里云 `/opt/erp-system/app-h5`（`docker restart erp-app-h5`，`127.0.0.1:18090` 回同一 md5；备份 `backup/app-h5-before-v1193.tgz`）；`.150` 无 H5 容器；**后端零改动，jar 未重打**。⚠️ 车间手机需装 1.1.193 APK（APK 内嵌 H5，Web 端 H5 更新覆盖不到包内资源）。
+
 ### 2026-11-15 晚 — v1.1.192 App 工作台「现场待办」点击直达对应单据（app-only 发布，H5 两站 + APK 已闭环）
 
 **触发**: 用户原话「现场待办列表点击以后进相应的项目。不是再扫二维码。」—— 之前四类待办点下去只会打开空白扫码页，现场师傅还得自己找单。
