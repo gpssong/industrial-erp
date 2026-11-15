@@ -12,7 +12,7 @@
 # 用法: ./scripts/build-app.sh [输出 APK 路径]
 # 默认输出: /Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-$(date +%Y%m%d).apk
 # 也输出到: ~/Desktop/erp-app-$(date +%Y%m%d).apk
-# 并自动备份: 飞牛 .32:/vol2/erp-system/apk/erp-app-v<版本>-<日期>.apk (用户 2026-11-15 要求)
+# 并自动备份: 飞牛 .32:/vol1/1000/mac使用/erp/erp-app-v<版本>-<日期>.apk (用户 2026-11-15 指定)
 # ============================================================
 set -euo pipefail
 
@@ -212,11 +212,12 @@ cp "$APK" "$DEST"
 cp "$APK" "$DESKTOP_DEST"
 
 # [7/7] 备份到飞牛 .32 (用户 2026-11-15 要求: 每次生成的 APK 都在飞牛留一份)
+#   目标目录 = 飞牛同步盘 /vol1/1000/mac使用/erp (用户 2026-11-15 指定, 原 /vol2/erp-system/apk)
 #   凭据只从 ~/.config/erp-ops/env 读, 不进脚本; 飞牛从 Mac 不可直连, 经 .150 跳板中转.
 #   备份失败不阻断发版 (APK 本身可交付), 但必须显眼告警并打印补备命令.
 echo "==> [7/7] 备份 APK 到飞牛"
 OPS_ENV="$HOME/.config/erp-ops/env"
-REMOTE_APK_DIR="/vol2/erp-system/apk"
+REMOTE_APK_DIR="/vol1/1000/mac使用/erp"
 BACKUP_NAME="erp-app-v${APP_V}-${DATE}.apk"
 JUMP="gpssong@123.96.235.183"
 FEINIU="gpssong@192.168.0.32"

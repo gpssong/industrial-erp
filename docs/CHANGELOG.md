@@ -3,6 +3,14 @@
 
 ## changelog (倒序)
 
+### build (2026-11-15 — APK 飞牛备份目录改到 `/vol1/1000/mac使用/erp`；零版本变更、零产物重出)
+
+用户原话「/vol1/1000/mac使用/erp  apk的飞牛备份地址用这个」。
+
+`scripts/build-app.sh` 的 `[7/7] 备份 APK 到飞牛` 目标目录由 `.32:/vol2/erp-system/apk` 改为 `.32:/vol1/1000/mac使用/erp`（飞牛同步盘共享目录，与 Mac 侧 `~/Library/CloudStorage/飞牛同步-Mac/erp/` 同一份数据；APK 成品本来就落这里，直传只是多一层「不依赖同步是否及时」的保险）。上传链路、`.150` 跳板、`~/.config/erp-ops/env` 取 `ERP_HOME_SSH_PASS`、两端 md5 校验、失败只告警不阻断——全部不变。
+
+**实测**：目标目录 `ls -ld` 存在（owner `gpssong`，7.3T 卷已用 24%）、`gpssong` 可写（写探针后清理）；按脚本同一串命令（`.150` 中转 `cat >` → `.32` `md5sum`）上传 `erp-app-20261115.apk` 测试副本，本地/远端 md5 均为 `50b04b366bf38df13161b0e562d503cc` → **一致**，测试副本已删；`bash -n scripts/build-app.sh` 通过。旧目录 `/vol2/erp-system/apk` 的历史副本未删（用户未要求清理）。
+
 ### v1.1.191-hotfix (2026-11-15 上午 — 线上事故：`.150` 手工重建 `erp-backend` 丢了 `backend` DNS 别名，PC / App 全站 `/api` 502 约 3 小时；零代码改动、版本仍 1.1.191)
 
 > **触发**: 用户报「网页端和APP端都故障了」—— PC 登录页弹四个 `Request failed with status code 502`，App 工作台（铜板 / WAREHOUSE_MGR）弹「服务暂不可用，请稍后重试」。
