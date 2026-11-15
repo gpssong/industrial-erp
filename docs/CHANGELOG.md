@@ -3,6 +3,33 @@
 
 ## changelog (倒序)
 
+### v1.1.190 (2026-11-15 — App 工作台加载提速：11 次串行请求改 2 轮并行，4G 下 3.4s → 0.86s；纯 App H5 + APK，后端/PC/SQL 零改动)
+
+> **触发**: 用户原话「APP端加载时间有点长，被我修复它」；追问后明确「工作台数据逐步出现慢」，且现场 **厂区 WiFi 与 4G/5G 都会用**。
+
+**取证（先定位再改）**: App 是 Capacitor 包的本地 H5（无 `server.url`，资源全在包内，扫码 414KB 大块早就 `import()` 懒加载）⇒ 首屏慢不是下载慢，是**请求轮数**：卡在 App 网络包下载和接口串行。`pages/dashboard/index.vue` 的 `onMounted` 原是一条串行链 —— `loadAppModuleConfig()` → `loadAppDashboardConfig()` → `api.me()`（顺带写 4 个 localStorage）→ 重算权限 → `api.dashboard()` → `loadWarningItems()` → `loadTodoItems()`，而 `loadTodoItems()` 内部又把 6 类现场待办（IQC 草稿 / 维保待办 / 检定到期 / OQC 草稿 / 半成品入库草稿 / 成品入库草稿）**逐个 await** ⇒ 约 **11 个 RTT**。4G 单程 200–600ms 时，"数据逐步出现"就是这么来的。
+
+**改法（顺序/门禁/静默语义一条不改）**: 真实依赖只有 `/me` → 重算权限 → 受门禁的请求；其余彼此无关。新增 [app/src/utils/dashboardLoad.js](../app/src/utils/dashboardLoad.js)（依赖注入、可单测，导出 `loadBootstraps` / `runTodoBlocks`）：
+
+- **第 1 轮** `loadBootstraps({ loadModuleConfig, loadDashboardConfig, me })` —— 模块开关、工作台区块配置、`/auth/me` 三件并行（`Promise.allSettled`，任一失败不影响另两件；`me` 失败回 `null`，沿用「存储里旧值继续用」的既有降级）。
+- **第 2 轮** `Promise.allSettled([kpiTask, loadWarningItems(), loadTodoItems()])`；`loadTodoItems()` 改由 `runTodoBlocks(blocks)` 并发发起 6 个块，**按声明顺序合并**结果（① IQC ② 维保 ②b 检定到期 ③ OQC ④ 半成品 ⑤ 成品），单块抛错/同步抛错都只丢自己那几条。
+- 门禁全部原样保留：`isSectionEnabled('kpi'|'warning'|'todo')`、每块的 `isModuleEnabled(...) && isPermEnabled(...)`、KPI 失败静默隐藏、`/me` 回来 `appMenus` 键变化仍 `navigateTo` 重启整页。
+
+**测试**: 新 [app/test/dashboardLoad.test.mjs](../app/test/dashboardLoad.test.mjs) 7 例（全部块并行发起 / 合并顺序固定 / 停用块不发请求 / 单块抛错不影响其它 / 同步抛错不拖垮 / loadBootstraps 三项并行 / `/me` 失败回 null）。`node --test test/*.test.mjs` → **33 例 33 通过 0 失败**。
+
+**A/B 实测**（用真实模块 + 真实生产 API，非超管会话，同一链路两轮取样均值）:
+
+| 场景 | 旧串行（3+8 请求） | 新并行（3 ∥ 8） | 提升 |
+|---|---|---|---|
+| 本机（RTT≈23ms） | 363 ms | 248 ms | 1.5× |
+| 模拟 4G（每请求 +300ms RTT） | 3399 ms | 859 ms | **4.0×** |
+
+真机 H5 端到端（本地起静态服务 + `/api` 反代生产，headless 浏览器打开构建产物）代理侧时间线：第 1 轮三请求落在 **12 ms 窗口**内，第 2 轮 7 个请求（库存预警 + 6 类待办）落在 **4 ms 窗口**内（第 7 个因浏览器同源 6 连接上限顺延 43 ms）；页面渲染正常 —— 库存预警 5 条、现场待办 6 条齐出；`erp_permissions/erp_menus/erp_app_permissions/erp_user` 四处存储照写（50/56/50/true）。`APP_DASHBOARD_CONFIG` 里 `kpi.enabled=false` ⇒ 不请求 `/report/dashboard`，与代码分支一致。
+
+**版本/产物**: 七处对齐 1.1.190（`scripts/check-version.sh` 7×OK），后端只改版本号、无逻辑改动（本轮**未部署 jar**，沿用 1.1.189 的 `0a74f9c4…`）；App H5 `index.html` md5 `fbc4633ea932b9a795ff5dfa710ad6e3`（工作台块 `assets/pages-dashboard-index.L5jd9PFy.js` 24,536 B / `e1dcad8f254bc1316b2475d09462611f`）；APK `erp-app-20261115.apk` md5 `90bf10c666eb43b3c6dcaea7b17a441e`（4,518,795 B / versionCode 1190，走 `scripts/build-app.sh`）。
+
+**部署**: 阿里云 `erp-app-h5` 整目录原地替换（备份 `backup/app-h5-before-v1190.tgz`，旧目录 `app-h5.retired.v1190`）+ `docker restart`，`:18090` 对外 `index.html` md5 与源一致、新块 HTTP 200。⚠️ 飞牛 `.32` canary 仍不可达（100% 丢包），本轮**未部署**，恢复后补；`.150` 无 H5 容器。⚠️ 车间手机要装 `erp-app-20261115.apk`（1.1.190）才吃到这次提速，H5 替换只覆盖浏览器入口。
+
 ### v1.1.189 (2026-11-15 — XK 批次溯源两处修复：批号含斜杠点开不再报「服务暂不可用」+ 批次台账显示品名；后端 jar + App H5/APK + PC dist)
 
 > **触发**: 用户原话「原料显示品名加批号。点击ldpe显示服务暂不可用」（App 批次溯源页）。

@@ -100,6 +100,7 @@ import { navigateTo } from '../../utils/nav.js'
 import { applyTabBar, isAdmin } from '../../utils/permission.js'
 import { isModuleEnabled, isPermEnabled, loadFromServer as loadAppModuleConfig } from '../../utils/appModuleEnabled.js'
 import { isSectionEnabled, isGroupEnabled, loadFromServer as loadAppDashboardConfig } from '../../utils/appDashboardConfig.js'
+import { loadBootstraps, runTodoBlocks } from '../../utils/dashboardLoad.js'
 
 // v1.1.53: KPI 区块按新 perm dashboard:kpi 控制 (之前是 report:view).
 // 之前 report:view 既管 KPI 又管"经营简报"快捷入口 (PAGE_TO_APP 里),
@@ -581,140 +582,157 @@ async function loadWarningItems() {
   } catch (e) { /* 静默 — 无 perm 时 403 也不报错 */ }
 }
 
-// v1.1.100+: 现场待办 — 3 类真接后端 (各取前 3 条合并展示)
+// v1.1.100+: 现场待办 — 6 类真接后端 (各取前 3 条合并展示)
 //   ① 到货待检: IQC 来料检验单草稿 (qmsInspectionPage, inspectionType=IQC, status=DRAFT)
 //   ② 维保任务: em_maintain_order 新表草稿工单 (xk maintenance/orders, billStatus=PENDING —
 //     走 XK 端点, v1.1.99 附带清理后唯一维保数据源, 避免读老 wf_maintain_record 死表)
-//   ③ XK 复检:  成品复检 OQC 草稿 (qmsInspectionPage, inspectionType=OQC, status=DRAFT)
-// 门禁: 各类受对应模块开关 (qms/em) 控制; 无 perm/模块关时静默跳过 (拦截器 403 不弹, R13).
+//   ②b 检定到期 / ③ XK 复检 (OQC 草稿) / ④ 半成品待审 / ⑤ 成品待审
+// 门禁: 各类受对应模块开关 (qms/em/production) 控制; 无 perm/模块关时静默跳过 (拦截器 403 不弹, R13).
+// v1.1.190: 六类互不依赖 → 并行发起 (原来逐个 await, 4G 下 6 次串行叠加约 1~3 秒),
+//   结果仍按下面声明顺序合并, 区块顺序与原来一致.
 async function loadTodoItems() {
   if (!isSectionEnabled('todo')) return  // v1.1.130+: 区块停用则不请求
-  const todos = []
 
-  // ① 到货待检 (IQC 草稿) — 跳质量检验页
-  // 注意: qms controller 的筛选 param 是 status (不是 billStatus), 见 QmsInspectionController.java:56
-  if (isModuleEnabled('qms') && isPermEnabled('qms', 'quality:inspection:list')) {
-    try {
-      const r = await api.qmsInspectionPage({ pageNum: 1, pageSize: 3, inspectionType: 'IQC', status: 'DRAFT' })
-      const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
-      for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
-        todos.push({
-          key: 'iqc-' + x.id,
-          icon: '📦', cat: '到货待检',
-          title: (x.productName || x.billNo || '来料检验'),
-          time: (x.billDate || '').toString().substring(5, 10) || '',
-          target: '/pages/quality/inspect',
-          extra: x.id ? { id: x.id } : {}
-        })
+  const blocks = [
+    // ① 到货待检 (IQC 草稿) — 跳质量检验页
+    // 注意: qms controller 的筛选 param 是 status (不是 billStatus), 见 QmsInspectionController.java:56
+    {
+      enabled: isModuleEnabled('qms') && isPermEnabled('qms', 'quality:inspection:list'),
+      run: async () => {
+        const out = []
+        const r = await api.qmsInspectionPage({ pageNum: 1, pageSize: 3, inspectionType: 'IQC', status: 'DRAFT' })
+        const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
+        for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
+          out.push({
+            key: 'iqc-' + x.id,
+            icon: '📦', cat: '到货待检',
+            title: (x.productName || x.billNo || '来料检验'),
+            time: (x.billDate || '').toString().substring(5, 10) || '',
+            target: '/pages/quality/inspect',
+            extra: x.id ? { id: x.id } : {}
+          })
+        }
+        return out
       }
-    } catch (e) { /* 静默 R13 */ }
-  }
-
-  // ② 维保任务 (em_maintain_order 新表, 走 XK 端点拿 PENDING 工单)
-  // 原因: api.maintainPage 走 /workflow/maintain/page (老 wf_maintain_record 表, v1.1.99 附带清理后已废弃);
-  //   App 端没有 em 模块独立 controller, 唯一新表数据源是 XkController.maintenance/orders,
-  //   它内部用 pageForXk(... status='PENDING'). 门禁走 work:maintain:list (XK 自带, 大多数角色都有).
-  if (isModuleEnabled('em') && isPermEnabled('em', 'equipment:master:list')) {
-    try {
-      const r = await api.xkMaintenanceOrders({ pageNum: 1, pageSize: 3, billStatus: 'PENDING' })
-      const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
-      for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
-        todos.push({
-          key: 'maint-' + x.id,
-          icon: '🔧', cat: '维保任务',
-          title: (x.equipmentName || x.equipmentCode || '设备维保') + (x.maintContent ? ' · ' + x.maintContent.substring(0, 12) : ''),
-          time: (x.planDate || '').toString().substring(5, 10) || '',
-          target: '/pages/equipment/my',
-          extra: x.id ? { id: x.id } : {}
-        })
+    },
+    // ② 维保任务 (em_maintain_order 新表, 走 XK 端点拿 PENDING 工单)
+    // 原因: api.maintainPage 走 /workflow/maintain/page (老 wf_maintain_record 表, v1.1.99 附带清理后已废弃);
+    //   App 端没有 em 模块独立 controller, 唯一新表数据源是 XkController.maintenance/orders,
+    //   它内部用 pageForXk(... status='PENDING'). 门禁走 work:maintain:list (XK 自带, 大多数角色都有).
+    {
+      enabled: isModuleEnabled('em') && isPermEnabled('em', 'equipment:master:list'),
+      run: async () => {
+        const out = []
+        const r = await api.xkMaintenanceOrders({ pageNum: 1, pageSize: 3, billStatus: 'PENDING' })
+        const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
+        for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
+          out.push({
+            key: 'maint-' + x.id,
+            icon: '🔧', cat: '维保任务',
+            title: (x.equipmentName || x.equipmentCode || '设备维保') + (x.maintContent ? ' · ' + x.maintContent.substring(0, 12) : ''),
+            time: (x.planDate || '').toString().substring(5, 10) || '',
+            target: '/pages/equipment/my',
+            extra: x.id ? { id: x.id } : {}
+          })
+        }
+        return out
       }
-    } catch (e) { /* 静默 R13 */ }
-  }
-
-  // ②b 检定到期 (v1.1.155 检验设备校准) — 跳校准清单页, 顶部有到期提醒条.
-  //   注意: 库里 status 可能停在旧值 (服务端只在读接口内存里重算), 不能按 status 过滤;
-  //   改为按 next_cal_date 升序取前 50 条, 客户端筛「已到期 / 30 天内到期」.
-  if (isModuleEnabled('em') && isPermEnabled('em', 'qa:calibration-equipment:list')) {
-    try {
-      const r = await api.qaCalEqPage({ pageNum: 1, pageSize: 50 })
-      const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
-      const t0 = new Date(); t0.setHours(0, 0, 0, 0)
-      const due = (Array.isArray(recs) ? recs : []).filter(x => {
-        if (!x.nextCalDate) return false
-        const d = new Date(String(x.nextCalDate).substring(0, 10) + 'T00:00:00')
-        if (isNaN(d.getTime())) return false
-        return (d.getTime() - t0.getTime()) / 86400000 <= 30
-      }).slice(0, 3)
-      for (const x of due) {
-        const d = new Date(String(x.nextCalDate).substring(0, 10) + 'T00:00:00')
-        const n = Math.round((d.getTime() - t0.getTime()) / 86400000)
-        todos.push({
-          key: 'cal-' + x.id,
-          icon: '📏', cat: '检定到期',
-          title: (x.name || x.code || '检验设备') + (n < 0 ? ' · 已逾期 ' + Math.abs(n) + ' 天' : ' · ' + n + ' 天到期'),
-          time: (x.nextCalDate || '').toString().substring(5, 10),
-          target: '/pages/equipment/calibration'
-        })
+    },
+    // ②b 检定到期 (v1.1.155 检验设备校准) — 跳校准清单页, 顶部有到期提醒条.
+    //   注意: 库里 status 可能停在旧值 (服务端只在读接口内存里重算), 不能按 status 过滤;
+    //   改为按 next_cal_date 升序取前 50 条, 客户端筛「已到期 / 30 天内到期」.
+    {
+      enabled: isModuleEnabled('em') && isPermEnabled('em', 'qa:calibration-equipment:list'),
+      run: async () => {
+        const out = []
+        const r = await api.qaCalEqPage({ pageNum: 1, pageSize: 50 })
+        const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
+        const t0 = new Date(); t0.setHours(0, 0, 0, 0)
+        const due = (Array.isArray(recs) ? recs : []).filter(x => {
+          if (!x.nextCalDate) return false
+          const d = new Date(String(x.nextCalDate).substring(0, 10) + 'T00:00:00')
+          if (isNaN(d.getTime())) return false
+          return (d.getTime() - t0.getTime()) / 86400000 <= 30
+        }).slice(0, 3)
+        for (const x of due) {
+          const d = new Date(String(x.nextCalDate).substring(0, 10) + 'T00:00:00')
+          const n = Math.round((d.getTime() - t0.getTime()) / 86400000)
+          out.push({
+            key: 'cal-' + x.id,
+            icon: '📏', cat: '检定到期',
+            title: (x.name || x.code || '检验设备') + (n < 0 ? ' · 已逾期 ' + Math.abs(n) + ' 天' : ' · ' + n + ' 天到期'),
+            time: (x.nextCalDate || '').toString().substring(5, 10),
+            target: '/pages/equipment/calibration'
+          })
+        }
+        return out
       }
-    } catch (e) { /* 静默 R13 */ }
-  }
-
-  // ③ XK 复检 (OQC 草稿) — 跳质量检验页
-  if (isModuleEnabled('qms') && isPermEnabled('qms', 'quality:inspection:list')) {
-    try {
-      const r = await api.qmsInspectionPage({ pageNum: 1, pageSize: 3, inspectionType: 'OQC', status: 'DRAFT' })
-      const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
-      for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
-        todos.push({
-          key: 'oqc-' + x.id,
-          icon: '🛡', cat: 'XK 复检',
-          title: (x.productName || x.billNo || '成品复检') + ' 复检',
-          time: (x.billDate || '').toString().substring(5, 10) || '',
-          target: '/pages/quality/inspect',
-          extra: x.id ? { id: x.id } : {}
-        })
+    },
+    // ③ XK 复检 (OQC 草稿) — 跳质量检验页
+    {
+      enabled: isModuleEnabled('qms') && isPermEnabled('qms', 'quality:inspection:list'),
+      run: async () => {
+        const out = []
+        const r = await api.qmsInspectionPage({ pageNum: 1, pageSize: 3, inspectionType: 'OQC', status: 'DRAFT' })
+        const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
+        for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
+          out.push({
+            key: 'oqc-' + x.id,
+            icon: '🛡', cat: 'XK 复检',
+            title: (x.productName || x.billNo || '成品复检') + ' 复检',
+            time: (x.billDate || '').toString().substring(5, 10) || '',
+            target: '/pages/quality/inspect',
+            extra: x.id ? { id: x.id } : {}
+          })
+        }
+        return out
       }
-    } catch (e) { /* 静默 R13 */ }
-  }
-
-  // ④ 半成品入库待审 (仓管: prd_semi_in DRAFT, 过 FAI 门禁) — 跳 scan/semi-in
-  if (isModuleEnabled('production') && isPermEnabled('production', 'production:semi-in:list')) {
-    try {
-      const r = await api.prdSemiInPage({ pageNum: 1, pageSize: 3, billStatus: 'DRAFT' })
-      const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
-      for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
-        todos.push({
-          key: 'semiin-' + x.id,
-          icon: '📗', cat: '半成品待入',
-          title: (x.productName || x.prdOrderNo || '半成品') + (x.batchNo ? ' · ' + x.batchNo : ''),
-          time: (x.billDate || '').toString().substring(5, 10) || '',
-          target: '/pages/scan/semi-in',
-          extra: x.id ? { id: x.id } : {}
-        })
+    },
+    // ④ 半成品入库待审 (仓管: prd_semi_in DRAFT, 过 FAI 门禁) — 跳 scan/semi-in
+    {
+      enabled: isModuleEnabled('production') && isPermEnabled('production', 'production:semi-in:list'),
+      run: async () => {
+        const out = []
+        const r = await api.prdSemiInPage({ pageNum: 1, pageSize: 3, billStatus: 'DRAFT' })
+        const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
+        for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
+          out.push({
+            key: 'semiin-' + x.id,
+            icon: '📗', cat: '半成品待入',
+            title: (x.productName || x.prdOrderNo || '半成品') + (x.batchNo ? ' · ' + x.batchNo : ''),
+            time: (x.billDate || '').toString().substring(5, 10) || '',
+            target: '/pages/scan/semi-in',
+            extra: x.id ? { id: x.id } : {}
+          })
+        }
+        return out
       }
-    } catch (e) { /* 静默 R13 */ }
-  }
-
-  // ⑤ 成品入库待审 (仓管: prd_finished_in DRAFT, 过工序 + OQC 门禁) — 跳 scan/finished-in
-  if (isModuleEnabled('production') && isPermEnabled('production', 'production:finished-in:list')) {
-    try {
-      const r = await api.prdFinishedInPage({ pageNum: 1, pageSize: 3, billStatus: 'DRAFT' })
-      const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
-      for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
-        todos.push({
-          key: 'finin-' + x.id,
-          icon: '📕', cat: '成品待入',
-          title: (x.productName || x.prdOrderNo || '成品') + (x.batchNo ? ' · ' + x.batchNo : ''),
-          time: (x.billDate || '').toString().substring(5, 10) || '',
-          target: '/pages/scan/finished-in',
-          extra: x.id ? { id: x.id } : {}
-        })
+    },
+    // ⑤ 成品入库待审 (仓管: prd_finished_in DRAFT, 过工序 + OQC 门禁) — 跳 scan/finished-in
+    {
+      enabled: isModuleEnabled('production') && isPermEnabled('production', 'production:finished-in:list'),
+      run: async () => {
+        const out = []
+        const r = await api.prdFinishedInPage({ pageNum: 1, pageSize: 3, billStatus: 'DRAFT' })
+        const recs = (r && (r.records || r.list)) || (Array.isArray(r) ? r : [])
+        for (const x of (Array.isArray(recs) ? recs : []).slice(0, 3)) {
+          out.push({
+            key: 'finin-' + x.id,
+            icon: '📕', cat: '成品待入',
+            title: (x.productName || x.prdOrderNo || '成品') + (x.batchNo ? ' · ' + x.batchNo : ''),
+            time: (x.billDate || '').toString().substring(5, 10) || '',
+            target: '/pages/scan/finished-in',
+            extra: x.id ? { id: x.id } : {}
+          })
+        }
+        return out
       }
-    } catch (e) { /* 静默 R13 */ }
-  }
+    }
+  ]
 
-  todoItems.value = todos
+  todoItems.value = await runTodoBlocks(blocks)
 }
+
 
 function openTodo(t) {
   if (!t || !t.target) return
@@ -729,42 +747,45 @@ onMounted(async () => {
   const h = new Date().getHours()
   greeting.value = h < 6 ? '凌晨好' : h < 12 ? '早上好' : h < 18 ? '下午好' : '晚上好'
 
-  // v1.1.80+: 进入工作台时强制拉一次最新模块配置 (TTL 内的快速操作也能即时生效)
-  await loadAppModuleConfig().catch(() => { /* 静默 */ })
-  // v1.1.130+: 拉一次 App 工作台区块配置 (4 区块 + 全部功能 7 子分组, TTL 内复用)
-  await loadAppDashboardConfig().catch(() => { /* 静默 — 失败兜底全开 */ })
-
-  // v1.1.54 hotfix: 必须在 recompute* 之前先调 /me 同步最新 permissions.
-  // 之前顺序是 recomputeWarningVisible() 先跑 (读陈旧 erp_permissions), 后面 /me 才刷新 storage —
-  // 老 APK 缓存里没 inventory:warning:list → warningVisible 永远 false → 库存预警区块不渲染,
-  // 即使 PC 端已勾选权限且 /me 返回了新 perm.
-  // 现在: /me 先写 storage, recompute* 再读, 命中即渲染.
-  //
-  // v1.1.55 hotfix 2026-09-21 晚: 多写一份 erp_app_permissions (从 appMenus 派生的纯 APP 端 perm 数组).
-  //   后端 selectPermsByUserId 不分端 (PC+APP 混合), erp_permissions 含 PC 端 perm.
-  //   例如 WAREHOUSE_MGR (仓管员) PC 端有 uncheck 但 APP 端无 uncheck, 混合数组会
-  //   让 App 端反审核按钮误显示. 详情页 canCheck/canUncheck 改用 getAppPermissions(),
-  //   这里派生并写 storage. 老 APK fallback 仍能工作 (getAppPermissions fallback 到 erp_menus 实时派生).
-  let meResult = null
-  try {
-    const r = await api.me()
-    meResult = r.data || r
-    localStorage.setItem('erp_permissions', JSON.stringify(meResult.permissions || []))
-    // App 端优先用 appMenus
-    const appMenus = meResult.appMenus || meResult.menus || []
-    localStorage.setItem('erp_menus', JSON.stringify(appMenus))
-    // v1.1.55 hotfix: 派生纯 APP 端 perm 数组 (从 appMenus.perms 逗号分隔展开)
-    const appPermSet = new Set()
-    for (const m of (Array.isArray(appMenus) ? appMenus : [])) {
-      if (!m.perms) continue
-      for (const p of String(m.perms).split(',')) {
-        const t = p.trim()
-        if (t) appPermSet.add(t)
+  // v1.1.190: 模块开关 / 区块配置 / /me 三项互不依赖 → 一轮并行发起
+  // (原来逐个 await, 4G / 厂区 WiFi 下白白多等两轮 RTT)
+  // 门禁语义不变: 配置失败静默兜底全开; /me 失败静默, recompute 仍走 storage 老值.
+  const boot = await loadBootstraps({
+    loadModuleConfig: loadAppModuleConfig,
+    loadDashboardConfig: loadAppDashboardConfig,
+    me: async () => {
+      // v1.1.54 hotfix: 必须在 recompute* 之前先调 /me 同步最新 permissions.
+      // 之前顺序是 recomputeWarningVisible() 先跑 (读陈旧 erp_permissions), 后面 /me 才刷新 storage —
+      // 老 APK 缓存里没 inventory:warning:list → warningVisible 永远 false → 库存预警区块不渲染,
+      // 即使 PC 端已勾选权限且 /me 返回了新 perm.
+      // 现在: /me 先写 storage, recompute* 再读, 命中即渲染.
+      //
+      // v1.1.55 hotfix 2026-09-21 晚: 多写一份 erp_app_permissions (从 appMenus 派生的纯 APP 端 perm 数组).
+      //   后端 selectPermsByUserId 不分端 (PC+APP 混合), erp_permissions 含 PC 端 perm.
+      //   例如 WAREHOUSE_MGR (仓管员) PC 端有 uncheck 但 APP 端无 uncheck, 混合数组会
+      //   让 App 端反审核按钮误显示. 详情页 canCheck/canUncheck 改用 getAppPermissions(),
+      //   这里派生并写 storage. 老 APK fallback 仍能工作 (getAppPermissions fallback 到 erp_menus 实时派生).
+      const r = await api.me()
+      const me = r.data || r
+      localStorage.setItem('erp_permissions', JSON.stringify(me.permissions || []))
+      // App 端优先用 appMenus
+      const appMenus = me.appMenus || me.menus || []
+      localStorage.setItem('erp_menus', JSON.stringify(appMenus))
+      // v1.1.55 hotfix: 派生纯 APP 端 perm 数组 (从 appMenus.perms 逗号分隔展开)
+      const appPermSet = new Set()
+      for (const m of (Array.isArray(appMenus) ? appMenus : [])) {
+        if (!m.perms) continue
+        for (const p of String(m.perms).split(',')) {
+          const t = p.trim()
+          if (t) appPermSet.add(t)
+        }
       }
+      localStorage.setItem('erp_app_permissions', JSON.stringify(Array.from(appPermSet)))
+      localStorage.setItem('erp_user', JSON.stringify(me))
+      return me
     }
-    localStorage.setItem('erp_app_permissions', JSON.stringify(Array.from(appPermSet)))
-    localStorage.setItem('erp_user', JSON.stringify(meResult))
-  } catch (e) { /* 忽略 — 不阻塞 UI (storage 还是老值, recompute 仍走老路径) */ }
+  })
+  const meResult = boot.me
 
   // v1.1.53: 计算各区块显隐 — KPI / 库存预警 / 经营简报入口 各自独立
   recomputeKpiVisible()
@@ -772,18 +793,19 @@ onMounted(async () => {
   recomputeReportEntryVisible()
   // v1.1.11+: 有 KPI 权限才请求数据 + 失败时主动隐藏 KPI 区块 (兼容老版本残留 + perm 时序错位)
   // v1.1.130+: 叠加 APP_DASHBOARD_CONFIG.kpi 区块开关 (关闭则不请求)
-  if (kpiVisible.value && isSectionEnabled('kpi')) {
-    try {
-      kpi.value = await api.dashboard()
-    } catch (e) {
-      // 403 (无权限) / 网络错: 静默, 并隐藏 KPI 区块避免后续空数据报错
-      kpiVisible.value = false
-    }
-  }
-  // v1.1.53: 库存预警列表独立加载 — 即使没 KPI perm 也能单独显示预警
-  await loadWarningItems()
-  // v1.1.100+: 现场待办 (到货待检/维保任务/复检, 各类受模块开关控制, 无 perm 静默)
-  await loadTodoItems()
+  // v1.1.190: KPI / 库存预警 / 现场待办 三块互不依赖 → 并行; 待办内部 6 类查询也已并行.
+  const kpiTask = (kpiVisible.value && isSectionEnabled('kpi'))
+    ? (async () => {
+        try {
+          kpi.value = await api.dashboard()
+        } catch (e) {
+          // 403 (无权限) / 网络错: 静默, 并隐藏 KPI 区块避免后续空数据报错
+          kpiVisible.value = false
+        }
+      })()
+    : Promise.resolve()
+  // 库存预警独立加载 — 即使没 KPI perm 也能单独显示预警; 待办各类受模块开关控制, 无 perm 静默
+  await Promise.allSettled([kpiTask, loadWarningItems(), loadTodoItems()])
   applyTabBar()
 
   // v1.0.10+: perms 缺失或空时, 主动调 /me 修复 (兼容老版本残留)
