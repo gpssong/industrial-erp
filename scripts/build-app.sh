@@ -12,6 +12,7 @@
 # 用法: ./scripts/build-app.sh [输出 APK 路径]
 # 默认输出: /Users/tongban/Library/CloudStorage/飞牛同步-Mac/erp/erp-app-$(date +%Y%m%d).apk
 # 也输出到: ~/Desktop/erp-app-$(date +%Y%m%d).apk
+# 并自动备份: 飞牛 .32:/vol2/erp-system/apk/erp-app-v<版本>-<日期>.apk (用户 2026-11-15 要求)
 # ============================================================
 set -euo pipefail
 
@@ -209,6 +210,44 @@ SIZE=$(wc -c < "$APK" | tr -d ' ')
 mkdir -p "$(dirname "$DEST")"
 cp "$APK" "$DEST"
 cp "$APK" "$DESKTOP_DEST"
+
+# [7/7] 备份到飞牛 .32 (用户 2026-11-15 要求: 每次生成的 APK 都在飞牛留一份)
+#   凭据只从 ~/.config/erp-ops/env 读, 不进脚本; 飞牛从 Mac 不可直连, 经 .150 跳板中转.
+#   备份失败不阻断发版 (APK 本身可交付), 但必须显眼告警并打印补备命令.
+echo "==> [7/7] 备份 APK 到飞牛"
+OPS_ENV="$HOME/.config/erp-ops/env"
+REMOTE_APK_DIR="/vol2/erp-system/apk"
+BACKUP_NAME="erp-app-v${APP_V}-${DATE}.apk"
+JUMP="gpssong@123.96.235.183"
+FEINIU="gpssong@192.168.0.32"
+
+apk_backup_fail() {
+    echo "   ⚠️ 备份失败: $1"
+    echo "   ⚠️ 手动补备: cat \"$DEST\" | ssh $JUMP 'ssh $FEINIU \"cat > $REMOTE_APK_DIR/$BACKUP_NAME\"'"
+}
+
+if [ ! -r "$OPS_ENV" ]; then
+    apk_backup_fail "读不到 $OPS_ENV"
+elif ! command -v sshpass >/dev/null 2>&1; then
+    apk_backup_fail "本机没有 sshpass"
+else
+    HOME_PASS=$(grep '^ERP_HOME_SSH_PASS=' "$OPS_ENV" | cut -d= -f2-)
+    if [ -z "$HOME_PASS" ]; then
+        apk_backup_fail "ERP_HOME_SSH_PASS 为空"
+    else
+        STAGE="/tmp/erp-apk-backup-$$.apk"
+        if SSHPASS="$HOME_PASS" sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+                "$JUMP" "cat > $STAGE" < "$DEST" 2>/dev/null \
+           && REMOTE_MD5=$(SSHPASS="$HOME_PASS" sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+                "$JUMP" "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $FEINIU 'mkdir -p $REMOTE_APK_DIR && cat > $REMOTE_APK_DIR/$BACKUP_NAME' < $STAGE \
+                         && ssh -o StrictHostKeyChecking=no $FEINIU 'md5sum $REMOTE_APK_DIR/$BACKUP_NAME' | cut -d' ' -f1; rm -f $STAGE" 2>/dev/null | tail -1) \
+           && [ "$REMOTE_MD5" = "$MD5" ]; then
+            echo "   ✓ 已备份: $FEINIU:$REMOTE_APK_DIR/$BACKUP_NAME (md5 $REMOTE_MD5)"
+        else
+            apk_backup_fail "上传后 md5 不符或链路不通 (飞牛端: ${REMOTE_MD5:-未取到})"
+        fi
+    fi
+fi
 
 echo ""
 echo "=========================================="
