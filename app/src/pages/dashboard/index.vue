@@ -608,8 +608,15 @@ async function loadTodoItems() {
             icon: '📦', cat: '到货待检',
             title: (x.productName || x.billNo || '来料检验'),
             time: (x.billDate || '').toString().substring(5, 10) || '',
+            // v1.1.192: 点进去要落到「那张采购入库单」(IQC 的来源是 PUR_RECEIPT), 不是扫码页
+            kind: 'iqc',
             target: '/pages/quality/inspect',
-            extra: x.id ? { id: x.id } : {}
+            extra: {
+              id: x.id,
+              srcType: x.sourceBillType || '',
+              srcId: x.sourceBillId || '',
+              srcNo: x.sourceBillNo || ''
+            }
           })
         }
         return out
@@ -681,8 +688,15 @@ async function loadTodoItems() {
             icon: '🛡', cat: 'XK 复检',
             title: (x.productName || x.billNo || '成品复检') + ' 复检',
             time: (x.billDate || '').toString().substring(5, 10) || '',
+            // v1.1.192: OQC 的来源是 PRD_ORDER(工单) → 直接进那条工单的成品检验页
+            kind: 'oqc',
             target: '/pages/quality/inspect',
-            extra: x.id ? { id: x.id } : {}
+            extra: {
+              id: x.id,
+              srcType: x.sourceBillType || '',
+              srcId: x.sourceBillId || '',
+              srcNo: x.sourceBillNo || ''
+            }
           })
         }
         return out
@@ -701,8 +715,10 @@ async function loadTodoItems() {
             icon: '📗', cat: '半成品待入',
             title: (x.productName || x.prdOrderNo || '半成品') + (x.batchNo ? ' · ' + x.batchNo : ''),
             time: (x.billDate || '').toString().substring(5, 10) || '',
+            // v1.1.192: 带 draftId 进半成品入库页, 页面把这一条顶到列表最前并高亮
+            kind: 'semiin',
             target: '/pages/scan/semi-in',
-            extra: x.id ? { id: x.id } : {}
+            extra: { id: x.id, no: x.billNo || '' }
           })
         }
         return out
@@ -721,8 +737,10 @@ async function loadTodoItems() {
             icon: '📕', cat: '成品待入',
             title: (x.productName || x.prdOrderNo || '成品') + (x.batchNo ? ' · ' + x.batchNo : ''),
             time: (x.billDate || '').toString().substring(5, 10) || '',
+            // v1.1.192: 带 draftId 进成品入库页, 页面把这一条顶到列表最前并高亮
+            kind: 'finin',
             target: '/pages/scan/finished-in',
-            extra: x.id ? { id: x.id } : {}
+            extra: { id: x.id, no: x.billNo || '' }
           })
         }
         return out
@@ -734,12 +752,37 @@ async function loadTodoItems() {
 }
 
 
-function openTodo(t) {
-  if (!t || !t.target) return
-  if (t.extra && t.extra.id) {
-    try { uni.setStorageSync('erp_todo_focus', { target: t.target, id: t.extra.id }) } catch (e) {}
+// v1.1.192: 点待办要落到「那一项」, 不能把人丢回扫码页.
+//   原来 extra.id 只写进 erp_todo_focus —— 没有任何页面读它 (全项目只有这一处写),
+//   所以点进去永远是空白表单 / 「扫采购入库单飞鹅标签」扫码页.
+//   现在按记录类型直接深链:
+//     到货待检 (IQC, 来源 PUR_RECEIPT 采购入库单) → 采购入库单详情
+//     XK 复检  (OQC, 来源 PRD_ORDER 工单)         → 该工单的成品检验页
+//     半成品待入 / 成品待入 (入库单草稿)           → 对应入库页 + draftId 定位
+function todoUrl(t) {
+  const ex = (t && t.extra) || {}
+  const kind = (t && t.kind) || ''
+  const enc = encodeURIComponent
+  if (kind === 'iqc') {
+    if (ex.srcType === 'PUR_RECEIPT' && ex.srcId) return '/pages/purchase/receipt-detail?id=' + enc(ex.srcId)
+    if (ex.srcType === 'PRD_ORDER' && ex.srcId) return '/pages/scan/oqc?orderId=' + enc(ex.srcId)
+    if (ex.srcNo) return '/pages/quality/inspect?billNo=' + enc(ex.srcNo)
+  } else if (kind === 'oqc') {
+    if (ex.srcType === 'PRD_ORDER' && ex.srcId) return '/pages/scan/oqc?orderId=' + enc(ex.srcId)
+    if (ex.srcType === 'PRD_FINISHED_IN' && ex.srcId) return '/pages/scan/finished-in?draftId=' + enc(ex.srcId)
+    if (ex.srcNo) return '/pages/quality/inspect?billNo=' + enc(ex.srcNo)
+  } else if (kind === 'semiin') {
+    if (ex.id) return '/pages/scan/semi-in?draftId=' + enc(ex.id) + (ex.no ? '&billNo=' + enc(ex.no) : '')
+  } else if (kind === 'finin') {
+    if (ex.id) return '/pages/scan/finished-in?draftId=' + enc(ex.id) + (ex.no ? '&billNo=' + enc(ex.no) : '')
   }
-  navigateTo(t.target)
+  return (t && t.target) || ''
+}
+
+function openTodo(t) {
+  const url = todoUrl(t)
+  if (!url) return
+  navigateTo(url)
 }
 
 onMounted(async () => {

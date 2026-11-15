@@ -61,7 +61,8 @@
         <view v-if="listLoading" class="list-state">加载中...</view>
         <view v-else-if="!inRecords.length" class="list-state empty-mini">暂无成品入库记录</view>
         <template v-else>
-          <view v-for="r in inRecords" :key="r.id" class="in-row">
+          <view v-for="r in inRecords" :key="r.id" class="in-row"
+            :class="{ 'in-row-focus': String(r.id) === String(focusId) }">
             <view class="in-main">
               <text class="in-no">{{ r.billNo || '-' }}</text>
               <text class="in-st" :class="r.billStatus === 'CHECKED' ? 'ok' : 'draft'">
@@ -125,6 +126,8 @@ export default {
       checked: false,
       inRecords: [],
       listLoading: false,
+      // v1.1.192: 工作台「成品待入」深链带进来的单据 id —— 该条置顶并高亮
+      focusId: '',
       rowActing: false
     }
   },
@@ -169,7 +172,9 @@ export default {
     }
   },
   async onLoad(query) {
-    this.loadInList()
+    // v1.1.192: 工作台「成品待入」深链 —— 先等列表回来再定位, 避免 push 出重复行
+    await this.loadInList()
+    if (query && query.draftId) await this.applyDraft(query.draftId, query.billNo)
     // v1.1.142: 必须等 loadAll() 回来后再应用深链的 orderId —— 之前是同步调 onOrderPicked(),
     // 那一刻 orderList 还是空的, pickedOrder 取不到 → 整个「带出单位/数量/批号」的链路直接 return,
     // 单位就恒显示兜底文案「该商品未配置单位」(工单详情 → 建成品入库 这条深链 100% 命中).
@@ -177,6 +182,22 @@ export default {
     if (query && query.orderId) await this.applyOrder(query.orderId)
   },
   methods: {
+    // v1.1.192: 工作台「成品待入」深链定位 —— 列表里没有就按单号补拉一张, 再置顶高亮
+    async applyDraft(id, billNo) {
+      const sid = String(id)
+      this.focusId = sid
+      let hit = this.inRecords.find((x) => String(x.id) === sid)
+      if (!hit && billNo) {
+        try {
+          const r = await api.prdFinishedInPage({ pageNum: 1, pageSize: 5, billNo })
+          const recs = (r && r.records) || (r && r.data && r.data.records) || []
+          hit = recs.find((x) => String(x.id) === sid) || null
+        } catch (e) {
+          console.warn('[finished-in.applyDraft] 按单号补拉失败:', e)
+        }
+      }
+      if (hit) this.inRecords = [hit].concat(this.inRecords.filter((x) => String(x.id) !== sid))
+    },
     // v1.1.142: 深链/扫码带入工单 (列表里找不到就按 id 单独补拉, 别让用户白选一次)
     async applyOrder(id) {
       this.orderId = String(id)
@@ -493,6 +514,7 @@ export default {
 .list-state { text-align: center; color: #999; padding: 20px; font-size: 13px; }
 .empty-mini { padding: 20px; }
 .in-row { border: 1px solid #f0f0f0; border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+.in-row-focus { border-color: #1e6091; background: #f2f8fd; }
 .in-main { display: flex; align-items: center; justify-content: space-between; }
 .in-no { font-size: 14px; font-weight: 600; color: #303133; }
 .in-st { font-size: 11px; padding: 2px 8px; border-radius: 4px; }

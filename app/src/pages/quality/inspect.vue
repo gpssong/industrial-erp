@@ -71,10 +71,11 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
 import { doScan } from '../../utils/scan.js'
 import { guardPage } from '../../utils/appModuleEnabled.js'
+import { takePendingRoute, activeRouteQuery } from '../../utils/routeQuery.js'
 
 const TYPES = [
   { value: 'IQC', label: '来料检验' },
@@ -252,6 +253,23 @@ onMounted(() => {
     setTimeout(() => uni.switchTab({ url: '/pages/dashboard/index' }), 800)
     return
   }
+})
+
+// v1.1.192: 工作台「到货待检」原来只跳到本页空白扫码框, 现在带 billNo 直接定位采购入库单.
+// 取参按 v1.1.140 三档兜底 (同路由换 query 再进入时, onLoad 的 query 可能是上一趟的).
+const PAGE_PATH = '/pages/quality/inspect'
+function applyRoute(q) {
+  const no = q && q.billNo
+  if (!no) return
+  if (String(billNo.value) === String(no) && (loaded.value || loading.value)) return
+  type.value = 'IQC'
+  billNo.value = String(no)
+  onLoadReceipt()
+}
+onLoad((query) => applyRoute(takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH) || query))
+onShow(() => {
+  const q = takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH)
+  if (q) applyRoute(q)
 })
 </script>
 

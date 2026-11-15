@@ -3,6 +3,42 @@
 
 ## changelog (倒序)
 
+### 2026-11-15 晚 — v1.1.192 App 工作台「现场待办」点击直达对应单据（app-only 发布，H5 两站 + APK 已闭环）
+
+**触发**: 用户原话「现场待办列表点击以后进相应的项目。不是再扫二维码。」—— 之前四类待办点下去只会打开空白扫码页，现场师傅还得自己找单。
+
+**根因**: [dashboard/index.vue](../app/src/pages/dashboard/index.vue) 的 `openTodo()` 只写了一个 `erp_todo_focus` 键就跳固定 `target` 页，而 `erp_todo_focus` **全项目没有任何读取方**（死代码），待办本身也没带「是哪一张单/哪一个工单」的信息。
+
+**改法（纯 App 前端，零后端 / 零 SQL / 零 PC）**：
+
+| 待办类型 | 深链目标 | 落页效果 |
+|---|---|---|
+| 到货待检（IQC，来源采购入库单） | `/pages/purchase/receipt-detail?id=<srcId>` | 直接打开该入库单详情 |
+| 到货待检（来源其它单据） | `/pages/quality/inspect?billNo=<srcNo>` | 进货检验页自动带单号并拉起检验单 |
+| 成品检 / XK 复检（OQC，来源工单） | `/pages/scan/oqc?orderId=<srcId>` | 该工单的 OQC 现场检验页 |
+| 成品检（来源成品入库单） | `/pages/scan/finished-in?draftId=<id>&billNo=<no>` | 成品入库页，行置顶 + 高亮 |
+| 半成品待入 | `/pages/scan/semi-in?draftId=<id>&billNo=<no>` | 半成品入库页，行置顶 + 高亮 |
+| 成品待入 | `/pages/scan/finished-in?draftId=<id>&billNo=<no>` | 同上 |
+
+1. `todoUrl(t)` 按 `kind` + `extra`（srcType/srcId/srcNo/id/billNo）决定 URL，缺信息才回落原 `target`；删掉 `erp_todo_focus` 写入。
+2. 两个入库页新增 `applyDraft(id, billNo)`：`onLoad` 里**先 `await loadInList()` 再定位**（避免 v1.1.142 那类「列表还没回来就 push 出重复行」的竞态）；列表里没有就按 `billNo` 补拉一次（`prdSemiInPage`/`prdFinishedInPage` 只有 `billNo` 过滤，没有 by-id 端点），命中后置顶 + `.in-row-focus` 蓝色描边高亮。
+3. `quality/inspect.vue` 新增 `?billNo=` 入参，取参按 **v1.1.140 三档兜底**（`takePendingRoute` → `activeRouteQuery` → `onLoad` query）+ `onShow` 纠偏（同路由换 query 再进入时 onLoad 的 query 可能是上一趟的）。
+
+**验证（真机 Redmi M2007J1SC，装 1.1.192，ADB + WebView CDP 直读 DOM，登录态 gpssong）**：
+
+| 点击 | 落地 URL | 页面内容 |
+|---|---|---|
+| 到货待检 `ldpe` | `#/pages/purchase/receipt-detail?id=2121611949867859970` | 入库单详情 `RKP202611140005 · ldpe、lldpe`，批次 `251/WQ` / `SK216A08C1` |
+| XK 复检 `带鱼袋9*75*0.07` | `#/pages/scan/oqc?orderId=2112543587985600514` | 成品检验（OQC）`QI202610300002` / 工单 `PD202610200001`，13 项 |
+| 成品待入 `碳带 110*300` | `#/pages/scan/finished-in?draftId=2121470920317534209&billNo=PFI202611140007` | 列表行 `PFI202611140007` 置顶且 `in-row-focus` 命中（唯一高亮行） |
+| 我的 → 版本 | — | `v1.1.192` |
+
+⚠️ **半成品待入本轮无数据可点**（`.150` 主库 `prd_semi_in` 为空、页面显示「暂无半成品入库记录」），代码与成品入库同一条 `applyDraft` 路径，未单独取值验证。
+
+**产物**: H5 `index.html` `0d89a2271421d73bfcaa58db4fcbe118`（块 `pages-dashboard-index.Kn0-8Z-F.js` / `pages-scan-semi-in.DyB629u1.js` / `pages-scan-finished-in.B941fzwy.js` / `pages-quality-inspect.B0n9nMYG.js`）；APK `erp-app-20261115.apk` `a18ae7ba868e33cf2b49757708bef4a9`（4,519,702 B / versionCode 1192），已按约定备份到 `gpssong@192.168.0.32:/vol1/1000/mac使用/erp/erp-app-v1.1.192-20261115.apk`。
+
+**部署**: H5 整目录替换到 `.32` `/vol2/erp-system/app-h5/dist/build/h5`（restart `erp-app-h5`，容器口 `:18090` curl 回同 md5）与阿里云 `/opt/erp-system/app-h5`（`docker restart erp-app-h5`，`127.0.0.1:18090` 回同 md5）；`.150` 无 H5 容器、jar 无改动。⚠️ 车间手机需装 1.1.192 APK（APK 内嵌 H5，Web 端 H5 更新覆盖不到包内资源）。
+
 ### 2026-11-15 下午 — App 冷启动 33 秒的根因 = `home.93gushi.com` 陈旧 AAAA 记录（IPv6 黑洞）；同批修 CI perm 闸门误报（零版本变更）
 
 **触发**: 用户报「APP端关闭后再打开还是加载时间过长」+ 一张 CI 邮件（`Check Controller perm coverage (strict)` 失败）。
