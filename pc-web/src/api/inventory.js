@@ -22,7 +22,7 @@ export const invCheckApi = {
   page: (params) => request.get('/inventory/check/page', { params }),
   detail: (id) => request.get(`/inventory/check/${id}`),
   add: (data) => request.post('/inventory/check', data),
-  check: (id) => request.post(`/inventory/check/${id}/check`),
+  check: (id, payload) => request.post(`/inventory/check/${id}/check`, payload || {}),
   uncheck: (id) => request.post(`/inventory/check/${id}/uncheck`),
   delete: (id) => request.delete(`/inventory/check/${id}`),
 

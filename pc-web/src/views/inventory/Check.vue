@@ -113,6 +113,9 @@
           <el-table-column type="index" label="#" width="50" />
           <el-table-column prop="productCode" label="商品编码" width="140" />
           <el-table-column prop="productName" label="商品名称" min-width="160" show-overflow-tooltip />
+          <el-table-column label="批号" width="160" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.batchNo || '无批次' }}</template>
+          </el-table-column>
           <el-table-column label="账面" width="100" align="right">
             <template #default="{ row }">{{ formatNum(row.bookQty) }}</template>
           </el-table-column>
@@ -148,7 +151,51 @@
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button v-if="current && current.billStatus === 'DRAFT' && userStore.hasPerm('inventory:check:check')" type="success" @click="onCheck(current); detailVisible = false;">审核</el-button>
+        <el-button v-if="current && current.billStatus === 'DRAFT' && userStore.hasPerm('inventory:check:check')" type="success" @click="onCheck(current)">审核</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 审核: 盘亏明细选择出库批次 -->
+    <el-dialog v-model="checkVisible" title="审核盘点单 · 选择盘亏批次" width="980px" destroy-on-close>
+      <div v-loading="checkLoading">
+        <el-alert type="info" :closable="false" style="margin-bottom:10px">
+          盘亏按批次扣减库存; 不选/未分配齐全时无法审核. 盘亏数量与各批次数量合计必须一致.
+        </el-alert>
+        <el-empty v-if="!checkLoading && checkLines.length === 0" description="本单没有盘亏明细, 可直接审核" :image-size="80" />
+        <el-table v-else :data="checkLines" border size="small" max-height="420">
+          <el-table-column prop="productName" label="商品" min-width="170" show-overflow-tooltip />
+          <el-table-column label="盘亏数量" width="110" align="right">
+            <template #default="{ row }">{{ formatNum(row.outQty) }} {{ row.unitName }}</template>
+          </el-table-column>
+          <el-table-column label="从哪个批次扣减" min-width="380">
+            <template #default="{ row }">
+              <div v-for="(a, i) in row.allocs" :key="i" class="alloc-row">
+                <el-select v-model="a.batchNo" size="small" filterable style="width:210px" @change="onAllocBatchChange(row, i)">
+                  <el-option v-for="o in row.options" :key="o.batchNo" :value="o.batchNo"
+                             :label="`${o.batchNo || '无批次'} (可用 ${formatNum(o.qty)})`" />
+                </el-select>
+                <el-input-number v-model="a.qty" :precision="4" :min="0" size="small"
+                                 controls-position="right" style="width:130px" />
+                <el-button link type="danger" size="small" @click="row.allocs.splice(i, 1)">删</el-button>
+              </div>
+              <el-button link type="primary" size="small" @click="addAlloc(row)">+ 批次</el-button>
+              <div v-if="row.options.length === 0" class="alloc-hint">该商品在此仓库已无有库存的批次</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="已分配 / 应扣" width="150" align="right">
+            <template #default="{ row }">
+              <span :style="{ color: lineReady(row) ? '#67c23a' : '#f56c6c' }">
+                {{ formatNum(lineAllocated(row)) }} / {{ formatNum(row.outQty) }}
+              </span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-alert v-if="checkTip" type="error" :closable="false" style="margin-top:10px">{{ checkTip }}</el-alert>
+      </div>
+      <template #footer>
+        <el-button @click="checkVisible = false">取消</el-button>
+        <el-button type="warning" plain :disabled="checkLoading || checkLines.length === 0" @click="autoAllocateAll">自动分配</el-button>
+        <el-button type="success" :loading="checkSaving" :disabled="checkLoading" @click="confirmCheck">确认审核</el-button>
       </template>
     </el-dialog>
 
@@ -233,7 +280,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Plus } from '@element-plus/icons-vue'
-import { invCheckApi } from '@/api/inventory'
+import { invCheckApi, stockApi } from '@/api/inventory'
 import { useUserStore } from '@/store/user'
 import { warehouseApi, productApi } from '@/api/base'
 
@@ -248,6 +295,13 @@ const productList = ref([])
 const detailVisible = ref(false)
 const detailLoading = ref(false)
 const current = ref(null)
+
+const checkVisible = ref(false)
+const checkLoading = ref(false)
+const checkSaving = ref(false)
+const checkRow = ref(null)
+const checkLines = ref([])
+const checkTip = ref('')
 
 const addVisible = ref(false)
 const formRef = ref(null)
@@ -324,19 +378,132 @@ async function onView(row) {
 }
 
 async function onCheck(row) {
-  // P1-6: 审核会触发盈亏入库/出库, 关键操作必须二次确认
+  checkRow.value = row
+  checkVisible.value = true
+  checkLoading.value = true
+  checkTip.value = ''
+  checkLines.value = []
+  try {
+    const detail = (await invCheckApi.detail(row.id)).data || {}
+    const warehouseId = detail.warehouseId || row.warehouseId
+    const losses = (detail.details || []).filter(d => Number(d.diffQty) < 0)
+    const batchCache = new Map()
+    for (const d of losses) {
+      if (!batchCache.has(d.productId)) {
+        batchCache.set(d.productId, (await stockApi.batches(warehouseId, d.productId)).data || [])
+      }
+      const options = batchCache.get(d.productId)
+        .filter(b => Number(b.qty) > 0)
+        .map(b => ({ batchNo: b.batchNo || '', qty: Number(b.qty), lastInDate: b.lastInDate || '' }))
+      checkLines.value.push({
+        detailId: d.id,
+        productId: d.productId,
+        productName: d.productName,
+        unitName: d.unitName || '',
+        outQty: Math.abs(Number(d.diffQty)),
+        options,
+        allocs: []
+      })
+    }
+    autoAllocateAll()
+  } catch (e) {
+    ElMessage.error('加载批次库存失败: ' + (e.message || ''))
+  } finally {
+    checkLoading.value = false
+  }
+}
+
+function lineAllocated(row) {
+  return (row.allocs || []).reduce((s, a) => s + Number(a.qty || 0), 0)
+}
+
+function lineReady(row) {
+  return Math.abs(lineAllocated(row) - Number(row.outQty || 0)) <= 0.0001
+}
+
+function usedByOthers(row, batchNo) {
+  return checkLines.value
+    .filter(l => l !== row && l.productId === row.productId)
+    .reduce((s, l) => s + (l.allocs || [])
+      .filter(a => a.batchNo === batchNo)
+      .reduce((x, a) => x + Number(a.qty || 0), 0), 0)
+}
+
+function batchLeft(row, batchNo) {
+  const opt = (row.options || []).find(o => o.batchNo === batchNo)
+  if (!opt) return 0
+  return opt.qty - usedByOthers(row, batchNo)
+}
+
+function addAlloc(row) {
+  const used = new Set((row.allocs || []).map(a => a.batchNo))
+  const next = (row.options || []).find(o => !used.has(o.batchNo)) || row.options[0]
+  row.allocs.push({ batchNo: next ? next.batchNo : '', qty: 0 })
+}
+
+function onAllocBatchChange(row, i) {
+  row.allocs[i].qty = Math.min(Number(row.allocs[i].qty || 0), Math.max(batchLeft(row, row.allocs[i].batchNo), 0))
+}
+
+function autoAllocateAll() {
+  for (const row of checkLines.value) {
+    row.allocs = []
+    let remaining = Number(row.outQty || 0)
+    for (const o of row.options) {
+      if (remaining <= 0) break
+      const left = batchLeft(row, o.batchNo)
+      const take = Math.min(left, remaining)
+      if (take <= 0) continue
+      row.allocs.push({ batchNo: o.batchNo, qty: take })
+      remaining -= take
+    }
+  }
+}
+
+async function confirmCheck() {
+  checkTip.value = ''
+  if (!checkRow.value) return
+  for (const row of checkLines.value) {
+    if (!lineReady(row)) {
+      checkTip.value = `「${row.productName}」批次分配合计 ${formatNum(lineAllocated(row))} 与盘亏数量 ${formatNum(row.outQty)} 不一致`
+      return
+    }
+    for (const a of row.allocs) {
+      if (Number(a.qty) <= 0) {
+        checkTip.value = `「${row.productName}」批次分配数量必须大于 0`
+        return
+      }
+      if (Number(a.qty) > batchLeft(row, a.batchNo) + 0.0001) {
+        checkTip.value = `「${row.productName}」批次 ${a.batchNo || '无批次'} 超出可用库存`
+        return
+      }
+    }
+  }
+  const payload = {
+    details: checkLines.value.map(l => ({
+      detailId: l.detailId,
+      allocations: l.allocs.map(a => ({ batchNo: a.batchNo, qty: a.qty }))
+    }))
+  }
   try {
     await ElMessageBox.confirm(
-      `确认审核盘点单 ${row.billNo}?\n\n审核后将根据差异自动调整库存:\n• 盘盈 → 入库 (按成本价)\n• 盘亏 → 出库\n• 生成库存台账记录 (单据类型: 盘点)\n• 单据状态变为"已调整", 不可再修改\n`,
+      checkLines.value.length === 0
+        ? `确认审核盘点单 ${checkRow.value.billNo}? 本单没有盘亏明细, 将只处理盘盈入库.`
+        : `确认审核盘点单 ${checkRow.value.billNo}? 盘亏将按所选批次扣减库存, 审核后不可再修改.`,
       '审核确认', { type: 'warning', confirmButtonText: '确认审核', cancelButtonText: '取消' }
     )
   } catch { return }
+  checkSaving.value = true
   try {
-    await invCheckApi.check(row.id)
+    await invCheckApi.check(checkRow.value.id, payload)
     ElMessage.success('审核成功, 库存已按差异调整')
+    checkVisible.value = false
+    detailVisible.value = false
     loadData()
   } catch (e) {
     ElMessage.error(e.message || '审核失败')
+  } finally {
+    checkSaving.value = false
   }
 }
 
@@ -505,4 +672,6 @@ onMounted(() => {
 .search-bar { padding: 16px; background: #fff; border-radius: 6px; margin-bottom: 12px; }
 .page-card { padding: 16px; background: #fff; border-radius: 6px; }
 .pager { margin-top: 12px; text-align: right; }
+.alloc-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.alloc-hint { color: #f56c6c; font-size: 12px; }
 </style>

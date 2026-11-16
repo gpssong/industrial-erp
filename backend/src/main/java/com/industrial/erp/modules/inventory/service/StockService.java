@@ -205,7 +205,9 @@ public class StockService {
                     bn == null ? "<无>" : bn, detail));
             }
             if (stock.getQty().compareTo(mainQty) < 0) {
-                throw BizException.of("库存不足, 商品=" + product.getProductName() + ", 当前库存=" + stock.getQty() + ", 需要=" + mainQty);
+                throw BizException.of("库存不足, 商品=" + product.getProductName()
+                        + ", 批次=" + (bn == null ? "<无批次>" : bn)
+                        + ", 当前库存=" + stock.getQty() + ", 需要=" + mainQty);
             }
             BigDecimal beforeQty = stock.getQty();
             BigDecimal beforeAvgCost = stock.getAvgCost() == null ? BigDecimal.ZERO : stock.getAvgCost();

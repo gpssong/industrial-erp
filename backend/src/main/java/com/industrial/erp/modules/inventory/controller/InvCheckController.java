@@ -5,6 +5,7 @@ import com.industrial.erp.common.CreateByNameInjector;
 import com.industrial.erp.common.PageResult;
 import com.industrial.erp.common.R;
 import com.industrial.erp.modules.inventory.dto.AppCheckSubmitDTO;
+import com.industrial.erp.modules.inventory.dto.InvCheckCheckDTO;
 import com.industrial.erp.modules.inventory.entity.InvCheck;
 import com.industrial.erp.modules.inventory.service.InvCheckService;
 import com.industrial.erp.modules.inventory.vo.AppCheckSubmitVO;
@@ -56,7 +57,7 @@ public class InvCheckController {
     @Operation(summary = "审核盘点单 (生成盈亏单)")
     @SaCheckPermission(value = {"inventory:check:check"}, orRole = "admin")
     @PostMapping("/{id}/check")
-    public R<Void> check(@PathVariable Long id) { service.check(id); return R.ok(); }
+    public R<Void> check(@PathVariable Long id, @RequestBody(required = false) InvCheckCheckDTO req) { service.check(id, req); return R.ok(); }
 
     /** v1.1.11+ 反审核 (status-only) */
     @SaCheckPermission(value = {"inventory:check:check"}, orRole = "admin")

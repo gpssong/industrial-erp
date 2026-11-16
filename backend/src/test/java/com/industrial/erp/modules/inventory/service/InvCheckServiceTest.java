@@ -1,13 +1,16 @@
 package com.industrial.erp.modules.inventory.service;
 
+import com.industrial.erp.common.Constants;
 import com.industrial.erp.exception.BizException;
 import com.industrial.erp.modules.base.entity.BaseProduct;
 import com.industrial.erp.modules.base.entity.BaseWarehouse;
 import com.industrial.erp.modules.base.mapper.BaseProductMapper;
 import com.industrial.erp.modules.base.mapper.BaseWarehouseMapper;
 import com.industrial.erp.modules.inventory.dto.AppCheckSubmitDTO;
+import com.industrial.erp.modules.inventory.dto.InvCheckCheckDTO;
 import com.industrial.erp.modules.inventory.entity.InvCheck;
 import com.industrial.erp.modules.inventory.entity.InvCheckDetail;
+import com.industrial.erp.modules.inventory.entity.InvStock;
 import com.industrial.erp.modules.inventory.mapper.InvCheckDetailMapper;
 import com.industrial.erp.modules.inventory.mapper.InvCheckMapper;
 import com.industrial.erp.modules.inventory.mapper.InvStockMapper;
@@ -17,6 +20,7 @@ import com.industrial.erp.utils.BillNoGenerator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -32,10 +36,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -209,5 +218,176 @@ class InvCheckServiceTest {
         assertThat(vo.getTotalDiffQty().compareTo(BigDecimal.ZERO)).isEqualTo(0);
         assertThat(vo.getTotalDiffAmount().compareTo(BigDecimal.ZERO)).isEqualTo(0);
         assertThat(vo.getBillStatus()).isEqualTo("DRAFT");
+    }
+
+    // ---------- check(): 盘点审核按批次出库 ----------
+
+    private static final Long CHECK_ID = 1L;
+    private static final Long DETAIL_ID = 11L;
+    private static final String BILL_NO = "CK-APP-20261115-2802B";
+    private static final String WH_NAME = "成品仓库";
+
+    private void givenDraftCheckWithDetail(InvCheckDetail d) {
+        InvCheck c = new InvCheck();
+        c.setId(CHECK_ID);
+        c.setBillNo(BILL_NO);
+        c.setWarehouseId(WH_ID);
+        c.setBillStatus(Constants.STATUS_DRAFT);
+        when(checkMapper.selectById(CHECK_ID)).thenReturn(c);
+        when(checkDetailMapper.selectByCheckId(CHECK_ID)).thenReturn(List.of(d));
+
+        BaseWarehouse wh = new BaseWarehouse();
+        wh.setId(WH_ID);
+        wh.setWarehouseName(WH_NAME);
+        when(warehouseMapper.selectById(WH_ID)).thenReturn(wh);
+    }
+
+    private static InvCheckDetail lossDetail(String batchNo, String bookQty, String actualQty) {
+        InvCheckDetail d = new InvCheckDetail();
+        d.setId(DETAIL_ID);
+        d.setCheckId(CHECK_ID);
+        d.setProductId(PROD_A);
+        d.setProductName("长晟（58+19+19）*61");
+        d.setUnitId(1L);
+        d.setBatchNo(batchNo);
+        d.setBookQty(new BigDecimal(bookQty));
+        d.setActualQty(new BigDecimal(actualQty));
+        d.setDiffQty(new BigDecimal(actualQty).subtract(new BigDecimal(bookQty)));
+        return d;
+    }
+
+    private static InvStock stock(String batchNo, String qty) {
+        InvStock s = new InvStock();
+        s.setBatchNo(batchNo);
+        s.setQty(new BigDecimal(qty));
+        return s;
+    }
+
+    @Test
+    @DisplayName("check 盘亏明细无批次: 从该商品实际有库存的批次扣减, 不落到 batch_no IS NULL 的 0 库存行")
+    void check_lossWithoutBatch_deductsFromRealBatch() {
+        InvCheckDetail d = lossDetail(null, "5000", "0");
+        givenDraftCheckWithDetail(d);
+        when(stockMapper.listByWarehouseAndProduct(WH_ID, PROD_A)).thenReturn(List.of(
+                stock(null, "0"),
+                stock("PD202609170002", "5000")));
+
+        service.check(CHECK_ID, null);
+
+        verify(stockService, times(1)).outStock(
+                eq(Constants.LEDGER_CHECK), eq(CHECK_ID), eq(BILL_NO), eq(DETAIL_ID),
+                eq(WH_ID), eq(WH_NAME), isNull(), isNull(),
+                eq(PROD_A), eq(1L), isNull(), eq("PD202609170002"),
+                argThat(q -> q.compareTo(new BigDecimal("5000")) == 0),
+                isNull(), eq(BILL_NO), isNull(), isNull(), anyString());
+        assertThat(d.getBatchNo()).isEqualTo("PD202609170002");
+        verify(checkDetailMapper).updateById(d);
+        verify(checkMapper).updateById(argThat((InvCheck c) -> Constants.STATUS_ADJUSTED.equals(c.getBillStatus())));
+    }
+
+    @Test
+    @DisplayName("check 盘亏数量跨多个批次: 按批次顺序拆分扣减, 明细回写多个批次号")
+    void check_lossAcrossBatches_splitsSequentially() {
+        InvCheckDetail d = lossDetail(null, "5000", "0");
+        givenDraftCheckWithDetail(d);
+        when(stockMapper.listByWarehouseAndProduct(WH_ID, PROD_A)).thenReturn(List.of(
+                stock("B1", "4000"),
+                stock("B2", "3000")));
+
+        service.check(CHECK_ID, null);
+
+        verify(stockService).outStock(
+                eq(Constants.LEDGER_CHECK), eq(CHECK_ID), eq(BILL_NO), eq(DETAIL_ID),
+                eq(WH_ID), eq(WH_NAME), isNull(), isNull(),
+                eq(PROD_A), eq(1L), isNull(), eq("B1"),
+                argThat(q -> q.compareTo(new BigDecimal("4000")) == 0),
+                isNull(), eq(BILL_NO), isNull(), isNull(), anyString());
+        verify(stockService).outStock(
+                eq(Constants.LEDGER_CHECK), eq(CHECK_ID), eq(BILL_NO), eq(DETAIL_ID),
+                eq(WH_ID), eq(WH_NAME), isNull(), isNull(),
+                eq(PROD_A), eq(1L), isNull(), eq("B2"),
+                argThat(q -> q.compareTo(new BigDecimal("1000")) == 0),
+                isNull(), eq(BILL_NO), isNull(), isNull(), anyString());
+        assertThat(d.getBatchNo()).isEqualTo("B1|B2");
+    }
+
+    @Test
+    @DisplayName("check 盘亏传了显式批次分配: 严格按分配扣减, 不自动补差")
+    void check_lossWithExplicitAllocation_honorsSelection() {
+        InvCheckDetail d = lossDetail(null, "5000", "0");
+        givenDraftCheckWithDetail(d);
+        when(stockMapper.listByWarehouseAndProduct(WH_ID, PROD_A)).thenReturn(List.of(
+                stock("PD202609170002", "5000")));
+
+        InvCheckCheckDTO.BatchQty bq = new InvCheckCheckDTO.BatchQty();
+        bq.setBatchNo("PD202609170002");
+        bq.setQty(new BigDecimal("5000"));
+        InvCheckCheckDTO.Line line = new InvCheckCheckDTO.Line();
+        line.setDetailId(DETAIL_ID);
+        line.setAllocations(List.of(bq));
+        InvCheckCheckDTO req = new InvCheckCheckDTO();
+        req.setDetails(List.of(line));
+
+        service.check(CHECK_ID, req);
+
+        verify(stockService, times(1)).outStock(
+                eq(Constants.LEDGER_CHECK), eq(CHECK_ID), eq(BILL_NO), eq(DETAIL_ID),
+                eq(WH_ID), eq(WH_NAME), isNull(), isNull(),
+                eq(PROD_A), eq(1L), isNull(), eq("PD202609170002"),
+                argThat(q -> q.compareTo(new BigDecimal("5000")) == 0),
+                isNull(), eq(BILL_NO), isNull(), isNull(), anyString());
+        assertThat(d.getBatchNo()).isEqualTo("PD202609170002");
+    }
+
+    @Test
+    @DisplayName("check 显式分配合计与差异数量不一致: 抛 BizException, 不扣任何库存")
+    void check_explicitAllocationSumMismatch_throws() {
+        InvCheckDetail d = lossDetail(null, "5000", "0");
+        givenDraftCheckWithDetail(d);
+
+        InvCheckCheckDTO.BatchQty bq = new InvCheckCheckDTO.BatchQty();
+        bq.setBatchNo("PD202609170002");
+        bq.setQty(new BigDecimal("4000"));
+        InvCheckCheckDTO.Line line = new InvCheckCheckDTO.Line();
+        line.setDetailId(DETAIL_ID);
+        line.setAllocations(List.of(bq));
+        InvCheckCheckDTO req = new InvCheckCheckDTO();
+        req.setDetails(List.of(line));
+
+        assertThatThrownBy(() -> service.check(CHECK_ID, req))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不一致");
+        verifyNoInteractions(stockService);
+    }
+
+    @Test
+    @DisplayName("check 盘亏数量超过所有批次可用库存: 抛 BizException, 不扣任何库存")
+    void check_lossExceedsBatchStock_throws() {
+        InvCheckDetail d = lossDetail(null, "5000", "0");
+        givenDraftCheckWithDetail(d);
+        when(stockMapper.listByWarehouseAndProduct(WH_ID, PROD_A)).thenReturn(List.of(
+                stock(null, "0"),
+                stock("PD202609170002", "3000")));
+
+        assertThatThrownBy(() -> service.check(CHECK_ID, null))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("不足");
+        verifyNoInteractions(stockService);
+    }
+
+    @Test
+    @DisplayName("check 盘盈明细: 仍按明细自身批次入库")
+    void check_gain_stillUsesDetailBatch() {
+        InvCheckDetail d = lossDetail("PD202609170002", "0", "10");
+        givenDraftCheckWithDetail(d);
+
+        service.check(CHECK_ID, null);
+
+        verify(stockService).inStock(
+                eq(Constants.LEDGER_CHECK), eq(CHECK_ID), eq(BILL_NO), eq(DETAIL_ID),
+                eq(WH_ID), eq(WH_NAME), isNull(), isNull(),
+                eq(PROD_A), eq(1L), isNull(), eq("PD202609170002"),
+                argThat(q -> q.compareTo(new BigDecimal("10")) == 0),
+                isNull(), eq(BILL_NO), isNull(), isNull(), anyString());
     }
 }

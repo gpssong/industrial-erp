@@ -3,6 +3,49 @@
 
 ## changelog (倒序)
 
+### 2026-11-16 — v1.1.194 库存盘点审核改「按批次扣减」，盘亏不再误报「当前库存=0」（jar + PC dist 三站已上线）
+
+**触发**: 用户原话「长晟（58+19+19）*61 库存有 5000，而且有批号，但库存盘点时提示：库存不足, 商品=长晟（58+19+19）*61, 当前库存=0.0000, 需要=5000.0000，应该和批号后加的有关，帮我盘点审核时选择批号。修复这个错误。」
+
+**根因（只读取证，非猜测）**：
+
+| 查了什么 | 结论 |
+|---|---|
+| 盘点单 `CK-APP-20261115-2802B`（id `2121770655842631681`，仓库 `2073701024629047297`） | `bill_status=DRAFT`；明细 id `2121770655859408897`、`batch_no=NULL`、账面 5000 / 实盘 0 / 差异 -5000 |
+| `inv_stock` 同仓同商品（`2100424226873356289`） | **两行**：`batch_no IS NULL` qty=0 与 `PD202609170002` qty=5000 |
+| 旧审核逻辑 `stockService.outStock(…, d.getBatchNo(), …)` | 明细批号为空 ⇒ `outStock(null)` 精确命中 `batch_no IS NULL` 的 **0 量幽灵行** ⇒ 报「当前库存=0.0000」，而真实库存是跨批次合计 5000 |
+
+即：App 提交盘点时把**跨批次合计**记在一行、批号留空，审核却按「单一批次」扣减 —— 批号改造后取数口径不一致。
+
+**改法（两趟算法：先规划校验，再动库存）**：
+
+1. [InvCheckService.check(Long id, InvCheckCheckDTO req)](backend/src/main/java/com/industrial/erp/modules/inventory/service/InvCheckService.java)：第一趟遍历盘亏明细生成扣减计划 —— 有显式分配走 `planExplicitBatches()`（合计必须等于盘亏量，超批次可用量报「批次库存不足, 商品=…, 批次=…, 可用=…, 需要=…」），没给则走 `planAutoByBatch()`（按该商品在当前仓库的**真实批次行**顺序拆分，不足整单不执行并列出各批次余量）；第二趟才逐条 `outStock(批次, 数量)`。盘盈仍按明细自身批次 `inStock`。同一商品多明细共用一份可用量缓存，避免超扣。扣完把实际批次回写 `inv_check_detail.batch_no`（多批次用 `A|B`）。
+2. 新增 [InvCheckCheckDTO](backend/src/main/java/com/industrial/erp/modules/inventory/dto/InvCheckCheckDTO.java)：`details:[{detailId, allocations:[{batchNo, qty}]}]`；**不传 body = 全部按真实批次自动拆分**（向后兼容 App/旧客户端）。
+3. [InvCheckController.check](backend/src/main/java/com/industrial/erp/modules/inventory/controller/InvCheckController.java) 改 `@RequestBody(required = false)`。
+4. [InvStockController](backend/src/main/java/com/industrial/erp/modules/inventory/controller/InvStockController.java) `/stock/batches` 的 OR 权限补 `inventory:check:check` / `inventory:check:list` —— 仓管在盘点弹窗里能读批次候选，不必再借超管权限。
+5. [StockService](backend/src/main/java/com/industrial/erp/modules/inventory/service/StockService.java) 库存不足消息补 `批次=` 维度。
+6. [Check.vue](pc-web/src/views/inventory/Check.vue)：明细表加「批号」列；「审核」改为打开「审核盘点单 · 选择盘亏批次」弹窗 —— 逐行 el-select 批次（显示可用量）+ 数量、`+ 批次` / 删除 / 自动分配，底部实时「已分配/应扣」，不一致禁止提交；提交 `{details:[{detailId, allocations}]}`。无盘亏行时按钮直接走原逻辑。
+
+**测试**：[InvCheckServiceTest](backend/src/test/java/com/industrial/erp/modules/inventory/service/InvCheckServiceTest.java) 新增 6 例（无损批次扣真实批次 / 跨批次顺序拆分 / 显式分配 / 合计不符 / 批次不足 / 盘盈仍用明细批次），该类 10/10 绿，后端全量 **771 例 0 失败**；pc-web ESLint + `vite build` 通过。
+
+**产物与部署（三站一致）**：
+
+| 产物 | md5 | 落地 |
+|---|---|---|
+| jar `industrial-erp-1.0.4.jar`（103,179,335 B） | `fc99359e072fefdb2f38e0f648d9e115` | `.32` / `.150` 镜像 `erp-system-backend:1.1.194`（镜像本体 md5 核过）、阿里云 `erp-backend:1.1.194`；三站 `ERP_VERSION=1.1.194` |
+| PC `index.html` | `eb94d9a9aecf2fd4b004e7abd5dfcc8a` | `.150:8088` / `.32:18080` / 阿里云 `:18080` 从对外端口 curl 回同一 md5，新 chunk `assets/Check-Bv_IjyQy.js` 200 |
+
+版本号七处对齐 1.1.194（`check-version.sh` 7×OK）。
+
+**非超管实测（`.150` 主站，gpssong1 / 铜板 / WAREHOUSE_MGR+FINANCE / isAdmin=0 / 184 perms，临时 Sa-Token 会话）**：
+
+- 盘点列表 33 条，`CK-APP-20261115-2802B` 点「审核」→ 弹窗正常：商品「长晟（58+19+19）*61」、盘亏数量 5,000、批次下拉 `PD202609170002 (可用 5,000)`、自动分配 5,000 / 5,000，不再出现「库存不足 … 当前库存=0」。
+- 两条**不落库**负例：合计 1,000 对 5,000 → 「批次分配合计 1000 与盘亏数量 5000 不一致, 商品=…」；批次 `NO_SUCH_BATCH` 5,000 → 「批次库存不足 … 可用=0, 需要=5000」。事后备库复核：单据仍 DRAFT、明细 `batch_no` 仍 NULL、`inv_stock` 仍 0 + 5,000。
+
+**⚠️ 数据注意**: 该草稿的**实盘数量是 0**，确认审核会把 5000 扣成 0；按实物盘点数决定（PC 盘点单不支持改实盘数，只能是「按 0 审核」或「删单重盘」）。
+
+**App 侧未改**：App 盘点提交仍是跨批次合计 + 批号留空，审核端已能自动拆分；若要 App 提交时就带批号，另立需求。
+
 ### 2026-11-15 晚 — v1.1.193 App 吹膜/制袋开工的「生产环境检查 (GB 31603, 11 项)」默认全部判「符合」（app-only 发布，H5 两站 + APK 已闭环）
 
 **触发**: 用户原话「APP端吹膜开工的环境检查全部默认合格。」+ 附件截图（`吹膜开工确认 · PD202611030002`，11 项「符合」全绿）。
