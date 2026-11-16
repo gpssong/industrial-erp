@@ -18,5 +18,8 @@ EXPOSE 80
 # v1.1.11+: USER root (原 USER nginx 在 alpine 上跑 nginx 绑 80 端口被拒)
 # 改为 root + 修 /var/cache/nginx /var/run/nginx.pid 权限, 容器是内网服务, 安全可接受
 RUN chown -R nginx:nginx /var/cache/nginx /var/run/nginx.pid /var/log/nginx 2>/dev/null || true
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/ || exit 1
+# 2026-11-16: wget 必须带 -T 超时。
+# 原写法 `wget -qO- http://127.0.0.1/` 没有读超时, nginx 一旦不响应, 探测进程会一直挂着
+# (实测挂了 2 分钟), healthcheck 每 30s 探一次 → 挂死进程持续堆积, 还会拖住优雅停机。
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+  CMD wget --spider -q -T 3 http://127.0.0.1/ || exit 1

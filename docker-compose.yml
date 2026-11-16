@@ -166,6 +166,11 @@ services:
     image: erp-system-pc-web:1.1.49
     container_name: erp-pc-web
     restart: unless-stopped
+    # 2026-11-16: worker_shutdown_timeout 只允许 main 上下文 (nginx.conf 在镜像里被 include 进
+    # http 块, 写进 conf.d 会 emerg 崩溃循环)。用 -g 注入: 优雅停机最多等 10s。
+    command: ["nginx", "-g", "daemon off; worker_shutdown_timeout 10s;"]
+    # 比 nginx 的 10s 留 5s 余量, 让 worker 自己退干净而不是被 SIGKILL
+    stop_grace_period: 15s
     depends_on:
       backend:
         condition: service_healthy
@@ -174,16 +179,21 @@ services:
       - "18080:80"
     volumes:
       - /volume3/docker/erp-system/pc-web/dist:/usr/share/nginx/html:ro
+      # 2026-11-16: access_log 落宿主文件, 不写 stdout。
+      # 之前写 stdout, docker 日志管道一旦停止排空, worker 写日志就阻塞 -> 请求处理不完 -> 整站假死。
+      # 目录不存在时 compose 会自动创建 (create_host_path)。
+      - /volume3/docker/erp-system/pc-web/logs:/var/log/nginx
     networks: [erp-net]
     deploy:
       resources:
         limits:
           memory: 128M
     # v1.1.49 P1-13: 健康检查 — nginx 是否响应根路径
+    # 2026-11-16: wget 必须带 -T 超时。原写法没有读超时, nginx 不响应时探测进程会一直挂着。
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:80/"]
+      test: ["CMD", "wget", "--spider", "-q", "-T", "3", "http://localhost:80/"]
       interval: 30s
-      timeout: 3s
+      timeout: 5s
       retries: 3
       start_period: 10s
 

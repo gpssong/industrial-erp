@@ -1,11 +1,18 @@
 #!/bin/bash
 # =============================================================================
-# erp-health-check.sh — P1-7 巡检脚本 (home / feiniu / aliyun 三种角色)
+# erp-health-check.sh — 巡检脚本 (home / feiniu / aliyun 三种角色)
+#
+# 拓扑口径 (2026-11-10 反转后):
+#   home   = .150 群晖   主站 + MySQL 主库 (可写, server_id=1)
+#   aliyun = 阿里云      只读热备 (server_id=3, ro/sro=1), nginx 反代桥接回 .150
+#   feiniu = .32 飞牛    备份站 (server_id=2), 链式复制 .150 -> 阿里云 -> .32
+# 不自动接管: erp-failover-guard 保持停用, 本脚本只告警。
 #
 # 用法:  erp-health-check.sh home|feiniu|aliyun
 # 配置:  /etc/erp-health.env (可选, 内部可设 ALERT_WEBHOOK=企业微信机器人地址)
 # 行为:  每 10 分钟由 cron 触发; 失败时写日志, 状态变化或持续失败每小时告警一次,
 #        恢复正常时发送一次恢复通知. 未配置 ALERT_WEBHOOK 时只写本地日志.
+# 2026-11-16: 新增 pc-web 假死自愈 (home 角色; 30 分钟内最多自动重启一次).
 # =============================================================================
 set -u
 export PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
@@ -76,21 +83,101 @@ mysql_replica_check() {
     fi
 }
 
+# 只认 ERP 自己的 JSON: DSM/静态站对任意路径都回 200 text/html, 单看状态码会长期假 OK
+check_api() {
+    local name="$1" url="$2" host="${3:-}" body code
+    if [ -n "$host" ]; then
+        body=$(curl -s -m 8 -H "Host: $host" -w '\n@@HTTP@@%{http_code}' "$url" 2>/dev/null)
+    else
+        body=$(curl -s -m 8 -w '\n@@HTTP@@%{http_code}' "$url" 2>/dev/null)
+    fi
+    code=${body##*@@HTTP@@}
+    body=${body%@@HTTP@@*}
+    if [ "$code" != "200" ]; then
+        fail "$name 不可用 (HTTP $code, 期望 200) $url"
+    elif ! printf '%s' "$body" | grep -q '"captchaKey"'; then
+        fail "$name 回了 200 但不是 ERP 验证码 JSON (疑似 DSM/静态页兜底) $url"
+    fi
+}
+
+# 密码取容器自身 env, 不落盘、不进进程参数、不回显
+mysql_q() {
+    docker exec "$1" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --default-character-set=utf8mb4 -e "$1"' sh "$2" 2>/dev/null
+}
+
+mysql_writable_check() {
+    # $1=容器名 $2=期望的 read_only+super_read_only (主库 00 / 热备 11) $3=角色名
+    local c="$1" want="$2" role="$3" flags
+    flags=$(mysql_q "$c" "SELECT CONCAT(@@read_only,@@super_read_only) AS f" | awk 'NR==2{print $1}')
+    [ -n "$flags" ] || { fail "无法读取 MySQL $role 只读标志 ($c)"; return; }
+    [ "$flags" = "$want" ] || fail "MySQL $role 只读标志=$flags, 期望 $want ($c)"
+}
+
+mysql_downstream_check() {
+    # SHOW REPLICAS 的 Host 列是空的, 默认 awk 会把 Port 挤到 $2; 只按 $1=Server_Id 判
+    local c="$1" want="$2" out
+    out=$(mysql_q "$c" "SHOW REPLICAS")
+    [ -n "$out" ] || { fail "无法读取下游复制列表 ($c)"; return; }
+    printf '%s\n' "$out" | awk -v w="$want" 'NR>1 && $1==w {f=1} END{exit !f}' \
+        || fail "下游 (server_id=$want) 未挂到主库 ($c)"
+}
+
+backend_running_healthy() {
+    # exited 容器会保留最后一次 Health.Status=healthy, 必须同时判 Running
+    docker inspect -f '{{.State.Running}} {{.State.Health.Status}}' "$1" 2>/dev/null \
+        | grep -q '^true healthy$'
+}
+
+# 2026-11-16: pc-web 假死自愈。
+# 11-16 的事故里容器一直是 Up, 只是 nginx 不响应, docker 的 restart:unless-stopped 不会触发,
+# 只能人工登录处理。巡检这里补一次自动重启 (30 分钟窗口内只重启一次, 避免和人工操作打架)。
+pcweb_state() {
+    # docker 卡死时 inspect 也会阻塞, 必须带超时
+    timeout 15 docker inspect -f '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' erp-pc-web 2>/dev/null
+}
+
+pcweb_guard() {
+    local st now last i
+    st=$(pcweb_state)
+    [ "$st" = "true healthy" ] && return 0
+    now=$(date +%s); last=$(cat "$STATE_DIR/pcweb-restart-at" 2>/dev/null || echo 0)
+    if [ $((now - last)) -lt 1800 ]; then
+        fail "erp-pc-web 异常 ($st), 30 分钟内已自动重启过, 本次不再重启"
+        return 0
+    fi
+    log "erp-pc-web 异常 ($st), 自动重启"
+    printf '%s' "$now" > "$STATE_DIR/pcweb-restart-at"
+    timeout 60 docker restart erp-pc-web >>"$LOG_FILE" 2>&1 \
+        || { fail "erp-pc-web 自动重启失败或超时 ($st)"; return 0; }
+    for i in $(seq 1 20); do
+        sleep 3
+        st=$(pcweb_state)
+        [ "$st" = "true healthy" ] && { log "erp-pc-web 自动重启后恢复健康"; return 0; }
+    done
+    fail "erp-pc-web 自动重启后仍异常 ($st)"
+}
+
 case "$ROLE" in
   home)
-    check_http "主站 PC" "http://127.0.0.1/" 200
-    check_http "主站 API" "http://127.0.0.1/api/auth/captcha" 200
+    # .150 = 主站。80 端口是 DSM (对 /api/auth/captcha 也回 200 text/html), ERP 真入口是 8088
+    check_http "主站 PC" "http://127.0.0.1:8088/" 200
+    check_api  "主站 API" "http://127.0.0.1:8088/api/auth/captcha"
     check_disk /volume3 85
     check_disk /volume1 85
-    # 隧道容器必须存在: 阿里云写入与复制都依赖它
-    if command -v docker >/dev/null 2>&1; then
-        docker inspect -f '{{.State.Running}}' erp-tunnel 2>/dev/null | grep -q true \
-            || fail "erp-tunnel 容器未运行"
-    fi
+    mysql_writable_check erp-mysql 00 "主库"
+    mysql_downstream_check erp-mysql 3
+    backend_running_healthy erp-backend || fail "erp-backend 未运行或不健康 (主站)"
+    # pc-web 假死 (容器 Up 但不响应) 时自动重启一次
+    pcweb_guard
+    # 隧道容器必须存在: 阿里云热备的复制与附件同步都依赖它
+    docker inspect -f '{{.State.Running}}' erp-tunnel 2>/dev/null | grep -q true \
+        || fail "erp-tunnel 容器未运行"
     ;;
   feiniu)
-    check_http "主站 PC (家里)" "http://192.168.0.150/" 200
-    check_http "阿里云 API" "http://47.96.188.129/api/auth/captcha" 200
+    # 主站入口是 .150:8088, 不是 DSM 的 80
+    check_http "主站 PC (家里)" "http://192.168.0.150:8088/" 200
+    check_api  "主站 API (家里)" "http://192.168.0.150:8088/api/auth/captcha"
+    check_api  "阿里云 API (热备桥接)" "http://47.96.188.129/api/auth/captcha"
     check_disk /vol1 85
     check_disk /volume2 85
     mysql_replica_check erp-mysql-failover "$(cat /home/gpssong/erp-backup/mysql_password 2>/dev/null)" 60
@@ -102,13 +189,16 @@ case "$ROLE" in
         || fail "erp-backend-failover 不健康"
     ;;
   aliyun)
-    # 本机 80 端口有多个 vhost, 必须带 Host 才是 ERP 站点
-    check_http "PC" "http://127.0.0.1/" 200 "47.96.188.129"
-    check_http "API" "http://127.0.0.1/api/auth/captcha" 200 "47.96.188.129"
+    # 阿里云 = 只读热备。本机 80 有多个 vhost, 必须带 Host; nginx 已反代回 .150,
+    # 所以这两条同时验证「桥接还在」——桥接断了 API 会打到本机停着的 backend 变 502
+    check_http "热备 PC (桥接回 .150)" "http://127.0.0.1/" 200 "47.96.188.129"
+    check_api  "热备 API (桥接回 .150)" "http://127.0.0.1/api/auth/captcha" "47.96.188.129"
     check_disk / 85
+    mysql_writable_check erp-mysql 11 "热备"
     mysql_replica_check erp-mysql "$(grep '^MYSQL_ROOT_PASSWORD=' /opt/erp-system/.env 2>/dev/null | cut -d= -f2-)" 60
-    docker inspect -f '{{.State.Health.Status}}' erp-backend 2>/dev/null | grep -q healthy \
-        || fail "erp-backend 不健康"
+    # 热备上 backend 应当停着; 只查 Health.Status 会因 exited 容器保留 healthy 而假 OK
+    docker inspect -f '{{.State.Running}}' erp-backend 2>/dev/null | grep -q '^false$' \
+        || fail "erp-backend 不应在只读热备上运行 (人工接管时需同步改本巡检口径)"
     ;;
   *)
     echo "usage: $0 home|feiniu|aliyun" >&2
