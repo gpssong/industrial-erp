@@ -166,7 +166,7 @@ class QmsInspectionServiceTest {
     void cleanUp() { SecurityContext.clearForTest(); }
 
     @ParameterizedTest
-    @CsvSource({"制袋,FAI,13,BAG", "制袋,PAT,11,BAG", "吹膜,FAI,8,BLOW", "吹膜,PAT,11,BLOW"})
+    @CsvSource({"制袋,FAI,13,BAG", "制袋,PAT,11,BAG", "吹膜,FAI,6,BLOW", "吹膜,PAT,11,BLOW"})
     void createsIndependentTemplatesWithUntestedItems(String name, String type, int count, String stage) {
         bag.setProcessName(name);
         if (name.equals("制袋") && type.equals("PAT")) signFai();
@@ -189,9 +189,12 @@ class QmsInspectionServiceTest {
             if (it.getRequirement().contains("蒸发残渣")) assertThat(it.getRequirement()).contains("报告");
         });
         assertThat(rows.get(head.getId()).stream().filter(it -> it.getIsFoodGradeItem() == 1).count())
-                .isEqualTo(stage.equals("BAG") ? 3 : type.equals("FAI") ? 2 : 4);
+                .isEqualTo(stage.equals("BAG") ? 3 : type.equals("FAI") ? 1 : 4);
         if (stage.equals("BLOW") && type.equals("FAI")) {
+            // v1.1.195: 纵横向拉伸强度(3.4.1)与食品接触符合性文件(3.5)取消机台首检检测要求,
+            // 改由出厂检验 (OQC_FILM_MECHANICAL / OQC_FOOD_DOC) 承担
             assertThat(rows.get(head.getId())).extracting(QmsIqcItem::getItemCode).doesNotContain(
+                    "BLOW_TENSILE", "FOOD_COMPLIANCE_DOC",
                     "BLOW_ELONGATION", "BLOW_HAZE", "EVAP_RESIDUE", "KMnO4_CONSUMPTION",
                     "HEAVY_METAL_MIG", "FOOD_CONTACT_MARK", "FOOD_MIGRATION_REPORT");
         }
@@ -213,13 +216,13 @@ class QmsInspectionServiceTest {
     void reSeedsEmptyDraftThroughEnsureForProcess() {
         bag.setProcessName("吹膜");
         Long headId = ((MesQualityInspection) service.ensureForProcess(10L, 100L, "FAI").get("head")).getId();
-        assertThat(rows.get(headId)).hasSize(8);
+        assertThat(rows.get(headId)).hasSize(6);
         rows.get(headId).clear();
         Map<String, Object> again = service.ensureForProcess(10L, 100L, "FAI");
         assertThat(((MesQualityInspection) again.get("head")).getId()).isEqualTo(headId);
         assertThat((List<QmsIqcItem>) again.get("items")).extracting(QmsIqcItem::getItemCode).containsExactlyInAnyOrder(
                 "BLOW_MATERIAL_CHECK", "BLOW_APPEARANCE", "BLOW_THICKNESS", "BLOW_WIDTH",
-                "BLOW_TENSILE", "BLOW_ODOR", "FOOD_COMPLIANCE_DOC", "FOOD_HYGIENE");
+                "BLOW_ODOR", "FOOD_HYGIENE");
     }
 
     @Test
@@ -749,13 +752,13 @@ class QmsInspectionServiceTest {
         semi.setBillNo("SEMI-500");
         semi.setQty(BigDecimal.TEN);
         Long id = service.createOnSemiIn(semi);
-        assertThat(rows.get(id)).hasSize(8).allSatisfy(it -> assertThat(it.getPassFlag()).isEqualTo(1));
+        assertThat(rows.get(id)).hasSize(6).allSatisfy(it -> assertThat(it.getPassFlag()).isEqualTo(1));
         assertThatThrownBy(() -> service.signPassedFaiForSemiIn(500L, id, null, BigDecimal.TEN, "假签名", null))
                 .hasMessageContaining("未完成实测");
         rows.get(id).clear();
         assertThatThrownBy(() -> service.signPassedFaiForSemiIn(500L, id, null, BigDecimal.TEN, "假签名", null))
                 .hasMessageContaining("无模板项");
-        verify(items, times(8)).insert(any(QmsIqcItem.class));
+        verify(items, times(6)).insert(any(QmsIqcItem.class));
     }
 
     @Test
@@ -794,15 +797,17 @@ class QmsInspectionServiceTest {
         bag.setProcessName("吹膜");
         product.setIsFoodGrade(1);
         Long id = ensure("FAI").getId();
-        assertThat(rows.get(id)).extracting(QmsIqcItem::getItemCode).contains("FOOD_COMPLIANCE_DOC", "FOOD_HYGIENE");
+        assertThat(rows.get(id)).extracting(QmsIqcItem::getItemCode)
+                .contains("FOOD_HYGIENE")
+                .doesNotContain("FOOD_COMPLIANCE_DOC", "BLOW_TENSILE");
         ensure("FAI");
-        assertThat(rows.get(id)).hasSize(8);
+        assertThat(rows.get(id)).hasSize(6);
         ProcessInspectionRecordDTO dto = record(id, "PASS");
-        dto.getItems().get(7).setResultValue(null);
+        dto.getItems().get(5).setResultValue(null);
         assertThatThrownBy(() -> service.saveProcessRecord(id, dto)).hasMessageContaining("未完成实测");
         service.saveProcessRecord(id, record(id, "PASS"));
         assertThat(heads.get(id).getStatus()).isEqualTo("CHECKED");
-        verify(items, times(8)).insert(any(QmsIqcItem.class));
+        verify(items, times(6)).insert(any(QmsIqcItem.class));
         verify(items, never()).deleteByIqcId(anyLong());
     }
 

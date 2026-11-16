@@ -3,6 +3,27 @@
 
 ## changelog (倒序)
 
+### 2026-11-16 — v1.1.195 吹膜首检取消「纵横向拉伸强度」与「食品接触符合性文件」两项检测要求（jar 三站）
+
+**触发**: 用户原话「吹膜首检取消纵横向拉伸强度和食品接触符合性文件的检测要求。」（现场 App 首检页截图，第 5 项「纵横向拉伸强度（3.4.1）」、第 7 项「食品接触符合性文件（3.5）」）
+
+**用户拍板口径**:
+- 「直接从模板删掉」（两项不再是吹膜首检的检验项）—— 出厂检验仍保留：`OQC_FILM_MECHANICAL`（拉伸强度，Q/ZPC 1-2017 **5.2.1.2** 出厂必检）、`OQC_FOOD_DOC`（食品接触符合性文件）。
+- 存量草稿「定点删这两行」—— 只软删这两行，其它已填实测值与判定全部保留。
+
+**改法（后端模板，纯服务端灌，无前端改动）**:
+
+1. [QmsInspectionTemplateItems](backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionTemplateItems.java)
+   - `DEFAULT_FAI_ITEMS_COMMON` **6 → 5 行**：删 `BLOW_TENSILE`（纵横向拉伸强度 3.4.1）。
+   - `DEFAULT_FAI_ITEMS_FOOD` **2 → 1 行**：删 `FOOD_COMPLIANCE_DOC`（食品接触符合性文件 3.5）。
+   - ⇒ 食品级吹膜首检 **8 → 6 项**（原料核对 / 膜面外观 / 厚度偏差 / 宽度偏差 / 异味 + 清洁与异物控制）；非食品级 **6 → 5 项**。
+   - **不动**：制袋首检 `BAG_FAI_ITEMS`、制袋巡检 `BAG_PAT_ITEMS`、吹膜巡检 `DEFAULT_PAT_ITEMS_COMMON` 与食品级 `DEFAULT_PROCESS_ITEMS_FOOD`（巡检仍要核食品接触符合性文件）、成品检验 `OQC_*`。
+2. 存量数据 [sql/161_v1195_fai_drop_tensile_food_doc.sql](sql/161_v1195_fai_drop_tensile_food_doc.sql)：`validateTemplateCodes` 要求「明细代码集合 == 当前模板代码集合」，老草稿留着这两行会被拦在「检验模板代码集合不完整或与 BLOW 工序不匹配」⇒ 脚本**定点软删** DRAFT 的 FAI 单里 `BLOW_TENSILE` / `FOOD_COMPLIANCE_DOC` 两行（先备份到 `qms_iqc_item_bak_v1195`），其它行与已签核历史单一律不动，幂等可重跑。
+
+**测试（TDD 红→绿）**: 先改 [QmsInspectionServiceTest](backend/src/test/java/com/industrial/erp/modules/qms/service/QmsInspectionServiceTest.java) 的 4 处断言（吹膜 FAI 项数 8→6、食品级 2→1、期望代码集合去掉两项、半成品首检灌模板条数 8→6）看红（88 例 3 失败），再删模板行看绿（**88/88**）；后端全量 **771 例 0 失败**，`mvn -o clean package` BUILD SUCCESS。
+
+**部署**: 版本七处对齐 **1.1.195**（`scripts/check-version.sh` 7×OK）；jar `ec1affc8c60b48e043e99c3504083008`（103,179,244 B）。`.32` canary 换镜像 `erp-system-backend:1.1.195`（`docker cp` + `docker commit`，env 由运行中容器快照保留，只改 `ERP_VERSION`）⇒ healthy、`:8080/api/auth/captcha` 200。`.150` 主站：compose 的 `image`/`ERP_VERSION` 一并对齐 1.1.195（原先 YAML 停在 1.1.189、运行容器是 1.1.194，本次一并拉齐）⇒ `docker compose build/up` 重建。阿里云同步同 tag。**PC/App 页面无需改动**（检验项由服务端模板灌入，App 不重出 APK）。
+
 ### 2026-11-16 — v1.1.194 库存盘点审核改「按批次扣减」，盘亏不再误报「当前库存=0」（jar + PC dist 三站已上线）
 
 **触发**: 用户原话「长晟（58+19+19）*61 库存有 5000，而且有批号，但库存盘点时提示：库存不足, 商品=长晟（58+19+19）*61, 当前库存=0.0000, 需要=5000.0000，应该和批号后加的有关，帮我盘点审核时选择批号。修复这个错误。」
