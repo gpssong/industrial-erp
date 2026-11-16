@@ -374,14 +374,23 @@ class QmsInspectionServiceTest {
         verify(links, never()).insert(any(MesBatchLink.class));
     }
 
+    /**
+     * v1.1.196 — 定量项 (unit 非空, 如厚度 mm / 宽度 mm) 必须留实测值, 判定合格也不例外;
+     * 定性项 (unit 为空) 只需明确判定 —— 见 processInspectionSignAllowsQualitativeItemsWithoutMeasuredValue。
+     */
     @Test
-    void everyItemRequiresActualResultEvenWhenFlagIsPass() {
+    void measuredItemsRequireActualResultEvenWhenFlagIsPass() {
         Long id = ensure("FAI").getId();
+        String measuredCode = rows.get(id).stream()
+                .filter(it -> it.getUnit() != null && !it.getUnit().isEmpty())
+                .map(QmsIqcItem::getItemCode).findFirst().orElseThrow();
         ProcessInspectionRecordDTO dto = record(id, "PASS");
-        dto.getItems().get(0).setResultValue("  ");
+        dto.getItems().stream().filter(it -> measuredCode.equals(it.getItemCode()))
+                .forEach(it -> it.setResultValue("  "));
         assertThatThrownBy(() -> service.saveProcessRecord(id, dto)).hasMessageContaining("未完成实测");
         measuredInStore(id);
-        rows.get(id).get(0).setResultValue(null);
+        rows.get(id).stream().filter(it -> measuredCode.equals(it.getItemCode()))
+                .forEach(it -> it.setResultValue(null));
         assertThatThrownBy(() -> service.check(id, "PASS", "NONE", "")).hasMessageContaining("未完成实测");
     }
 
@@ -802,13 +811,37 @@ class QmsInspectionServiceTest {
                 .doesNotContain("FOOD_COMPLIANCE_DOC", "BLOW_TENSILE");
         ensure("FAI");
         assertThat(rows.get(id)).hasSize(6);
-        ProcessInspectionRecordDTO dto = record(id, "PASS");
-        dto.getItems().get(5).setResultValue(null);
+        // v1.1.196: 定量项 (厚度) 缺实测值仍要拦下; 定性项只判定即可
+        ProcessInspectionRecordDTO dto = recordLikeApp(id, "PASS");
+        dto.getItems().stream().filter(it -> "BLOW_THICKNESS".equals(it.getItemCode()))
+                .forEach(it -> it.setResultValue(null));
         assertThatThrownBy(() -> service.saveProcessRecord(id, dto)).hasMessageContaining("未完成实测");
         service.saveProcessRecord(id, record(id, "PASS"));
         assertThat(heads.get(id).getStatus()).isEqualTo("CHECKED");
         verify(items, times(6)).insert(any(QmsIqcItem.class));
         verify(items, never()).deleteByIqcId(anyLong());
+    }
+
+    /**
+     * v1.1.196 — 工序检验 (FAI/PAT) 签核: 定性项 (unit 为空: 原料核对/膜面外观/异味/清洁与异物控制)
+     * 只需明确判定, 定量项 (unit 非空: 厚度 mm / 宽度 mm) 才必须留实测值。
+     * 现场口径与进货检验 (IQC) 一致 —— 已签核 IQC 单的定性项 result_value 全为空。
+     */
+    @Test
+    void processInspectionSignAllowsQualitativeItemsWithoutMeasuredValue() {
+        bag.setProcessName("吹膜");
+        Long id = ensure("FAI").getId();
+        // 定量项 (厚度偏差, unit=mm) 留空 => 仍应拦下
+        ProcessInspectionRecordDTO thickDto = recordLikeApp(id, "PASS");
+        thickDto.getItems().stream().filter(it -> "BLOW_THICKNESS".equals(it.getItemCode()))
+                .forEach(it -> it.setResultValue(""));
+        assertThatThrownBy(() -> service.saveProcessRecord(id, thickDto)).hasMessageContaining("未完成实测");
+        // 定性项 (库里 unit 为空的那些) 留空 => 允许签核
+        ProcessInspectionRecordDTO qualitativeDto = recordLikeApp(id, "PASS");
+        qualitativeDto.getItems().stream().filter(it -> it.getUnit() == null || it.getUnit().isEmpty())
+                .forEach(it -> it.setResultValue(""));
+        service.saveProcessRecord(id, qualitativeDto);
+        assertThat(heads.get(id).getStatus()).isEqualTo("CHECKED");
     }
 
     @Test
@@ -1284,6 +1317,18 @@ class QmsInspectionServiceTest {
             input.setJudgmentBasis("产品标准及工艺卡 V2");
             return input;
         }).collect(Collectors.toList()));
+        return dto;
+    }
+
+    /** v1.1.196 — 模拟 App 提交: 检验项带上库里那份 unit (客户端可以省略, 但服务端门禁只认库里的)。 */
+    private ProcessInspectionRecordDTO recordLikeApp(Long id, String result) {
+        ProcessInspectionRecordDTO dto = record(id, result);
+        Map<String, QmsIqcItem> rowsByCode = rows.get(id).stream()
+                .collect(Collectors.toMap(QmsIqcItem::getItemCode, r -> r, (a, b) -> a));
+        dto.getItems().forEach(it -> {
+            QmsIqcItem row = rowsByCode.get(it.getItemCode());
+            if (row != null) it.setUnit(row.getUnit());
+        });
         return dto;
     }
 

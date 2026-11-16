@@ -3,6 +3,36 @@
 
 ## changelog (倒序)
 
+### 2026-11-16 — v1.1.196 工序检验（首检/巡检）签核：定性项免填实测值（jar + App H5/APK）
+
+**触发**：用户现场报「吹膜首检全点合格提示有未完成项」+ 截图（App 首检页 toast「请完成全部检验项的记录及明确判定，不能留待检或空实测（不适用项除外）」），怀疑是 v1.1.195 删两项的后遗症。
+
+**取证结论：不是删除两项的后遗症**：
+
+| 查了什么 | 结论 |
+|---|---|
+| `.150` nginx access log | App 在 **20:13:41** 重新拉了 `ensure-for-process`，响应 **2296 B**（删除前 18:11 是 2581 B，少的 ~285 B 正是那 2 项）⇒ App 拿到的**已经是 6 项**，不是旧页面 |
+| 同一份 access log 里的 `process-record` | **一条都没有** ⇒ 签核请求根本没发到服务端，是**客户端先拦下的** |
+| 提示语出处 | `app/src/components/ProcessInspection.vue:401` 客户端校验：每一项都要「判定 ∈ {合格,不合格,不适用}」且（除不适用）**实测值非空** |
+| 库内现状 | `QI202611150001` 6 项 `pass_flag=1`（合格）、`result_value` 全空 —— 操作员只点了合格，没填文本 |
+| 对照样本：已签核的 IQC 单 | `QI202611030002` / `QI202611090001` 共 17 项，**定性项（unit 为空：外观/嗅味/供应商报告…）result_value 全为空**，照样签核通过 ⇒ 进货检验一直「只要求判定」 |
+| FAI 签核历史 | 全库 **没有一张 CHECKED 的 FAI**（全部 DRAFT）⇒ 车间第一次签首检就卡在这条 |
+
+即：**FAI/PAT 的签核门禁比 IQC 严一档** —— 定性项也强制要填实测文本；删除两项反而把要填的从 8 项减到 6 项。
+
+**用户拍板**：定性项免实测值（与已签核 IQC 单的实际做法一致）。
+
+**改法（服务端 + App 同口径）**：
+1. 服务端 [QmsInspectionService](backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionService.java)
+   - `validateProcessResult` 新增 `requiresMeasuredValue(item)`：**只有定量项（unit 非空：厚度 mm / 宽度 mm / 拉伸强度 MPa …）必须留实测值**，定性项（unit 为空：原料核对 / 膜面外观 / 异味 / 清洁与异物控制）明确判定即可。
+   - 新增 `mergeSubmittedJudgements(existing, submitted)`：**门禁数据源改为「库里那份模板定义 + 客户端提交的判定/实测值」** —— 客户端可以省略 unit（`validateTemplateSubmission` 只在「提交值与库里不同」时报错），若拿客户端的 unit 当门禁依据，定量项就能靠不传 unit 绕过「必须填实测值」。
+   - 出厂检验（OQC/OQC_RETURN）放行门禁**不变**。
+2. App [app/src/utils/inspectionRule.js](app/src/utils/inspectionRule.js)（新）+ [ProcessInspection.vue](app/src/components/ProcessInspection.vue)：校验改用同一口径；提示语改成**点名缺哪几项**（如「厚度偏差（表3）（缺实测值）、原料核对（3.5）（未判定）」），页内提示与说明同步写明「定量项要填实测值，定性项点判定即可」。
+
+**测试**：TDD 红→绿 —— 红：新测试在旧实现下报「检验项 BLOW_MATERIAL_CHECK 未完成实测及判定」（即现场那句）；绿：定量项缺实测值仍拦、定性项留空可签核。另把 2 条编码旧口径的旧测试改写为新口径（`measuredItemsRequireActualResultEvenWhenFlagIsPass` 改成针对定量项；吹膜食品级首检那条改为针对 `BLOW_THICKNESS`）。后端该类 **89/89**、全量 **772 例 0 失败**；App 新增 `app/test/inspectionRule.test.mjs` **6 例**（node:test）全绿。
+
+**产物**：版本七处对齐 **1.1.196**（`check-version.sh` 7×OK）；jar `211db65fbb71556f5e719a67bc03b87d`（103,179,749 B）三站；App H5 `index.html` md5 `3588c45c502339de46c36ccf94e38ad8`（`.32` + 阿里云）；APK `scripts/build-app.sh` 出包并自动备份飞牛。**车间手机须装 1.1.196 APK**（旧包仍是「每项都要填文本」的旧校验）。
+
 ### 2026-11-16 — v1.1.195 吹膜首检取消「纵横向拉伸强度」与「食品接触符合性文件」两项检测要求（jar 三站）
 
 **触发**: 用户原话「吹膜首检取消纵横向拉伸强度和食品接触符合性文件的检测要求。」（现场 App 首检页截图，第 5 项「纵横向拉伸强度（3.4.1）」、第 7 项「食品接触符合性文件（3.5）」）

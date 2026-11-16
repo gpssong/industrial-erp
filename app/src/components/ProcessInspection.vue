@@ -53,7 +53,7 @@
         <view class="card verdict-card">
           <view class="verdict-line"><text class="section-title">{{ head.billNo || inspectionId }}</text><text :class="['verdict', checked ? (head.result === 'PASS' ? 'pass' : 'fail') : 'pending']">{{ verdictLabel }}</text></view>
           <view v-if="checked" class="hint">已签核，记录只读，不可修改或重复保存。</view>
-          <view v-else class="muted hint">请逐项实测并明确判定；草稿允许保留待检项。</view>
+          <view v-else class="muted hint">请逐项实测并明确判定（定量项填实测值，定性项点判定）；草稿允许保留待检项。</view>
           <view v-if="head.checkBy || head.inspectorName" class="muted hint">签核 / 检验人：{{ head.checkBy || head.inspectorName }}</view>
           <view v-if="head.checkTime" class="muted hint">签核时间：{{ head.checkTime }}</view>
         </view>
@@ -68,7 +68,7 @@
 
         <view class="card">
           <view class="section-title">{{ selectedProcess.processName }} · {{ typeLabel }}检验项 ({{ items.length }})</view>
-          <view class="notice">按本工序模板逐项记录测量值、核验报告号或不适用原因，不自动填实测或判合格。食品接触报告类项目是核验有效报告，不是现场进行迁移试验。</view>
+          <view class="notice">按本工序模板逐项记录测量值、核验报告号或不适用原因，不自动填实测或判合格。厚度、宽度等<b>定量项要填实测值</b>；原料核对、膜面外观、异味、清洁与异物控制等<b>定性项点判定即可</b>。食品接触报告类项目是核验有效报告，不是现场进行迁移试验。</view>
           <view v-if="!items.length" class="error hint">未配置检验项模板，不能保存或签核。请联系质量管理人员配置后重试。</view>
           <button v-if="!items.length && !checked" class="small-btn retry" :disabled="selectionLocked" @click="retry">重试加载模板</button>
           <view v-for="(item, index) in items" :key="item.id || item.lineNo || index" class="qa-row">
@@ -124,6 +124,7 @@ import { getApiBaseOverride } from '../utils/apiBase.js'
 import { isH5Runtime } from '../utils/runtime.js'
 import { navigateTo } from '../utils/nav.js'
 import { getInspectionContext, onInspectionContextChange } from '../utils/routeQuery.js'
+import { describeMissingInspectionItems } from '../utils/inspectionRule.js'
 
 const emptyForm = () => ({ sampleQty: '', qualifiedQty: '', unqualifiedQty: '', batchNo: '' })
 const stringId = value => value == null ? '' : String(value)
@@ -395,10 +396,9 @@ export default {
       const sample = this.quantity(this.form.sampleQty), qualified = this.quantity(this.form.qualifiedQty), unqualified = this.quantity(this.form.unqualifiedQty)
       if ([sample, qualified, unqualified].some(value => Number.isNaN(value))) return '抽检、合格及不良数只能填写非负数字'
       if (!result) return ''
-      if (this.items.some(item => {
-        const flag = Number(item.passFlag)
-        return ![0, 1, 2].includes(flag) || (flag !== 2 && !String(item.resultValue || '').trim())
-      })) return '请完成全部检验项的记录及明确判定，不能留待检或空实测（不适用项除外）'
+      // v1.1.196: 定量项 (unit 非空) 须填实测值; 定性项明确判定即可 —— 与服务端同口径, 且点名缺哪几项
+      const missingMessage = describeMissingInspectionItems(this.items)
+      if (missingMessage) return missingMessage
       if (result === 'PASS') {
         if (sample == null || sample <= 0 || qualified == null || unqualified == null) return '签合格须填写正数样本数及合格 / 不良数'
         if (Math.abs(qualified + unqualified - sample) > Number.EPSILON * Math.max(1, sample, qualified + unqualified) * 4) return '合格数与不良数之和必须等于抽检样本数'

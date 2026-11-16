@@ -948,7 +948,7 @@ public class QmsInspectionService {
         List<QmsIqcItem> existing = iqcItemMapper.selectByIqcId(id);
         validateTemplateCodes(head, existing);
         QmsIqcItemService.validateTemplateSubmission(existing, dto.getItems(), head.getInspectionType());
-        if (dto.getResult() != null) validateProcessResult(head, dto.getItems(), dto.getResult());
+        if (dto.getResult() != null) validateProcessResult(head, mergeSubmittedJudgements(existing, dto.getItems()), dto.getResult());
         if (dto.getBatchNo() != null) head.setBatchNo(dto.getBatchNo().trim());
         if (dto.getPhotoUrls() != null) head.setPhotoUrls(StrUtil.isBlank(dto.getPhotoUrls()) ? "[]" : dto.getPhotoUrls());
         head.setInspector(SecurityContext.getUserId());
@@ -1841,7 +1841,7 @@ public class QmsInspectionService {
         validateTemplateCodes(head, items);
         for (QmsIqcItem item : items) {
             if (!isJudgedFlag(item.getPassFlag())
-                    || (!isNaFlag(item.getPassFlag()) && StrUtil.isBlank(item.getResultValue()))) {
+                    || (!isNaFlag(item.getPassFlag()) && requiresMeasuredValue(item) && StrUtil.isBlank(item.getResultValue()))) {
                 throw BizException.of("检验项 " + item.getItemCode() + " 未完成实测及判定，不能签核");
             }
         }
@@ -1849,6 +1849,42 @@ public class QmsInspectionService {
         boolean badQty = head.getUnqualifiedQty() != null && head.getUnqualifiedQty().signum() > 0;
         if (Constants.RESULT_PASS.equals(result) && (failed || badQty)) throw BizException.of("存在不合格项或不良数量，不能签核 PASS");
         if (Constants.RESULT_FAIL.equals(result) && !failed && !badQty) throw BizException.of("FAIL 必须至少有一项不合格或不良数量大于0");
+    }
+
+    /**
+     * v1.1.196 — 定量项 (unit 非空: 厚度 mm / 宽度 mm / 拉伸强度 MPa / 热合强度 N/15mm 等) 必须留实测值;
+     * 定性项 (unit 为空: 原料核对 / 膜面外观 / 异味 / 清洁与异物控制 等目测·感官·文件核验·现场检查)
+     * 明确判定即可, 不强制填实测文本 —— 与进货检验 (IQC) 的现场做法一致 (已签核 IQC 单的定性项 result_value 全为空)。
+     */
+    private static boolean requiresMeasuredValue(QmsIqcItem item) {
+        return item != null && StrUtil.isNotBlank(item.getUnit());
+    }
+
+    /**
+     * v1.1.196 — 签核门禁只认**库里那份模板定义** (unit / itemName 等), 客户端提交的只取判定与实测值 ——
+     * 客户端可以省略 unit (validateTemplateSubmission 只在「提交值与库里不同」时报错), 若拿它的 unit 当门禁依据,
+     * 定量项就能靠不传 unit 绕过「必须填实测值」。
+     */
+    private static List<QmsIqcItem> mergeSubmittedJudgements(List<QmsIqcItem> existing, List<QmsIqcItem> submitted) {
+        Map<String, QmsIqcItem> byCode = new HashMap<>();
+        if (submitted != null) {
+            for (QmsIqcItem it : submitted) {
+                if (it != null && StrUtil.isNotBlank(it.getItemCode())) byCode.put(it.getItemCode(), it);
+            }
+        }
+        List<QmsIqcItem> merged = new ArrayList<>();
+        for (QmsIqcItem row : existing) {
+            QmsIqcItem input = byCode.get(row.getItemCode());
+            QmsIqcItem item = new QmsIqcItem();
+            item.setId(row.getId());
+            item.setItemCode(row.getItemCode());
+            item.setItemName(row.getItemName());
+            item.setUnit(row.getUnit());
+            item.setPassFlag(input == null || input.getPassFlag() == null ? row.getPassFlag() : input.getPassFlag());
+            item.setResultValue(input == null ? row.getResultValue() : input.getResultValue());
+            merged.add(item);
+        }
+        return merged;
     }
 
     /**
