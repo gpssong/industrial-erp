@@ -166,7 +166,7 @@ class QmsInspectionServiceTest {
     void cleanUp() { SecurityContext.clearForTest(); }
 
     @ParameterizedTest
-    @CsvSource({"制袋,FAI,13,BAG", "制袋,PAT,11,BAG", "吹膜,FAI,6,BLOW", "吹膜,PAT,11,BLOW"})
+    @CsvSource({"制袋,FAI,11,BAG", "制袋,PAT,9,BAG", "吹膜,FAI,6,BLOW", "吹膜,PAT,11,BLOW"})
     void createsIndependentTemplatesWithUntestedItems(String name, String type, int count, String stage) {
         bag.setProcessName(name);
         if (name.equals("制袋") && type.equals("PAT")) signFai();
@@ -189,7 +189,7 @@ class QmsInspectionServiceTest {
             if (it.getRequirement().contains("蒸发残渣")) assertThat(it.getRequirement()).contains("报告");
         });
         assertThat(rows.get(head.getId()).stream().filter(it -> it.getIsFoodGradeItem() == 1).count())
-                .isEqualTo(stage.equals("BAG") ? 3 : type.equals("FAI") ? 1 : 4);
+                .isEqualTo(stage.equals("BAG") ? 1 : type.equals("FAI") ? 1 : 4);
         if (stage.equals("BLOW") && type.equals("FAI")) {
             // v1.1.195: 纵横向拉伸强度(3.4.1)与食品接触符合性文件(3.5)取消机台首检检测要求,
             // 改由出厂检验 (OQC_FILM_MECHANICAL / OQC_FOOD_DOC) 承担
@@ -496,7 +496,7 @@ class QmsInspectionServiceTest {
         assertThatThrownBy(() -> service.check(id, "PASS", "NONE", "")).hasMessageContaining("手工项替代");
         rows.put(id, new ArrayList<>());
         assertThatThrownBy(() -> service.check(id, "PASS", "NONE", "")).hasMessageContaining("无模板项");
-        verify(items, times(13)).insert(any(QmsIqcItem.class));
+        verify(items, times(11)).insert(any(QmsIqcItem.class));
     }
 
     @Test
@@ -776,13 +776,13 @@ class QmsInspectionServiceTest {
         rows.get(id).get(0).setRequirement("历史要求");
         rows.get(id).remove(1);
         ensure("FAI");
-        assertThat(rows.get(id)).hasSize(12);
+        assertThat(rows.get(id)).hasSize(10);
         assertThat(rows.get(id).get(0).getRequirement()).isEqualTo("历史要求");
         heads.get(id).setStatus("CHECKED");
         rows.get(id).clear();
         ensure("FAI");
         assertThat(rows.get(id)).isEmpty();
-        verify(items, times(13)).insert(any(QmsIqcItem.class));
+        verify(items, times(11)).insert(any(QmsIqcItem.class));
         verify(items, never()).deleteByIqcId(anyLong());
     }
 
@@ -792,11 +792,12 @@ class QmsInspectionServiceTest {
                 .hasMessageContaining("本工序首检");
         signFai();
         Long id = service.createOnReport(bag, order, BigDecimal.TEN, BigDecimal.ZERO);
-        assertThat(rows.get(id)).hasSize(11);
+        assertThat(rows.get(id)).hasSize(9);
         assertThat(rows.get(id)).filteredOn(item -> !Integer.valueOf(1).equals(item.getIsFoodGradeItem()))
                 .allSatisfy(item -> assertThat(item.getItemCode()).startsWith("BAG_PAT_"));
         assertThat(rows.get(id)).filteredOn(item -> Integer.valueOf(1).equals(item.getIsFoodGradeItem()))
-                .extracting(QmsIqcItem::getItemCode).containsExactlyInAnyOrder("BAG_FOOD_HYGIENE", "BAG_FOOD_REPORT", "BAG_FOOD_TRACE");
+                // v1.1.198: 制袋首检/巡检取消「食品接触符合性文件核验」「批次追溯与接触标识」两项
+                .extracting(QmsIqcItem::getItemCode).containsExactlyInAnyOrder("BAG_FOOD_HYGIENE");
         assertThat(service.createOnReport(bag, order, BigDecimal.TEN, BigDecimal.ONE)).isEqualTo(id);
         assertThat(heads.get(id).getSampleQty()).isNull();
     }

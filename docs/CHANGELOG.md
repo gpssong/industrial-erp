@@ -3,6 +3,23 @@
 
 ## changelog (倒序)
 
+### 2026-11-17 — v1.1.198 制袋首检/巡检取消「食品接触符合性文件核验」「批次追溯与接触标识」两项（jar 三站）
+
+**触发**：用户现场报「制袋首检和巡检取消12和13这2个检测项目」+ App 制袋首检页截图（第 12 项「食品接触符合性文件核验（3.5）」、第 13 项「批次追溯与接触标识（6.1）」）。
+
+**口径**：这两项属**文件/标签核验**类（核验 GB 4806.6/4806.7/9685 符合性文件与迁移检测报告、核对 GB 4806.1 接触标识与批次追溯），机台首件/巡检不做。
+
+**改法**：
+- 服务端 [QmsInspectionTemplateItems](backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionTemplateItems.java) `BAG_FOOD_ITEMS` **3 → 1 行**（只留 `BAG_FOOD_HYGIENE` 清洁、人员与异物控制）。
+  ⇒ **食品级制袋首检 13 → 11 项、制袋巡检 11 → 9 项**；非食品级制袋（10/8 项）不受影响；吹膜首检/巡检、出厂检验 OQC 全套模板**一律不动**。
+- 存量 [sql/162_v1198_bag_fai_pat_drop_food_report_trace.sql](sql/162_v1198_bag_fai_pat_drop_food_report_trace.sql)：定点软删制袋工序 **DRAFT** 首检/巡检单里的这两行（先备份 `qms_iqc_item_bak_v1198`）并重排行号连续；已签核历史单一律不动（XK 过程检验留痕不可改写）。
+  **实测候选 0 行**：库里带这两项的只有当天刚签核的 `QI202611170002`（制袋首检 13 项）与 `QI202611170003`（制袋巡检 11 项）—— **已签核 ⇒ 保留**，新开单才是 11/9 项；制袋的 DRAFT 单均为非食品级（10 项，本来没有这三项）。
+
+**测试**：TDD 红→绿 —— 先改 5 处断言看红（制袋 FAI 13→11、制袋 PAT 11→9、食品级项数 3→1、`times(13)`→`times(11)`、食品级代码集合只剩 `BAG_FOOD_HYGIENE`），再删模板行看绿；该类 **89/89**、后端全量 **772 例 0 失败**。
+
+**部署**：版本七处对齐 **1.1.198**（`check-version.sh` 7×OK）；jar `da127aa7f25a7edb788ef5cf3acdecb0`（103,179,749 B）三站上线：`.32` canary（`docker cp` + `docker commit`）、`.150` 主站（compose `image`/`ERP_VERSION` 一并对齐 + `compose build/up backend`）、阿里云（`.env` + `compose up -d --build erp-backend`），三站镜像本体 md5 一致、容器 healthy。
+**纯服务端模板改动，App/PC 无需重出**（检验项由服务端灌，手机上直接生效）；sql/162 已在 `.150` 主库执行（候选 0 行，等价于无副作用）。
+
 ### 2026-11-17 — v1.1.197 App 入库「审核入库」一步完成（没草稿就现建再审核；App H5/APK）
 
 **触发**：用户现场报「这个工单吹膜首检已经完成，没法正常半成品入库」+ App 半成品入库页截图（底部「审核入库」灰、旁边一段 XK 门禁说明）。
