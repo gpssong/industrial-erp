@@ -444,38 +444,49 @@ export default {
     onPickUnit(e) { this.unitIdx = Number(e.detail.value) },
     onPickWh(e) { this.warehouseId = String(this.warehouses[Number(e.detail.value)].id) },
     async onSaveDraft() {
-      const o = this.pickedOrder
-      if (!o) { uni.showToast({ title: '请先选生产工单', icon: 'none' }); return }
-      if (!this.warehouseId) { uni.showToast({ title: '请选择仓库', icon: 'none' }); return }
       this.submitting = true
       try {
-        // v1.1.117: 带上选中的单位 (默认成品主单位) + 批号 (默认=工单号)
-        const u = this.units[this.unitIdx] || {}
-        await api.prdFinishedInAdd({
-          prdOrderId: this.orderId,
-          prdOrderNo: o.billNo,
-          productId: o.productId, productCode: o.productCode, productName: o.productName,
-          spec: o.spec,
-          unitId: u.unitId != null ? u.unitId : o.unitId,
-          unitName: u.unitName || o.unitName,
-          qty: this.form.qty || 0, batchNo: this.form.batchNo || undefined,
-          warehouseId: this.warehouseId, remark: 'App 成品入库'
-        })
-        const r = await api.prdFinishedInPage({ pageNum: 1, pageSize: 5, billNo: o.billNo })
-        const recs = (r && r.records) || (r && r.data && r.data.records) || []
-        const d = recs.find((x) => x.billStatus === 'DRAFT') || recs[0]
-        if (d) { this.draftId = String(d.id); this.draftNo = d.billNo }
-        uni.showToast({ title: '草稿已保存 ' + (this.draftNo || ''), icon: 'success' })
+        const d = await this.ensureDraft()
+        uni.showToast({ title: '草稿已保存 ' + (d.billNo || ''), icon: 'success' })
         this.loadInList()
       } catch (e) {
         if (e && e.code === 401) { this.submitting = false; return }
         uni.showToast({ title: (e && e.msg) || '保存失败', icon: 'none' })
       } finally { this.submitting = false }
     },
+    /**
+     * v1.1.197 — 建入库单草稿 (审核入库一步完成时也走这里)。同 semi-in:
+     * 原来「审核入库」没草稿时是灰的, 现场会误判成 XK 门禁不让入库。
+     */
+    async ensureDraft() {
+      const o = this.pickedOrder
+      if (!o) throw { msg: '请先选生产工单' }
+      if (!this.warehouseId) throw { msg: '请选择仓库' }
+      // v1.1.117: 带上选中的单位 (默认成品主单位) + 批号 (默认=工单号)
+      const u = this.units[this.unitIdx] || {}
+      await api.prdFinishedInAdd({
+        prdOrderId: this.orderId,
+        prdOrderNo: o.billNo,
+        productId: o.productId, productCode: o.productCode, productName: o.productName,
+        spec: o.spec,
+        unitId: u.unitId != null ? u.unitId : o.unitId,
+        unitName: u.unitName || o.unitName,
+        qty: this.form.qty || 0, batchNo: this.form.batchNo || undefined,
+        warehouseId: this.warehouseId, remark: 'App 成品入库'
+      })
+      const r = await api.prdFinishedInPage({ pageNum: 1, pageSize: 5, billNo: o.billNo })
+      const recs = (r && r.records) || (r && r.data && r.data.records) || []
+      const d = recs.find((x) => x.billStatus === 'DRAFT') || recs[0]
+      if (d) { this.draftId = String(d.id); this.draftNo = d.billNo }
+      return d || {}
+    },
     async onCheck() {
-      if (!this.draftId) { uni.showToast({ title: '请先保存草稿', icon: 'none' }); return }
+      if (!this.orderId) { uni.showToast({ title: '请先选生产工单', icon: 'none' }); return }
       this.submitting = true
       try {
+        // 没有草稿就现建一张再审核 (一步完成); 审核被门禁拦时草稿留着, 可重试
+        if (!this.draftId) await this.ensureDraft()
+        if (!this.draftId) throw { msg: '入库单草稿保存失败，请重试' }
         await api.prdFinishedInCheck(this.draftId)
         this.checked = true
         uni.showToast({ title: '成品已入库', icon: 'success' })
