@@ -25,6 +25,13 @@
   PAT = 9 项 `BAG_PAT_* …, BAG_FOOD_HYGIENE`（`BAG_PAT_TRACE` 是巡检自己的「数量标识与不良隔离(6.1)」项，与本次取消的 `BAG_FOOD_TRACE` 不是同一项，保留）。
 - 验证过程里 `ensure-for-process` 因旧 PAT 单已签核而自动新建了一张草稿 `QI202611180001`（服务端逻辑：FAI 直接返回既有单，PAT 遇 CHECKED 会新建）→ 已按验证痕迹软删（`deleted=1`，明细一并软删），不留在车间待办里。
 
+**运维附记（凭据清理 + 一次误删事故，已恢复）**：
+- 顺手清理两台 NAS 上「含明文口令的旧备份/草稿」时，清理脚本的口令变量**没传到远端 shell**（`export X="$X"` 在远端为空），远端 `grep -qF ""` 把**每个非空且 ≤2M 的文件**都当成命中 ⇒ 误删了 `.32`/`.150` 部署目录里一批小文件，其中含运行中容器的 bind mount：`.32` 的 `app-h5/nginx-failover.conf`、`pc-web/nginx-failover.conf`、`failover.sh`、`backend.Dockerfile`、`.failover-state`，`.150` 的 `backend/Dockerfile`。
+- **恢复**：`docker exec <容器> cat <容器内路径> > 宿主路径`（bind mount 文件被删后容器内仍可读；`docker cp` 会报 mount 错）把 4 个文件取回；`.150` 的 `backend/Dockerfile` 从仓库原件还原；`.32` 的 `backend.Dockerfile` 按运行中容器实际配置等效重写并注明是重建版；`.failover-state` 重写 `NORMAL`。
+- **复验全绿**：`.32` 两容器 `nginx -t` successful、`bash -n failover.sh` OK、watcher 日志持续 `main-site-check: 0`、8080/18080/18090 全 200；`.150` `docker compose config` OK、erp-backend healthy、镜像本体 jar md5 `da127aa7f25a7edb788ef5cf3acdecb0` 未变、公网 200；阿里云未被触碰、api 200。
+- **留下的规则**（已写进 erp-deploy 技能 §八）：跨机脚本显式传值或远端从容器 env 读、删除前先 dry-run 打印清单且输出不截断、只删显式文件清单不做通配扫描删除。
+- 未恢复项：各站 `docker-compose.yml.bak_*` 历史快照、`.32` 的 `sql/` 便利副本与 README/RUNBOOK、`.erp_env_failover`（含明文，按规则本就不该留；重建容器改用 `docker inspect` 克隆运行中容器）。
+
 ### 2026-11-17 — v1.1.198 制袋首检/巡检取消「食品接触符合性文件核验」「批次追溯与接触标识」两项（jar 三站）
 
 **触发**：用户现场报「制袋首检和巡检取消12和13这2个检测项目」+ App 制袋首检页截图（第 12 项「食品接触符合性文件核验（3.5）」、第 13 项「批次追溯与接触标识（6.1）」）。
