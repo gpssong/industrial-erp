@@ -3,6 +3,28 @@
 
 ## changelog (倒序)
 
+### 2026-11-18 — v1.1.198 同日补丁 A：已签核的制袋首检/巡检单也取消那两项（纯 SQL 三站生效）
+
+**触发**：用户现场报「APP端的制袋首检和巡检也取消12和13这2个检测项目」+ App 制袋首检页截图（仍是第 12 项「食品接触符合性文件核验（3.5）」、第 13 项「批次追溯与接触标识（6.1）」）。
+
+**根因（v1.1.198 只改模板 + 只清 DRAFT，对存量已签核单无效）**：
+- App 的制袋首检/巡检页走 `POST /qms/inspection/ensure-for-process`（`app/src/components/ProcessInspection.vue` → `api/qms.js`），**不是**读模板。
+- 后端 `QmsInspectionService.ensureForProcess` 对**已有明细**的单据直接返回库里的旧明细（`ensureProcessTemplateItems` 自带「非草稿/已有明细即返回」护栏），不会按新模板重灌 ⇒ 模板改了，**已签核单的明细仍是老的 13/11 项**，App 照旧显示 12/13。
+- 取证：全库扫描 `qms_iqc_item` 里活着的 `BAG_FOOD_REPORT`/`BAG_FOOD_TRACE` ⇒ 只有 `QI202611170002`（制袋首检 13 项）、`QI202611170003`（制袋巡检 11 项），**两张都是 CHECKED**；`sql/162` 的候选是 0 行（制袋的 DRAFT 单都是非食品级 10 项，本来就没这三项）⇒ App 看到的就是这两张已签核单。
+
+**改法（纯 SQL，不动代码/不重出 App）**：
+- [sql/163_v1198b_bag_signed_records_drop_food_report_trace.sql](sql/163_v1198b_bag_signed_records_drop_food_report_trace.sql)：定点软删制袋工序 FAI/PAT 单里活着的这两行（先备份 `qms_iqc_item_bak_v1198b`）并把 `line_no` 重排连续。
+  ⇒ `QI202611170002` **13 → 11 项**（行号 1..11）、`QI202611170003` **11 → 9 项**（行号 1..9）；**备份表留原签核内容 4 行**作留痕，可回查/回滚。
+  改完后这两张单的**代码集合 == 当前模板代码集合**（`validateTemplateCodes` 口径），已签核单与新标准不再分裂。
+- 只在 `.150` 主库执行（副本只读取证，避免 canary 先建备份表导致复制 1062），靠复制下到 `.32`/阿里云。
+
+**验证**：
+- 三站 DB 一致：`QI202611170002` 11 项 / `QI202611170003` 9 项 / 两项代码全库**活跃行 = 0**；`.32` `Slave_IO_Running: Yes`、`Slave_SQL_Running: Yes`、`Seconds_Behind_Master: 0`。
+- **App 实际调用路径**实测（临时 Sa-Token，登录态复用真实用户会话、用完即删）：`POST /api/qms/inspection/ensure-for-process` 返回
+  FAI = `QI202611170002` → 11 项 `BAG_MATERIAL … BAG_PROCESS_PARAM, BAG_FOOD_HYGIENE`（**无** `BAG_FOOD_REPORT`/`BAG_FOOD_TRACE`）；
+  PAT = 9 项 `BAG_PAT_* …, BAG_FOOD_HYGIENE`（`BAG_PAT_TRACE` 是巡检自己的「数量标识与不良隔离(6.1)」项，与本次取消的 `BAG_FOOD_TRACE` 不是同一项，保留）。
+- 验证过程里 `ensure-for-process` 因旧 PAT 单已签核而自动新建了一张草稿 `QI202611180001`（服务端逻辑：FAI 直接返回既有单，PAT 遇 CHECKED 会新建）→ 已按验证痕迹软删（`deleted=1`，明细一并软删），不留在车间待办里。
+
 ### 2026-11-17 — v1.1.198 制袋首检/巡检取消「食品接触符合性文件核验」「批次追溯与接触标识」两项（jar 三站）
 
 **触发**：用户现场报「制袋首检和巡检取消12和13这2个检测项目」+ App 制袋首检页截图（第 12 项「食品接触符合性文件核验（3.5）」、第 13 项「批次追溯与接触标识（6.1）」）。
