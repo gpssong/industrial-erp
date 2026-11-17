@@ -31,6 +31,10 @@
 - **复验全绿**：`.32` 两容器 `nginx -t` successful、`bash -n failover.sh` OK、watcher 日志持续 `main-site-check: 0`、8080/18080/18090 全 200；`.150` `docker compose config` OK、erp-backend healthy、镜像本体 jar md5 `da127aa7f25a7edb788ef5cf3acdecb0` 未变、公网 200；阿里云未被触碰、api 200。
 - **留下的规则**（已写进 erp-deploy 技能 §八）：跨机脚本显式传值或远端从容器 env 读、删除前先 dry-run 打印清单且输出不截断、只删显式文件清单不做通配扫描删除。
 - 未恢复项：各站 `docker-compose.yml.bak_*` 历史快照、`.32` 的 `sql/` 便利副本与 README/RUNBOOK、`.erp_env_failover`（含明文，按规则本就不该留；重建容器改用 `docker inspect` 克隆运行中容器）。
+- **回滚能力已补回**（用户拍板「要」）：三站各生成一份**当前版本**的 compose 快照，md5 与活文件一致、`docker compose -f <快照> config` 解析通过 ——
+  `.32` `docker-compose.failover.yml.bak_v1198_20261118`（6,822 B，md5 `6f1e3214…`，带 `--profile failover` 验证）、`.150` `docker-compose.yml.bak_v1198_20261118`（8,839 B，md5 `d6abcb8e…`）、阿里云 `docker-compose.yml.bak_v1198_20261118`（6,486 B，md5 `a82b3547…`）。
+  快照里口令仍是 `${VAR}` 引用（不落明文），回滚 env 走 `~/.config/erp-ops/env` + 各站 `.env`。
+- 复验：三站入口仍全 200（`home.93gushi.com:8088` / 阿里云 api / `.32` backend）。
 
 ### 2026-11-17 — v1.1.198 制袋首检/巡检取消「食品接触符合性文件核验」「批次追溯与接触标识」两项（jar 三站）
 
