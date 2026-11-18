@@ -4,7 +4,7 @@
 // 口径: 定量项 (unit 非空: 厚度 mm / 宽度 mm) 必须填实测值; 定性项明确判定即可。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isMeasuredItem, missingInspectionItems, describeMissingInspectionItems } from '../src/utils/inspectionRule.js'
+import { isMeasuredItem, missingInspectionItems, describeMissingInspectionItems, isItemIncomplete } from '../src/utils/inspectionRule.js'
 
 const item = (over) => Object.assign({ itemCode: 'X', itemName: '某检验项', unit: null, passFlag: 1, resultValue: '' }, over)
 
@@ -72,4 +72,30 @@ test('成品检验: 定性项只判定即可, 定量项缺实测值仍拦', () =
   const missing = missingInspectionItems([quantitative('OQC_BAG_THICKNESS', '')])
   assert.equal(missing.length, 1)
   assert.equal(missing[0].reason, '缺实测值')
+})
+
+// v1.1.200 — 必填项打 * : 页面用 isItemIncomplete 判断某项还没完成 (未判定 / 定量项缺实测值),
+// 与 missingInspectionItems 同源 —— 两者必须一致, 否则会出现「有 * 但能签」或「没 * 却签不了」。
+test('isItemIncomplete: 未判定 / 定量项缺实测值 => 未完成 (打 *)', () => {
+  assert.equal(isItemIncomplete(item({ passFlag: -1 })), true)
+  assert.equal(isItemIncomplete(item({ passFlag: null })), true)
+  assert.equal(isItemIncomplete(item({ unit: 'mm', passFlag: 1, resultValue: '' })), true)
+})
+
+test('isItemIncomplete: 定性项已判定 / 不适用 / 定量项已填 => 完成 (不打 *)', () => {
+  assert.equal(isItemIncomplete(item({ unit: null, passFlag: 1, resultValue: '' })), false)
+  assert.equal(isItemIncomplete(item({ unit: 'mm', passFlag: 2, resultValue: '' })), false)
+  assert.equal(isItemIncomplete(item({ unit: 'mm', passFlag: 1, resultValue: '0.118' })), false)
+})
+
+test('isItemIncomplete 与 missingInspectionItems 口径一致', () => {
+  const items = [
+    item({ itemCode: 'A', unit: null, passFlag: 1, resultValue: '' }),
+    item({ itemCode: 'B', unit: 'mm', passFlag: 1, resultValue: '' }),
+    item({ itemCode: 'C', unit: null, passFlag: -1 }),
+    item({ itemCode: 'D', unit: 'mm', passFlag: 1, resultValue: '7.5' })
+  ]
+  const flagged = items.map(isItemIncomplete)
+  assert.deepEqual(flagged, [false, true, true, false])
+  assert.deepEqual(missingInspectionItems(items).map(x => x.item.itemCode), ['B', 'C'])
 })

@@ -47,7 +47,7 @@
         <view class="section-title">检验项 ({{ items.length }})</view>
         <view v-for="it in items" :key="it.id || it.lineNo" class="qa-row">
           <view class="qa-head">
-            <text class="qa-name">{{ it.itemName }}</text>
+            <text class="qa-name"><text v-if="isItemIncomplete(it)" class="req">*</text>{{ it.itemName }}</text>
             <picker :range="judgmentLabels(it)" :value="judgmentIndex(it)" :disabled="formReadOnly" @change="setItemJudgment(it, $event)">
               <view :class="['qa-toggle', Number(it.passFlag) === 2 ? 'qa-na' : Number(it.passFlag) === 0 ? 'qa-fail' : Number(it.passFlag) === 1 ? 'qa-pass' : 'qa-pending']">
                 {{ verdictText(it) }}
@@ -97,6 +97,8 @@ import { getApiBaseOverride } from '../../utils/apiBase.js'
 import { getAppPermissions, isAdmin } from '../../utils/permission.js'
 import ProcessInspection from '../../components/ProcessInspection.vue'
 import { activeRouteQuery, onActiveRouteChange, setInspectionContext, takePendingRoute } from '../../utils/routeQuery.js'
+// v1.1.200 — 必填项打 * : 未完成的检验项 (未判定 / 定量项缺实测值) 前标红星
+import { isItemIncomplete } from '../../utils/inspectionRule.js'
 
 const PAGE_PATH = '/pages/scan/fai'
 const str = v => (v == null ? '' : String(v))
@@ -170,6 +172,7 @@ export default {
   },
   onUnload() { this.requestSeq += 1 },
   methods: {
+    isItemIncomplete,
     applyRoute(query = {}) {
       const orderId = str(query.orderId)
       const processId = str(query.processId)
@@ -370,6 +373,7 @@ export default {
 .picker-box { height: 40px; line-height: 40px; border: 1px solid #dcdfe6; border-radius: 6px; padding: 0 10px; font-size: 14px; color: #303133; }
 .picker-box.active { border-color: #1e6091; background: #ecf5fb; }
 .ok-hint { margin-top: 10px; color: #67c23a; font-size: 13px; font-weight: 600; }
+.req { color: #f56c6c; font-weight: 700; margin-right: 2px; }
 .verdict-card { background: #f0f7ff; }
 .verdict-line { display: flex; justify-content: space-between; align-items: center; }
 .verdict-label { font-size: 15px; font-weight: 600; color: #303133; }

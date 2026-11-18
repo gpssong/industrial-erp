@@ -3,6 +3,34 @@
 
 ## changelog (倒序)
 
+### 2026-11-18 — v1.1.200 App 检验页必填项打 * 标识（App H5 + APK 三站）
+
+**触发**：用户要求「必填项请打*标识出来」（接 v1.1.199「成品检验无法签合格并放行」之后）。
+
+**口径**：标 `*` 的字段 = **签核门禁真正要求的字段**（与服务端一致），不多标：
+- **逐项检验项**：该项**还没完成**时在项名前标红星 —— 未判定，或定量项（unit 非空）缺实测值；判完/填完星自动消失，等于一份活的待办清单。
+- **成品检验 (OQC)**：抽检数 / 合格数 / 不良数、**现场照片**（至少 1 张）、不合格处置（存在不合格项时）标 `*`。
+- **工序首检/巡检**（按工序的共用组件）：抽检样本数 / 合格数 / 不良数标 `*`。
+- **半成品首检**（按入库单的老页面）：只标逐项未完成项（照片非必填，不标）。
+- 批次/卷号、照片（首检/巡检）本就不是签核必填 ⇒ **不标**，避免现场误以为必填。
+
+**改法**：
+- 共享规则 [inspectionRule.js](app/src/utils/inspectionRule.js) 新增 `isItemIncomplete(item)`，与既有 `missingInspectionItems` **同源同口径**（抽出共用的 `flagOf` 判定，避免两处漂移）。
+- [oqc.vue](app/src/pages/scan/oqc.vue) / [ProcessInspection.vue](app/src/components/ProcessInspection.vue) / [fai.vue](app/src/pages/scan/fai.vue) 三处按各自门禁加 `*`；样式 `.req { color:#f56c6c; font-weight:700 }`。
+
+**测试**：App `inspectionRule.test.mjs` 新增 3 例（未判定/定量缺值 ⇒ 未完成；定性已判定/不适用/定量已填 ⇒ 完成；`isItemIncomplete` 与 `missingInspectionItems` 口径一致）⇒ 该文件 **10/10** 绿，其余 App 测试 7/22/4 全绿；后端全量 **774 例 0 失败**。
+
+**部署**：版本七处对齐 **1.1.200**；jar `eb9f1eb0b1eb919cee76f609d9bb34c6`（103,179,587 B）三站镜像本体 md5 一致、容器 healthy、`ERP_VERSION=1.1.200`；App H5 `index.html` md5 `766bf1cdaea19d7ef4299cb62f7a240d` 三站一致。
+- `.32` canary：`docker cp` + `docker commit` → `erp-system-backend:1.1.200` + 克隆运行中容器 env 重建；App H5 整目录替换后 restart。
+- `.150`：compose `image:`/`ERP_VERSION` 对齐 + `compose build backend` + `up -d backend`；App H5 目录同步。
+- 阿里云：`.env` `ERP_VERSION` + `compose up -d --build erp-backend`；App H5 整目录替换后 restart。
+- APK `erp-app-20261118.apk` md5 `cbd3b4ea7a3028d819f65aa33dc8244e`（4,521,248 B），已备份飞牛 `.32:/vol1/1000/mac使用/erp/erp-app-v1.1.200-20261118.apk`。**车间手机须装 1.1.200 APK**（App H5 打进 APK，只更服务端对手机无效）。
+
+**实测（浏览器，真实非超管账号）**：`.32` App H5 + 临时 Sa-Token（复用真实仓管 罗飞，用完即删）打开 `QI202611170004`：抽检数 / 合格数 / 不良数 / 现场照片 四处均出现红星（`rgb(245,108,108)`），而 19 项已判完的检验项**没有**多余红星 ⇒ 动态显隐正确。
+⚠️ 工序首检页在 `.32` 打不开是**只读副本**限制（页面要写 `prd_process` → `--super-read-only` 报错），与本次改动无关；改为核验已发布 H5 包：`ProcessInspection.js` / `pages-scan-fai.js` / `pages-scan-oqc.js` 均含 `class:"req"` + `u("*")` 与 `isItemIncomplete` ✓。
+
+**顺带清理**：按「NAS 上不留明文口令」规则，清掉 `.32` 上 `sync-to-fnos.sh`、`init-mysql-replica.sh` 两个内嵌口令的旧脚本，以及本地 `/tmp` 16 个含明文口令的历史脚本；三站复查后**仅各站的活 env 文件**（`.env` / `erp-env.list` / `erp_env_failover.txt`）仍含明文（运行必需，权限 600），其余 0。
+
 ### 2026-11-18 — v1.1.199 成品检验 (OQC) 放行门禁与首检/巡检同口径：定性项只判定即可（jar + App H5/APK + PC dist 三站）
 
 **触发**：用户现场报「成品检验无法签合格并放行」+ App 成品检验页截图（单 `QI202611170004`，工单 `PD202611030002`，成品「金博23*29*0.12」，检验项 19，「签合格并放行」按钮灰着）。

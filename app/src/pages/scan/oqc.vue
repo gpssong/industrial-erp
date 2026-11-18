@@ -34,15 +34,15 @@
         </view>
         <view class="qty-grid">
           <view class="qty-cell">
-            <text class="k">抽检数</text>
+            <text class="k"><text class="req">*</text>抽检数</text>
             <input class="qa-input" type="digit" v-model="sampleQty" :disabled="formReadOnly" placeholder="0" />
           </view>
           <view class="qty-cell">
-            <text class="k">合格数</text>
+            <text class="k"><text class="req">*</text>合格数</text>
             <input class="qa-input" type="digit" v-model="qualifiedQty" :disabled="formReadOnly" placeholder="0" />
           </view>
           <view class="qty-cell">
-            <text class="k">不良数</text>
+            <text class="k"><text class="req">*</text>不良数</text>
             <input class="qa-input" type="digit" v-model="unqualifiedQty" :disabled="formReadOnly" placeholder="0" />
           </view>
         </view>
@@ -54,7 +54,7 @@
         <view class="section-title">检验项 ({{ items.length }})</view>
         <view v-for="it in items" :key="it.id || it.lineNo" class="qa-row">
           <view class="qa-head">
-            <text class="qa-name">{{ it.itemName }}</text>
+            <text class="qa-name"><text v-if="isItemIncomplete(it)" class="req">*</text>{{ it.itemName }}</text>
             <picker :range="judgmentLabels(it)" :value="judgmentIndex(it)" :disabled="formReadOnly" @change="setItemJudgment(it, $event)">
               <view :class="['qa-toggle', Number(it.passFlag) === 2 ? 'qa-na' : Number(it.passFlag) === 0 ? 'qa-fail' : Number(it.passFlag) === 1 ? 'qa-pass' : 'qa-pending']">
                 {{ verdictText(it) }}
@@ -74,13 +74,13 @@
 
       <!-- 不合格处置 -->
       <view v-if="itemsFail" class="card">
-        <view class="section-title">不合格处置 ({{ itemsFail }} 项判不合格)</view>
+        <view class="section-title"><text class="req">*</text>不合格处置 ({{ itemsFail }} 项判不合格)</view>
         <textarea class="qa-textarea" v-model="failReason" :disabled="formReadOnly" placeholder="填写不合格现象、涉及卷/只数与处置意见（签不合格必填，签核后该批次冻结）" />
       </view>
 
       <!-- 照片 -->
       <view class="card">
-        <view class="section-title">现场照片 ({{ photos.length }}/6)</view>
+        <view class="section-title"><text class="req">*</text>现场照片 ({{ photos.length }}/6)</view>
         <view class="photo-grid">
           <view v-for="(p, i) in photos" :key="i" class="photo-cell">
             <image :src="base(p)" class="photo-img" mode="aspectFill" @click="onPreview(p)" />
@@ -111,7 +111,7 @@ import { getAppPermissions, isAdmin } from '../../utils/permission.js'
 import { activeRouteQuery, onActiveRouteChange, takePendingRoute } from '../../utils/routeQuery.js'
 // v1.1.199 — 成品检验放行口径与工序检验 (首检/巡检) 同源:
 //   定量项 (unit 非空) 必须填实测值; 定性项 (unit 为空) 明确判定即可。
-import { missingInspectionItems, describeMissingInspectionItems } from '../../utils/inspectionRule.js'
+import { missingInspectionItems, describeMissingInspectionItems, isItemIncomplete } from '../../utils/inspectionRule.js'
 
 const PAGE_PATH = '/pages/scan/oqc'
 
@@ -186,6 +186,7 @@ export default {
   },
   onUnload() { this.requestSeq += 1 },
   methods: {
+    isItemIncomplete,
     applyRoute(query = {}) {
       const orderId = query.orderId == null ? '' : String(query.orderId)
       if (this.routeApplied && orderId === this.orderId) return
@@ -356,6 +357,7 @@ export default {
 .muted { color: #909399; font-size: 12px; }
 .form-hint { margin-top: 8px; }
 .ok-hint { margin-top: 10px; color: #67c23a; font-size: 13px; font-weight: 600; }
+.req { color: #f56c6c; font-weight: 700; margin-right: 2px; }
 .warn-hint { margin-top: 8px; color: #e6a23c; font-size: 12px; line-height: 1.5; }
 .kv { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 14px; }
 .k { color: #909399; font-size: 13px; }

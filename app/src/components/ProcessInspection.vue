@@ -61,9 +61,9 @@
         <view class="card">
           <view class="section-title">抽样记录</view>
           <view class="form-row"><text class="form-label">批次 / 卷号</text><input v-model="form.batchNo" class="form-input" :disabled="readOnly" placeholder="请输入实际批次 / 卷号" /></view>
-          <view class="form-row"><text class="form-label">抽检样本数</text><input v-model="form.sampleQty" class="form-input" :disabled="readOnly" type="digit" placeholder="实际抽检数，不是整单产量" /></view>
-          <view class="form-row"><text class="form-label">合格数</text><input v-model="form.qualifiedQty" class="form-input" :disabled="readOnly" type="digit" placeholder="请输入实际合格数" /></view>
-          <view class="form-row"><text class="form-label">不良数</text><input v-model="form.unqualifiedQty" class="form-input" :disabled="readOnly" type="digit" placeholder="无不良请明确填写 0" /></view>
+          <view class="form-row"><text class="form-label"><text class="req">*</text>抽检样本数</text><input v-model="form.sampleQty" class="form-input" :disabled="readOnly" type="digit" placeholder="实际抽检数，不是整单产量" /></view>
+          <view class="form-row"><text class="form-label"><text class="req">*</text>合格数</text><input v-model="form.qualifiedQty" class="form-input" :disabled="readOnly" type="digit" placeholder="请输入实际合格数" /></view>
+          <view class="form-row"><text class="form-label"><text class="req">*</text>不良数</text><input v-model="form.unqualifiedQty" class="form-input" :disabled="readOnly" type="digit" placeholder="无不良请明确填写 0" /></view>
         </view>
 
         <view class="card">
@@ -72,7 +72,7 @@
           <view v-if="!items.length" class="error hint">未配置检验项模板，不能保存或签核。请联系质量管理人员配置后重试。</view>
           <button v-if="!items.length && !checked" class="small-btn retry" :disabled="selectionLocked" @click="retry">重试加载模板</button>
           <view v-for="(item, index) in items" :key="item.id || item.lineNo || index" class="qa-row">
-            <view class="qa-name">{{ index + 1 }}. {{ item.itemName || '未命名检验项' }}</view>
+            <view class="qa-name">{{ index + 1 }}. <text v-if="isItemIncomplete(item)" class="req">*</text>{{ item.itemName || '未命名检验项' }}</view>
             <view class="qa-info">要求：{{ item.requirement || '模板未填写' }}</view>
             <view class="qa-info">方法：{{ item.method || '模板未填写' }}</view>
             <view class="qa-info">判定依据：{{ item.judgmentBasis || '模板未填写' }}</view>
@@ -124,7 +124,7 @@ import { getApiBaseOverride } from '../utils/apiBase.js'
 import { isH5Runtime } from '../utils/runtime.js'
 import { navigateTo } from '../utils/nav.js'
 import { getInspectionContext, onInspectionContextChange } from '../utils/routeQuery.js'
-import { describeMissingInspectionItems } from '../utils/inspectionRule.js'
+import { describeMissingInspectionItems, isItemIncomplete } from '../utils/inspectionRule.js'
 
 const emptyForm = () => ({ sampleQty: '', qualifiedQty: '', unqualifiedQty: '', batchNo: '' })
 const stringId = value => value == null ? '' : String(value)
@@ -202,6 +202,7 @@ export default {
     this.orderRequestSeq += 1
   },
   methods: {
+    isItemIncomplete,
     orderLabel(order) { return (order.billNo || '#' + order.id) + (order.productName || order.firstProductName ? ' · ' + (order.productName || order.firstProductName) : '') },
     processLabel(process) { return process.processName + ' · ' + (process.workshop || '未设置车间') + ' · #' + process.id },
     processStatus(status) { return ({ 0: '未开工', 1: '进行中', 2: '已完成', 3: '已回退' })[String(status)] || String(status == null ? '未知' : status) },
@@ -471,6 +472,7 @@ export default {
 .verdict-line { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; overflow-wrap: anywhere; }
 .verdict { font-size: 12px; padding: 4px 8px; border-radius: 12px; }
 .form-row { display: flex; align-items: center; margin-bottom: 10px; gap: 8px; }
+.req { color: #f56c6c; font-weight: 700; margin-right: 2px; }
 .form-label { width: 76px; flex-shrink: 0; font-size: 13px; color: #606266; }
 .form-input { flex: 1; min-width: 0; height: 38px; border: 1px solid #dcdfe6; border-radius: 4px; padding: 0 8px; font-size: 13px; box-sizing: border-box; }
 .qa-row { border-top: 1px solid #ebeef5; padding: 14px 0; }
