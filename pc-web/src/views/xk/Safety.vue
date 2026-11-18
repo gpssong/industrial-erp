@@ -640,7 +640,8 @@ async function onSaveSemi(result) {
   if (!semiItems.value.length) { ElMessage.warning('无检验模板项, 不能签核首检记录'); return }
   const pending = semiItems.value.filter(it => ![0, 1, 2].includes(Number(it.passFlag)))
   if (pending.length) { ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName}`); return }
-  const noValue = semiItems.value.filter(it => Number(it.passFlag) !== 2 && !String(it.resultValue || '').trim())
+  // v1.1.199 — 与服务端同口径: 只有定量项 (unit 非空) 才必须填实测值, 定性项点判定即可
+  const noValue = semiItems.value.filter(it => Number(it.passFlag) !== 2 && String(it.unit || '').trim() && !String(it.resultValue || '').trim())
   if (noValue.length) { ElMessage.warning(`${noValue[0].itemName} 缺实测/观察记录`); return }
   const failed = semiItems.value.filter(it => Number(it.passFlag) === 0)
   if (result === 'PASS' && failed.length) { ElMessage.warning('存在不合格项, 请点「不合格 · 冻结批次」'); return }
@@ -694,7 +695,8 @@ async function onSaveFin() {
   if (!finItems.value.length) { ElMessage.warning('无检验模板项, 不能签发出厂检验记录'); return }
   const pending = finItems.value.filter(it => ![0, 1, 2].includes(Number(it.passFlag)))
   if (pending.length) { ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName}`); return }
-  const noValue = finItems.value.filter(it => Number(it.passFlag) !== 2 && !String(it.resultValue || '').trim())
+  // v1.1.199 — 与服务端同口径: 只有定量项 (unit 非空) 才必须填实测值, 定性项点判定即可
+  const noValue = finItems.value.filter(it => Number(it.passFlag) !== 2 && String(it.unit || '').trim() && !String(it.resultValue || '').trim())
   if (noValue.length) { ElMessage.warning(`${noValue[0].itemName} 缺实测/核验记录`); return }
   const failed = finItems.value.filter(it => Number(it.passFlag) === 0)
   finSubmitting.value = true
@@ -758,7 +760,8 @@ async function onSavePat(result) {
   if (!patItems.value.length) { ElMessage.warning('无检验模板项, 不能签核巡检记录'); return }
   const pending = patItems.value.filter(it => ![0, 1, 2].includes(Number(it.passFlag)))
   if (pending.length) { ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName}`); return }
-  const noValue = patItems.value.filter(it => Number(it.passFlag) !== 2 && !String(it.resultValue || '').trim())
+  // v1.1.199 — 与服务端同口径: 只有定量项 (unit 非空) 才必须填实测值, 定性项点判定即可
+  const noValue = patItems.value.filter(it => Number(it.passFlag) !== 2 && String(it.unit || '').trim() && !String(it.resultValue || '').trim())
   if (noValue.length) { ElMessage.warning(`${noValue[0].itemName} 缺实测/观察记录`); return }
   const failed = patItems.value.filter(it => Number(it.passFlag) === 0)
   if (result === 'PASS' && failed.length) { ElMessage.warning('存在不合格项, 请点「不合格 · 冻结批次」'); return }

@@ -19,7 +19,8 @@
         <view class="kv"><text class="k">出厂判型</text><text class="v">{{ stageText }}</text></view>
         <view v-if="signed" class="ok-hint">出厂检验已签合格，记录只读</view>
         <view v-else-if="checked" class="muted form-hint">该单已签核 {{ head.result }}，记录只读</view>
-        <view v-else class="muted form-hint">按企业标准 Q/ZPC 1-2017 逐项实测并明确判定；数量与照片齐全后才能签合格放行。</view>
+        <view v-else class="muted form-hint">按企业标准 Q/ZPC 1-2017 逐项实测并明确判定；数量与照片齐全后才能签合格放行。定性项（外观/异味/文件核验/标识等）点判定即可，只有带单位的定量项须填实测值。</view>
+        <view v-if="missingHint" class="warn-hint">{{ missingHint }}</view>
       </view>
 
       <view v-if="!canCheck" class="card empty-muted">仅可查看，保存及签核需要检验签核权限。</view>
@@ -108,6 +109,9 @@ import { pickAndUploadImage } from '../../utils/upload.js'
 import { getApiBaseOverride } from '../../utils/apiBase.js'
 import { getAppPermissions, isAdmin } from '../../utils/permission.js'
 import { activeRouteQuery, onActiveRouteChange, takePendingRoute } from '../../utils/routeQuery.js'
+// v1.1.199 — 成品检验放行口径与工序检验 (首检/巡检) 同源:
+//   定量项 (unit 非空) 必须填实测值; 定性项 (unit 为空) 明确判定即可。
+import { missingInspectionItems, describeMissingInspectionItems } from '../../utils/inspectionRule.js'
 
 const PAGE_PATH = '/pages/scan/oqc'
 
@@ -149,7 +153,9 @@ export default {
     },
     stageText() { return this.stage === 'BAG' ? '包装袋（袋模板）' : this.stage === 'BLOW' ? '吹塑膜卷（膜模板）' : '未展开工序，按膜卷模板' },
     itemsFail() { return this.items.filter((x) => Number(x.passFlag) === 0).length },
-    unjudged() { return this.items.filter((x) => ![0, 1, 2].includes(Number(x.passFlag)) || (Number(x.passFlag) !== 2 && !String(x.resultValue == null ? '' : x.resultValue).trim())).length },
+    // v1.1.199 — 与首检/巡检共用 inspectionRule: 定性项只判定, 定量项才要实测值
+    unjudged() { return missingInspectionItems(this.items).length },
+    missingHint() { return describeMissingInspectionItems(this.items) },
     qtyOk() {
       const sample = Number(this.sampleQty), good = Number(this.qualifiedQty), bad = Number(this.unqualifiedQty)
       return this.sampleQty !== '' && this.qualifiedQty !== '' && this.unqualifiedQty !== ''
@@ -350,6 +356,7 @@ export default {
 .muted { color: #909399; font-size: 12px; }
 .form-hint { margin-top: 8px; }
 .ok-hint { margin-top: 10px; color: #67c23a; font-size: 13px; font-weight: 600; }
+.warn-hint { margin-top: 8px; color: #e6a23c; font-size: 12px; line-height: 1.5; }
 .kv { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 14px; }
 .k { color: #909399; font-size: 13px; }
 .v { color: #303133; }

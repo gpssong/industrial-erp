@@ -52,3 +52,24 @@ test('提示语点名是哪几项', () => {
   assert.match(msg, /缺实测值/)
   assert.match(msg, /未判定/)
 })
+
+// v1.1.199 — 成品检验 (OQC) 放行: App 与服务端同一口径。
+// 现场真实单 QI202611170004 (制袋 OQC 19 项): 4 个定量项填了实测值, 15 个定性项只点「合格」;
+// 老口径把定性项也算「缺实测值」⇒ 「签合格并放行」按钮永远灰着, 逐项点合格也签不下来。
+test('成品检验: 定性项只判定即可, 定量项缺实测值仍拦', () => {
+  const qualitative = (code) => item({ itemCode: code, unit: null, passFlag: 1, resultValue: '' })
+  const quantitative = (code, v) => item({ itemCode: code, unit: 'mm', passFlag: 1, resultValue: v })
+  const judged = [
+    quantitative('OQC_BAG_DIMENSION', '232*289'),
+    quantitative('OQC_BAG_THICKNESS', '0.118'),
+    qualitative('OQC_BAG_APPEARANCE'),
+    qualitative('OQC_FOOD_DOC'),
+    item({ itemCode: 'OQC_BAG_PRINT', unit: null, passFlag: 2, resultValue: '' })
+  ]
+  assert.deepEqual(missingInspectionItems(judged), [])
+  assert.equal(describeMissingInspectionItems(judged), '')
+
+  const missing = missingInspectionItems([quantitative('OQC_BAG_THICKNESS', '')])
+  assert.equal(missing.length, 1)
+  assert.equal(missing[0].reason, '缺实测值')
+})

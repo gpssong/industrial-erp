@@ -649,8 +649,9 @@ async function saveItems(silent = false) {
     if (!silent) ElMessage.warning(`还有 ${pending.length} 项未判定: ${pending[0].itemName} 等`)
     if (!silent) return false
   }
+  // v1.1.199 — 与服务端同口径: 只有定量项 (unit 非空) 才必须填实测值, 定性项点判定即可
   const noValue = checkItems.value.filter(it => Number(it.passFlag) === 1 || Number(it.passFlag) === 0)
-    .filter(it => !String(it.resultValue || '').trim())
+    .filter(it => String(it.unit || '').trim() && !String(it.resultValue || '').trim())
   if (noValue.length) {
     if (!silent) ElMessage.warning(`判定项缺少实测/观察记录: ${noValue[0].itemName}`)
     return false

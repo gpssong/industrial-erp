@@ -1903,8 +1903,12 @@ public class QmsInspectionService {
         validateQuantities(head.getSampleQty(), head.getQualifiedQty(), head.getUnqualifiedQty(), release);
         for (QmsIqcItem item : items) {
             requireNaOnlyForPrintOrCorona(item);
+            // v1.1.199 — 与工序检验 (v1.1.196 validateProcessResult) 同口径:
+            //   定量项 (unit 非空: 厚度 mm / 尺寸 mm / 热合强度 N/15mm) 必须填实测值;
+            //   定性项 (unit 为空: 外观/异味/文件核验/标识/留样等) 明确判定即可。
+            //   成品检模板 19 项里 15 项是定性项, 老口径一刀切要 result_value ⇒ 现场「逐项点合格」签不下来。
             if (!isJudgedFlag(item.getPassFlag())
-                    || (!isNaFlag(item.getPassFlag()) && StrUtil.isBlank(item.getResultValue()))) {
+                    || (!isNaFlag(item.getPassFlag()) && requiresMeasuredValue(item) && StrUtil.isBlank(item.getResultValue()))) {
                 if (!release) continue;  // 待判定 (HOLD) 允许部分未检
                 throw BizException.of("检验项 " + item.getItemName() + " 未完成实测及判定，不能放行");
             }

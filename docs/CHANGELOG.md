@@ -3,6 +3,39 @@
 
 ## changelog (倒序)
 
+### 2026-11-18 — v1.1.199 成品检验 (OQC) 放行门禁与首检/巡检同口径：定性项只判定即可（jar + App H5/APK + PC dist 三站）
+
+**触发**：用户现场报「成品检验无法签合格并放行」+ App 成品检验页截图（单 `QI202611170004`，工单 `PD202611030002`，成品「金博23*29*0.12」，检验项 19，「签合格并放行」按钮灰着）。
+
+**取证（先分清「卡在哪」，再改）**：
+| 查了什么 | 结论 |
+|---|---|
+| DB `mes_quality_inspection` | `QI202611170004`：OQC / **DRAFT** / 挂工单 `PD202611030002`，19 项 |
+| DB `qms_iqc_item` | 19 项 **全部已判定**（pass_flag 全 1 或 2），其中 **14 项定性项**（unit 为空：`OQC_BAG_APPEARANCE` / `OQC_FOOD_DOC` / `OQC_FOOD_MARK` / `OQC_FOOD_HYGIENE` / 留样归档等）`result_value` 为空；**4 个定量项**（`OQC_BAG_DIMENSION` 232*289、`OQC_BAG_THICKNESS` 0.118、`OQC_BAG_SEAL_SIZE` 8、`OQC_BAG_SEAL_STRENGTH` 7.5）**实测值齐全** |
+| DB `qms_iqc_attachment` | 该单已有 1 张 `SAMPLE_PHOTO` ⇒ 照片门槛不是卡点 |
+| App `oqc.vue` 的 `unjudged` | 一刀切要求**每一项**都有 `result_value` ⇒ 14 个定性项被判「未完成」⇒ `ready=false` ⇒ 按钮灰 |
+| 服务端 `validateFinishedResult` | 同样一刀切 ⇒ 就算按钮能点，服务端也会抛「检验项 … 未完成实测及判定，不能放行」 |
+
+**根因**：v1.1.196 把「定性项免填实测值」只落在**工序检验**（FAI/PAT），**漏了成品检验 (OQC)**；PC 侧 `Inspection.vue` / `Safety.vue` 的 `noValue` 过滤自 v1.1.196 起也一直比服务端严一档。
+
+**改法（三端同口径，模板不动）**：
+- 服务端 [QmsInspectionService](backend/src/main/java/com/industrial/erp/modules/qms/service/QmsInspectionService.java) `validateFinishedResult` 改用 `requiresMeasuredValue(item)`（**unit 非空才强制实测值**），与 `validateProcessResult`（工序检验）完全一致；不适用项（pass_flag=2）与「不合格项不得放行」「不良数>0 不得放行」等门禁一律不动。
+- App [oqc.vue](app/src/pages/scan/oqc.vue)：`unjudged` 改走共享 [inspectionRule.js](app/src/utils/inspectionRule.js) 的 `missingInspectionItems`，新增 `missingHint` **点名缺哪几项**；页头提示补一句「定性项（外观/异味/文件核验/标识等）点判定即可，只有带单位的定量项须填实测值」。
+- PC [Inspection.vue](pc-web/src/views/quality/Inspection.vue) + [Safety.vue](pc-web/src/views/xk/Safety.vue)：4 处 `noValue` 过滤加 `unit` 条件（PC 侧一并在本次对齐）。
+- **定量项（厚度 mm / 尺寸 mm / 热合强度 N/15mm）仍必须填实测值** —— 现场「逐项点合格」放行时，这几项仍要有实测数。
+
+**测试（TDD 红→绿）**：先加两例 ⇒ 红（新例报「检验项 半成品卷与原料批次一致性（3.5/5.1） 未完成实测及判定，不能放行」，与现场报错**逐字一致**）；改服务端后绿：该类 **91/89+2**、后端全量 **774 例 0 失败**；App `inspectionRule.test.mjs` 补 1 例 OQC 场景（node:test **7/7**）。
+
+**部署**：版本七处对齐 **1.1.199**；jar `2aa06ac83eff1fc3b66ce7c5a80128bf`（103,179,586 B）三站镜像本体 md5 一致、容器 healthy、`ERP_VERSION=1.1.199`。
+- `.32` canary：`docker cp` + `docker commit` → `erp-system-backend:1.1.199` + 克隆运行中容器 env 重建；PC dist / App H5 整目录替换后 restart。
+- `.150`：compose `image:`/`ERP_VERSION` 一并对齐 + `compose build backend` + `up -d backend`；⚠️ 构建时发现 `.150` 的 `backend/fonts/wqy-microhei.ttc` 缺失（历史遗留，`.dockerignore` 之外的 build context 缺口）⇒ 从仓库补回（md5 `a7ff47b4…`）后重建成功；同时给 `.150` 的 `backend/.dockerignore` 补上 `*.bak*` 等忽略规则（build context 从 ~1GB 降到 103MB 量级）。
+- 阿里云：`.env` `ERP_VERSION` + `compose up -d --build erp-backend`；PC / App H5 整目录替换后 restart。
+- **App H5 是打进 APK 的**（Capacitor `webDir`），手机端必须装新 APK 才能生效：APK `erp-app-20261118.apk` md5 `56d925072e3cb07e8aabc1fc768201c9`（4,520,909 B），已备份飞牛 `.32:/vol1/1000/mac使用/erp/erp-app-v1.1.199-20261118.apk`。
+
+**实测（浏览器，真实非超管账号）**：`.32` App H5 + 临时 Sa-Token（登录态复用**真实仓管 罗飞**，`quality:inspection:check` 齐全，用完即删）打开 `QI202611170004`：19 项加载正常、页面出现新提示文案、抽检/合格/不良填 10/10/0 后「**签合格并放行**」按钮 `opacity=1`、无 `disabled` ⇒ **可签**（未代签，改动业务留痕由车间自己点）。
+
+**未代签**：签合格会真实放行批次，故只验到「按钮可点 + 服务端门禁放行（单测覆盖）」，实际签核由车间在手机上完成。
+
 ### 2026-11-18 — v1.1.198 同日补丁 A：已签核的制袋首检/巡检单也取消那两项（纯 SQL 三站生效）
 
 **触发**：用户现场报「APP端的制袋首检和巡检也取消12和13这2个检测项目」+ App 制袋首检页截图（仍是第 12 项「食品接触符合性文件核验（3.5）」、第 13 项「批次追溯与接触标识（6.1）」）。

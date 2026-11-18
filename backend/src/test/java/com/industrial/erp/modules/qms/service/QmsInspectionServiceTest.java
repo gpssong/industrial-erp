@@ -1197,9 +1197,43 @@ class QmsInspectionServiceTest {
         assertThat(heads.get(id).getStatus()).isEqualTo("CHECKED");
     }
 
+    /**
+     * v1.1.199 — 成品检验 (OQC) 放行: 定性项 (unit 为空) 只需明确判定, 定量项 (unit 非空) 才必须填实测值。
+     *
+     * <p>与工序检验 (v1.1.196 validateProcessResult) 同口径。现场在 App 上逐项点「合格」就应能签合格放行;
+     * 模板里十来个定性项 (外观/异味/文件核验/标识…) 本就没有实测值可填, 老口径 (一刀切要 result_value)
+     * 会让「逐项合格」永远签不下来。
+     */
     @Test
-    void ensureOqcForOrderRejectsOrderWithoutProduct() {
-        order.setProductId(null);
+    void oqcReleaseAcceptsQualitativeItemsWithoutMeasuredValue() {
+        Long id = ((MesQualityInspection) service.ensureOqcForOrder(10L).get("head")).getId();
+        heads.get(id).setSampleQty(new BigDecimal("10"));
+        heads.get(id).setQualifiedQty(new BigDecimal("10"));
+        heads.get(id).setUnqualifiedQty(BigDecimal.ZERO);
+        // 模板项默认已判定 (合格/不适用); 只有定量项补实测值
+        rows.get(id).forEach(it -> {
+            if (it.getUnit() != null && !it.getUnit().trim().isEmpty()) it.setResultValue("实测记录");
+        });
+        service.check(id, "PASS", "NONE", "现场成品检合格", null, null, null, null, null,
+                null, null, null, "BATCH-现场");
+
+        assertThat(heads.get(id).getStatus()).isEqualTo("CHECKED");
+        assertThat(heads.get(id).getResult()).isEqualTo("PASS");
+    }
+
+    /** v1.1.199 边界: 定量项 (unit 非空) 缺实测值仍不放行 —— 只放宽定性项。 */
+    @Test
+    void oqcReleaseRejectsQuantitativeItemWithoutMeasuredValue() {
+        Long id = ((MesQualityInspection) service.ensureOqcForOrder(10L).get("head")).getId();
+        heads.get(id).setSampleQty(new BigDecimal("10"));
+        heads.get(id).setQualifiedQty(new BigDecimal("10"));
+        heads.get(id).setUnqualifiedQty(BigDecimal.ZERO);
+        assertThatThrownBy(() -> service.check(id, "PASS", "NONE", "")).hasMessageContaining("未完成实测");
+        assertThat(heads.get(id).getStatus()).isEqualTo("DRAFT");
+    }
+
+    @Test
+    void ensureOqcForOrderRejectsOrderWithoutProduct() {        order.setProductId(null);
         assertThatThrownBy(() -> service.ensureOqcForOrder(10L)).hasMessageContaining("未关联产品");
         assertThatThrownBy(() -> service.ensureOqcForOrder(999L)).hasMessageContaining("生产单不存在");
         verify(inspections, never()).insert(any(MesQualityInspection.class));
