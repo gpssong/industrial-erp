@@ -35,6 +35,9 @@
   `.32` `docker-compose.failover.yml.bak_v1198_20261118`（6,822 B，md5 `6f1e3214…`，带 `--profile failover` 验证）、`.150` `docker-compose.yml.bak_v1198_20261118`（8,839 B，md5 `d6abcb8e…`）、阿里云 `docker-compose.yml.bak_v1198_20261118`（6,486 B，md5 `a82b3547…`）。
   快照里口令仍是 `${VAR}` 引用（不落明文），回滚 env 走 `~/.config/erp-ops/env` + 各站 `.env`。
 - 复验：三站入口仍全 200（`home.93gushi.com:8088` / 阿里云 api / `.32` backend）。
+- **站点自述文档已重新生成并同步三站**（用户拍板「要」）：每个部署目录放 `README.md`（站点角色、目录内容、容器/端口、常用命令、凭据纪律，**按站点分别写**）+ `RUNBOOK.md`（三站通用运维手册：拓扑、发版顺序、换 jar/换前端、灌 SQL、故障接管、**清理类操作铁律**、凭据、探活清单）；`sql/` 补回仓库的 137 个迁移脚本 + `sql/README.md` + `sql/seed/`；`ai-corpus/` 补回仓库 `docs/security.md` / `20_v111_部署热修复专题.md` / `21_操作日志与登录日志功能.md` / `CHANGELOG.md`。
+  ⇒ 三站 `sql=137 / seed=1 / sql/README=10,392 B`，README 3.2–3.7 KB、RUNBOOK 6,758 B（内容与 md5 一致）。
+  顺带修掉阿里云两个**轮换前的旧副本**（`sql/README.md`、`sql/seed/14_v113_permissions.sql` 含旧 root 口令明文）—— 用仓库清理后的版本覆盖；三站同步目录按「当前有效口令 + 旧 root 口令」四个 pattern 全量复查，**命中 0**。
 
 ### 2026-11-17 — v1.1.198 制袋首检/巡检取消「食品接触符合性文件核验」「批次追溯与接触标识」两项（jar 三站）
 
