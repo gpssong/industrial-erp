@@ -91,7 +91,7 @@
 
       <view class="foot">
         <button class="btn btn-save" :disabled="!orderId || submitting || draftId" @click="onSaveDraft">保存草稿</button>
-        <button class="btn btn-check" :disabled="!draftId || submitting" @click="onCheck">
+        <button class="btn btn-check" :disabled="!orderId || submitting" @click="onCheck">
           {{ submitting ? '处理中...' : '审核入库' }}
         </button>
       </view>

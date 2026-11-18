@@ -3,6 +3,26 @@
 
 ## changelog (倒序)
 
+### 2026-11-19 — v1.1.201 成品入库「审核入库」按钮漏改置灰条件（App H5 + APK 三站）
+
+**触发**：用户现场报「成品入库的审核入库无法按」+ App 成品入库页截图（工单 `PD202611030002` 已选、成品仓库/单位/数量 2000/批号都填好，但「审核入库」灰着）。
+
+**根因（v1.1.197 的漏改）**：v1.1.197 给成品入库页 [finished-in.vue](app/src/pages/scan/finished-in.vue) 加了 `ensureDraft()`（没草稿就现建一张再审核）并在 `onCheck()` 里调它，**但漏改了按钮的 `:disabled` 条件** —— 仍是 `!draftId` ⇒ 没先点「保存草稿」就永远灰着，现场又一次误判成「XK 门禁不让入库」。
+（同批的半成品入库页 [semi-in.vue](app/src/pages/scan/semi-in.vue) 当时已改成 `!orderId || submitting`，只有成品入库页漏了。）
+
+**改法**：
+- 成品入库页「审核入库」按钮条件与半成品入库页对齐为 `:disabled="!orderId || submitting"`（选好工单即可点，没草稿则点时现建草稿再审核）。
+- 新增回归护栏 [app/test/signButtonGate.test.mjs](app/test/signButtonGate.test.mjs)：静态断言「所有审核/签核按钮的 `disabled` 条件里不得出现 `draftId`」+「两个入库页口径一致（都以 `orderId` 为准）」，覆盖 5 个页面（finished-in / semi-in / fai / oqc / ProcessInspection）。
+- TDD 红→绿：把绑定改回旧值即 **2 例挂**，修复后 **2/2 绿**；App 其余测试 7/10/22/4 全绿。
+
+**部署**：版本七处对齐 **1.1.201**；jar `a2ff33b9f8bcf87bf4fbba900ff4a523` 三站镜像本体 md5 一致、容器 healthy、`ERP_VERSION=1.1.201`；App H5 `index.html` md5 `c00c4357c6696e277caaf1e7f508b065` 三站一致。
+- `.32` canary：`docker cp` + `docker commit` → `erp-system-backend:1.1.201` + 克隆运行中容器 env 重建；App H5 整目录替换后 restart。
+- `.150`：compose `image:`/`ERP_VERSION` 对齐 + `compose build backend` + `up -d backend`；App H5 目录同步。
+- 阿里云：`.env` `ERP_VERSION` + `compose up -d --build erp-backend`；App H5 整目录替换后 restart。
+- APK `erp-app-20261119.apk` md5 `c2bed63f64a87c3a8b650af28f30370b`（4,521,270 B），已备份飞牛 `.32:/vol1/1000/mac使用/erp/erp-app-v1.1.201-20261119.apk`。**车间手机须装 1.1.201 APK**。
+
+**实测（浏览器，真实非超管账号）**：`.32` App H5 + 临时 Sa-Token（复用真实仓管 罗飞，用完即删）打开成品入库页并带入工单 `PD202611030002`：「**审核入库**」按钮 `opacity=1`、无 `disabled` ⇒ 可点（与现场截图同一场景）；页内无「系统繁忙」。
+
 ### 2026-11-18 — v1.1.200 App 检验页必填项打 * 标识（App H5 + APK 三站）
 
 **触发**：用户要求「必填项请打*标识出来」（接 v1.1.199「成品检验无法签合格并放行」之后）。
