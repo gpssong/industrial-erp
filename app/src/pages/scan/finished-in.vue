@@ -104,6 +104,7 @@
 <script>
 import api from '../../api/index.js'
 import { doScan } from '../../utils/scan.js'
+import { findReusableDraft } from '../../utils/inboundDraft.js'
 
 export default {
   data() {
@@ -464,7 +465,17 @@ export default {
       if (!this.warehouseId) throw { msg: '请选择仓库' }
       // v1.1.117: 带上选中的单位 (默认成品主单位) + 批号 (默认=工单号)
       const u = this.units[this.unitIdx] || {}
-      await api.prdFinishedInAdd({
+      // v1.1.203: 门禁拦下后重试不该再堆新草稿 —— 先找同工单数量一致的既有 DRAFT 单复用。
+      const reuse = findReusableDraft(this.inRecords, this.orderId, this.form.qty)
+      if (reuse) {
+        this.draftId = String(reuse.id)
+        this.draftNo = reuse.billNo || ''
+        return { id: this.draftId, billNo: this.draftNo }
+      }
+      // v1.1.202: 服务端直接回传新建单 id。入库单自己的单号是 PFI 另生成的 (PFI2026…),
+      // 和工单号 (PD2026…) 不是一个号 —— 原来「按工单号查列表」回捞永远查不到 ⇒
+      // draftId 为空 ⇒ 现场看到「入库单草稿保存失败，请重试」。
+      const createdId = await api.prdFinishedInAdd({
         prdOrderId: this.orderId,
         prdOrderNo: o.billNo,
         productId: o.productId, productCode: o.productCode, productName: o.productName,
@@ -474,9 +485,17 @@ export default {
         qty: this.form.qty || 0, batchNo: this.form.batchNo || undefined,
         warehouseId: this.warehouseId, remark: 'App 成品入库'
       })
-      const r = await api.prdFinishedInPage({ pageNum: 1, pageSize: 5, billNo: o.billNo })
+      if (createdId) {
+        this.draftId = String(createdId)
+        await this.loadInList()
+        const rec = this.inRecords.find((x) => String(x.id) === String(createdId))
+        if (rec) this.draftNo = rec.billNo
+        return { id: this.draftId, billNo: this.draftNo }
+      }
+      // 兜底: 老后端不返回 id 时按「工单关联」找 (不要再拿工单号当单号查)
+      const r = await api.prdFinishedInPage({ pageNum: 1, pageSize: 50 })
       const recs = (r && r.records) || (r && r.data && r.data.records) || []
-      const d = recs.find((x) => x.billStatus === 'DRAFT') || recs[0]
+      const d = recs.find((x) => String(x.prdOrderId) === String(this.orderId) && x.billStatus === 'DRAFT') || recs[0]
       if (d) { this.draftId = String(d.id); this.draftNo = d.billNo }
       return d || {}
     },

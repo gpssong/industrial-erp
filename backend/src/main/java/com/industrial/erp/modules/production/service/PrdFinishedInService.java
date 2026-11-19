@@ -60,9 +60,13 @@ public class PrdFinishedInService {
         return mapper.selectPage(p, w);
     }
 
+    /**
+     * v1.1.202 — 返回新建单的 id (客户端据此直接用这张单, 不再靠「按工单号查列表」回捞:
+     * 入库单自己的单号是 BILL_PFI 另生成的, 与工单号 PD… 不是一个号, 列表里查不到)。
+     */
     @Transactional(rollbackFor = Exception.class)
     @OperLog(module="成品入库", businessType="ADD", saveParam=true)
-    public void add(PrdFinishedIn in) {
+    public Long add(PrdFinishedIn in) {
         permService.requirePerm("production:finished-in:add");
         if (in.getBillDate() == null) in.setBillDate(LocalDate.now());
         if (StrUtil.isBlank(in.getBillNo())) in.setBillNo(billNoGenerator.generate(Constants.BILL_PFI));
@@ -72,6 +76,7 @@ public class PrdFinishedInService {
         in.setAmount(in.getPrice().multiply(in.getQty()));
         backfillDerived(in);
         mapper.insert(in);
+        Long createdId = in.getId();
         // v1.1.102: 仅食品级商品 (is_food_grade=1) 建单时自动建 OQC 草稿 (先检后入);
         // 工业品不自动建 OQC, 可直接入库 (可现场签, 不强制先检后入).
         // 从 check() 挪到 add(), 避免「审核后才建草稿→草稿未 PASS→永远审不了」死锁.
@@ -86,6 +91,7 @@ public class PrdFinishedInService {
                 log.warn("[PrdFinishedIn.add] QMS OQC auto-create failed (non-blocking): {}", ex.getMessage());
             }
         }
+        return createdId;
     }
 
     /**

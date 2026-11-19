@@ -97,7 +97,10 @@ public class PrdSemiInService {
 
     @Transactional(rollbackFor = Exception.class)
     @OperLog(module = "半成品入库", businessType = "ADD", saveParam = true)
-    public void add(PrdSemiIn in) {
+    /**
+     * v1.1.202 — 返回新建单的 id (同 PrdFinishedInService: 客户端不靠单号反查, 单号是 BILL_PSI 另生成的)。
+     */
+    public Long add(PrdSemiIn in) {
         permService.requirePerm("production:semi-in:add");
         if (in.getBillDate() == null) in.setBillDate(LocalDate.now());
         if (StrUtil.isBlank(in.getBillNo())) in.setBillNo(billNoGenerator.generate(Constants.BILL_PSI));
@@ -118,6 +121,7 @@ public class PrdSemiInService {
         in.setUnitId(f.unitId);
         in.setUnitName(f.unitName);
         mapper.insert(in);
+        return in.getId();
     }
 
     /**

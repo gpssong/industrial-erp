@@ -28,7 +28,7 @@ public class PrdFinishedInController {
 
     @SaCheckPermission(value = {"production:finished-in:add"}, orRole = "admin")
     @PostMapping
-    public R<Void> add(@RequestBody PrdFinishedIn in) { service.add(in); return R.ok(); }
+    public R<Long> add(@RequestBody PrdFinishedIn in) { return R.ok(service.add(in)); }
 
     @SaCheckPermission(value = {"production:finished-in:check"}, orRole = "admin")
     @PostMapping("/{id}/check")

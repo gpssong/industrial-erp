@@ -29,9 +29,8 @@ public class PrdSemiInController {
 
     @SaCheckPermission(value = {"production:semi-in:add"}, orRole = "admin")
     @PostMapping
-    public R<Void> add(@RequestBody PrdSemiIn in) {
-        service.add(in);
-        return R.ok();
+    public R<Long> add(@RequestBody PrdSemiIn in) {
+        return R.ok(service.add(in));
     }
 
     @SaCheckPermission(value = {"production:semi-in:check"}, orRole = "admin")

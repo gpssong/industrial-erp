@@ -3,6 +3,38 @@
 
 ## changelog (倒序)
 
+### 2026-11-19 — v1.1.203 入库单草稿复用：审核被门禁拦下后重试不再堆废草稿（App H5 + APK 三站）
+
+**触发**：v1.1.202 修好「入库单草稿保存失败，请重试」后，上线实测同一条链上又暴露第二个缺陷 —— 现场同一工单下堆出一串重复入库草稿。
+
+**根因**：v1.1.197 的「审核入库」是**一步完成**流程（没草稿就现建一张再审核）。门禁拦下时（工序未完工 / OQC 未放行）草稿会留着，现场再点一次「审核入库」就**再建一张** —— `ensureDraft()` 只管建、不管查已有单。
+实测线上工单 `PD202611030002` 下已堆出 `PFI202611190001`（06:07:44）与 `PFI202611190002`（06:07:52）两张草稿（相隔 8 秒 = 现场连点两次），修完再测又多一张 `PFI202611190005` ⇒ 同一工单下重复草稿堆积，后续审核时不知道该用哪张。
+
+**改法**：
+- 新增共享工具 [inboundDraft.js](app/src/utils/inboundDraft.js) `findReusableDraft(records, orderId, qty)`：**同一工单 + DRAFT 状态 + 数量一致**的入库单只留一张，重试时复用它。
+- 数量不一致时**不复用**：入库单没有改单接口（只有 add/check/delete/uncheck），复用旧单会让实际入库量与现场填的数量对不上 —— 宁可新建一张，让旧的走列表里的「删除」按钮。
+- [finished-in.vue](app/src/pages/scan/finished-in.vue) / [semi-in.vue](app/src/pages/scan/semi-in.vue) 的 `ensureDraft()` 改为**先查复用、再建新单**。
+
+**测试**：新增 [app/test/inboundDraftReuse.test.mjs](app/test/inboundDraftReuse.test.mjs) 4 例（复用命中 / 忽略已审核单与别工单 / 数量不一致不复用 / 两个入库页的复用判断必须落在建单之前）。TDD 红→绿（红时页面断言挂「未复用同工单既有草稿」）；App 全量 51 例绿，后端全量 776 绿。
+
+**实测（浏览器，真实非超管账号 罗飞，走阿里云 H5 → `.150` 主站链路）**：
+- `POST /api/production/finished-in` 返回 `data = "2123362891419717633"` ⇒ v1.1.202 的「回传单 id」在生产链路确实生效（此前返回 null）。
+- App 成品入库页带工单 `PD202611030002` 点「审核入库」⇒ 弹窗显示**真实门禁原因**「生产工单存在未完工工序, 不能成品入库: 吹膜」，不再是「入库单草稿保存失败，请重试」。
+- 同一次点击后复查该工单下草稿：仍只有 `PFI202611190001/2000/DRAFT` 一张（复用，未新建），`POST /check` 调用 1 次 ⇒ 重试不再堆草稿。测试期间因浏览器命中旧缓存 chunk 产生的 `PFI202611190006` 与现场重复的 `PFI202611190002` 已删除。
+
+### 2026-11-19 — v1.1.202 入库单新建接口回传单 id，App「审核入库」不再报「草稿保存失败」（jar + App H5 + APK 三站）
+
+**触发**：用户现场报「成品入库审核失败」+ App 成品入库页截图（弹窗「审核失败 / 入库单草稿保存失败，请重试」）。
+
+**根因**：v1.1.197 的「审核入库一步完成」在 `ensureDraft()` 里建完草稿后，靠 `GET /production/finished-in/page?billNo={工单号}` 回捞刚建的草稿 —— **入库单自己的单号是 `BILL_PFI`/`BILL_PSI` 另生成的（PFI2026…/PSI2026…），与工单号（PD2026…）根本不是一个号** ⇒ 列表永远查不到 ⇒ `draftId` 为空 ⇒ 抛「入库单草稿保存失败，请重试」。
+（现场还因此留下废草稿：见上一条 v1.1.203。）
+
+**改法**：
+- 后端 `PrdFinishedInService.add` / `PrdSemiInService.add` 改为**返回新建单 id**，两个 controller 改 `R<Long>`（旧客户端忽略 `data`，向后兼容）。
+- App [finished-in.vue](app/src/pages/scan/finished-in.vue) / [semi-in.vue](app/src/pages/scan/semi-in.vue) 的 `ensureDraft()` 直接用回传的 id；兜底查询改为按 `prdOrderId` 关联找（不再拿工单号当单号）。
+
+**测试**：新增 `PrdInboundAddIdTest`（成品/半成品各 1 例，断言返回 id 且单号是 PFI/PSI 前缀）TDD 红→绿（红时编译期即挂：`void` 无法转 `Long`）；新增 App 护栏 [app/test/inboundDraftId.test.mjs](app/test/inboundDraftId.test.mjs)（断言 ensureDraft 用回传 id、不得用工单号反查）。
+
 ### 2026-11-19 — v1.1.201 成品入库「审核入库」按钮漏改置灰条件（App H5 + APK 三站）
 
 **触发**：用户现场报「成品入库的审核入库无法按」+ App 成品入库页截图（工单 `PD202611030002` 已选、成品仓库/单位/数量 2000/批号都填好，但「审核入库」灰着）。
