@@ -183,7 +183,23 @@ public class PrdSemiInService {
         w.set(PrdSemiIn::getSampleQty, in.getSampleQty());
         w.set(PrdSemiIn::getInspectorName, in.getInspectorName());
         mapper.update(null, w);
+        // v1.1.204 口径「半成品入库 = 吹膜的报工」: 审核通过的量回写吹膜工序产出, 达量则完工。
+        // 必须在上面把本单改成 CHECKED 之后统计, 否则本次审核的单不算进去 (App 吹膜链没有报工步骤,
+        // 吹膜工序 status 到不了 2 ⇒ 食品级单被成品入库的工序门禁永远拦死)。
+        syncBlowOutput(in.getPrdOrderId(), in.getBillNo());
         log.info("半成品入库审核: billNo={}", in.getBillNo());
+    }
+
+    /** 该单已审核的半成品入库总量 → 交给 MES 重算吹膜工序产出 (无工单的手工单跳过)。 */
+    private void syncBlowOutput(Long orderId, String billNo) {
+        if (orderId == null) return;
+        java.math.BigDecimal total = java.math.BigDecimal.ZERO;
+        for (PrdSemiIn r : mapper.selectList(new LambdaQueryWrapper<PrdSemiIn>()
+                .eq(PrdSemiIn::getPrdOrderId, orderId)
+                .eq(PrdSemiIn::getBillStatus, Constants.STATUS_CHECKED))) {
+            if (r.getQty() != null) total = total.add(r.getQty());
+        }
+        mesReportService.recordBlowOutput(orderId, total, billNo);
     }
 
     @Transactional(rollbackFor = Exception.class)

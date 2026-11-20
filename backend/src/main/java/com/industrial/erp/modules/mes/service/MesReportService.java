@@ -211,9 +211,10 @@ public class MesReportService {
             upd.setEndTime(LocalDateTime.now());
         }
         upd.setOperator(StrUtil.isBlank(operator) ? SecurityContext.getUsername() : operator);
-        // 回写订单实际/良品量 (聚合该订单所有工序) —— 订单进度看板的数字来源
-        syncOrderQtyFromProcesses(orderId);
         procMapper.updateById(upd);
+        // 回写订单实际/良品量 (聚合该订单所有工序) —— 订单进度看板的数字来源。
+        // 必须在 updateById 之后: 聚合读的是库里的工序行, 排在前面会永远少算本次报工的量。
+        syncOrderQtyFromProcesses(orderId);
         String what = "报工 " + p.getPrdOrderNo() + " 工序[" + p.getProcessName()
                 + "] 合格=" + g + " 不良=" + b + " 操作人=" + upd.getOperator();
         writeAudit("REPORT_WORK", 1, what, null);
@@ -267,6 +268,60 @@ public class MesReportService {
     public PrdProcess reportWork(Long orderId, Long processId,
                                  BigDecimal goodQty, BigDecimal badQty, String operator) {
         return reportWork(orderId, processId, goodQty, badQty, operator, null);
+    }
+
+    /**
+     * v1.1.204 — 半成品入库审核量回写吹膜工序产出 (口径: <b>半成品入库 = 吹膜的报工</b>)。
+     *
+     * <p>App 的吹膜链路是「开工 → 吹膜首检 → 半成品入库」, 报工入口只挂在制袋, 所以吹膜工序的
+     * status 从来没有写方 (库内 13 行吹膜工序只有 0/1, 无一 2) —— v1.1.99 C1 的成品入库工序门禁
+     * 对「配了吹膜工序的食品级单」从来没可能被满足, 现场表现为「所有工序都做完了却不能成品入库」。
+     *
+     * <p>口径:
+     * <ul>
+     *   <li>调用方给的是该单<b>已 CHECKED 的半成品入库总量</b>, 这里是<b>重算不是累加</b> ——
+     *       审核 → 反审核 → 再审核 不会重复累计;</li>
+     *   <li><b>只抬高不压低</b> (取 max): 现场手工报工过的量不被半成品抹掉;</li>
+     *   <li>已完工 (status=2) 与已红冲 (status=3) 的行<b>不回退也不复活</b>, 与半成品反审核
+     *       「MES/QMS 不回退 (走人工修正)」同口径;</li>
+     *   <li>吹膜行按 {@link com.industrial.erp.modules.qms.service.QmsInspectionService#listInspectionProcesses}
+     *       找 (与首检门禁同一阶段口径), 制袋工序本方法一律不碰。</li>
+     * </ul>
+     *
+     * @param orderId      生产单 id; 无工单的手工半成品入库单传 null → 不做任何事
+     * @param outputQty    该单已审核的半成品入库总量; ≤0 → 不做任何事
+     * @param sourceBillNo 触发本次回写的半成品入库单号 (只用于审计文案)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void recordBlowOutput(Long orderId, BigDecimal outputQty, String sourceBillNo) {
+        if (orderId == null || outputQty == null || outputQty.signum() <= 0) return;
+        PrdProcess blow = qmsInspectionService.listInspectionProcesses(orderId).stream()
+                .filter(p -> !qmsInspectionService.isBagProcess(p))
+                .findFirst().orElse(null);
+        if (blow == null) return;
+        int st = blow.getStatus() == null ? Constants.PROC_STATUS_UNSTARTED : blow.getStatus();
+        if (st == Constants.PROC_STATUS_FINISHED || st == Constants.PROC_STATUS_ROLLED_BACK) return;
+        BigDecimal reported = blow.getGoodQty() == null ? BigDecimal.ZERO : blow.getGoodQty();
+        BigDecimal total = reported.max(outputQty);
+        boolean finished = blow.getPlanQty() != null && blow.getPlanQty().compareTo(BigDecimal.ZERO) > 0
+                && total.compareTo(blow.getPlanQty()) >= 0;
+        PrdProcess upd = new PrdProcess();
+        upd.setId(blow.getId());
+        upd.setGoodQty(total);
+        if (st == Constants.PROC_STATUS_UNSTARTED) {
+            upd.setStartTime(LocalDateTime.now());
+        }
+        upd.setStatus(finished ? Constants.PROC_STATUS_FINISHED : Constants.PROC_STATUS_IN_PROGRESS);
+        if (finished && blow.getEndTime() == null) {
+            upd.setEndTime(LocalDateTime.now());
+        }
+        upd.setOperator(SecurityContext.getUsername());
+        procMapper.updateById(upd);
+        syncOrderQtyFromProcesses(orderId);
+        writeAudit("BLOW_OUTPUT_FROM_SEMI_IN", 1, "半成品入库 " + sourceBillNo + " → 吹膜工序["
+                + blow.getProcessName() + "] 合格=" + total + (finished ? " 达量完工" : " 进度"), null);
+        log.info("[MES] 半成品入库回写吹膜产出 orderId={} process={} good={} finished={}",
+                orderId, blow.getId(), total, finished);
     }
 
     /** 订单 actualQty/goodQty/lossQty = 该订单全部工序实例之和 (进度看板数字来源). */

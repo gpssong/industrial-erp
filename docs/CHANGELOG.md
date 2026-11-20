@@ -3,6 +3,25 @@
 
 ## changelog (倒序)
 
+### 2026-11-20 — v1.1.204 半成品入库=吹膜的报工：食品级单不再被「存在未完工工序: 吹膜」永久卡死（jar + sql/164 三站）
+
+**触发**：用户报「这个订单完成了所有工序，但还是不能成品审核入库」，App 成品入库页对工单 `PD202611030002 · 金博23*29*0.12`（计划 2000 / 数量 2000）点「审核入库」报「生产工单存在未完工工序，不能成品入库: 吹膜」。v1.1.203 那次实测把这条文案当成「门禁终于说人话」记下来了 —— 但它说的是一件**根本满足不了**的事。
+
+**根因（口径冲突，不是数据缺失）**：成品入库的工序门禁（v1.1.99 C1，`PrdFinishedInService.check()` → `MesReportService.allProcessesFinished()`）读 `prd_process.status`，要求该单**每一行**工序都是 2（完工）；而 status=2 的全库唯一写方是报工 `reportWork`（达量时置 2）。但 App 的吹膜链路是「①开工 → ②吹膜首检 → ③半成品入库」三步，**没有报工步骤**（[order-detail.vue](app/src/pages/production/order-detail.vue) 的「工序报工」只挂在第 ④步制袋），PC 也没有吹膜报工入口。取证：全库 13 行吹膜工序的 status 只有 0/1，**没有一行是 2**；本单吹膜行 `status=1 / good_qty=0 / end_time NULL`，而同单的 `PSI202611170002` 早已 CHECKED、首检 `QI202611150001` 已 PASS ⇒ 现场确实做完了，门禁从来没可能被满足。
+
+**改法（用户拍板口径「半成品入库 = 吹膜的报工」）**：
+- 新增 [MesReportService.recordBlowOutput()](backend/src/main/java/com/industrial/erp/modules/mes/service/MesReportService.java)：按该单**已 CHECKED 的半成品入库总量重算**吹膜工序 `good_qty`，达 `plan_qty` 即置 `status=2` + `end_time`。四条口径 —— 重算不是累加（审核→反审核→再审核不重复累计）；取 `max` **只抬高不压低**（现场手工报工的量不被抹掉）；`status=2/3` 的行**不回退也不复活**（与半成品反审核「MES/QMS 不回退、走人工修正」同口径）；吹膜行用首检门禁同一阶段口径 `listInspectionProcesses()` 找，**制袋仍归报工管**。
+- [PrdSemiInService.check()](backend/src/main/java/com/industrial/erp/modules/production/service/PrdSemiInService.java) 在把本单改成 CHECKED **之后**统计并调用它（顺序错了本次单据就不算进去）；同一事务内，失败即整单回滚，不走 warn-only。反审核不追回（人工修正）。门禁代码本身零改动。
+- 同日修一个同链缺陷：`reportWork` 里 `syncOrderQtyFromProcesses()` 排在 `procMapper.updateById()` **之前**，聚合读的是更新前的工序行 ⇒ 工单头良品/实际量**永远少算本次报工的量**（本单制袋工序 2000、工单头 `good_qty` 却是 0）。改为先落行再聚合。
+- [sql/164_v11204_blow_process_complete_from_semi_in.sql](sql/164_v11204_blow_process_complete_from_semi_in.sql) 回填存量：已审核的 PSI 单不会重放，故按同一口径把吹膜行的量与完工补齐（三步分开写：抬量 → 有量置进行中 → 达量完工；幂等，只在 `.150` 主库跑）。
+
+**测试**：新增 3 个类 11 例（[MesReportBlowOutputTest](backend/src/test/java/com/industrial/erp/modules/mes/service/MesReportBlowOutputTest.java) 7 例：达量完工 / 未达量只算进度 / 已完工不回退 / 不抹低手工报工 / 无吹膜行不写 / 量 0 不写 / 无工单不写；[PrdSemiInServiceBlowOutputTest](backend/src/test/java/com/industrial/erp/modules/production/service/PrdSemiInServiceBlowOutputTest.java) 3 例：审核后才统计且含本单 / 只算 CHECKED / 无工单不回写；[MesReportOrderQtySyncTest](backend/src/test/java/com/industrial/erp/modules/mes/service/MesReportOrderQtySyncTest.java) 1 例：先落工序行再聚合工单头）。TDD 红→绿：`recordBlowOutput` 缺失时编译失败；红绿验证另做两次 —— 撤掉顺序修复后 `MesReportOrderQtySyncTest` 挂 InOrder、撤掉 `status NOT IN (2,3)` 回退闸后 `doesNotTouchFinishedBlowProcess` 挂，均已复原。**后端全量 787 例 0 失败 BUILD SUCCESS**。
+
+**版本**：1.1.204（jar 单产物；App H5 / APK / PC dist 本轮**未重出**，七处版本号槽位按 R15 一并抬头 —— `scripts/check-version.sh` 全绿）。
+
+> ⚠ 三站上线的 jar 是 `b72a7711f9a0342f0166d58f99eda747`，它在 `SystemVersionInitializer` 里编译的是 `${erp.version:1.1.203}` 这个**永远走不到的回落值**（application.yml 恒定义 `erp.version=${ERP_VERSION:1.1.204}`，容器 env 又是 1.1.204）。为这一行常量重打三站镜像不划算，所以记下这处一次性漂移：**下一次构建 jar 自然吸收**，运行时版本号已由 `SYSTEM_VERSION_INFO` 实测为 1.1.204。同理 `app/src/manifest.json` 的 1204 要等下一枚 APK 才生效。
+
+
 ### 2026-11-19 — v1.1.203 入库单草稿复用：审核被门禁拦下后重试不再堆废草稿（App H5 + APK 三站）
 
 **触发**：v1.1.202 修好「入库单草稿保存失败，请重试」后，上线实测同一条链上又暴露第二个缺陷 —— 现场同一工单下堆出一串重复入库草稿。
