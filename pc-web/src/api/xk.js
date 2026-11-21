@@ -131,7 +131,7 @@ export const xkMock = {
       // 站点序号由这里统一发, 追加一类节点不用再各写一遍 padStart
       const push = (s) => stations.push({
         no: String(stations.length + 1).padStart(2, '0'),
-        operator: '', time: '', remark: '', status: 'DONE', photo: null, ...s,
+        operator: '', time: '', remark: '', status: 'DONE', photo: null, link: null, ...s,
       })
       const join = (...parts) => parts.filter(Boolean).join(' · ')
       // 上溯链 (料→半成品→成品): 逐批号展开, 用 real batchName/customerName 无占位
@@ -143,22 +143,34 @@ export const xkMock = {
         remark: batchNo })
       // v1.1.205: 现场要点「这批料用在哪张单上」—— 批次链在开工投料那一刻是断的 (投料行没有下游批号),
       //             生产工单是把 原料批 → 成品批 接起来的唯一一座桥, 所以它必须是时间线上的一站.
+      // v1.1.206: 成品批号就是工单号, 下一站会被去重 —— 现场能点进生产单的那一格其实是这里,
+      //             所以工单站自己也要带链接 (服务端 OrderHop.orderId).
       const orderNos = new Set()
       ;(t.orders || []).slice(0, 4).forEach(o => {
         if (o.orderNo) orderNos.add(o.orderNo)
         push({ title: '生产工单',
           operator: o.productName || '',
-          remark: join(o.orderNo, o.issueBillNo && '投料单 ' + o.issueBillNo) })
+          remark: join(o.orderNo, o.issueBillNo && '投料单 ' + o.issueBillNo),
+          link: o.orderId ? { path: '/production/order', query: { id: o.orderId }, perm: 'production:order:list' } : null })
       })
       // 下探链 (成品→客户)。本厂成品批号就是工单号, 与上一站同名的不重复占一格
-      ;(t.downstreamBatches || []).filter(bn => !orderNos.has(bn)).slice(0, 4).forEach(bn => push({ title: '下游流向批', remark: bn || '' }))
+      // v1.1.206: 桥接出来的半成品卷批号与工单号不同名, 光给批号点不进生产单 ——
+      //           服务端用 downstreamOrderIds 把「批号 → 产出它的工单 id」带出来.
+      const orderIds = t.downstreamOrderIds || {}
+      ;(t.downstreamBatches || []).filter(bn => !orderNos.has(bn)).slice(0, 4).forEach(bn => push({
+        title: '下游流向批', remark: bn || '',
+        link: orderIds[bn] ? { path: '/production/order', query: { id: orderIds[bn] }, perm: 'production:order:list' } : null
+      }))
       // 客户出口: 有出库行就逐单展开 (一批料可分批发给多个客户), 没有才退回标量客户
       if ((t.deliveries || []).length) {
         t.deliveries.slice(0, 4).forEach(d => push({ title: '销售出库',
           operator: d.customerName || (d.customerId != null ? '客户#' + d.customerId : ''),
           time: minuteStr(d.time),
-          remark: join(d.deliveryBillNo, d.qty != null && '数量 ' + d.qty) }))
+          remark: join(d.deliveryBillNo, d.qty != null && '数量 ' + d.qty),
+          // v1.1.206: deliveryId 是服务端按出库单号反查回填的; 单号查不到 (单据已删) 就是 null, 不给链接
+          link: d.deliveryId ? { path: '/sales/delivery', query: { id: d.deliveryId }, perm: 'sales:delivery:list' } : null }))
       } else if (t.customer != null) {
+        // 没有出库单可点, 这一站只能是纯文本
         push({ title: '流向客户', remark: t.customerName || ('客户#' + t.customer) })
       }
       return empty(200, {

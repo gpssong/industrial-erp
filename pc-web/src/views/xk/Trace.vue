@@ -84,7 +84,11 @@
           <div class="xk-tl-text">
             <strong>{{ s.title }}</strong>
             <small>{{ s.time }} · {{ s.operator }}</small>
-            <div class="xk-tl-remark" v-if="s.remark">{{ s.remark }}</div>
+            <!-- v1.1.206: 下游流向批 → 生产单, 销售出库 → 出库单; 无目标权限时只当文本显示 -->
+            <div class="xk-tl-remark" v-if="s.remark">
+              <a v-if="canOpen(s.link)" class="xk-tl-link" @click="openStation(s.link)">{{ s.remark }}</a>
+              <template v-else>{{ s.remark }}</template>
+            </div>
             <img v-if="s.photo" :src="s.photo" :alt="s.title" class="xk-tl-photo" />
           </div>
         </div>
@@ -95,8 +99,13 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { CircleCheckFilled, Check, Clock } from '@element-plus/icons-vue'
 import { xkMock } from '@/api/xk'
+import { useUserStore } from '@/store/user'
+
+const router = useRouter()
+const userStore = useUserStore()
 
 const direction = ref('RM_TO_FG')
 const search = ref('')
@@ -107,6 +116,16 @@ const selectedNo = ref('')
 
 const qcMap = { PASS: '合格', HOLD: '待定', FAIL: '不合格' }
 function qcLabel(s) { return qcMap[s] || s }
+
+// v1.1.206: 时间线站点跳到业务单据. 路由守卫会拒无 perm 的页面, 所以没权限时直接不渲染成链接,
+//           而不是点了才弹「无权访问」—— 追溯页要给车间看, 死按钮比没按钮更糟.
+function canOpen(link) {
+  return !!link && userStore.hasPerm(link.perm)
+}
+function openStation(link) {
+  if (!canOpen(link)) return
+  router.push({ path: link.path, query: link.query })
+}
 function rowClass({ row }) { return row.batchNo === selectedNo.value ? 'xk-trace-row-active' : '' }
 
 const filteredBatches = computed(() => {
@@ -183,7 +202,10 @@ onMounted(loadBatches)
   @media (max-width: 1050px) { grid-template-columns: 1fr 1fr; }
 }
 .xk-tl-step {
-  position: relative; display: flex; gap: 9px; padding: 4px 14px 4px 0;
+  // v1.1.206: 桌面改「圆点一行 + 文字一行」两段. 原来 flex 把文字摆在圆点右侧,
+  //           而连线 :before 是绝对定位元素 (绘制层级高于普通文本), top:11px 正好压进
+  //           strong 的字身 —— 现场看到的就是「字被绿色线条挡住」.
+  position: relative; padding: 0 14px 6px 0;
   > i {
     z-index: 1; width: 22px; height: 22px; flex: 0 0 auto;
     border: 2px solid #cbd5df; background: #fff; border-radius: 50%;
@@ -198,15 +220,19 @@ onMounted(loadBatches)
   &.done:before { background: var(--success); }
   &.active > i { color: #fff; border-color: var(--primary-color); background: var(--primary-color); }
 }
-.xk-tl-text { min-width: 0; }
+.xk-tl-text { min-width: 0; margin-top: 6px; }
 .xk-tl-text strong { display: block; font-size: 12px; font-weight: 700; color: var(--text); }
 .xk-tl-text small { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; }
-.xk-tl-remark { font-size: 12px; color: #526174; margin-top: 6px; line-height: 1.5; }
+.xk-tl-remark { font-size: 12px; color: #526174; margin-top: 6px; line-height: 1.5; overflow-wrap: anywhere; }
+.xk-tl-link { color: var(--primary-color); cursor: pointer; text-decoration: none; font-weight: 600; }
+.xk-tl-link:hover { text-decoration: underline; }
 .xk-tl-photo { margin-top: 8px; max-width: 180px; border-radius: 8px; border: 1px solid var(--line); }
 
 @media (max-width: 768px) {
   .xk-timeline { grid-template-columns: 1fr; }
-  .xk-tl-step { padding: 0 0 18px 0; }
+  // 竖版连线只走文字左侧 (left:11px), 摆回圆点 + 文字并排的 flex 更省高度
+  .xk-tl-step { display: flex; gap: 9px; padding: 0 0 18px 0; }
+  .xk-tl-step .xk-tl-text { margin-top: 0; }
   .xk-tl-step:before { top: 22px; bottom: 0; left: 11px; right: auto; width: 2px; height: auto; }
 }
 </style>

@@ -54,6 +54,8 @@ class MesReportTraceBridgeTest {
     private static final String RAW = "251/WQ";
     private static final String SIBLING = "SK216A08C1";
     private static final String FG = "PD202611030002";
+    /** 半成品卷批号: 与工单号不同名, 前端只能靠 downstreamOrderIds 才知道它是哪张单产出的. */
+    private static final String SEMI = "CM202611150001";
     private static final Long ORDER_ID = 2117496026848870401L;
     private static final Long CUSTOMER_ID = 2123970981013852162L;
     private static final String START_BILL_NO = "WS202611150001";
@@ -184,9 +186,19 @@ class MesReportTraceBridgeTest {
         return ps.contains(RAW) ? List.of(dispositionLink()) : List.of();
     }
 
-    /** 工单产出的批次: 只认工单号 PD202611030002 (真实数据里批号 = 工单号). */
+    /** 工单产出的批次: 吹膜卷 (半成品) + 成品批, 两者的 source_prd_order_no 都是工单号. */
     private List<MesBatch> madeBatches(Wrapper<MesBatch> wrapper) {
-        return paramsOf(wrapper).contains(FG) ? List.of(fgBatch()) : List.of();
+        return paramsOf(wrapper).contains(FG) ? List.of(semiBatch(), fgBatch()) : List.of();
+    }
+
+    private MesBatch semiBatch() {
+        MesBatch b = new MesBatch();
+        b.setBatchNo(SEMI);
+        b.setBatchType("SEMI");
+        b.setSourcePrdOrderNo(FG);
+        b.setQty(new BigDecimal("2000"));
+        b.setStatus("ACTIVE");
+        return b;
     }
 
     /** 该单原料行: 按批号筛 (正向找消费者) 与按工单筛 (反向找来料) 返回同一批真实行. */
@@ -280,5 +292,17 @@ class MesReportTraceBridgeTest {
             assertThat(o.orderNo).isEqualTo(FG);
             assertThat(o.issueBillNo).isEqualTo(START_BILL_NO);
         });
+    }
+
+    @Test
+    @DisplayName("v1.1.206: 下游流向批带回产出它的工单 id — PC 时间线点批号才能直达生产单")
+    void downstreamBatchesCarryTheirProducingOrderId() {
+        when(batchMapper.selectOne(any())).thenReturn(rawBatch());
+        stubQueries();
+
+        MesReportService.FullTrace r = service.traceFull(RAW);
+
+        // 桥接补进来的两个批次 (吹膜卷 + 成品批) 都出自同一张工单
+        assertThat(r.downstreamOrderIds).containsEntry(SEMI, ORDER_ID).containsEntry(FG, ORDER_ID);
     }
 }

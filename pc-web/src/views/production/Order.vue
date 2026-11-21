@@ -49,6 +49,8 @@
               <div class="plan-top">
                 <strong>{{ w.no }}</strong>
                 <small>{{ w.product }}</small>
+                <!-- v1.1.206: 溯源深链插进来的单可能不是今天的, 标出日期免得看错 -->
+                <small v-if="w.traced" class="plan-date">{{ w.date }}</small>
                 <div class="plan-product-line"><el-tag size="small" effect="plain">{{ w.line }}</el-tag></div>
               </div>
               <div class="plan-bottom">
@@ -390,7 +392,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Download, Plus, CircleCheckFilled, ArrowRight, Warning,
@@ -404,6 +406,10 @@ import { useUserStore } from '@/store/user'
 import QRCode from 'qrcode'
 
 const router = useRouter()
+// v1.1.206: 深链参数在模块级取 (与 sales/Delivery.vue 同法), 避免 Vite HMR 重跑 setup 时
+//           onMounted 回调里才 useRoute() 拿不到实例
+const _route = useRoute()
+const _deepOrderId = _route.query?.id
 const userStore = useUserStore()
 
 // v1.1.99 hotfix: 新建工单弹窗 state (替换原 placeholder onNewWo)
@@ -809,20 +815,26 @@ const planSummary = computed(() => {
 })
 
 // 真数据: 加载今日生产工单 (billDate=today, 按 workshop 归产品线)
+function mapPlanRow(o) {
+  return {
+    id: o.id,
+    no: o.billNo,
+    product: o.productName || o.productCode || '-',
+    line: o.workshop || '未分线',
+    lineNo: o.workshop ? `吹膜线 · ${o.workshop}` : '未分线',
+    planQty: o.planQty != null ? Number(o.planQty).toLocaleString('en-US') + ' ' + (o.unitName || 'kg') : '-',
+    status: statusFromBill(o.billStatus),
+    date: o.billDate || '',
+    traced: false
+  }
+}
+
 async function loadPlans() {
   planLoading.value = true
   try {
     const today = new Date().toISOString().slice(0, 10)
     const r = await prdOrderApi.page({ pageNum: 1, pageSize: 50, billDate: today })
-    const recs = (r.data?.records || []).map(o => ({
-      id: o.id,
-      no: o.billNo,
-      product: o.productName || o.productCode || '-',
-      line: o.workshop || '未分线',
-      lineNo: o.workshop ? `吹膜线 · ${o.workshop}` : '未分线',
-      planQty: o.planQty != null ? Number(o.planQty).toLocaleString('en-US') + ' ' + (o.unitName || 'kg') : '-',
-      status: statusFromBill(o.billStatus)
-    }))
+    const recs = (r.data?.records || []).map(mapPlanRow)
     plans.value = recs
     // 默认选中第一个未完工工单
     if (!activeWo.value?.id && recs.length) activeWo.value = recs.find(w => w.status !== '已完成' && w.status !== '已作废') || recs[0]
@@ -831,6 +843,25 @@ async function loadPlans() {
     plans.value = []
   } finally {
     planLoading.value = false
+  }
+}
+
+// v1.1.206: XK 批次溯源点「下游流向批」跳过来时带 ?id= —— 那张工单可能是任意一天的,
+//           今日列表 (billDate=today) 里根本没有它, 所以按 id 单独取一条插进列表并选中,
+//           行上标出单据日期, 免得看着「今日生产计划」的标题误以为今天的单。
+async function openTracedOrder(id) {
+  if (!id) return
+  const hit = plans.value.find(w => String(w.id) === String(id))
+  if (hit) { activeWo.value = hit; return }
+  try {
+    const r = await prdOrderApi.detail(id)
+    const o = r.data
+    if (!o || !o.id) { ElMessage.warning('未找到该生产单，可能已被删除'); return }
+    const row = { ...mapPlanRow(o), traced: true }
+    plans.value = [row, ...plans.value]
+    activeWo.value = row
+  } catch (e) {
+    ElMessage.warning('加载该生产单失败: ' + ((e && (e.msg || e.message)) || '未知错误'))
   }
 }
 
@@ -1057,7 +1088,11 @@ async function onVoid() {
   }
 }
 
-onMounted(loadPlans)
+onMounted(async () => {
+  await loadPlans()
+  // 深链要在「默认选中今日第一张未完工单」之后跑, 否则溯源点进来的单会被默认选中覆盖
+  await openTracedOrder(_deepOrderId)
+})
 </script>
 
 <style scoped lang="scss">

@@ -660,6 +660,11 @@ public class MesReportService {
         public List<OrderHop> orders = new ArrayList<>();
         /** v1.1.205: 销售出口 (出库单号 + 客户 + 数量) — 一张批可能分批发给多个客户. */
         public List<DeliveryHop> deliveries = new ArrayList<>();
+        /**
+         * v1.1.206: 下游批号 → 产出它的工单 id. 桥接进来的半成品卷批号与工单号不同名,
+         * 前端只拿到批号点不进生产单, 必须由服务端把工单 id 一起带出.
+         */
+        public Map<String, Long> downstreamOrderIds = new java.util.LinkedHashMap<>();
     }
 
     /** v1.1.205: 批次链上的「生产工单」节点 (批号链断在投料行, 工单是唯一的桥). */
@@ -677,6 +682,11 @@ public class MesReportService {
     /** v1.1.205: 批次链上的「销售出库」节点 — 客户名由上层回填. */
     public static class DeliveryHop {
         public String deliveryBillNo;
+        /**
+         * v1.1.206: 出库单 id. FG_OUT 流向行只写了 {@code bill_no} ({@code bill_id} 为空),
+         * 而前端点「销售出库」要直达那张单只有 id 可用, 所以由上层按单号反查回填.
+         */
+        public Long deliveryId;
         public Long customerId;
         public String customerName;
         public BigDecimal qty;
@@ -787,7 +797,7 @@ public class MesReportService {
         }
         if (!usedOrderIds.isEmpty()) {
             for (PrdOrder o : orderMapper.selectBatchIds(usedOrderIds)) {
-                addProducedBatches(r, o.getBillNo());
+                addProducedBatches(r, o);
                 OrderHop hop = orderHop(r, o);
                 if (StrUtil.isBlank(hop.issueBillNo)) hop.issueBillNo = issueBillNo.get(o.getId());
             }
@@ -804,8 +814,9 @@ public class MesReportService {
         }
     }
 
-    /** 正向补链: 工单 {@code orderNo} 产出的批次 (半成品卷 + 成品批) 计入下游. */
-    private void addProducedBatches(FullTrace r, String orderNo) {
+    /** 正向补链: 工单 {@code o} 产出的批次 (半成品卷 + 成品批) 计入下游, 并记下每个批号出自哪张单. */
+    private void addProducedBatches(FullTrace r, PrdOrder o) {
+        String orderNo = o.getBillNo();
         if (StrUtil.isBlank(orderNo)) return;
         List<MesBatch> made = batchMapper.selectList(new LambdaQueryWrapper<MesBatch>()
                 .and(w -> w.eq(MesBatch::getSourcePrdOrderNo, orderNo).or().eq(MesBatch::getBatchNo, orderNo))
@@ -813,6 +824,7 @@ public class MesReportService {
         for (MesBatch b : made) {
             if (StrUtil.isNotBlank(b.getBatchNo()) && !b.getBatchNo().equals(r.batchNo)) {
                 addDistinct(r.downstreamBatches, b.getBatchNo());
+                r.downstreamOrderIds.putIfAbsent(b.getBatchNo(), o.getId());
             }
         }
     }

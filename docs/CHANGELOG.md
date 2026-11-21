@@ -3,6 +3,36 @@
 
 ## changelog (倒序)
 
+### 2026-11-21 — v1.1.206 PC 批次全链路追溯：时间线站点变可点超链接（直达生产单/出库单）+ 绿线不再压字（jar + PC dist 三站）
+
+**触发**：用户原话「1、字被绿色线条挡住。2、下游流向批做超链接，点击进入生产单。3、流向客户也做超链接，点击进入出库单。」（附 `#/xk/trace` 正向·原料→成品 截图）—— v1.1.205 刚把工单/出库/客户显示进时间线，现场下一步就是要**点进去看那张单**。
+
+**根因（三个各自独立，不是一个 bug）**：
+1. **文字被绿线压住是纯 CSS**：`.xk-tl-step` 用 flex 把文字块摆在圆点**右侧**，而竖向连线是 `.xk-tl-step:before` 这个**绝对定位**元素（绘制层级高于普通文本）、`top: 11px` 正好落在 `strong` 的字身里。桌面宽度下连线横穿文字，现场看到的就是「字被绿色线条挡住」。
+2. **前端拿不到 id，只有单号/批号**：`mes_batch_link` 的 `FG_OUT` 流向行当年只写 `bill_no`（`bill_id` 为空），出库单跳转只认 `sal_delivery.id`；「下游流向批」这一站服务端只回了批号字符串，工单 id 根本没带出来 ⇒ 没有可点的东西。
+3. **同日第二批（真实数据暴露）**：本厂成品批号**就是工单号**，`api/xk.js` 上一轮特意把与工单号同名的「下游流向批」去重了 ⇒ 截图里真正能点的那一格其实是「**生产工单**」站，而它当时没接链接 —— 只给「下游流向批」加链接等于给一个不存在的站加按钮。
+
+**改法**：
+- 后端 [MesReportService](backend/src/main/java/com/industrial/erp/modules/mes/service/MesReportService.java)：`FullTrace` 加 `downstreamOrderIds`（批号 → 产出它的工单 id，`putIfAbsent`，由 `addProducedBatches()` 顺手记下 —— 方法签名从收 `String orderNo` 改为收整个 `PrdOrder`）；`DeliveryHop` 加 `deliveryId`。
+- 后端 [XkController](backend/src/main/java/com/industrial/erp/modules/xk/controller/XkController.java) 新增 `fillDeliveryIds()`：收集出口单号后**一次 `IN` 反查** `sal_delivery.bill_no` 回填 id —— **读时反查，不改历史流向行**；单号在库里查不到（单据已删）就留空，前端据此**不渲染链接**而不是给了个死按钮。
+- PC [api/xk.js](pc-web/src/api/xk.js) `traceTimeline()`：每个站点带 `link: { path, query, perm }`；「生产工单」用 `OrderHop.orderId`、「下游流向批」用 `downstreamOrderIds[批号]`（都指向 `/production/order?id=`）、「销售出库」用 `deliveryId`（指向 `/sales/delivery?id=`）；**没有出库单可点时退回纯文本「流向客户」站，按设计不给链接**。
+- PC [Trace.vue](pc-web/src/views/xk/Trace.vue)：`canOpen(link)` = `!!link && userStore.hasPerm(link.perm)`，**没权限直接不渲染成链接**（追溯页要给车间看，死按钮比没按钮更糟）；桌面连线改「圆点一行 + 文字一行」两段（`padding` + `.xk-tl-text { margin-top: 6px }`），`@media (max-width:768px)` 里改回圆点与文字并排的 flex —— 竖版连线只走文字左侧（`left: 11px`），并排更省高度。
+- PC [production/Order.vue](pc-web/src/views/production/Order.vue) 支持 `?id=` 深链：那张工单可能是**任意一天**的，今日列表里没有 ⇒ 抽出 `mapPlanRow(o)`，新增 `openTracedOrder(id)` 按 id 单独取一条、插到列表首行并选中（行上标日期、`traced` 标记），右侧详情栏直接展开**而不是弹窗**；取不到就提示「未找到该生产单，可能已被删除」。`_deepOrderId` 从**模块级** `useRoute().query.id` 取（与 `sales/Delivery.vue` 同法，防 HMR 丢实例）。
+
+**测试**：TDD 红→绿两条 —— [MesReportTraceBridgeTest.downstreamBatchesCarryTheirProducingOrderId](backend/src/test/java/com/industrial/erp/modules/mes/service/MesReportTraceBridgeTest.java)（红时 `downstreamOrderIds` 恒空，现 5 例）、[XkTraceDeliveryCustomerNameTest.deliveryHopCarriesItsDeliveryId](backend/src/test/java/com/industrial/erp/modules/xk/controller/XkTraceDeliveryCustomerNameTest.java)（含单号查不到时留空不报错，现 3 例）。定向 **10 例 0 失败**，后端全量 **795 例 0 失败 BUILD SUCCESS**；`pc-web` eslint **0 error**（`Trace.vue:78` 那条 `idx` 未用是 v1.1.205 就有的告警，不在本次改动行 —— 已在 205 条目里记过）。
+
+**实测（`.150` 主站，真实非超管 `gpssong1` · 仓管+财务）**：
+- 点「生产工单」站 → URL 变 `#/production/order?id=2117496026848870401`，右侧详情栏展开该单（非今日单也进得去）；点「销售出库」站 → `#/sales/delivery?id=2123971164376240130`。
+- **权限负例**：`localStorage` 里改权限**没用**（应用 bootstrap 会重新拉 `/auth/me` 并回写），改用 `page.route('**/auth/me')` 过滤掉 `production:order:list` / `sales:delivery:list` 后 —— 所有站点 `link:false`（全部退回纯文本，无死链）；放开后链接与点击目标一并恢复。
+- 截图上那处绿线压字在浏览器里已不再压住文字（桌面两段式 / ≤768px 并排两套都看过）。
+- 测试期间为登录 `gpssong1` 临时换过 bcrypt 口令，测完按**原 hash 逐字节回写**（`RESTORE_MATCH=1 len=60`，主备 md5 一致），含该 hash 的中转 SQL 在容器与 NAS 两侧都已删。
+
+**版本**：1.1.206（`scripts/check-version.sh` 7×OK）。jar `e160fc260f451d9a7b2c9ca06a5858df`（本批第二批**未重打 jar**，属 1.1.206 第一批产物）—— `.32` / `.150` / 阿里云**运行中容器内** `/opt/app/app.jar` md5 逐一复核一致；PC dist `index.html` `0012b5bc869099895cf33edd429343d7`（块 `assets/Trace-CaXePyYz.js` `ce983762…`、`assets/xk-D6hb5ILV.js` `1231dbad…`）从三站**对外端口**（`.32:18080` / `.150:8088` / 阿里云 `127.0.0.1:18080`）curl 回同一份 md5。App H5 / APK 本轮未重出。
+
+> ⚠ **用户那张截图是旧缓存 bundle**：1.1.205 起该位置已显示「销售出库」，看新效果请硬刷新 `http://home.93gushi.com:8088/?t=<时间戳>#/xk/trace`。
+> ⚠ 七处版本槽位抬到 1.1.206，但 App 侧本轮**零代码改动、H5/APK 未重出** ⇒ 线上 App 仍显示旧版本（与 v1.1.204 那处一次性漂移同类，下一枚 APK 自然吸收）。
+> ⚠ 顺带查出 `.32` 备库复制自 11-20 20:29 起停摆 ~23h（今日 2 张新工单没进 canary）。本批只读取证、**未执行 `START SLAVE`**，等用户授权 —— 详见项目记忆「`.32` 备库复制停摆」。
+
 ### 2026-11-21 — v1.1.205 PC 批次全链路追溯：点原料批显示出「用的哪张生产工单 + 哪张销售单 + 哪个客户」（jar + PC dist 三站）
 
 **触发**：用户原话「pc端的批次全链路追溯原料点击后应该显示使用的生产工单号及销售单和客户」。PC「XK 质量追溯中心」(`#/xk/trace`) 点原料批 `251/WQ`，「批次流转时间线」只有 **1 站**（当前批次），右上角却无条件挂着绿色「链路完整」—— 现场看不出这批料做成了哪张单、卖给了谁。

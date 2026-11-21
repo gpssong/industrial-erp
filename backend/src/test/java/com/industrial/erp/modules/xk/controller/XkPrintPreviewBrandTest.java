@@ -42,6 +42,7 @@ class XkPrintPreviewBrandTest {
                 cfg,
                 mock(SysUserMapper.class),
                 mock(BaseCustomerMapper.class),
+                mock(com.industrial.erp.modules.sales.mapper.SalDeliveryMapper.class),
                 mock(XkBatchViewService.class));
     }
 

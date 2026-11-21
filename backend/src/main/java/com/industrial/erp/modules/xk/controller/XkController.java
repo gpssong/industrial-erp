@@ -75,6 +75,8 @@ public class XkController {
     /** v1.1.147 XK 单据打印: 入库单要有制单人姓名 (仓库员签署), 追溯要有客户名 (流向出口). */
     private final SysUserMapper userMapper;
     private final BaseCustomerMapper customerMapper;
+    /** v1.1.206: 追溯的出库出口要带回 sal_delivery.id (流向行只有单号), PC 才能点进那张单. */
+    private final com.industrial.erp.modules.sales.mapper.SalDeliveryMapper deliveryMapper;
     /** v1.1.189 批次台账补品名/供应商名 (mes_batch 只有 id). */
     private final XkBatchViewService batchViewService;
 
@@ -92,6 +94,7 @@ public class XkController {
                         SysConfigService sysConfigService,
                         SysUserMapper userMapper,
                         BaseCustomerMapper customerMapper,
+                        com.industrial.erp.modules.sales.mapper.SalDeliveryMapper deliveryMapper,
                         XkBatchViewService batchViewService) {
         this.reportMapper = reportMapper;
         this.wfDashboardService = wfDashboardService;
@@ -107,6 +110,7 @@ public class XkController {
         this.sysConfigService = sysConfigService;
         this.userMapper = userMapper;
         this.customerMapper = customerMapper;
+        this.deliveryMapper = deliveryMapper;
         this.batchViewService = batchViewService;
     }
 
@@ -252,6 +256,7 @@ public class XkController {
                     return c == null ? null : c.getCustomerName();
                 });
             }
+            fillDeliveryIds(t);
         }
         // v1.1.189: 品名/供应商名 (mes_batch 只有 id)
         if (t != null && t.batch != null) {
@@ -259,6 +264,31 @@ public class XkController {
             t.supplierName = batchViewService.supplierNameOf(t.batch);
         }
         return t;
+    }
+
+    /**
+     * v1.1.206: 按出库单号反查 {@code sal_delivery.id} 回填到每个销售出口.
+     *
+     * <p>{@code mes_batch_link} 的 FG_OUT 行当年只写了 {@code bill_no} ({@code bill_id} 为空),
+     * 而 PC 时间线点「销售出库」要直达那张单只能用 id ⇒ 读时反查, 不改历史流向行。
+     * 单号在库里查不到 (出库单已删) 就留空, 前端据此不渲染链接。
+     */
+    private void fillDeliveryIds(MesReportService.FullTrace t) {
+        List<String> billNos = new java.util.ArrayList<>();
+        for (MesReportService.DeliveryHop d : t.deliveries) {
+            if (StrUtil.isNotBlank(d.deliveryBillNo)) billNos.add(d.deliveryBillNo);
+        }
+        if (billNos.isEmpty()) return;
+        Map<String, Long> ids = new HashMap<>();
+        for (com.industrial.erp.modules.sales.entity.SalDelivery s : deliveryMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<
+                        com.industrial.erp.modules.sales.entity.SalDelivery>()
+                        .in(com.industrial.erp.modules.sales.entity.SalDelivery::getBillNo, billNos))) {
+            ids.putIfAbsent(s.getBillNo(), s.getId());
+        }
+        for (MesReportService.DeliveryHop d : t.deliveries) {
+            d.deliveryId = ids.get(d.deliveryBillNo);
+        }
     }
 
     // ==================================================================
