@@ -59,7 +59,13 @@
     </view>
 
     <view v-else-if="detail" class="card">
-      <view class="card-title">🔗 {{ detail.batchNo }} 全链追溯</view>
+      <view class="card-title">
+        🔗 {{ detail.batchNo }} 全链追溯
+        <!-- v1.1.207: 没有客户出口时不许再挂绿色「链路完整」—— 现场据此判断这批料还没卖出去 -->
+        <text :class="['link-badge', detail.complete ? 'lb-ok' : 'lb-no']">
+          {{ detail.complete ? '链路完整' : '暂无销售出口' }}
+        </text>
+      </view>
 
       <view class="current">
         <view class="current-head">
@@ -92,40 +98,27 @@
         </view>
       </view>
 
+      <!-- v1.1.207: 「上游来料 / 下游流向」两栏明细换成一条竖向时间线 (与 PC 同口径).
+           两栏只列批次链关系行, 而投料那一刻批次链是断的 —— 工单/销售单/客户全看不到,
+           现场要的是「这批料用在哪张单上、发给了谁」, 所以一站一格, 能点的直接点进单据. -->
       <view class="section">
-        <view class="section-title">⬆ 上游来料 ({{ detail.upstream.length }})</view>
-        <view v-if="!detail.upstream.length" class="hint small">该批次没有上游登记记录（原料批通常是链路起点）</view>
-        <view v-for="(l, i) in detail.upstream" :key="'u' + i" class="link-item">
-          <view class="link-head">
-            <text class="link-bill">{{ billTypeLabel(l.billType) }}</text>
-            <text class="link-time">{{ l.time || '—' }}</text>
+        <view class="section-title">流转时间线 ({{ detail.stations.length }} 站)</view>
+        <!-- 圆点单独占一列、连线走圆点正下方: PC 用绝对定位连线时压到了文字 (v1.1.206 现场反馈),
+             App 是竖版, 用列布局从根上避开同一类问题 -->
+        <view v-for="(s, i) in detail.stations" :key="s.no" class="tl-step">
+          <view class="tl-rail">
+            <view :class="['tl-dot', s.title === '当前批次' ? 'dot-here' : '']"><text>{{ s.no }}</text></view>
+            <view v-if="i < detail.stations.length - 1" class="tl-line"></view>
           </view>
-          <view class="link-flow">{{ l.parentBatchNo }} → {{ l.childBatchNo }}</view>
-          <view class="link-meta">
-            <text v-if="l.qty != null">数量 {{ l.qty }}</text>
-            <text v-if="l.billNo" :class="{ gap: l.qty != null }">单据 {{ l.billNo }}</text>
+          <view class="tl-text">
+            <text class="tl-title">{{ s.title }}</text>
+            <text v-if="s.time || s.operator" class="tl-sub">{{ subText(s) }}</text>
+            <view v-if="s.remark" class="tl-remark">
+              <text v-if="canOpen(s.link)" class="tl-link" @click="openStation(s.link)">{{ s.remark }}</text>
+              <text v-else>{{ s.remark }}</text>
+            </view>
           </view>
         </view>
-      </view>
-
-      <view class="section">
-        <view class="section-title">⬇ 下游流向 ({{ detail.downstream.length }})</view>
-        <view v-if="!detail.downstream.length" class="hint small">该批次尚未产生下游批次</view>
-        <view v-for="(l, i) in detail.downstream" :key="'d' + i" class="link-item">
-          <view class="link-head">
-            <text class="link-bill">{{ billTypeLabel(l.billType) }}</text>
-            <text class="link-time">{{ l.time || '—' }}</text>
-          </view>
-          <view class="link-flow">{{ l.parentBatchNo }} → {{ l.childBatchNo }}</view>
-          <view class="link-meta">
-            <text v-if="l.qty != null">数量 {{ l.qty }}</text>
-            <text v-if="l.billNo" :class="{ gap: l.qty != null }">单据 {{ l.billNo }}</text>
-          </view>
-        </view>
-      </view>
-
-      <view v-if="detail.customer != null" class="customer">
-        最终流向客户: {{ customerText }}
       </view>
     </view>
 
@@ -135,12 +128,16 @@
 
 <script>
 import { traceBatches, traceFull } from '@/api/xk'
+import { navigateTo } from '@/utils/nav.js'
+import { isAdmin, getAppPermissions } from '@/utils/permission.js'
 
 const TYPE_LABEL = { RAW: '原料', SEMI: '半成品', FG: '成品' }
 const STATUS_LABEL = { ACTIVE: '合格', FROZEN: '冻结', SCRAP: '报废' }
-const BILL_TYPE_LABEL = {
-  ISSUE: '领料', SEMI_IN: '半成品入库', FG_IN: '成品入库',
-  CUT: '切卷', REWIND: '复卷', SLIT: '分切', FG_OUT: '销售出库'
+// v1.1.207: 时间线站点跳到业务单据 —— 口径层 (utils/traceTimeline.js) 只给 link.key,
+//           落到哪个页面/要哪条权限由这张表决定 (与 PC 的 STATION_LINKS 等价物一一对应).
+const STATION_LINKS = {
+  order: { page: '/pages/production/order-detail', perm: 'production:order:list' },
+  delivery: { page: '/pages/sales/delivery-detail', perm: 'sales:delivery:list' }
 }
 
 export default {
@@ -165,10 +162,6 @@ export default {
         (b.batchNo || '').toLowerCase().includes(q) ||
         (b.productName || '').toLowerCase().includes(q) ||
         (b.source || '').toLowerCase().includes(q))
-    },
-    customerText() {
-      if (!this.detail || this.detail.customer == null) return ''
-      return this.detail.customerName || ('客户 #' + this.detail.customer)
     }
   },
   onShow() {
@@ -178,7 +171,21 @@ export default {
     typeLabel(t) { return TYPE_LABEL[t] || t || '未知' },
     // 后端 mes_batch.status 只有 ACTIVE/FROZEN/SCRAP 三态（旧版误按 PASS/HOLD/FAIL 映射）
     statusLabel(s) { return STATUS_LABEL[s] || s || '-' },
-    billTypeLabel(t) { return BILL_TYPE_LABEL[t] || t || '流向' },
+    subText(s) { return [s.time, s.operator].filter(Boolean).join(' · ') },
+    // 追溯页要给车间看, 死按钮比没按钮更糟 —— 没权限时这一格退化成纯文本, 而不是点了弹「无权访问」.
+    // App 端必须用 getAppPermissions() (从 erp_menus 按 APP 严格过滤派生), 不是 PC+APP 混合的 getPermissions()
+    canOpen(link) {
+      if (!link) return false
+      const cfg = STATION_LINKS[link.key]
+      if (!cfg) return false
+      return isAdmin() || getAppPermissions().includes(cfg.perm)
+    },
+    openStation(link) {
+      if (!this.canOpen(link)) return
+      const cfg = STATION_LINKS[link.key]
+      // navigateTo 会先登记本次 path+query (v1.1.140 的 H5 深链丢参坑), 目标页再按 id 取单
+      navigateTo(cfg.page + '?id=' + encodeURIComponent(String(link.id)))
+    },
     async load() {
       this.loading = true
       this.loadError = ''
@@ -264,14 +271,22 @@ export default {
 
 .section { margin-top: 10px; }
 .section-title { font-size: 12px; font-weight: 600; color: #1e6091; margin-bottom: 6px; }
-.link-item { background: #fafafa; border-radius: 4px; padding: 8px 10px; margin-bottom: 6px; }
-.link-head { display: flex; justify-content: space-between; align-items: center; }
-.link-bill { font-size: 11px; color: #1e6091; background: #eef4fa; padding: 1px 6px; border-radius: 3px; }
-.link-time { font-size: 11px; color: #999; }
-.link-flow { font-size: 12px; color: #333; font-family: monospace; margin-top: 4px; word-break: break-all; }
-.link-meta { font-size: 11px; color: #888; margin-top: 3px; }
 
-.customer { margin-top: 10px; background: #e9f7ef; color: #1e8449; border-radius: 4px; padding: 8px 10px; font-size: 12px; }
+/* 竖向时间线: 左侧圆点+连线自成一行 flex 列, 文字在右列 —— 连线不可能盖住文字 */
+.tl-step { display: flex; align-items: stretch; }
+.tl-rail { width: 22px; display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
+.tl-dot { width: 20px; height: 20px; border-radius: 50%; background: #eef4fa; color: #1e6091; font-size: 10px; line-height: 20px; text-align: center; }
+.dot-here { background: #1e6091; color: #fff; }
+.tl-line { flex: 1; width: 2px; background: #d0e3ff; margin: 2px 0; }
+.tl-text { flex: 1; padding-bottom: 12px; margin-left: 8px; min-width: 0; }
+.tl-title { font-size: 13px; font-weight: 600; color: #333; display: block; }
+.tl-sub { font-size: 11px; color: #888; margin-top: 2px; display: block; }
+.tl-remark { font-size: 12px; color: #555; margin-top: 3px; font-family: monospace; word-break: break-all; }
+.tl-link { color: #1e6091; text-decoration: underline; }
+
+.link-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; margin-left: auto; }
+.lb-ok { background: #e1f5e1; color: #27ae60; }
+.lb-no { background: #fff3e0; color: #e67e22; }
 
 .footer-space { height: 20px; }
 </style>

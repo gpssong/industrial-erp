@@ -114,6 +114,9 @@ import { onLoad } from '@dcloudio/uni-app'
 import api from '../../api/index.js'
 import { getAppPermissions, isAdmin } from '../../utils/permission.js'
 import { guardPage } from '../../utils/appModuleEnabled.js'
+import { activeRouteQuery, takePendingRoute } from '../../utils/routeQuery.js'
+
+const PAGE_PATH = '/pages/sales/delivery-detail'
 
 const order = ref({})
 // v1.1.131: 明细行商品名去重后拼给单号用 (单据头没有品名列)
@@ -321,7 +324,10 @@ onLoad(async (q) => {
   if (!guardPage('sales')) return
   loading.value = true
   try {
-    const id = q && q.id
+    // v1.1.140 同类坑: 列表→出库A→返回→出库B 时 onLoad 收到的 query 可能是上一趟的.
+    //   从 XK 追溯页逐单点进不同出库单, 拿错 id 就是把别人的发货单摆在这台机上 —— 三级取参.
+    const query = takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH) || q || {}
+    const id = query.id
     if (!id) throw new Error('缺少单据 ID')
     const r = await api.salesDeliveryDetail(id)
     order.value = (r && (r.data || r)) || {}

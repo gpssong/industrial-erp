@@ -7,16 +7,12 @@
  * 约定形态 ({code,data} / {code,items} / 顶层字段).
  */
 import { request } from './index'
+// v1.1.207: 时间线口径 (站点顺序/去重/徽章判定) 在 utils/traceTimeline.js, 与 PC 同构
+import { buildTraceStations, fmtDateTime } from '../utils/traceTimeline.js'
 
 // 统一: 成功返回 {code:200, ...}; 失败 {code:500, msg}
 function ok(data, extra = {}) { return Object.assign({ code: 200, data }, extra) }
 function fail(msg = '加载失败', data = null) { return { code: 500, msg, data } }
-
-/** ISO 时间 → 'YYYY-MM-DD HH:mm' (后端 LocalDateTime 序列化成 2026-10-31T09:30:00) */
-function fmtDateTime(v) {
-  if (!v) return ''
-  return String(v).replace('T', ' ').slice(0, 16)
-}
 
 export const dashboardKpi = async () => {
   try {
@@ -148,21 +144,18 @@ export const traceBatches = async (direction) => {
  * v1.1.189: 批号走**查询参数**而不是 URL 路径 —— 现场供应商批号可能带 "/"
  * (如 251/WQ), 编码成 %2F 会被 Tomcat 以「非法编码斜杠」拒掉 (400 + HTML 错误页),
  * 前端拿到非 JSON 就只能弹「服务暂不可用」。
+ *
+ * v1.1.207: 与 PC 同步 —— 后端 v1.1.205/206 已回 orders / deliveries / downstreamOrderIds,
+ * 旧版把 hops 拍平成「上游/下游」两栏明细、还把这几个字段整批丢掉, 车间手机上既看不到工单号
+ * 也点不进单据。现在改回时间线 (一站一格), 口径在 utils/traceTimeline.js.
  */
 export const traceFull = async (batchNo) => {
   try {
     const t = await request({ url: '/xk/trace/full?batchNo=' + encodeURIComponent(batchNo), method: 'GET' })
     if (!t) return fail('该批次暂无追溯记录')
-    const mapLink = (l) => ({
-      parentBatchNo: l.parentBatchNo || '',
-      childBatchNo: l.childBatchNo || '',
-      qty: l.qty ?? null,
-      billType: l.billType || '',
-      billNo: l.billNo || '',
-      time: fmtDateTime(l.createTime)
-    })
+    const { batchNo: no, stations, complete } = buildTraceStations(t)
     return ok({
-      batchNo: t.batchNo || batchNo,
+      batchNo: no || batchNo,
       productName: t.productName || '',
       supplierName: t.supplierName || '',
       batch: t.batch ? {
@@ -177,8 +170,8 @@ export const traceFull = async (batchNo) => {
         processName: t.batch.processName || '',
         remark: t.batch.remark || ''
       } : null,
-      upstream: (t.upstream || []).map(mapLink),
-      downstream: (t.downstream || []).map(mapLink),
+      stations,
+      complete,
       customer: t.customer ?? null,
       customerName: t.customerName || ''
     })

@@ -3,6 +3,36 @@
 
 ## changelog (倒序)
 
+### 2026-11-21 — v1.1.207 App 批次全链路追溯改竖向时间线（与 PC 同口径，纯 App 发布）
+
+**触发**：用户原话「APP端的全链追溯也和pc端一样进行完善」。PC 侧 v1.1.205/206 已经把「用的哪张工单 / 哪张销售单 / 哪个客户」显示进时间线并接上超链接，App 侧还是老的两栏。
+
+**现状取证（决定了这是纯 App 改动）**：后端 jar 已是 v1.1.206，`FullTrace` 的 `orders` / `deliveries` / `downstreamOrderIds` 三个字段都回得到；App 缺的是消费方 —— [app/src/api/xk.js](app/src/api/xk.js) 的 `traceFull()` 把 hops 拍平成「上游来料 / 下游流向」两栏 `mes_batch_link` 关系行，顺手把上面三个字段整批丢掉。⇒ **本轮零后端、零 SQL、零 PC 代码**，只出 H5 + APK。
+
+**App 旧页的三个现场缺口**（不是同一个 bug）：
+1. 两栏只列批次链关系行，而**投料那一刻批次链是断的**（`mes_batch_link` 的领料行 `child_batch_no` 为空）⇒ 车间手机上既看不到工单号，也点不进单据。
+2. 分批出库会合成一行 ⇒ 销售单号与客户看不到；底部客户条只在有客户时出现，**没有客户出口时不给任何判断**，现场据此分不清「这批还没卖出去」和「链没查全」。
+3. 「能点」这件事在 App 上从来没做过 —— 追溯页要给车间看，**死按钮比没按钮更糟**，所以必须按权限退化成纯文本。
+
+**改法**（用户拍板：页面形态 = 「时间线替换两栏」；口径位置 = 「App 侧写同构纯函数」）：
+- 新建 [app/src/utils/traceTimeline.js](app/src/utils/traceTimeline.js)：`buildTraceStations(t)` → `{batchNo, stations, complete}`。站点顺序 上游原料批 → 当前批次 → 生产工单 → 下游流向批 → 销售出库（逐单展开；无出库单才回落成纯文本「流向客户」）；每类最多 4 站；**与本厂工单同名的流向批去重**（本厂成品批号就是工单号，不去重会出现两格同义站）；下游批按 `downstreamOrderIds` 接工单；`complete = customer != null || deliveries.length > 0`；`link` 只给 `{key, id}` **不给路由** —— 这样整个文件零 uni 依赖，`node --test` 能直接跑。口径与 [pc-web/src/api/xk.js](pc-web/src/api/xk.js) 同构，**两边注释互指，改一处必须两边同改**。
+- [app/src/api/xk.js](app/src/api/xk.js) `traceFull()` 改吃 `buildTraceStations` + 复用它的 `fmtDateTime`，返回 `{batchNo, productName, supplierName, batch, stations, complete, customer, customerName}`。
+- [app/src/pages/xk/trace.vue](app/src/pages/xk/trace.vue)：两栏明细 + 底部客户条**删除**，换成竖向时间线（圆点单独占一列、连线走圆点正下方的 flex 列 —— PC v1.1.206 那类绝对定位连线会压字，App 是竖版，用列布局从根上避开同一类问题）；标题加「链路完整 / 暂无销售出口」徽章；`STATION_LINKS` 决定站点落到哪页、要哪条 perm（`order`→`/pages/production/order-detail` + `production:order:list`，`delivery`→`/pages/sales/delivery-detail` + `sales:delivery:list`）；`canOpen()` 用 **`getAppPermissions()`**（从 `erp_menus` 按 APP 严格过滤派生），**不是** PC+APP 混合的 `getPermissions()` —— v1.1.55 R9 那条口径，用它才会让仓管员在 App 上看见按 PC 权限渲染的按钮。
+- [app/src/pages/sales/delivery-detail.vue](app/src/pages/sales/delivery-detail.vue) 补三级取参 `takePendingRoute(PAGE_PATH) || activeRouteQuery(PAGE_PATH) || q`：它原先只读 `onLoad` 的 `q.id`，从追溯页连点几张不同出库单（H5 keep-alive）会拿上一趟的 id —— **把别人的发货单摆在这台机上**（v1.1.140 同类坑）。
+
+**测试**：新增 [app/test/traceTimeline.test.mjs](app/test/traceTimeline.test.mjs) 8 例，逐条锁住上面四个现场事故（投料断链必须出工单站 / 同名流向批去重 / 下游批接 `downstreamOrderIds` / 分批出库逐单可点且缺 id 不给链接 / 无 deliveries 有 customer 才出「流向客户」且 `complete=true` / 空对象不崩）。TDD 红→绿（红时 `ERR_MODULE_NOT_FOUND`）；App 全量 `node --test test/*.test.mjs` **tests 59 / pass 59 / fail 0**。
+
+**版本与产物**：1.1.207（`scripts/check-version.sh` **7×OK**）。APK 走 `scripts/build-app.sh`：内嵌版本 = `manifest.versionName` = OS 级 `versionName=1.1.207 versionCode=1207` 双闸通过，APK md5 `c7617095327120161cd4381fe06b58df`（4522781 字节）。
+
+**部署（`.150` 无 H5 容器，H5 只上 `.32` + 阿里云）**：
+- `.32`：`/vol2/erp-system/app-h5/dist/build/h5` 原地整目录替换（容器 `erp-app-h5` 只 ro 绑这一个目录，端口 18090）+ `docker restart`；改前备份 `/vol2/erp-system/backup/app-h5-before-v11207.tgz`。
+- 阿里云：`/opt/erp-system/app-h5` 同样原地替换 + `docker restart erp-app-h5`；改前备份 `/opt/erp-system/app-h5.bak_v11207_20261121_183235.tgz`。
+- **一致性从服务端口回读**：两站 `index.html` md5 = 本地 `490998983da773af9b163273a360cdb6`；本次改动的块 `assets/pages-xk-trace.B5b61B1k.js`（`8f32aa8531395db6c1591a7b5c94fe9b`，9098 字节）两站均 200。
+- APK 备份：`build-app.sh` 第 7 步报「上传后 md5 不符或链路不通」，实为脚本走的那条 SSH 跳板不通 —— 同步盘已把同一枚 APK 落到 `.32:/vol1/1000/mac使用/erp/erp-app-20261121.apk`（md5 逐一核对一致），另存了带版本名的 `erp-app-v1.1.207-20261121.apk`。
+- jar / PC dist **本轮未动**：三站 backend 仍是 `1.1.206` 镜像，界面版本号要到下一次换 jar 才跟上来（与 v1.1.206 条目里记的同类约定）。
+
+> ⚠ **App 侧真机/浏览器实测还没做**（不能说已通过）：`.32` 是 `super_read_only` 副本，App 在那台连登录都 500，功能实测要走阿里云入口（后端经隧道写 `.150`）并用**真实非超管等权账号**跑 —— 含负例：撤掉 `production:order:list` / `sales:delivery:list` 后对应站要退化成纯文本、不给死按钮。车间手机须装 1.1.207 APK。
+
 ### 2026-11-21 — v1.1.206 PC 批次全链路追溯：时间线站点变可点超链接（直达生产单/出库单）+ 绿线不再压字（jar + PC dist 三站）
 
 **触发**：用户原话「1、字被绿色线条挡住。2、下游流向批做超链接，点击进入生产单。3、流向客户也做超链接，点击进入出库单。」（附 `#/xk/trace` 正向·原料→成品 截图）—— v1.1.205 刚把工单/出库/客户显示进时间线，现场下一步就是要**点进去看那张单**。
