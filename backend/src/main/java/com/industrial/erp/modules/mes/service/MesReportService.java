@@ -13,7 +13,9 @@ import com.industrial.erp.modules.mes.mapper.MesBatchMapper;
 import com.industrial.erp.modules.mes.mapper.MesProcessDefMapper;
 import com.industrial.erp.modules.mes.mapper.PrdProcessMapper;
 import com.industrial.erp.modules.production.entity.PrdOrder;
+import com.industrial.erp.modules.production.entity.PrdOrderMaterial;
 import com.industrial.erp.modules.production.mapper.PrdOrderMapper;
+import com.industrial.erp.modules.production.mapper.PrdOrderMaterialMapper;
 import com.industrial.erp.modules.system.entity.SysOperLog;
 import com.industrial.erp.modules.system.mapper.SysOperLogMapper;
 import com.industrial.erp.security.SecurityContext;
@@ -65,12 +67,15 @@ public class MesReportService {
     private final com.industrial.erp.modules.pdm.mapper.MesProcessParamMapper paramMapper;
     /** v1.1.x PAT 补齐: 工序报工自动建 PAT 巡检草稿 (mes → qms 单向注入). */
     private final com.industrial.erp.modules.qms.service.QmsInspectionService qmsInspectionService;
+    /** v1.1.205: 建单选料行 (prd_order_material) —— 批次溯源经工单桥接时要按批号反查用掉它的工单. */
+    private final PrdOrderMaterialMapper orderMaterialMapper;
 
     public MesReportService(PrdProcessMapper procMapper, MesProcessDefMapper defMapper,
                             MesBatchMapper batchMapper, MesBatchLinkMapper linkMapper,
                             PrdOrderMapper orderMapper, SysOperLogMapper operLogMapper,
                             com.industrial.erp.modules.pdm.mapper.MesProcessParamMapper paramMapper,
-                            com.industrial.erp.modules.qms.service.QmsInspectionService qmsInspectionService) {
+                            com.industrial.erp.modules.qms.service.QmsInspectionService qmsInspectionService,
+                            PrdOrderMaterialMapper orderMaterialMapper) {
         this.procMapper = procMapper;
         this.defMapper = defMapper;
         this.batchMapper = batchMapper;
@@ -79,6 +84,7 @@ public class MesReportService {
         this.operLogMapper = operLogMapper;
         this.paramMapper = paramMapper;
         this.qmsInspectionService = qmsInspectionService;
+        this.orderMaterialMapper = orderMaterialMapper;
     }
 
     // ==================================================================
@@ -650,6 +656,31 @@ public class MesReportService {
         /** v1.1.189: 批次对应的品名 / 供应商名 (mes_batch 只存 id, 由上层回填). */
         public String productName;
         public String supplierName;
+        /** v1.1.205: 桥接出来的生产工单 — 现场要点「这批料用在哪张单上」. */
+        public List<OrderHop> orders = new ArrayList<>();
+        /** v1.1.205: 销售出口 (出库单号 + 客户 + 数量) — 一张批可能分批发给多个客户. */
+        public List<DeliveryHop> deliveries = new ArrayList<>();
+    }
+
+    /** v1.1.205: 批次链上的「生产工单」节点 (批号链断在投料行, 工单是唯一的桥). */
+    public static class OrderHop {
+        public Long orderId;
+        /** 工单号 (prd_order.bill_no, 现场也叫生产单号). */
+        public String orderNo;
+        public String productName;
+        public BigDecimal planQty;
+        public String billStatus;
+        /** 投料/开工单号 (mes_batch_link.bill_no, WS 开头), 说明这批料是从哪张领料单进的生. */
+        public String issueBillNo;
+    }
+
+    /** v1.1.205: 批次链上的「销售出库」节点 — 客户名由上层回填. */
+    public static class DeliveryHop {
+        public String deliveryBillNo;
+        public Long customerId;
+        public String customerName;
+        public BigDecimal qty;
+        public java.time.LocalDateTime time;
     }
 
     /**
@@ -719,17 +750,139 @@ public class MesReportService {
         //   ② 客户不在 downstream 里: FG_OUT 记的是 child=FG批 + customer_id, 永远匹配不到
         //      parent=cur 的下探。这里沿整条下游链 (含自身) 反查带 customer_id 的流向取最新一条。
         r.upstream.removeIf(l -> StrUtil.isBlank(l.getParentBatchNo()));
-        java.util.Set<String> chain = new java.util.LinkedHashSet<>(r.downstreamBatches);
-        chain.add(batchNo);
+        // v1.1.205: 先经「生产工单」把断掉的批次链补齐, 再扫销售出口
+        //             (出库行挂在桥接进来的成品批上, 顺序反了就还是扫不到客户)
+        bridgeOrders(r);
+        collectDeliveries(r);
+        return r;
+    }
+
+    /**
+     * v1.1.205 — 把「生产工单」当作中间节点补进批次链。
+     *
+     * <p>开工投料/领料写的 {@code mes_batch_link} 只有 {@code parent_batch_no} + {@code prd_order_id},
+     * {@code child_batch_no} 为空 (投料那一刻下游批次还不存在), 所以 {@link #traceFull} 的
+     * parent→child BFS 命中这行却没有孩子可入队 —— 现场点原料批只看得到「当前批次」1 站,
+     * 生产工单 / 成品批 / 销售单 / 客户全都追不出来。
+     *
+     * <p>正向: 这批料被哪些工单用掉 (投料行 prd_order_id + v1.1.160 建单选料行 batch_no)
+     * → 那些工单产出了哪些批次 (半成品卷 + 成品批)。
+     * 反向: 这批料由哪张工单生产 (批次自带的 source_prd_order_no, 成品批即工单号)
+     * → 那张工单用掉了哪些料。
+     * 只补批次号集合, 不动 upstream/downstream 的流向行, 原有链路语义不变。
+     */
+    private void bridgeOrders(FullTrace r) {
+        java.util.Set<Long> usedOrderIds = new java.util.LinkedHashSet<>();
+        java.util.Map<Long, String> issueBillNo = new java.util.HashMap<>();
+        for (MesBatchLink l : r.downstream) {
+            if (l.getPrdOrderId() == null) continue;
+            usedOrderIds.add(l.getPrdOrderId());
+            if (StrUtil.isNotBlank(l.getBillNo())) issueBillNo.putIfAbsent(l.getPrdOrderId(), l.getBillNo());
+        }
+        for (PrdOrderMaterial m
+                : orderMaterialMapper.selectList(new LambdaQueryWrapper<PrdOrderMaterial>()
+                .eq(PrdOrderMaterial::getBatchNo, r.batchNo)
+                .last("LIMIT 40"))) {
+            if (m.getPrdOrderId() != null) usedOrderIds.add(m.getPrdOrderId());
+        }
+        if (!usedOrderIds.isEmpty()) {
+            for (PrdOrder o : orderMapper.selectBatchIds(usedOrderIds)) {
+                addProducedBatches(r, o.getBillNo());
+                OrderHop hop = orderHop(r, o);
+                if (StrUtil.isBlank(hop.issueBillNo)) hop.issueBillNo = issueBillNo.get(o.getId());
+            }
+        }
+
+        java.util.Set<String> ownerNos = new java.util.LinkedHashSet<>();
+        if (r.batch != null) {
+            if (StrUtil.isNotBlank(r.batch.getSourcePrdOrderNo())) ownerNos.add(r.batch.getSourcePrdOrderNo());
+            if (StrUtil.isNotBlank(r.batch.getBatchNo())) ownerNos.add(r.batch.getBatchNo());
+        }
+        if (ownerNos.isEmpty()) return;
+        for (PrdOrder o : orderMapper.selectList(new LambdaQueryWrapper<PrdOrder>().in(PrdOrder::getBillNo, ownerNos))) {
+            addInputBatches(r, o);
+        }
+    }
+
+    /** 正向补链: 工单 {@code orderNo} 产出的批次 (半成品卷 + 成品批) 计入下游. */
+    private void addProducedBatches(FullTrace r, String orderNo) {
+        if (StrUtil.isBlank(orderNo)) return;
+        List<MesBatch> made = batchMapper.selectList(new LambdaQueryWrapper<MesBatch>()
+                .and(w -> w.eq(MesBatch::getSourcePrdOrderNo, orderNo).or().eq(MesBatch::getBatchNo, orderNo))
+                .last("LIMIT 40"));
+        for (MesBatch b : made) {
+            if (StrUtil.isNotBlank(b.getBatchNo()) && !b.getBatchNo().equals(r.batchNo)) {
+                addDistinct(r.downstreamBatches, b.getBatchNo());
+            }
+        }
+    }
+
+    /** 反向补链: 工单 {@code o} 投料用掉的原料批计入上游, 并把该工单本身列成 hop. */
+    private void addInputBatches(FullTrace r, PrdOrder o) {
+        OrderHop hop = orderHop(r, o);
+        for (MesBatchLink l : linkMapper.selectList(new LambdaQueryWrapper<MesBatchLink>()
+                .eq(MesBatchLink::getPrdOrderId, o.getId())
+                .isNotNull(MesBatchLink::getParentBatchNo)
+                .last("LIMIT 40"))) {
+            if (StrUtil.isNotBlank(l.getParentBatchNo()) && !l.getParentBatchNo().equals(r.batchNo)) {
+                addDistinct(r.upstreamBatches, l.getParentBatchNo());
+            }
+            if (StrUtil.isBlank(hop.issueBillNo)) hop.issueBillNo = l.getBillNo();
+        }
+        for (PrdOrderMaterial m
+                : orderMaterialMapper.selectList(new LambdaQueryWrapper<PrdOrderMaterial>()
+                .eq(PrdOrderMaterial::getPrdOrderId, o.getId())
+                .isNotNull(PrdOrderMaterial::getBatchNo)
+                .last("LIMIT 40"))) {
+            if (StrUtil.isNotBlank(m.getBatchNo()) && !m.getBatchNo().equals(r.batchNo)) {
+                addDistinct(r.upstreamBatches, m.getBatchNo());
+            }
+        }
+    }
+
+    /** 工单 hop 去重: 正向 (这批料用在哪些单) 和反向 (这批料由哪张单生产) 会撞到同一张单. */
+    private static OrderHop orderHop(FullTrace r, PrdOrder o) {
+        for (OrderHop h : r.orders) {
+            if (java.util.Objects.equals(h.orderNo, o.getBillNo())) return h;
+        }
+        OrderHop h = new OrderHop();
+        h.orderId = o.getId();
+        h.orderNo = o.getBillNo();
+        h.productName = o.getProductName();
+        h.planQty = o.getPlanQty();
+        h.billStatus = o.getBillStatus();
+        r.orders.add(h);
+        return h;
+    }
+
+    private static void addDistinct(List<String> list, String value) {
+        if (!list.contains(value)) list.add(value);
+    }
+
+    /**
+     * 销售出口: 沿整条下游链 (含桥接进来的成品批与批次自身) 反查带 customer_id 的流向行。
+     * FG_OUT 记的是 child=成品批 + customer_id, 永远匹配不到 parent=cur 的下探, 所以单独扫一次。
+     */
+    private void collectDeliveries(FullTrace r) {
+        java.util.Set<String> chain = new java.util.LinkedHashSet<>();
+        chain.add(r.batchNo);
+        chain.addAll(r.downstreamBatches);
         List<MesBatchLink> outLinks = linkMapper.selectList(new LambdaQueryWrapper<MesBatchLink>()
                 .in(MesBatchLink::getChildBatchNo, chain)
                 .isNotNull(MesBatchLink::getCustomerId)
                 .orderByDesc(MesBatchLink::getId)
                 .last("LIMIT 200"));
-        if (!outLinks.isEmpty()) {
-            r.customer = outLinks.get(0).getCustomerId();
+        for (MesBatchLink l : outLinks) {
+            DeliveryHop hop = new DeliveryHop();
+            hop.deliveryBillNo = l.getBillNo();
+            hop.customerId = l.getCustomerId();
+            hop.qty = l.getQty();
+            hop.time = l.getCreateTime();
+            r.deliveries.add(hop);
         }
-        return r;
+        if (!r.deliveries.isEmpty()) {
+            r.customer = r.deliveries.get(0).customerId;
+        }
     }
 
     // ==================================================================

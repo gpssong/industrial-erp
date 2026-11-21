@@ -14,6 +14,7 @@
  *   GET /xk/audit/logs | archive  审计归档 (xk_audit_log)
  */
 import request from '@/utils/request'
+import { minuteStr } from '@/utils/date'
 
 // 兜底: 后端 404/结构缺失时给视图一个空结构, 避免渲染崩
 const empty = (code = 200, data = null, message = '') => ({ code, data, message })
@@ -127,28 +128,49 @@ export const xkMock = {
     if (r.code === 200 && r.data) {
       const t = r.data
       const stations = []
+      // 站点序号由这里统一发, 追加一类节点不用再各写一遍 padStart
+      const push = (s) => stations.push({
+        no: String(stations.length + 1).padStart(2, '0'),
+        operator: '', time: '', remark: '', status: 'DONE', photo: null, ...s,
+      })
+      const join = (...parts) => parts.filter(Boolean).join(' · ')
       // 上溯链 (料→半成品→成品): 逐批号展开, 用 real batchName/customerName 无占位
-      ;(t.upstreamBatches || []).slice(0, 4).forEach(bn => {
-        stations.push({ no: String(stations.length + 1).padStart(2, '0'), title: '上游原料批',
-          operator: '', time: '', status: 'DONE', remark: bn || '', photo: null })
-      })
+      ;(t.upstreamBatches || []).slice(0, 4).forEach(bn => push({ title: '上游原料批', remark: bn || '' }))
       // 起点批次
-      stations.push({ no: String(stations.length + 1).padStart(2, '0'), title: '当前批次',
-        operator: (t.batch && t.batch.batchType) || '', time: (t.batch && (t.batch.productionDate || t.batch.createTime)) || '',
-        status: 'DONE', remark: batchNo, photo: null })
-      // 下探链 (成品→客户)
-      ;(t.downstreamBatches || []).slice(0, 4).forEach(bn => {
-        stations.push({ no: String(stations.length + 1).padStart(2, '0'), title: '下游流向批',
-          operator: '', time: '', status: 'DONE', remark: bn || '', photo: null })
+      push({ title: '当前批次',
+        operator: (t.batch && t.batch.batchType) || '',
+        time: (t.batch && (t.batch.productionDate || t.batch.createTime)) || '',
+        remark: batchNo })
+      // v1.1.205: 现场要点「这批料用在哪张单上」—— 批次链在开工投料那一刻是断的 (投料行没有下游批号),
+      //             生产工单是把 原料批 → 成品批 接起来的唯一一座桥, 所以它必须是时间线上的一站.
+      const orderNos = new Set()
+      ;(t.orders || []).slice(0, 4).forEach(o => {
+        if (o.orderNo) orderNos.add(o.orderNo)
+        push({ title: '生产工单',
+          operator: o.productName || '',
+          remark: join(o.orderNo, o.issueBillNo && '投料单 ' + o.issueBillNo) })
       })
-      // 客户出口
-      if (t.customer != null) {
-        stations.push({ no: String(stations.length + 1).padStart(2, '0'), title: '流向客户',
-          operator: '', time: '', status: 'DONE', remark: (t.customerName || ('客户#' + t.customer)), photo: null })
+      // 下探链 (成品→客户)。本厂成品批号就是工单号, 与上一站同名的不重复占一格
+      ;(t.downstreamBatches || []).filter(bn => !orderNos.has(bn)).slice(0, 4).forEach(bn => push({ title: '下游流向批', remark: bn || '' }))
+      // 客户出口: 有出库行就逐单展开 (一批料可分批发给多个客户), 没有才退回标量客户
+      if ((t.deliveries || []).length) {
+        t.deliveries.slice(0, 4).forEach(d => push({ title: '销售出库',
+          operator: d.customerName || (d.customerId != null ? '客户#' + d.customerId : ''),
+          time: minuteStr(d.time),
+          remark: join(d.deliveryBillNo, d.qty != null && '数量 ' + d.qty) }))
+      } else if (t.customer != null) {
+        push({ title: '流向客户', remark: t.customerName || ('客户#' + t.customer) })
       }
-      return empty(200, { batchNo, stations, customer: t.customer, customerName: t.customerName })
+      return empty(200, {
+        batchNo, stations,
+        customer: t.customer, customerName: t.customerName,
+        orders: t.orders || [], deliveries: t.deliveries || [],
+        downstreamBatches: t.downstreamBatches || [],
+        // 徽章不能再无条件说「链路完整」: 桥接后仍没有客户出口 = 这批料还没卖出去
+        complete: (t.customer != null) || (t.deliveries || []).length > 0,
+      })
     }
-    return empty(200, { batchNo, stations: [] })
+    return empty(200, { batchNo, stations: [], orders: [], deliveries: [], downstreamBatches: [], complete: false })
   },
   // ===== 设备维保 =====
   // v1.1.99 附带清理: 后端 /xk/maintenance/orders 数据源切 em_maintain 新表 (EmMaintainOrder),

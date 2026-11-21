@@ -242,6 +242,17 @@ public class XkController {
             BaseCustomer c = customerMapper.selectById(t.customer);
             if (c != null) t.customerName = c.getCustomerName();
         }
+        // v1.1.205: 一批料经工单桥接可能分批发给多个客户, 标量 customerName 只够一行 —— 逐出口回填
+        if (t != null && t.deliveries != null) {
+            Map<Long, String> names = new HashMap<>();
+            for (MesReportService.DeliveryHop d : t.deliveries) {
+                if (d.customerId == null || StrUtil.isNotBlank(d.customerName)) continue;
+                d.customerName = names.computeIfAbsent(d.customerId, id -> {
+                    BaseCustomer c = customerMapper.selectById(id);
+                    return c == null ? null : c.getCustomerName();
+                });
+            }
+        }
         // v1.1.189: 品名/供应商名 (mes_batch 只有 id)
         if (t != null && t.batch != null) {
             t.productName = batchViewService.productNameOf(t.batch);

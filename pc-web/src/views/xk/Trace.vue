@@ -62,12 +62,15 @@
       </el-table>
     </el-card>
 
-    <!-- 4 站时间线 (Figma 横向 timeline) -->
+    <!-- 批次流转时间线 (Figma 横向 timeline) -->
     <el-card v-if="timeline && timeline.stations.length" class="timeline-card">
       <template #header>
         <div class="card-header">
           <div><b>批次流转时间线 · {{ timeline.batchNo }}</b><div class="card-sub">{{ timeline.stations.length }} 站</div></div>
-          <span class="xk-badge xk-badge-green">链路完整</span>
+          <!-- v1.1.205: 没有客户出口时不许再挂绿色「链路完整」—— 现场据此判断这批料还没卖出去 -->
+          <span class="xk-badge" :class="timeline.complete ? 'xk-badge-green' : 'xk-badge-gray'">
+            {{ timeline.complete ? '链路完整' : '暂无销售出口' }}
+          </span>
         </div>
       </template>
 
@@ -134,10 +137,14 @@ async function onRowClick(row) {
     // v1.1.99 C2 去 mock: 用全链追溯真数据回填该行的「对应成品批/客户」列
     const d = r.data || {}
     const fg = (d.downstreamBatches && d.downstreamBatches.length) ? d.downstreamBatches[0] : null
+    // v1.1.205: 投料那一刻没有下游批号, 桥接出来的生产工单号就是这张原料批对应的成品单;
+    //           客户/数量以真实出库单为准 (一批料可分批发, 第一单最先流向谁就先显示谁)
+    const order = (d.orders && d.orders[0]) || null
+    const out = (d.deliveries && d.deliveries[0]) || null
     row.linked = {
-      fgBatch: fg || (d.batch?.sourcePrdOrderNo || '-'),
-      customer: d.customerName || (d.customer != null ? '客户#' + d.customer : '-'),
-      qty: row.qty || 0
+      fgBatch: fg || (order && order.orderNo) || (d.batch?.sourcePrdOrderNo || '-'),
+      customer: (out && (out.customerName || '客户#' + out.customerId)) || d.customerName || (d.customer != null ? '客户#' + d.customer : '-'),
+      qty: (out && out.qty != null) ? out.qty : (row.qty || 0)
     }
   }
 }
@@ -169,9 +176,10 @@ onMounted(loadBatches)
   .xk-trace-row-active > td { background: #f5f9fe !important; box-shadow: inset 3px 0 var(--primary-color); }
 }
 
-// Figma 横向 4 站时间线 (.timeline / .timeline-step)
+// Figma 横向时间线 (.timeline / .timeline-step)
+// v1.1.205: 一站变不定了 (原料批 → 工单 → 成品批 → 多张出库单), 固定 4 列会把尾部挤成孤儿行
 .xk-timeline {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 4px;
   @media (max-width: 1050px) { grid-template-columns: 1fr 1fr; }
 }
 .xk-tl-step {

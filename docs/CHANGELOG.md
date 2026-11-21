@@ -3,6 +3,27 @@
 
 ## changelog (倒序)
 
+### 2026-11-21 — v1.1.205 PC 批次全链路追溯：点原料批显示出「用的哪张生产工单 + 哪张销售单 + 哪个客户」（jar + PC dist 三站）
+
+**触发**：用户原话「pc端的批次全链路追溯原料点击后应该显示使用的生产工单号及销售单和客户」。PC「XK 质量追溯中心」(`#/xk/trace`) 点原料批 `251/WQ`，「批次流转时间线」只有 **1 站**（当前批次），右上角却无条件挂着绿色「链路完整」—— 现场看不出这批料做成了哪张单、卖给了谁。
+
+**根因（链路断在投料那一刻，不是数据缺失）**：开工投料/领料写的 `mes_batch_link` 行只有 `parent_batch_no` + `prd_order_id`，**`child_batch_no` 为空**（投料那一刻下游成品批还不存在）⇒ [MesReportService.traceFull()](backend/src/main/java/com/industrial/erp/modules/mes/service/MesReportService.java) 的 parent→child BFS 命中这行却没有孩子可入队，正向链（原料批 → 半成品卷 → 成品批 → 客户）在这一步整条断掉。销售出口还有第二个坑：`FG_OUT` 流向行记的是 `child=成品批 + customer_id`，永远匹配不到 `parent=当前批` 的下探 —— v1.1.189 只是沿已有下游链反查了「最新一条」的**标量**客户，链一断连这个都没有。
+
+**改法（工单是唯一那座桥）**：
+- 新增 `bridgeOrders()`：把**生产工单当中间节点**补进批次链。正向 = 这批料被哪些工单用掉（投料行 `prd_order_id` + v1.1.160 建单选料行 `prd_order_material.batch_no`）→ 那些工单产出了哪些批次（`mes_batch.source_prd_order_no` 或批号本身即工单号）；反向 = 这批料由哪张工单生产（批次自带 `source_prd_order_no` / 批号）→ 那张工单又用掉了哪些料。只补批次号集合与工单 hop，**不动 `upstream`/`downstream` 的流向行**，原有链路语义不变；每步 `LIMIT 40` 有界，工单 hop 正反向按 `bill_no` 去重。
+- 新增 `collectDeliveries()`：在桥接**之后**（顺序反了出库行还挂在没桥接进来的成品批上，照样扫不到）沿整条下游链（含桥接进来的批 + 批次自身）扫带 `customer_id` 的流向行，逐单展开成 `DeliveryHop`（出库单号 / 客户 / 数量 / 时间）—— 一批料分批发给多个客户就出多站。
+- `FullTrace` 加 `orders: List<OrderHop>`（工单号/品名/计划量/单据状态/投料单号）与 `deliveries: List<DeliveryHop>`；[XkController](backend/src/main/java/com/industrial/erp/modules/xk/controller/XkController.java) 逐出口回填 `customerName`（按 customerId 去重查 `base_customer`，不做 N+1）。
+- PC [api/xk.js](pc-web/src/api/xk.js) `traceTimeline()`：新增「**生产工单**」站（品名 + `PD…` · 投料单 `WS…`）与「**销售出库**」站（客户 + `CKP…` · 数量 + 到分钟时间）；「下游流向批」过滤掉与本厂工单号同名的（本厂成品批号就是工单号，同一件事不占两格）；站点序号统一由 `push()` 发；没有出库行才退回旧的标量「流向客户」站。
+- PC [Trace.vue](pc-web/src/views/xk/Trace.vue)：徽章改**条件** —— 没有客户出口显示灰色「暂无销售出口」，不许再宣称「链路完整」；时间线网格从固定 4 列改 `repeat(auto-fit, minmax(215px,1fr))`（一站变不定了，固定 4 列会把尾部挤成孤儿行）；表格行内「对应成品批 / 客户 / 数量」优先取真实出库 `deliveries[0]`，成品批回落取桥接出的工单号。
+
+**测试**：新增 [MesReportTraceBridgeTest](backend/src/test/java/com/industrial/erp/modules/mes/service/MesReportTraceBridgeTest.java) 4 例（投料行断链时桥接出工单与成品批 / 反查同单原料批 / 工单 hop 不重复 / 出库出口挂在桥接批上）+ [XkTraceDeliveryCustomerNameTest](backend/src/test/java/com/industrial/erp/modules/xk/controller/XkTraceDeliveryCustomerNameTest.java) 2 例（逐出口回填客户名 / 未知客户留空）。TDD 红→绿（红时 `orders` 恒空）。定向 6/6、后端全量 **793 例 0 失败**；`pc-web` eslint 0 error（`Trace.vue:78` 那条 `idx` 未用是既有告警，不在本次改动行）。
+
+**实测**：`.150` 主站用**真实非超管**会话（罗飞 · 生产主管，`is_admin=0`，复用线上 Sa-Token，凭据不落命令行）打 `GET /api/xk/trace/full?batchNo=251%2FWQ` → **200**，`orders` = `PD202611030002`（PRODUCING，投料单 `WS202611150001`）+ `PD202611170001`（DRAFT），`deliveries` = `CKP202611210001 / 金华金博食品有限公司 / 数量 2000 / 2026-11-21 10:46` —— 正是用户要看的三样，且权限面没有 403。
+
+**版本**：1.1.205（`check-version.sh` 7×OK）。jar `b898cdcb31092c78d6a5789367ea69e3`（103,184,817 B）—— 三站**镜像本体** `/opt/app/app.jar` md5 逐一核过一致（`.32` canary / `.150` 主站 / 阿里云），`.32` 与 `.150` 容器 healthy 且 `ERP_VERSION=1.1.205`；PC dist `index.html` `24fc2846ca450f4017295eb28d2424ca`（页块 `assets/Trace-Bg8COSMR.js`）从三站**对外端口** curl 回同一份 md5。App H5 / APK 本轮未重出（App 侧溯源页吃同一后端改动，字段按需不展示）。
+
+> ⚠ 浏览器目视验收（点 `251/WQ` 看时间线站数与徽章）在用户侧 —— 登录验证码归用户。
+
 ### 2026-11-20 — v1.1.204 半成品入库=吹膜的报工：食品级单不再被「存在未完工工序: 吹膜」永久卡死（jar + sql/164 三站）
 
 **触发**：用户报「这个订单完成了所有工序，但还是不能成品审核入库」，App 成品入库页对工单 `PD202611030002 · 金博23*29*0.12`（计划 2000 / 数量 2000）点「审核入库」报「生产工单存在未完工工序，不能成品入库: 吹膜」。v1.1.203 那次实测把这条文案当成「门禁终于说人话」记下来了 —— 但它说的是一件**根本满足不了**的事。
